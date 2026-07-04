@@ -1,0 +1,79 @@
+# ==========================================
+# FullPassword - .gitignore
+# ==========================================
+
+# Ambiente e Variáveis Sensíveis
+.env
+.env.local
+.env.production
+.env.production.local
+.env.development.local
+.env.test.local
+
+# Node.js
+node_modules/
+npm-debug.log
+yarn-debug.log
+yarn-error.log
+package-lock.json
+pnpm-lock.yaml
+
+# Build e Distribuição
+dist/
+build/
+.next/
+out/
+
+# IDEs e Editores
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+*.sublime-project
+*.sublime-workspace
+
+# Banco de Dados
+*.sqlite
+*.sqlite3
+*.db
+postgres_data/
+pgdata/
+
+# Logs
+logs/
+*.log
+
+# Cache
+.cache/
+.eslintcache
+.parcel-cache
+.turbo/
+
+# Certificados SSL (Locais)
+*.pem
+*.key
+*.crt
+*.cert
+
+# Backup e Temporários
+*.bak
+*.tmp
+*.temp
+*~
+
+# Docker
+.dockerignore
+
+# Arquivos de Sistema
+Thumbs.db
+.AppleDouble
+.LSOverride
+
+# Testes
+coverage/
+.nyc_output/
+
+# Variáveis de Ambiente do Docker Compose
+.env.docker
