@@ -12,7 +12,7 @@ ssh root@seu_ip_da_vps
 
 ### Passo 3: Executar o Instalador
 ```bash
-wget https://raw.githubusercontent.com/seu-usuario/fullpassword/main/scripts/install.sh
+wget https://raw.githubusercontent.com/trinityrrocha/fullpassword/main/scripts/install.sh
 chmod +x install.sh
 ./install.sh
 ```

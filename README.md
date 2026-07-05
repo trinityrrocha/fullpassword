@@ -61,7 +61,7 @@
 ssh root@seu_ip_da_vps
 
 # 2. Baixe e execute o script
-wget https://raw.githubusercontent.com/seu-usuario/fullpassword/main/scripts/install.sh
+wget https://raw.githubusercontent.com/trinityrrocha/fullpassword/main/scripts/install.sh
 chmod +x install.sh
 ./install.sh
 ```
@@ -157,7 +157,7 @@ Clique no botão "Fork" no GitHub para criar sua cópia pessoal.
 
 ### 2. Clone Localmente
 ```bash
-git clone https://github.com/seu-usuario/fullpassword.git
+git clone https://github.com/trinityrrocha/fullpassword.git
 cd fullpassword
 ```
 
@@ -225,8 +225,8 @@ Este projeto está licenciado sob a **MIT License** - veja o arquivo [LICENSE](.
 ## 📞 Suporte
 
 - 📖 [Documentação Completa](./PRODUCTION_SETUP.md)
-- 🐛 [Issues](https://github.com/seu-usuario/fullpassword/issues)
-- 💬 [Discussions](https://github.com/seu-usuario/fullpassword/discussions)
+- 🐛 [Issues](https://github.com/trinityrrocha/fullpassword/issues)
+- 💬 [Discussions](https://github.com/trinityrrocha/fullpassword/discussions)
 
 ## 🚀 Roadmap
 

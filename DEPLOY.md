@@ -19,7 +19,7 @@ Antes de executar o script de instalação, você **DEVE** garantir que:
 
 2. Baixe o script de instalação (substitua a URL pela URL do seu repositório raw):
    ```bash
-   wget https://raw.githubusercontent.com/seu-usuario/fullpassword/main/scripts/install.sh
+   wget https://raw.githubusercontent.com/trinityrrocha/fullpassword/main/scripts/install.sh
    ```
 
 3. Dê permissão de execução ao script:
@@ -39,7 +39,7 @@ Durante a execução, o script fará 4 perguntas:
 1. **Domínio**: Ex: `cofre.suaempresa.com.br` (Não coloque http/https)
 2. **E-mail**: Seu e-mail para receber avisos de expiração do SSL da Let's Encrypt.
 3. **Porta SSH**: Se você mudou a porta padrão (22) da sua VPS, informe aqui para que o Firewall (UFW) não bloqueie seu acesso.
-4. **URL do Repositório**: Ex: `https://github.com/seu-usuario/fullpassword.git`
+4. **URL do Repositório**: Ex: `https://github.com/trinityrrocha/fullpassword.git`
 
 ## O que o script faz automaticamente?
 
