@@ -1,12 +1,18 @@
 import { useState, useEffect } from 'react';
-import { Settings as SettingsIcon, RefreshCw, AlertTriangle, ShieldCheck } from 'lucide-react';
+import { Settings as SettingsIcon, RefreshCw, AlertTriangle, ShieldCheck, Download, Database } from 'lucide-react';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
+
+const SUPER_ADMIN_EMAIL = 'admin@admin.com.br';
 
 export default function Settings() {
   const { user } = useAuth();
   const [isUpdating, setIsUpdating] = useState(false);
   const [updateCountdown, setUpdateCountdown] = useState(0);
+  const [backupFormat, setBackupFormat] = useState('json');
+  const [isDownloadingBackup, setIsDownloadingBackup] = useState(false);
+
+  const isSuperAdmin = user?.role === 'admin' && user?.email === SUPER_ADMIN_EMAIL;
 
   useEffect(() => {
     let timer;
@@ -22,22 +28,75 @@ export default function Settings() {
   }, [updateCountdown, isUpdating]);
 
   const handleUpdateSystem = async () => {
+    if (!isSuperAdmin) {
+      alert('Apenas o Super Admin inicial pode executar o WebUpdater.');
+      return;
+    }
+
     if (!window.confirm('Tem certeza que deseja atualizar o sistema? O serviço ficará indisponível por alguns segundos.')) {
       return;
     }
 
     try {
       const response = await api.post('/system/update');
-      
+
       // Só inicia o timer se o backend confirmou sucesso
       setIsUpdating(true);
       // Define o countdown com base na estimativa do backend (ou 30s por padrão)
       setUpdateCountdown(response.data.estimatedTime || 30);
-      
+
     } catch (error) {
       setIsUpdating(false);
       console.error('Erro ao iniciar atualização:', error);
-      alert(error.response?.data?.error || 'Erro ao iniciar atualização. Verifique se você tem permissão de administrador e se o docker-compose está acessível.');
+      alert(error.response?.data?.error || 'Erro ao iniciar atualização. Verifique se você está logado como Super Admin.');
+    }
+  };
+
+  const handleDownloadBackup = async () => {
+    if (!isSuperAdmin) {
+      alert('Apenas o Super Admin inicial pode gerar backup completo do sistema.');
+      return;
+    }
+
+    if (!window.confirm('Deseja gerar e baixar um backup completo do sistema? O arquivo contém dados sensíveis e deve ser armazenado em local seguro.')) {
+      return;
+    }
+
+    setIsDownloadingBackup(true);
+
+    try {
+      const response = await api.get(`/system/backup?format=${backupFormat}`, {
+        responseType: 'blob'
+      });
+
+      const disposition = response.headers['content-disposition'];
+      let filename = `fullpassword-backup.${backupFormat}`;
+
+      if (disposition) {
+        const match = disposition.match(/filename="(.+)"/);
+        if (match && match[1]) {
+          filename = match[1];
+        }
+      }
+
+      const blob = new Blob([response.data], {
+        type: response.headers['content-type'] || 'application/octet-stream'
+      });
+
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(link);
+
+    } catch (error) {
+      console.error('Erro ao baixar backup:', error);
+      alert('Erro ao gerar backup. Verifique se você está logado como Super Admin.');
+    } finally {
+      setIsDownloadingBackup(false);
     }
   };
 
@@ -50,7 +109,7 @@ export default function Settings() {
             <SettingsIcon className="w-6 h-6 mr-2 text-indigo-600" />
             Configurações do Sistema
           </h1>
-          <p className="text-sm text-slate-500">Gerencie parâmetros globais e atualizações da plataforma</p>
+          <p className="text-sm text-slate-500">Gerencie parâmetros globais, atualizações e backups da plataforma</p>
         </div>
         <div className="text-right">
           <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-slate-100 text-slate-800">
@@ -80,7 +139,7 @@ export default function Settings() {
 
       {/* Cards de Configuração */}
       <div className="grid grid-cols-1 gap-6">
-        
+
         {/* Card: WebUpdater */}
         <div className="bg-white shadow rounded-lg overflow-hidden border border-slate-200">
           <div className="px-6 py-5 border-b border-slate-200 bg-slate-50 flex justify-between items-center">
@@ -88,9 +147,9 @@ export default function Settings() {
               <RefreshCw className="w-5 h-5 mr-2 text-indigo-500" />
               WebUpdater (Atualização Automática)
             </h3>
-            {user?.role === 'admin' && (
+            {isSuperAdmin && (
               <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                Disponível
+                Super Admin
               </span>
             )}
           </div>
@@ -99,8 +158,8 @@ export default function Settings() {
               O WebUpdater sincroniza o código fonte do repositório GitHub (branch main) e recria os containers Docker automaticamente.
               Recomendamos realizar backups do banco de dados antes de grandes atualizações.
             </p>
-            
-            {user?.role !== 'admin' ? (
+
+            {!isSuperAdmin ? (
               <div className="bg-amber-50 border-l-4 border-amber-400 p-4">
                 <div className="flex">
                   <div className="flex-shrink-0">
@@ -108,7 +167,7 @@ export default function Settings() {
                   </div>
                   <div className="ml-3">
                     <p className="text-sm text-amber-700">
-                      Apenas administradores podem executar a atualização do sistema.
+                      Apenas o Super Admin inicial pode executar a atualização do sistema.
                     </p>
                   </div>
                 </div>
@@ -122,6 +181,77 @@ export default function Settings() {
                 <RefreshCw className="w-4 h-4 mr-2" />
                 Buscar Atualizações e Reiniciar
               </button>
+            )}
+          </div>
+        </div>
+
+        {/* Card: Web Backup */}
+        <div className="bg-white shadow rounded-lg overflow-hidden border border-slate-200">
+          <div className="px-6 py-5 border-b border-slate-200 bg-slate-50 flex justify-between items-center">
+            <h3 className="text-lg leading-6 font-medium text-slate-900 flex items-center">
+              <Database className="w-5 h-5 mr-2 text-indigo-500" />
+              Web Backup (Backup Completo)
+            </h3>
+            {isSuperAdmin && (
+              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                Super Admin
+              </span>
+            )}
+          </div>
+          <div className="p-6">
+            <p className="text-sm text-slate-600 mb-4">
+              Gere um backup completo do FullPassword. O arquivo contém usuários, grupos, clientes,
+              chaves envelopadas, cofres criptografados e compartilhamentos. As senhas dos cofres não são
+              descriptografadas pelo servidor.
+            </p>
+
+            <div className="bg-red-50 border-l-4 border-red-400 p-4 mb-4">
+              <div className="flex">
+                <div className="flex-shrink-0">
+                  <AlertTriangle className="h-5 w-5 text-red-400" />
+                </div>
+                <div className="ml-3">
+                  <p className="text-sm text-red-700">
+                    Este backup contém dados sensíveis. Armazene o arquivo em local seguro e com acesso restrito.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {!isSuperAdmin ? (
+              <div className="bg-amber-50 border-l-4 border-amber-400 p-4">
+                <div className="flex">
+                  <div className="flex-shrink-0">
+                    <AlertTriangle className="h-5 w-5 text-amber-400" />
+                  </div>
+                  <div className="ml-3">
+                    <p className="text-sm text-amber-700">
+                      Apenas o Super Admin inicial pode gerar backup completo do sistema.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
+                <select
+                  value={backupFormat}
+                  onChange={(e) => setBackupFormat(e.target.value)}
+                  className="border border-slate-300 rounded-md px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                >
+                  <option value="json">JSON</option>
+                  <option value="txt">TXT</option>
+                  <option value="csv">CSV</option>
+                </select>
+
+                <button
+                  onClick={handleDownloadBackup}
+                  disabled={isDownloadingBackup}
+                  className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  {isDownloadingBackup ? 'Gerando backup...' : 'Baixar Backup Completo'}
+                </button>
+              </div>
             )}
           </div>
         </div>
