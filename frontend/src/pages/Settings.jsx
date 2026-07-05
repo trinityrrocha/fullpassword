@@ -4,6 +4,8 @@ import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 
 const SUPER_ADMIN_EMAIL = 'admin@admin.com.br';
+const normalizeEmail = (email) => String(email || '').trim().toLowerCase();
+const normalizeRole = (role) => String(role || '').trim().toLowerCase();
 
 export default function Settings() {
   const { user } = useAuth();
@@ -11,8 +13,35 @@ export default function Settings() {
   const [updateCountdown, setUpdateCountdown] = useState(0);
   const [backupFormat, setBackupFormat] = useState('json');
   const [isDownloadingBackup, setIsDownloadingBackup] = useState(false);
+  const [systemPermissions, setSystemPermissions] = useState(null);
+  const [isLoadingPermissions, setIsLoadingPermissions] = useState(true);
 
-  const isSuperAdmin = user?.role === 'admin' && user?.email === SUPER_ADMIN_EMAIL;
+  const fallbackSuperAdmin = normalizeRole(user?.role) === 'admin' && normalizeEmail(user?.email) === SUPER_ADMIN_EMAIL;
+  const isSuperAdmin = systemPermissions?.is_super_admin === true || (!systemPermissions && fallbackSuperAdmin);
+  const currentUserEmail = systemPermissions?.email || user?.email || 'e-mail não identificado';
+
+  useEffect(() => {
+    const loadSystemPermissions = async () => {
+      if (!user) {
+        setSystemPermissions(null);
+        setIsLoadingPermissions(false);
+        return;
+      }
+
+      setIsLoadingPermissions(true);
+      try {
+        const response = await api.get('/system/permissions');
+        setSystemPermissions(response.data);
+      } catch (error) {
+        console.error('Erro ao carregar permissões do sistema:', error);
+        setSystemPermissions(null);
+      } finally {
+        setIsLoadingPermissions(false);
+      }
+    };
+
+    loadSystemPermissions();
+  }, [user]);
 
   useEffect(() => {
     let timer;
@@ -42,8 +71,8 @@ export default function Settings() {
 
       // Só inicia o timer se o backend confirmou sucesso
       setIsUpdating(true);
-      // Define o countdown com base na estimativa do backend (ou 30s por padrão)
-      setUpdateCountdown(response.data.estimatedTime || 30);
+      // Define o countdown com base na estimativa do backend (ou 45s por padrão)
+      setUpdateCountdown(response.data.estimatedTime || 45);
 
     } catch (error) {
       setIsUpdating(false);
@@ -99,6 +128,24 @@ export default function Settings() {
       setIsDownloadingBackup(false);
     }
   };
+
+  const restrictedWarning = (message) => (
+    <div className="bg-amber-50 border-l-4 border-amber-400 p-4">
+      <div className="flex">
+        <div className="flex-shrink-0">
+          <AlertTriangle className="h-5 w-5 text-amber-400" />
+        </div>
+        <div className="ml-3">
+          <p className="text-sm text-amber-700">{message}</p>
+          {normalizeRole(user?.role) === 'admin' && (
+            <p className="text-xs text-amber-600 mt-1">
+              Usuário autenticado: {currentUserEmail}. Super Admin esperado: {SUPER_ADMIN_EMAIL}.
+            </p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
@@ -159,19 +206,10 @@ export default function Settings() {
               Recomendamos realizar backups do banco de dados antes de grandes atualizações.
             </p>
 
-            {!isSuperAdmin ? (
-              <div className="bg-amber-50 border-l-4 border-amber-400 p-4">
-                <div className="flex">
-                  <div className="flex-shrink-0">
-                    <AlertTriangle className="h-5 w-5 text-amber-400" />
-                  </div>
-                  <div className="ml-3">
-                    <p className="text-sm text-amber-700">
-                      Apenas o Super Admin inicial pode executar a atualização do sistema.
-                    </p>
-                  </div>
-                </div>
-              </div>
+            {isLoadingPermissions ? (
+              <div className="text-sm text-slate-500">Validando permissão de Super Admin...</div>
+            ) : !isSuperAdmin ? (
+              restrictedWarning('Apenas o Super Admin inicial pode executar a atualização do sistema.')
             ) : (
               <button
                 onClick={handleUpdateSystem}
@@ -218,19 +256,10 @@ export default function Settings() {
               </div>
             </div>
 
-            {!isSuperAdmin ? (
-              <div className="bg-amber-50 border-l-4 border-amber-400 p-4">
-                <div className="flex">
-                  <div className="flex-shrink-0">
-                    <AlertTriangle className="h-5 w-5 text-amber-400" />
-                  </div>
-                  <div className="ml-3">
-                    <p className="text-sm text-amber-700">
-                      Apenas o Super Admin inicial pode gerar backup completo do sistema.
-                    </p>
-                  </div>
-                </div>
-              </div>
+            {isLoadingPermissions ? (
+              <div className="text-sm text-slate-500">Validando permissão de Super Admin...</div>
+            ) : !isSuperAdmin ? (
+              restrictedWarning('Apenas o Super Admin inicial pode gerar backup completo do sistema.')
             ) : (
               <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
                 <select
