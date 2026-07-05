@@ -3,8 +3,11 @@ const db = require('../config/database');
 
 const SUPER_ADMIN_EMAIL = process.env.SUPER_ADMIN_EMAIL || 'admin@admin.com.br';
 
+const normalizeEmail = (email) => String(email || '').trim().toLowerCase();
+const normalizeRole = (role) => String(role || '').trim().toLowerCase();
+
 const isSuperAdmin = (user) => {
-  return user && user.role === 'admin' && user.email === SUPER_ADMIN_EMAIL;
+  return normalizeRole(user?.role) === 'admin' && normalizeEmail(user?.email) === normalizeEmail(SUPER_ADMIN_EMAIL);
 };
 
 const denyNonSuperAdmin = (res) => {
@@ -84,6 +87,16 @@ const renderBackupAsCsv = (payload) => {
   }
 
   return lines.join('\n');
+};
+
+// GET /api/system/permissions - Informa permissões especiais do usuário autenticado
+const getSystemPermissions = async (req, res) => {
+  return res.status(200).json({
+    is_super_admin: isSuperAdmin(req.user),
+    role: req.user?.role || null,
+    email: req.user?.email || null,
+    super_admin_email: SUPER_ADMIN_EMAIL
+  });
 };
 
 // POST /api/system/update - Dispara a atualização do sistema
@@ -168,6 +181,7 @@ const downloadBackup = async (req, res) => {
 };
 
 module.exports = {
+  getSystemPermissions,
   updateSystem,
   downloadBackup
 };
