@@ -1,18 +1,15 @@
 const { exec } = require('child_process');
 const db = require('../config/database');
 
-const SUPER_ADMIN_EMAIL = process.env.SUPER_ADMIN_EMAIL || 'admin@admin.com.br';
-
-const normalizeEmail = (email) => String(email || '').trim().toLowerCase();
 const normalizeRole = (role) => String(role || '').trim().toLowerCase();
 
-const isSuperAdmin = (user) => {
-  return normalizeRole(user?.role) === 'admin' && normalizeEmail(user?.email) === normalizeEmail(SUPER_ADMIN_EMAIL);
+const canManageSystem = (user) => {
+  return normalizeRole(user?.role) === 'admin';
 };
 
-const denyNonSuperAdmin = (res) => {
+const denyNonAdmin = (res) => {
   return res.status(403).json({
-    error: 'Acesso negado. Esta ação é permitida apenas para o Super Admin inicial.'
+    error: 'Acesso negado. Esta ação é permitida apenas para administradores.'
   });
 };
 
@@ -32,7 +29,7 @@ const escapeCsv = (value) => {
   return `"${stringValue.replace(/"/g, '""')}"`;
 };
 
-const buildBackupPayload = async () => {
+const buildBackupPayload = async (generatedBy) => {
   const data = {};
 
   for (const table of backupTables) {
@@ -45,7 +42,7 @@ const buildBackupPayload = async () => {
       project: 'FullPassword',
       type: 'full-encrypted-backup',
       generated_at: new Date().toISOString(),
-      generated_by: SUPER_ADMIN_EMAIL,
+      generated_by: generatedBy || 'admin',
       warning: 'Este backup contém dados sensíveis do sistema, incluindo hashes, chaves envelopadas e cofres criptografados. As senhas dos cofres não são descriptografadas pelo servidor.'
     },
     data
@@ -59,6 +56,7 @@ const renderBackupAsTxt = (payload) => {
   lines.push('FULLPASSWORD - BACKUP COMPLETO');
   lines.push('================================');
   lines.push(`Gerado em: ${payload.metadata.generated_at}`);
+  lines.push(`Gerado por: ${payload.metadata.generated_by}`);
   lines.push(`Tipo: ${payload.metadata.type}`);
   lines.push(`Aviso: ${payload.metadata.warning}`);
   lines.push('');
@@ -91,20 +89,23 @@ const renderBackupAsCsv = (payload) => {
 
 // GET /api/system/permissions - Informa permissões especiais do usuário autenticado
 const getSystemPermissions = async (req, res) => {
+  const isAdmin = canManageSystem(req.user);
+
   return res.status(200).json({
-    is_super_admin: isSuperAdmin(req.user),
+    can_manage_system: isAdmin,
+    is_admin: isAdmin,
+    is_super_admin: isAdmin,
     role: req.user?.role || null,
-    email: req.user?.email || null,
-    super_admin_email: SUPER_ADMIN_EMAIL
+    email: req.user?.email || null
   });
 };
 
 // POST /api/system/update - Dispara a atualização do sistema
 const updateSystem = async (req, res) => {
   try {
-    // Apenas o Super Admin inicial pode atualizar o sistema
-    if (!isSuperAdmin(req.user)) {
-      return denyNonSuperAdmin(res);
+    // Apenas administradores podem atualizar o sistema
+    if (!canManageSystem(req.user)) {
+      return denyNonAdmin(res);
     }
 
     // Retorna a resposta imediatamente para o frontend
@@ -115,7 +116,7 @@ const updateSystem = async (req, res) => {
 
     // Executa o script de atualização em background (fire and forget)
     setTimeout(() => {
-      console.log(`Iniciando WebUpdater pelo Super Admin ${req.user.email}...`);
+      console.log(`Iniciando WebUpdater pelo administrador ${req.user.email}...`);
 
       const updateCommand = `docker run --rm -d \
         -v /var/run/docker.sock:/var/run/docker.sock \
@@ -145,14 +146,14 @@ const updateSystem = async (req, res) => {
 // GET /api/system/backup?format=json|txt|csv - Exporta backup completo criptografado
 const downloadBackup = async (req, res) => {
   try {
-    if (!isSuperAdmin(req.user)) {
-      return denyNonSuperAdmin(res);
+    if (!canManageSystem(req.user)) {
+      return denyNonAdmin(res);
     }
 
     const requestedFormat = String(req.query.format || 'json').toLowerCase();
     const allowedFormats = ['json', 'txt', 'csv'];
     const format = allowedFormats.includes(requestedFormat) ? requestedFormat : 'json';
-    const payload = await buildBackupPayload();
+    const payload = await buildBackupPayload(req.user?.email);
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
 
     let content;
