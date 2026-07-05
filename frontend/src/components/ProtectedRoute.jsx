@@ -1,8 +1,8 @@
 import { Navigate, Outlet } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
-export default function ProtectedRoute() {
-  const { isAuthenticated, loading } = useAuth();
+export default function ProtectedRoute({ requiredRole }) {
+  const { isAuthenticated, loading, user } = useAuth();
 
   if (loading) {
     return (
@@ -17,6 +17,11 @@ export default function ProtectedRoute() {
     return <Navigate to="/login" replace />;
   }
 
-  // Se estiver autenticado, renderiza as rotas filhas
+  // Se a rota exige um papel específico e o usuário não tem, redireciona para o dashboard
+  if (requiredRole && user?.role !== requiredRole) {
+    return <Navigate to="/" replace />;
+  }
+
+  // Se estiver autenticado e tiver permissão, renderiza as rotas filhas
   return <Outlet />;
 }

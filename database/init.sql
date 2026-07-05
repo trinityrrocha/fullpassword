@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS users (
     wrapped_key TEXT, -- Master Key envelopada com a KEK derivada da senha
     crypto_salt VARCHAR(255), -- Salt usado para derivar a KEK
     role VARCHAR(50) NOT NULL DEFAULT 'user',
+    is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );

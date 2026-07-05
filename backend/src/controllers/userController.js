@@ -6,7 +6,7 @@ const crypto = require('crypto');
 const getUsers = async (req, res) => {
   try {
     const result = await db.query(
-      'SELECT id, name, email, role, created_at FROM users ORDER BY name ASC'
+      'SELECT id, name, email, role, is_active, created_at FROM users ORDER BY name ASC'
     );
     res.status(200).json(result.rows);
   } catch (error) {
@@ -144,8 +144,75 @@ const updateProfile = async (req, res) => {
   }
 };
 
+// PUT /api/users/:id - Atualiza um usuário específico (Apenas admin)
+const updateUser = async (req, res) => {
+  try {
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Apenas administradores podem editar usuários' });
+    }
+
+    const { id } = req.params;
+    const { name, role, is_active } = req.body;
+
+    // Verificar se o usuário existe
+    const existingUser = await db.query('SELECT id, email FROM users WHERE id = $1', [id]);
+    if (existingUser.rows.length === 0) {
+      return res.status(404).json({ error: 'Usuário não encontrado' });
+    }
+
+    // Proteção Imutável do Admin Principal
+    if (existingUser.rows[0].email === 'admin@admin.com.br') {
+      if (role && role !== 'admin') {
+        return res.status(403).json({ error: 'Não é possível remover o nível de administrador do usuário principal' });
+      }
+      if (is_active === false) {
+        return res.status(403).json({ error: 'Não é possível inativar o administrador principal' });
+      }
+    }
+
+    // Construir a query dinamicamente baseada nos campos enviados
+    const updates = [];
+    const values = [];
+    let paramIndex = 1;
+
+    if (name !== undefined) {
+      updates.push(`name = $${paramIndex++}`);
+      values.push(name);
+    }
+    
+    if (role !== undefined) {
+      updates.push(`role = $${paramIndex++}`);
+      values.push(role);
+    }
+    
+    if (is_active !== undefined) {
+      updates.push(`is_active = $${paramIndex++}`);
+      values.push(is_active);
+    }
+
+    if (updates.length === 0) {
+      return res.status(400).json({ error: 'Nenhum dado fornecido para atualização' });
+    }
+
+    values.push(id);
+    const query = `UPDATE users SET ${updates.join(', ')} WHERE id = $${paramIndex} RETURNING id, name, email, role, is_active`;
+
+    const result = await db.query(query, values);
+
+    res.status(200).json({
+      message: 'Usuário atualizado com sucesso',
+      user: result.rows[0]
+    });
+
+  } catch (error) {
+    console.error('Erro ao atualizar usuário:', error);
+    res.status(500).json({ error: 'Erro interno ao atualizar usuário' });
+  }
+};
+
 module.exports = {
   getUsers,
   createUser,
-  updateProfile
+  updateProfile,
+  updateUser
 };

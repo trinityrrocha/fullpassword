@@ -17,7 +17,7 @@ const login = async (req, res) => {
 
     // Buscar usuário no banco
     const result = await db.query(
-      'SELECT id, name, email, hash_senha_login, role, wrapped_key, crypto_salt FROM users WHERE email = $1',
+      'SELECT id, name, email, hash_senha_login, role, wrapped_key, crypto_salt, is_active FROM users WHERE email = $1',
       [email]
     );
 
@@ -25,6 +25,10 @@ const login = async (req, res) => {
 
     if (!user) {
       return res.status(401).json({ error: 'Credenciais inválidas' });
+    }
+
+    if (user.is_active === false) {
+      return res.status(403).json({ error: 'Conta inativa. Contate o administrador.' });
     }
 
     // Verificar a senha com Argon2

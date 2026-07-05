@@ -19,7 +19,7 @@ export default function DashboardLayout() {
 
   const navigation = [
     { name: 'Clientes / Cofre', href: '/', icon: Building2 },
-    { name: 'Gestão de Equipe', href: '/team', icon: Users },
+    ...(user?.role === 'admin' ? [{ name: 'Gestão de Equipe', href: '/team', icon: Users }] : []),
     { name: 'Configurações', href: '/settings', icon: Settings },
   ];
 

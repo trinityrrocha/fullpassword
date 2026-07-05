@@ -16,12 +16,17 @@ function App() {
         <Route path="/login" element={<Login />} />
         
         {/* Rotas Protegidas com AuthGuard */}
-        <Route element={<ProtectedRoute />}>
-          <Route element={<DashboardLayout />}>
+        <Route element={<DashboardLayout />}>
+          {/* Rotas para todos os usuários logados */}
+          <Route element={<ProtectedRoute />}>
             <Route path="/" element={<ClientsList />} />
             <Route path="/client/:id" element={<ClientVault />} />
-            <Route path="/team" element={<TeamList />} />
             <Route path="/settings" element={<Settings />} />
+          </Route>
+
+          {/* Rotas apenas para administradores */}
+          <Route element={<ProtectedRoute requiredRole="admin" />}>
+            <Route path="/team" element={<TeamList />} />
           </Route>
         </Route>
 
