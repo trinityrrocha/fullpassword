@@ -1,6 +1,12 @@
 import { createContext, useContext, useState, useEffect } from 'react';
 import api from '../services/api';
-import { deriveMasterKey, unwrapMasterKey } from '../services/cryptoService';
+import { 
+  deriveMasterKey, 
+  unwrapMasterKey, 
+  generateRSAKeyPair, 
+  exportPublicKey, 
+  encryptPrivateKey 
+} from '../services/cryptoService';
 
 const AuthContext = createContext(null);
 
@@ -76,6 +82,39 @@ export const AuthProvider = ({ children }) => {
       
       // 3. Sucesso! Guardar na memória
       setMasterKey(key);
+
+      // 4. BOOTSTRAP DE CHAVES RSA: Verificar se o usuário já tem chaves assimétricas
+      const currentUser = JSON.parse(localStorage.getItem('user'));
+      if (currentUser && !currentUser.public_key) {
+        console.log("Realizando bootstrap de chaves RSA para o usuário...");
+        try {
+          // Gerar par de chaves RSA-OAEP
+          const keyPair = await generateRSAKeyPair();
+          
+          // Exportar chave pública
+          const publicKeyStr = await exportPublicKey(keyPair.publicKey);
+          
+          // Envelopar chave privada com a Master Key recém-desbloqueada
+          const encryptedPrivateKeyStr = await encryptPrivateKey(keyPair.privateKey, key);
+          
+          // Enviar para o backend
+          await api.put('/users/keys', {
+            public_key: publicKeyStr,
+            encrypted_private_key: encryptedPrivateKeyStr
+          });
+          
+          // Atualizar localStorage com a flag para não repetir o bootstrap
+          currentUser.public_key = true;
+          localStorage.setItem('user', JSON.stringify(currentUser));
+          setUser(currentUser);
+          
+          console.log("Chaves RSA geradas e salvas com sucesso!");
+        } catch (rsaError) {
+          console.error("Erro ao gerar/salvar chaves RSA:", rsaError);
+          // Não falhamos o unlockVault se o RSA falhar, mas registramos o erro
+        }
+      }
+
       return { success: true };
     } catch (error) {
       console.error("Falha no desbloqueio:", error);

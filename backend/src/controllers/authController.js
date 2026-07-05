@@ -17,7 +17,7 @@ const login = async (req, res) => {
 
     // Buscar usuário no banco
     const result = await db.query(
-      'SELECT id, name, email, hash_senha_login, role, wrapped_key, crypto_salt, is_active FROM users WHERE email = $1',
+      'SELECT id, name, email, hash_senha_login, role, wrapped_key, crypto_salt, is_active, public_key FROM users WHERE email = $1',
       [email]
     );
 
@@ -114,8 +114,10 @@ const login = async (req, res) => {
         name: user.name,
         email: user.email,
         role: user.role,
+        is_active: user.is_active,
         wrapped_key: finalWrappedKey,
-        crypto_salt: finalCryptoSalt
+        crypto_salt: finalCryptoSalt,
+        public_key: !!user.public_key // Envia boolean para o frontend saber se já tem chave
       }
     });
 

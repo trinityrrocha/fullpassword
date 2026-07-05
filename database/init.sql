@@ -9,6 +9,8 @@ CREATE TABLE IF NOT EXISTS users (
     hash_senha_login VARCHAR(255) NOT NULL,
     wrapped_key TEXT, -- Master Key envelopada com a KEK derivada da senha
     crypto_salt VARCHAR(255), -- Salt usado para derivar a KEK
+    public_key TEXT, -- Chave pública RSA-OAEP (SPKI/Base64)
+    encrypted_private_key TEXT, -- Chave privada RSA-OAEP criptografada com a Master Key
     role VARCHAR(50) NOT NULL DEFAULT 'user',
     is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,

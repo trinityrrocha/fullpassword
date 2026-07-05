@@ -9,6 +9,7 @@ router.use(verifyToken);
 router.get('/', userController.getUsers);
 router.post('/', userController.createUser);
 router.put('/profile', userController.updateProfile);
+router.put('/keys', userController.updateKeys);
 router.put('/:id', userController.updateUser);
 
 module.exports = router;

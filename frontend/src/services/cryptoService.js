@@ -288,3 +288,99 @@ export const downloadBlob = (blob, fileName) => {
   window.URL.revokeObjectURL(url);
   document.body.removeChild(a);
 };
+
+/**
+ * Geração e Gerenciamento de Chaves Assimétricas (RSA-OAEP)
+ * Usado para compartilhamento seguro de cofres
+ */
+
+// Gera um par de chaves RSA-OAEP (2048 bits)
+export const generateRSAKeyPair = async () => {
+  return await window.crypto.subtle.generateKey(
+    {
+      name: "RSA-OAEP",
+      modulusLength: 2048,
+      publicExponent: new Uint8Array([1, 0, 1]), // 65537
+      hash: "SHA-256",
+    },
+    true, // extractable
+    ["encrypt", "decrypt"]
+  );
+};
+
+// Exporta a chave pública RSA para string Base64 (formato SPKI)
+export const exportPublicKey = async (publicKey) => {
+  const exported = await window.crypto.subtle.exportKey("spki", publicKey);
+  const exportedAsString = String.fromCharCode.apply(null, new Uint8Array(exported));
+  return window.btoa(exportedAsString);
+};
+
+// Importa a chave pública RSA de string Base64 (formato SPKI)
+export const importPublicKey = async (pemStr) => {
+  const binaryDerString = window.atob(pemStr);
+  const binaryDer = new Uint8Array(binaryDerString.length);
+  for (let i = 0; i < binaryDerString.length; i++) {
+    binaryDer[i] = binaryDerString.charCodeAt(i);
+  }
+  return await window.crypto.subtle.importKey(
+    "spki",
+    binaryDer.buffer,
+    {
+      name: "RSA-OAEP",
+      hash: "SHA-256",
+    },
+    true,
+    ["encrypt"]
+  );
+};
+
+// Exporta a chave privada RSA e a criptografa (envelopa) com a Master Key usando AES-GCM
+export const encryptPrivateKey = async (privateKey, masterKey) => {
+  // 1. Exporta a chave privada para formato PKCS8
+  const exported = await window.crypto.subtle.exportKey("pkcs8", privateKey);
+  
+  // 2. Criptografa o buffer exportado com a Master Key
+  const iv = window.crypto.getRandomValues(new Uint8Array(12));
+  const ciphertext = await window.crypto.subtle.encrypt(
+    {
+      name: "AES-GCM",
+      iv: iv
+    },
+    masterKey,
+    exported
+  );
+
+  // 3. Retorna no formato iv:ciphertext em Base64
+  const ivB64 = window.btoa(String.fromCharCode.apply(null, iv));
+  const ciphertextB64 = window.btoa(String.fromCharCode.apply(null, new Uint8Array(ciphertext)));
+  return `${ivB64}:${ciphertextB64}`;
+};
+
+// Descriptografa a chave privada RSA usando a Master Key e a importa
+export const decryptPrivateKey = async (encryptedPrivateKeyStr, masterKey) => {
+  const [ivB64, ciphertextB64] = encryptedPrivateKeyStr.split(':');
+  const iv = Uint8Array.from(window.atob(ivB64), c => c.charCodeAt(0));
+  const ciphertext = Uint8Array.from(window.atob(ciphertextB64), c => c.charCodeAt(0));
+
+  // 1. Descriptografa o buffer
+  const decryptedBuffer = await window.crypto.subtle.decrypt(
+    {
+      name: "AES-GCM",
+      iv: iv
+    },
+    masterKey,
+    ciphertext
+  );
+
+  // 2. Importa a chave privada
+  return await window.crypto.subtle.importKey(
+    "pkcs8",
+    decryptedBuffer,
+    {
+      name: "RSA-OAEP",
+      hash: "SHA-256",
+    },
+    true,
+    ["decrypt"]
+  );
+};

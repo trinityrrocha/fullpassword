@@ -210,9 +210,32 @@ const updateUser = async (req, res) => {
   }
 };
 
+// PUT /api/users/keys - Salva as chaves RSA do usuário autenticado
+const updateKeys = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { public_key, encrypted_private_key } = req.body;
+
+    if (!public_key || !encrypted_private_key) {
+      return res.status(400).json({ error: 'Chaves pública e privada são obrigatórias' });
+    }
+
+    await db.query(
+      'UPDATE users SET public_key = $1, encrypted_private_key = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3',
+      [public_key, encrypted_private_key, userId]
+    );
+
+    res.status(200).json({ message: 'Chaves criptográficas salvas com sucesso' });
+  } catch (error) {
+    console.error('Erro ao salvar chaves RSA:', error);
+    res.status(500).json({ error: 'Erro interno ao salvar chaves' });
+  }
+};
+
 module.exports = {
   getUsers,
   createUser,
   updateProfile,
-  updateUser
+  updateUser,
+  updateKeys
 };
