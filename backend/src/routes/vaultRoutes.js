@@ -12,4 +12,7 @@ router.get('/:clientId', vaultController.getVaultItems);
 // POST /api/vault-items/:clientId
 router.post('/:clientId', vaultController.createVaultItem);
 
+// POST /api/vault-items/:id/share
+router.post('/:id/share', vaultController.shareVaultItem);
+
 module.exports = router;

@@ -66,6 +66,16 @@ CREATE TABLE IF NOT EXISTS vault_items (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Tabela de compartilhamento de cofres (RSA)
+CREATE TABLE IF NOT EXISTS vault_shares (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    vault_item_id UUID REFERENCES vault_items(id) ON DELETE CASCADE,
+    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+    encrypted_vault_key TEXT NOT NULL, -- A chave simétrica do cofre criptografada com a Chave Pública RSA do usuário
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(vault_item_id, user_id)
+);
+
 -- SEEDER DO USUÁRIO ADMINISTRADOR
 -- O hash da senha '@dmin123' deve ser gerado pelo backend usando bcrypt/argon2id antes de salvar.
 -- Como estamos no SQL, vamos inserir um hash fictício para o Argon2id como placeholder,

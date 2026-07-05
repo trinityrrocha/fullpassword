@@ -6,7 +6,7 @@ const crypto = require('crypto');
 const getUsers = async (req, res) => {
   try {
     const result = await db.query(
-      'SELECT id, name, email, role, is_active, created_at FROM users ORDER BY name ASC'
+      'SELECT id, name, email, role, is_active, public_key, created_at FROM users ORDER BY name ASC'
     );
     res.status(200).json(result.rows);
   } catch (error) {
