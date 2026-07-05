@@ -6,6 +6,7 @@ import Login from './pages/Login';
 import ClientsList from './pages/ClientsList';
 import ClientVault from './pages/ClientVault';
 import TeamList from './pages/TeamList';
+import Settings from './pages/Settings';
 import ProtectedRoute from './components/ProtectedRoute';
 
 function App() {
@@ -20,7 +21,7 @@ function App() {
             <Route path="/" element={<ClientsList />} />
             <Route path="/client/:id" element={<ClientVault />} />
             <Route path="/team" element={<TeamList />} />
-            <Route path="/settings" element={<div className="p-4 bg-white rounded-lg shadow">Configurações (Em breve)</div>} />
+            <Route path="/settings" element={<Settings />} />
           </Route>
         </Route>
 

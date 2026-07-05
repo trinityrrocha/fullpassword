@@ -8,6 +8,7 @@ const authRoutes = require('./routes/authRoutes');
 const clientRoutes = require('./routes/clientRoutes');
 const vaultRoutes = require('./routes/vaultRoutes');
 const userRoutes = require('./routes/userRoutes');
+const systemRoutes = require('./routes/systemRoutes');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -27,6 +28,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/clients', clientRoutes);
 app.use('/api/vault-items', vaultRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api/system', systemRoutes);
 
 // Middleware para tratamento de erros não capturados
 app.use((err, req, res, next) => {
