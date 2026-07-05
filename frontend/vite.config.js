@@ -32,7 +32,7 @@ export default defineConfig({
   plugins: [react()],
   define: {
     __APP_COMMIT__: JSON.stringify(appCommit),
-    Share2: 'HardDrive',
+    Share2: '((props) => null)',
     handleShareClick: '((category) => window.alert(`Compartilhamento de ${category} ainda não foi implementado nesta versão.`))'
   }
 })
