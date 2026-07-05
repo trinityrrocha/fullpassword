@@ -3,8 +3,6 @@ import { Settings as SettingsIcon, RefreshCw, AlertTriangle, ShieldCheck, Downlo
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 
-const SUPER_ADMIN_EMAIL = 'admin@admin.com.br';
-const normalizeEmail = (email) => String(email || '').trim().toLowerCase();
 const normalizeRole = (role) => String(role || '').trim().toLowerCase();
 
 export default function Settings() {
@@ -16,8 +14,8 @@ export default function Settings() {
   const [systemPermissions, setSystemPermissions] = useState(null);
   const [isLoadingPermissions, setIsLoadingPermissions] = useState(true);
 
-  const fallbackSuperAdmin = normalizeRole(user?.role) === 'admin' && normalizeEmail(user?.email) === SUPER_ADMIN_EMAIL;
-  const isSuperAdmin = systemPermissions?.is_super_admin === true || (!systemPermissions && fallbackSuperAdmin);
+  const fallbackAdmin = normalizeRole(user?.role) === 'admin';
+  const canManageSystem = systemPermissions?.can_manage_system === true || systemPermissions?.is_admin === true || (!systemPermissions && fallbackAdmin);
   const currentUserEmail = systemPermissions?.email || user?.email || 'e-mail não identificado';
 
   useEffect(() => {
@@ -57,8 +55,8 @@ export default function Settings() {
   }, [updateCountdown, isUpdating]);
 
   const handleUpdateSystem = async () => {
-    if (!isSuperAdmin) {
-      alert('Apenas o Super Admin inicial pode executar o WebUpdater.');
+    if (!canManageSystem) {
+      alert('Apenas administradores podem executar o WebUpdater.');
       return;
     }
 
@@ -77,13 +75,13 @@ export default function Settings() {
     } catch (error) {
       setIsUpdating(false);
       console.error('Erro ao iniciar atualização:', error);
-      alert(error.response?.data?.error || 'Erro ao iniciar atualização. Verifique se você está logado como Super Admin.');
+      alert(error.response?.data?.error || 'Erro ao iniciar atualização. Verifique se você está logado como administrador.');
     }
   };
 
   const handleDownloadBackup = async () => {
-    if (!isSuperAdmin) {
-      alert('Apenas o Super Admin inicial pode gerar backup completo do sistema.');
+    if (!canManageSystem) {
+      alert('Apenas administradores podem gerar backup completo do sistema.');
       return;
     }
 
@@ -123,7 +121,7 @@ export default function Settings() {
 
     } catch (error) {
       console.error('Erro ao baixar backup:', error);
-      alert('Erro ao gerar backup. Verifique se você está logado como Super Admin.');
+      alert('Erro ao gerar backup. Verifique se você está logado como administrador.');
     } finally {
       setIsDownloadingBackup(false);
     }
@@ -137,11 +135,9 @@ export default function Settings() {
         </div>
         <div className="ml-3">
           <p className="text-sm text-amber-700">{message}</p>
-          {normalizeRole(user?.role) === 'admin' && (
-            <p className="text-xs text-amber-600 mt-1">
-              Usuário autenticado: {currentUserEmail}. Super Admin esperado: {SUPER_ADMIN_EMAIL}.
-            </p>
-          )}
+          <p className="text-xs text-amber-600 mt-1">
+            Usuário autenticado: {currentUserEmail}. Perfil necessário: admin.
+          </p>
         </div>
       </div>
     </div>
@@ -194,9 +190,9 @@ export default function Settings() {
               <RefreshCw className="w-5 h-5 mr-2 text-indigo-500" />
               WebUpdater (Atualização Automática)
             </h3>
-            {isSuperAdmin && (
+            {canManageSystem && (
               <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                Super Admin
+                Admin
               </span>
             )}
           </div>
@@ -207,9 +203,9 @@ export default function Settings() {
             </p>
 
             {isLoadingPermissions ? (
-              <div className="text-sm text-slate-500">Validando permissão de Super Admin...</div>
-            ) : !isSuperAdmin ? (
-              restrictedWarning('Apenas o Super Admin inicial pode executar a atualização do sistema.')
+              <div className="text-sm text-slate-500">Validando permissão de administrador...</div>
+            ) : !canManageSystem ? (
+              restrictedWarning('Apenas administradores podem executar a atualização do sistema.')
             ) : (
               <button
                 onClick={handleUpdateSystem}
@@ -230,9 +226,9 @@ export default function Settings() {
               <Database className="w-5 h-5 mr-2 text-indigo-500" />
               Web Backup (Backup Completo)
             </h3>
-            {isSuperAdmin && (
+            {canManageSystem && (
               <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                Super Admin
+                Admin
               </span>
             )}
           </div>
@@ -257,9 +253,9 @@ export default function Settings() {
             </div>
 
             {isLoadingPermissions ? (
-              <div className="text-sm text-slate-500">Validando permissão de Super Admin...</div>
-            ) : !isSuperAdmin ? (
-              restrictedWarning('Apenas o Super Admin inicial pode gerar backup completo do sistema.')
+              <div className="text-sm text-slate-500">Validando permissão de administrador...</div>
+            ) : !canManageSystem ? (
+              restrictedWarning('Apenas administradores podem gerar backup completo do sistema.')
             ) : (
               <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
                 <select
