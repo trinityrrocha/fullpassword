@@ -4,6 +4,7 @@ import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 
 const normalizeRole = (role) => String(role || '').trim().toLowerCase();
+const APP_COMMIT = typeof __APP_COMMIT__ !== 'undefined' ? __APP_COMMIT__ : 'unknown';
 
 export default function Settings() {
   const { user } = useAuth();
@@ -156,7 +157,7 @@ export default function Settings() {
         </div>
         <div className="text-right">
           <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-slate-100 text-slate-800">
-            Versão Atual: v1.0.1
+            Versão Atual: v1.0.1 ({APP_COMMIT})
           </span>
         </div>
       </div>
