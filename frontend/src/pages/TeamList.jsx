@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Users, Plus, Shield, Mail, X, Loader2 } from 'lucide-react';
+import { Users, Plus, Shield, Mail, X, Loader2, FolderKey } from 'lucide-react';
 import SecurePasswordInput from '../components/SecurePasswordInput';
+import GroupModal from '../components/GroupModal';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 
@@ -23,6 +24,15 @@ export default function TeamList() {
     role: 'user'
   });
 
+  // Estado para Abas
+  const [activeTab, setActiveTab] = useState('users'); // 'users' ou 'groups'
+
+  // Estados para Grupos
+  const [groups, setGroups] = useState([]);
+  const [isLoadingGroups, setIsLoadingGroups] = useState(false);
+  const [isGroupModalOpen, setIsGroupModalOpen] = useState(false);
+  const [groupToEdit, setGroupToEdit] = useState(null);
+
   const loadUsers = async () => {
     setIsLoading(true);
     try {
@@ -36,9 +46,26 @@ export default function TeamList() {
     }
   };
 
+  const loadGroups = async () => {
+    setIsLoadingGroups(true);
+    try {
+      const response = await api.get('/groups');
+      setGroups(response.data);
+    } catch (error) {
+      console.error('Erro ao carregar grupos:', error);
+      alert('Não foi possível carregar a lista de grupos.');
+    } finally {
+      setIsLoadingGroups(false);
+    }
+  };
+
   useEffect(() => {
-    loadUsers();
-  }, []);
+    if (activeTab === 'users') {
+      loadUsers();
+    } else {
+      loadGroups();
+    }
+  }, [activeTab]);
 
   const handleCreateUser = async (e) => {
     e.preventDefault();
@@ -100,6 +127,30 @@ export default function TeamList() {
     setIsEditModalOpen(true);
   };
 
+  // Funções para Grupos
+  const openGroupModal = (group = null) => {
+    setGroupToEdit(group);
+    setIsGroupModalOpen(true);
+  };
+
+  const handleGroupSaveSuccess = () => {
+    setIsGroupModalOpen(false);
+    loadGroups();
+  };
+
+  const handleDeleteGroup = async (groupId, groupName) => {
+    if (!window.confirm(`Deseja realmente excluir o grupo "${groupName}"?`)) {
+      return;
+    }
+    try {
+      await api.delete(`/groups/${groupId}`);
+      loadGroups();
+    } catch (error) {
+      console.error('Erro ao excluir grupo:', error);
+      alert(error.response?.data?.error || 'Erro ao excluir grupo.');
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -109,16 +160,45 @@ export default function TeamList() {
           <p className="text-sm text-slate-500">Gerencie os usuários e permissões de acesso ao sistema</p>
         </div>
         <button 
-          onClick={() => setIsModalOpen(true)}
+          onClick={() => activeTab === 'users' ? setIsModalOpen(true) : openGroupModal()}
           className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
         >
           <Plus className="w-4 h-4 mr-2" />
-          Novo Membro
+          {activeTab === 'users' ? 'Novo Membro' : 'Novo Grupo'}
         </button>
       </div>
 
-      {/* Tabela de Usuários */}
-      <div className="bg-white shadow rounded-lg overflow-hidden border border-slate-200">
+      {/* Navegação de Abas */}
+      <div className="border-b border-slate-200">
+        <nav className="-mb-px flex space-x-8">
+          <button
+            onClick={() => setActiveTab('users')}
+            className={`${
+              activeTab === 'users'
+                ? 'border-indigo-500 text-indigo-600'
+                : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
+            } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center`}
+          >
+            <Users className="w-4 h-4 mr-2" />
+            Usuários
+          </button>
+          <button
+            onClick={() => setActiveTab('groups')}
+            className={`${
+              activeTab === 'groups'
+                ? 'border-indigo-500 text-indigo-600'
+                : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
+            } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center`}
+          >
+            <FolderKey className="w-4 h-4 mr-2" />
+            Grupos
+          </button>
+        </nav>
+      </div>
+
+      {/* Conteúdo das Abas */}
+      {activeTab === 'users' ? (
+        <div className="bg-white shadow rounded-lg overflow-hidden border border-slate-200">
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-slate-200">
             <thead className="bg-slate-50">
@@ -273,7 +353,93 @@ export default function TeamList() {
             </div>
           </div>
         </div>
+      ) : (
+        <div className="bg-white shadow rounded-lg overflow-hidden border border-slate-200">
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-slate-200">
+              <thead className="bg-slate-50">
+                <tr>
+                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
+                    Nome do Grupo
+                  </th>
+                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
+                    Descrição
+                  </th>
+                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
+                    Membros
+                  </th>
+                  <th scope="col" className="relative px-6 py-3">
+                    <span className="sr-only">Ações</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-slate-200">
+                {isLoadingGroups ? (
+                  <tr>
+                    <td colSpan="4" className="px-6 py-4 text-center text-sm text-slate-500">
+                      <Loader2 className="w-5 h-5 animate-spin mx-auto mb-2 text-indigo-600" />
+                      Carregando grupos...
+                    </td>
+                  </tr>
+                ) : groups.length === 0 ? (
+                  <tr>
+                    <td colSpan="4" className="px-6 py-4 text-center text-sm text-slate-500">
+                      Nenhum grupo encontrado.
+                    </td>
+                  </tr>
+                ) : groups.map((group) => (
+                  <tr key={group.id} className="hover:bg-slate-50">
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="flex items-center">
+                        <div className="flex-shrink-0 h-10 w-10 rounded-lg bg-indigo-50 flex items-center justify-center">
+                          <FolderKey className="h-5 w-5 text-indigo-600" />
+                        </div>
+                        <div className="ml-4">
+                          <div className="text-sm font-medium text-slate-900">{group.name}</div>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="text-sm text-slate-500">{group.description || '-'}</div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-800">
+                        {group.users?.length || 0} membros
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                      <div className="flex justify-end space-x-3">
+                        <button 
+                          onClick={() => openGroupModal(group)}
+                          className="text-indigo-600 hover:text-indigo-900"
+                        >
+                          Editar
+                        </button>
+                        {group.name !== 'Administradores' && (
+                          <button 
+                            onClick={() => handleDeleteGroup(group.id, group.name)}
+                            className="text-red-600 hover:text-red-900"
+                          >
+                            Excluir
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
       )}
+
+      {/* Modal de Grupo */}
+      <GroupModal 
+        isOpen={isGroupModalOpen}
+        onClose={() => setIsGroupModalOpen(false)}
+        groupToEdit={groupToEdit}
+        onSaveSuccess={handleGroupSaveSuccess}
+      />
 
       {/* Modal Novo Usuário */}
       {isModalOpen && (
