@@ -70,8 +70,7 @@ O script solicitará:
 - Domínio (ex: `cofre.suaempresa.com.br`)
 - E-mail para Let's Encrypt
 - Porta SSH (se customizada)
-- URL do repositório GitHub
-
+- 
 Após a conclusão, acesse `https://seu-dominio.com.br` com as credenciais padrão:
 - **Email**: `admin@admin.com.br`
 - **Senha**: `@dmin123` (⚠️ Alterar imediatamente!)
