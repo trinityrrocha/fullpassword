@@ -5,6 +5,8 @@ import DashboardLayout from './layouts/DashboardLayout';
 import Login from './pages/Login';
 import ClientsList from './pages/ClientsList';
 import ClientVault from './pages/ClientVault';
+import TeamList from './pages/TeamList';
+import ProtectedRoute from './components/ProtectedRoute';
 
 function App() {
   return (
@@ -12,12 +14,14 @@ function App() {
       <Routes>
         <Route path="/login" element={<Login />} />
         
-        {/* Rotas Protegidas */}
-        <Route element={<DashboardLayout />}>
-          <Route path="/" element={<ClientsList />} />
-          <Route path="/client/:id" element={<ClientVault />} />
-          <Route path="/team" element={<div className="p-4 bg-white rounded-lg shadow">Gestão de Equipe (Em breve)</div>} />
-          <Route path="/settings" element={<div className="p-4 bg-white rounded-lg shadow">Configurações (Em breve)</div>} />
+        {/* Rotas Protegidas com AuthGuard */}
+        <Route element={<ProtectedRoute />}>
+          <Route element={<DashboardLayout />}>
+            <Route path="/" element={<ClientsList />} />
+            <Route path="/client/:id" element={<ClientVault />} />
+            <Route path="/team" element={<TeamList />} />
+            <Route path="/settings" element={<div className="p-4 bg-white rounded-lg shadow">Configurações (Em breve)</div>} />
+          </Route>
         </Route>
 
         <Route path="*" element={<Navigate to="/" replace />} />

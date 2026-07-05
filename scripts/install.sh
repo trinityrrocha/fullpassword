@@ -42,7 +42,7 @@ JWT_SECRET=$(openssl rand -hex 64)
 # ==========================================
 echo -e "\n${GREEN}[1/6] Atualizando pacotes do sistema e instalando dependências...${NC}"
 apt-get update && apt-get upgrade -y
-apt-get install -y curl git ufw fail2ban certbot python3-certbot-nginx apt-transport-https ca-certificates software-properties-common
+apt-get install -y curl git ufw fail2ban certbot python3-certbot-nginx apt-transport-https ca-certificates software-properties-common netcat-openbsd dnsutils
 
 # ==========================================
 # 3. SEGURANÇA DA INFRAESTRUTURA (UFW E FAIL2BAN)
@@ -137,9 +137,35 @@ if [ -f "$APP_DIR/docker/nginx.conf" ]; then
 fi
 
 # ==========================================
-# 6. CERTIFICADO SSL (LET'S ENCRYPT)
+# 6. CERTIFICADO SSL (LET'S ENCRYPT) COM PRE-FLIGHT CHECKS
 # ==========================================
-echo -e "\n${GREEN}[5/6] Provisionando Certificado SSL Let's Encrypt para $DOMAIN...${NC}"
+echo -e "\n${GREEN}[5/6] Executando Pre-flight checks para SSL...${NC}"
+
+# Verificar IP Público
+PUBLIC_IP=$(curl -s ifconfig.me)
+echo -e "${BLUE}Seu IP público atual é: $PUBLIC_IP${NC}"
+
+# Verificar apontamento DNS
+DOMAIN_IP=$(dig +short $DOMAIN)
+if [ "$DOMAIN_IP" != "$PUBLIC_IP" ]; then
+    echo -e "${RED}ERRO CRÍTICO: O domínio $DOMAIN aponta para $DOMAIN_IP, mas o IP desta VPS é $PUBLIC_IP.${NC}"
+    echo -e "${YELLOW}Por favor, corrija o apontamento DNS no seu provedor (Cloudflare, Registro.br, etc) e aguarde a propagação antes de rodar este script novamente.${NC}"
+    exit 1
+fi
+echo -e "${GREEN}✓ DNS aponta corretamente para o IP da VPS.${NC}"
+
+# Avisar sobre portas externas (Firewall de Nuvem)
+echo -e "\n${YELLOW}ATENÇÃO: O Certbot requer as portas 80 e 443 abertas externamente.${NC}"
+echo -e "${YELLOW}Se você estiver usando AWS, Oracle Cloud, Google Cloud ou Azure, certifique-se de que as portas 80 e 443 estão liberadas nas regras de segurança (Security Groups / Ingress Rules) do painel web da nuvem.${NC}"
+echo -e "${YELLOW}O UFW local já foi configurado, mas o bloqueio em nuvem impedirá a emissão do certificado.${NC}"
+read -p "Você já liberou as portas 80 e 443 no painel do seu provedor de nuvem? (s/n) " -n 1 -r
+echo
+if [[ ! $REPLY =~ ^[Ss]$ ]]; then
+    echo -e "${RED}Instalação abortada. Por favor, libere as portas e rode o script novamente.${NC}"
+    exit 1
+fi
+
+echo -e "\n${GREEN}Provisionando Certificado SSL Let's Encrypt para $DOMAIN...${NC}"
 
 # Parar o nginx temporariamente se estiver rodando para liberar a porta 80
 systemctl stop nginx 2>/dev/null || true
@@ -175,7 +201,7 @@ server {
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection 'upgrade';
-        proxy_set_header Host \$host;
+        proxy_set_header Host localhost; # Contorno para bloqueio de DNS Rebinding do Vite
         proxy_cache_bypass \$http_upgrade;
     }
 
@@ -194,8 +220,11 @@ server {
 }
 EOF
 else
-    echo -e "${RED}Falha ao gerar o certificado SSL. O Nginx será configurado apenas para HTTP (não recomendado para Web Crypto API).${NC}"
-    echo -e "${YELLOW}Certifique-se de que o DNS de $DOMAIN aponta para o IP desta VPS.${NC}"
+    echo -e "${RED}ERRO: Falha ao gerar o certificado SSL pelo Certbot.${NC}"
+    echo -e "${YELLOW}Isso quase sempre significa que a porta 80 está bloqueada externamente pelo firewall do seu provedor de nuvem (AWS/Oracle/Azure/GCP).${NC}"
+    echo -e "${YELLOW}A instalação foi abortada para evitar que o sistema suba inseguro (HTTP), o que quebraria a criptografia Web Crypto API do frontend.${NC}"
+    echo -e "${YELLOW}Por favor, corrija o firewall externo e execute ./install.sh novamente.${NC}"
+    exit 1
 fi
 
 # ==========================================
