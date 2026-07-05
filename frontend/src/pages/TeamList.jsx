@@ -21,7 +21,10 @@ export default function TeamList() {
   const [editUser, setEditUser] = useState({
     id: '',
     name: '',
-    role: 'user'
+    email: '',
+    role: 'user',
+    is_active: true,
+    password: '' // opcional: se preenchido, altera a senha
   });
 
   // Estado para Abas
@@ -88,12 +91,20 @@ export default function TeamList() {
     e.preventDefault();
     setIsSaving(true);
     try {
-      await api.put(`/users/${editUser.id}`, {
+      const payload = {
         name: editUser.name,
-        role: editUser.role
-      });
-      alert('Usuário atualizado com sucesso!');
+        email: editUser.email,
+        role: editUser.role,
+        is_active: editUser.is_active,
+      };
+      // Incluir senha apenas se preenchida
+      if (editUser.password && editUser.password.trim() !== '') {
+        payload.password = editUser.password;
+      }
+      await api.put(`/users/${editUser.id}`, payload);
+      alert('Usuário atualizado com sucesso!' + (payload.password ? ' A nova senha foi aplicada e as chaves criptográficas foram redefinidas.' : ''));
       setIsEditModalOpen(false);
+      setEditUser({ id: '', name: '', email: '', role: 'user', is_active: true, password: '' });
       loadUsers();
     } catch (error) {
       console.error('Erro ao atualizar usuário:', error);
@@ -122,7 +133,10 @@ export default function TeamList() {
     setEditUser({
       id: member.id,
       name: member.name,
-      role: member.role
+      email: member.email || '',
+      role: member.role,
+      is_active: member.is_active !== undefined ? member.is_active : true,
+      password: '' // sempre limpo ao abrir
     });
     setIsEditModalOpen(true);
   };
@@ -407,6 +421,31 @@ export default function TeamList() {
                     />
                   </div>
                   <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">E-mail</label>
+                    <input
+                      type="email"
+                      required
+                      className="w-full border-slate-300 rounded-md shadow-sm p-2 border focus:ring-indigo-500 focus:border-indigo-500"
+                      value={editUser.email}
+                      onChange={e => setEditUser({...editUser, email: e.target.value})}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">
+                      Nova Senha <span className="text-slate-400 font-normal">(deixe em branco para não alterar)</span>
+                    </label>
+                    <SecurePasswordInput
+                      value={editUser.password}
+                      onChange={e => setEditUser({...editUser, password: e.target.value})}
+                      placeholder="Nova senha (opcional)"
+                    />
+                    {editUser.password && editUser.password.trim() !== '' && (
+                      <p className="mt-1 text-xs text-amber-600">
+                        ⚠️ Ao alterar a senha, as chaves criptográficas do usuário serão redefinidas. O usuário precisará fazer login novamente.
+                      </p>
+                    )}
+                  </div>
+                  <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">Nível de Acesso</label>
                     <select
                       className="w-full border-slate-300 rounded-md shadow-sm p-2 border focus:ring-indigo-500 focus:border-indigo-500 bg-white"
@@ -416,6 +455,25 @@ export default function TeamList() {
                       <option value="user">Usuário Padrão</option>
                       <option value="admin">Administrador</option>
                     </select>
+                  </div>
+                  <div className="flex items-center justify-between p-3 bg-slate-50 rounded-md">
+                    <div>
+                      <p className="text-sm font-medium text-slate-700">Status da Conta</p>
+                      <p className="text-xs text-slate-500">{editUser.is_active ? 'Conta ativa — usuário pode fazer login' : 'Conta inativa — login bloqueado'}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setEditUser({...editUser, is_active: !editUser.is_active})}
+                      className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                        editUser.is_active ? 'bg-green-500' : 'bg-slate-300'
+                      }`}
+                    >
+                      <span
+                        className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                          editUser.is_active ? 'translate-x-5' : 'translate-x-0'
+                        }`}
+                      />
+                    </button>
                   </div>
                 </form>
               </div>

@@ -18,7 +18,6 @@ const getClients = async (req, res) => {
       query = 'SELECT * FROM clients ORDER BY name ASC';
     } else {
       // Caso contrário, vê apenas clientes associados aos seus grupos
-      // Usamos ANY($1) para passar o array de grupos
       query = `
         SELECT DISTINCT c.* 
         FROM clients c
@@ -53,25 +52,52 @@ const createClient = async (req, res) => {
     // Inserir cliente
     const clientResult = await db.query(
       'INSERT INTO clients (name, address, phone, email) VALUES ($1, $2, $3, $4) RETURNING *',
-      [name, address, phone, email]
+      [name, address || null, phone || null, email || null]
     );
     
     const newClient = clientResult.rows[0];
 
-    // Associar aos grupos, se fornecidos
+    // Determinar os grupos para vincular ao cliente
+    let groupsToLink = [];
+
     if (group_ids && Array.isArray(group_ids) && group_ids.length > 0) {
-      for (const groupId of group_ids) {
+      // Grupos explicitamente fornecidos pelo frontend
+      groupsToLink = group_ids;
+    } else if (req.user.groups && req.user.groups.length > 0) {
+      // Usar o primeiro grupo válido do usuário criador
+      groupsToLink = [req.user.groups[0]];
+    } else {
+      // Fallback: buscar o grupo "Administradores" diretamente no banco
+      // Isso garante que instalações limpas (onde o admin ainda não tem grupo no JWT)
+      // não causem erro de chave estrangeira
+      const adminGroupResult = await db.query(
+        "SELECT id FROM groups WHERE name = 'Administradores' LIMIT 1"
+      );
+
+      if (adminGroupResult.rows.length > 0) {
+        groupsToLink = [adminGroupResult.rows[0].id];
+      } else {
+        // Último recurso: buscar qualquer grupo existente
+        const anyGroupResult = await db.query(
+          'SELECT id FROM groups ORDER BY created_at ASC LIMIT 1'
+        );
+        if (anyGroupResult.rows.length > 0) {
+          groupsToLink = [anyGroupResult.rows[0].id];
+        }
+        // Se não existir nenhum grupo, o cliente é criado sem vínculo (sem erro)
+      }
+    }
+
+    // Inserir vínculos apenas com IDs válidos
+    for (const groupId of groupsToLink) {
+      // Verificar se o grupo realmente existe antes de inserir (evita FK violation)
+      const groupCheck = await db.query('SELECT id FROM groups WHERE id = $1', [groupId]);
+      if (groupCheck.rows.length > 0) {
         await db.query(
-          'INSERT INTO client_group_access (client_id, group_id) VALUES ($1, $2)',
+          'INSERT INTO client_group_access (client_id, group_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
           [newClient.id, groupId]
         );
       }
-    } else if (req.user.groups && req.user.groups.length > 0) {
-      // Se nenhum grupo for especificado, associar ao primeiro grupo do usuário criador (opcional)
-      await db.query(
-        'INSERT INTO client_group_access (client_id, group_id) VALUES ($1, $2)',
-        [newClient.id, req.user.groups[0]]
-      );
     }
 
     await db.query('COMMIT');
@@ -81,7 +107,7 @@ const createClient = async (req, res) => {
   } catch (error) {
     await db.query('ROLLBACK');
     console.error('Erro ao criar cliente:', error);
-    res.status(500).json({ error: 'Erro ao criar cliente' });
+    res.status(500).json({ error: 'Erro ao criar cliente: ' + error.message });
   }
 };
 

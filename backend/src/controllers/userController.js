@@ -152,7 +152,7 @@ const updateUser = async (req, res) => {
     }
 
     const { id } = req.params;
-    const { name, role, is_active } = req.body;
+    const { name, email, role, is_active, password } = req.body;
 
     // Verificar se o usuário existe
     const existingUser = await db.query('SELECT id, email FROM users WHERE id = $1', [id]);
@@ -160,13 +160,23 @@ const updateUser = async (req, res) => {
       return res.status(404).json({ error: 'Usuário não encontrado' });
     }
 
+    const targetEmail = existingUser.rows[0].email;
+
     // Proteção Imutável do Admin Principal
-    if (existingUser.rows[0].email === 'admin@admin.com.br') {
+    if (targetEmail === 'admin@admin.com.br') {
       if (role && role !== 'admin') {
         return res.status(403).json({ error: 'Não é possível remover o nível de administrador do usuário principal' });
       }
       if (is_active === false) {
         return res.status(403).json({ error: 'Não é possível inativar o administrador principal' });
+      }
+    }
+
+    // Verificar unicidade do novo e-mail (se foi alterado)
+    if (email && email !== targetEmail) {
+      const emailCheck = await db.query('SELECT id FROM users WHERE email = $1 AND id != $2', [email, id]);
+      if (emailCheck.rows.length > 0) {
+        return res.status(400).json({ error: 'Este e-mail já está em uso por outro usuário' });
       }
     }
 
@@ -179,6 +189,11 @@ const updateUser = async (req, res) => {
       updates.push(`name = $${paramIndex++}`);
       values.push(name);
     }
+
+    if (email !== undefined) {
+      updates.push(`email = $${paramIndex++}`);
+      values.push(email);
+    }
     
     if (role !== undefined) {
       updates.push(`role = $${paramIndex++}`);
@@ -188,6 +203,37 @@ const updateUser = async (req, res) => {
     if (is_active !== undefined) {
       updates.push(`is_active = $${paramIndex++}`);
       values.push(is_active);
+    }
+
+    // Se uma nova senha foi fornecida, gerar novo hash e re-envelope das chaves
+    if (password && password.trim() !== '') {
+      // 1. Novo hash Argon2 para login
+      const hashSenhaLogin = await argon2.hash(password);
+      updates.push(`hash_senha_login = $${paramIndex++}`);
+      values.push(hashSenhaLogin);
+
+      // 2. Gerar novo salt e re-envelopar a Master Key com a nova senha
+      const cryptoSalt = crypto.randomBytes(32).toString('hex');
+      const masterKeyBuffer = crypto.randomBytes(32); // Nova Master Key (o usuário precisará fazer login novamente)
+      const kekBuffer = crypto.pbkdf2Sync(password, cryptoSalt, 100000, 32, 'sha256');
+
+      const iv = crypto.randomBytes(12);
+      const cipher = crypto.createCipheriv('aes-256-gcm', kekBuffer, iv);
+      let wrappedKeyBuffer = cipher.update(masterKeyBuffer);
+      wrappedKeyBuffer = Buffer.concat([wrappedKeyBuffer, cipher.final()]);
+      const authTag = cipher.getAuthTag();
+      const finalCiphertext = Buffer.concat([wrappedKeyBuffer, authTag]);
+      const wrappedKey = `${iv.toString('base64')}:${finalCiphertext.toString('base64')}`;
+
+      updates.push(`crypto_salt = $${paramIndex++}`);
+      values.push(cryptoSalt);
+      updates.push(`wrapped_key = $${paramIndex++}`);
+      values.push(wrappedKey);
+      // Limpar chaves RSA antigas pois a Master Key mudou
+      updates.push(`public_key = $${paramIndex++}`);
+      values.push(null);
+      updates.push(`encrypted_private_key = $${paramIndex++}`);
+      values.push(null);
     }
 
     if (updates.length === 0) {
