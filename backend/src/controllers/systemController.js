@@ -97,7 +97,7 @@ const updateSystem = async (req, res) => {
     // Retorna a resposta imediatamente para o frontend
     res.status(200).json({
       message: 'Atualização iniciada. O sistema será reiniciado em breve.',
-      estimatedTime: 30 // Segundos estimados para o frontend aguardar
+      estimatedTime: 45 // Segundos estimados para o frontend aguardar
     });
 
     // Executa o script de atualização em background (fire and forget)
@@ -109,7 +109,7 @@ const updateSystem = async (req, res) => {
         -v /opt/fullpassword:/opt/fullpassword \
         -w /opt/fullpassword \
         fullpassword-backend \
-        sh -c "sleep 3 && git config --global --add safe.directory /opt/fullpassword && git pull origin main && docker compose up -d --build"`;
+        sh -c "sleep 3 && git config --global --add safe.directory /opt/fullpassword && git pull origin main && docker compose up -d --build && sleep 5 && docker compose restart nginx"`;
 
       exec(updateCommand, (error, stdout, stderr) => {
         if (error) {
