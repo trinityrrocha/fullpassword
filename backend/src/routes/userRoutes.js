@@ -8,5 +8,6 @@ router.use(verifyToken);
 
 router.get('/', userController.getUsers);
 router.post('/', userController.createUser);
+router.put('/profile', userController.updateProfile);
 
 module.exports = router;

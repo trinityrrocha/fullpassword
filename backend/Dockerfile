@@ -5,8 +5,8 @@ WORKDIR /usr/src/app
 # Copiar os arquivos de dependências
 COPY package*.json ./
 
-# Instalar docker-cli e git para o WebUpdater
-RUN apk add --no-cache docker-cli git
+# Instalar docker-cli, compose plugin e git para o WebUpdater
+RUN apk add --no-cache docker-cli docker-cli-compose git
 
 # Instalar dependências
 RUN npm install

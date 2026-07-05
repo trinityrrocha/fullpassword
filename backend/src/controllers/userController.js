@@ -92,7 +92,60 @@ const createUser = async (req, res) => {
   }
 };
 
+// PUT /api/users/profile - Atualiza o próprio perfil (nome, email, senha e re-envelope da Master Key)
+const updateProfile = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { name, email, new_password, wrapped_key } = req.body;
+
+    if (!name || !email) {
+      return res.status(400).json({ error: 'Nome e email são obrigatórios' });
+    }
+
+    // Iniciar transação
+    await db.query('BEGIN');
+
+    // Se forneceu nova senha, atualiza a senha e o novo wrapped_key
+    if (new_password && wrapped_key) {
+      const hashSenhaLogin = await argon2.hash(new_password);
+      
+      await db.query(
+        'UPDATE users SET name = $1, email = $2, hash_senha_login = $3, wrapped_key = $4 WHERE id = $5',
+        [name, email, hashSenhaLogin, wrapped_key, userId]
+      );
+    } else {
+      // Atualiza apenas nome e email
+      await db.query(
+        'UPDATE users SET name = $1, email = $2 WHERE id = $3',
+        [name, email, userId]
+      );
+    }
+
+    await db.query('COMMIT');
+
+    // Retorna o usuário atualizado
+    const result = await db.query(
+      'SELECT id, name, email, role, wrapped_key, crypto_salt FROM users WHERE id = $1',
+      [userId]
+    );
+
+    res.status(200).json({
+      message: 'Perfil atualizado com sucesso',
+      user: result.rows[0]
+    });
+
+  } catch (error) {
+    await db.query('ROLLBACK');
+    console.error('Erro ao atualizar perfil:', error);
+    if (error.code === '23505') { // Unique violation
+      return res.status(400).json({ error: 'Este e-mail já está em uso' });
+    }
+    res.status(500).json({ error: 'Erro ao atualizar perfil' });
+  }
+};
+
 module.exports = {
   getUsers,
-  createUser
+  createUser,
+  updateProfile
 };

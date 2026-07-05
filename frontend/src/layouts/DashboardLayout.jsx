@@ -1,17 +1,19 @@
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
-import { Users, Settings, Shield, LogOut, Menu, X, Building2 } from 'lucide-react';
+import { Users, Settings, Shield, LogOut, Menu, X, Building2, UserCircle } from 'lucide-react';
 import { useState } from 'react';
+import { useAuth } from '../context/AuthContext';
+import UserProfileModal from '../components/UserProfileModal';
 
 export default function DashboardLayout() {
   const location = useLocation();
   const navigate = useNavigate();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
 
-  // Mock do usuário logado (será substituído pelo AuthContext depois)
-  const user = { name: 'Administrador', role: 'admin' };
+  const { user, logout } = useAuth();
 
   const handleLogout = () => {
-    // Lógica de logout (limpar token, etc) será implementada depois
+    logout();
     navigate('/login');
   };
 
@@ -55,12 +57,12 @@ export default function DashboardLayout() {
         
         <div className="p-4 border-t border-slate-800">
           <div className="flex items-center mb-4">
-            <div className="w-8 h-8 rounded-full bg-indigo-500 flex items-center justify-center text-white font-bold">
-              {user.name.charAt(0)}
+            <div className="w-8 h-8 rounded-full bg-indigo-500 flex items-center justify-center text-white font-bold cursor-pointer hover:bg-indigo-400" onClick={() => setIsProfileModalOpen(true)} title="Meu Perfil">
+              {user?.name?.charAt(0) || 'U'}
             </div>
-            <div className="ml-3">
-              <p className="text-sm font-medium text-white">{user.name}</p>
-              <p className="text-xs text-slate-400 capitalize">{user.role}</p>
+            <div className="ml-3 cursor-pointer" onClick={() => setIsProfileModalOpen(true)}>
+              <p className="text-sm font-medium text-white hover:text-indigo-300">{user?.name || 'Usuário'}</p>
+              <p className="text-xs text-slate-400 capitalize">{user?.role || 'user'}</p>
             </div>
           </div>
           <button
@@ -118,6 +120,11 @@ export default function DashboardLayout() {
           <Outlet />
         </div>
       </main>
+
+      <UserProfileModal 
+        isOpen={isProfileModalOpen} 
+        onClose={() => setIsProfileModalOpen(false)} 
+      />
     </div>
   );
 }

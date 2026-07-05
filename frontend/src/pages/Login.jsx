@@ -22,25 +22,11 @@ export default function Login() {
       const result = await login(email, password);
       
       if (result.success) {
-        // --- INÍCIO: BOOTSTRAP TEMPORÁRIO DE CRYPTO ---
-        // Em um fluxo real de cadastro, o backend cria e salva isso no banco.
-        // Como o seeder inicial não tem isso no banco, geramos aqui se faltar e guardamos no localStorage.
-        // O ideal é que o backend atualize o banco com essas informações.
         const userData = JSON.parse(localStorage.getItem('user') || '{}');
-        
         if (userData.wrapped_key) {
           localStorage.setItem('user_wrapped_key', userData.wrapped_key);
           localStorage.setItem('user_salt', userData.crypto_salt);
-        } else if (!localStorage.getItem('user_wrapped_key')) {
-          const salt = 'fullpassword-salt-super-seguro-123';
-          const kek = await deriveMasterKey(password, salt);
-          const newMasterKey = await generateMasterKey();
-          const wrappedKey = await wrapMasterKey(newMasterKey, kek);
-          
-          localStorage.setItem('user_wrapped_key', wrappedKey);
-          localStorage.setItem('user_salt', salt);
         }
-        // --- FIM: BOOTSTRAP TEMPORÁRIO ---
 
         navigate('/');
       } else {

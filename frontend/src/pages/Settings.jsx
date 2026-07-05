@@ -27,16 +27,17 @@ export default function Settings() {
     }
 
     try {
-      setIsUpdating(true);
       const response = await api.post('/system/update');
       
+      // Só inicia o timer se o backend confirmou sucesso
+      setIsUpdating(true);
       // Define o countdown com base na estimativa do backend (ou 30s por padrão)
       setUpdateCountdown(response.data.estimatedTime || 30);
       
     } catch (error) {
       setIsUpdating(false);
       console.error('Erro ao iniciar atualização:', error);
-      alert(error.response?.data?.error || 'Erro ao iniciar atualização. Verifique se você tem permissão de administrador.');
+      alert(error.response?.data?.error || 'Erro ao iniciar atualização. Verifique se você tem permissão de administrador e se o docker-compose está acessível.');
     }
   };
 
@@ -50,6 +51,11 @@ export default function Settings() {
             Configurações do Sistema
           </h1>
           <p className="text-sm text-slate-500">Gerencie parâmetros globais e atualizações da plataforma</p>
+        </div>
+        <div className="text-right">
+          <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-slate-100 text-slate-800">
+            Versão Atual: v1.0.1
+          </span>
         </div>
       </div>
 

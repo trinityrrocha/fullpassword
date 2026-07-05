@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const argon2 = require('argon2');
+const crypto = require('crypto');
 const db = require('../config/database');
 
 // Chave secreta para JWT
@@ -54,6 +55,40 @@ const login = async (req, res) => {
     
     const groups = groupsResult.rows.map(row => row.group_id);
 
+    // BOOTSTRAP DO ADMIN: Se o usuário logou com sucesso, mas não tem wrapped_key
+    // (ex: admin criado pelo seeder inicial), geramos as chaves aqui no backend.
+    let finalWrappedKey = user.wrapped_key;
+    let finalCryptoSalt = user.crypto_salt;
+
+    if (!user.wrapped_key) {
+      console.log(`Realizando bootstrap criptográfico para o usuário ${user.email}`);
+      
+      // 1. Gerar Salt
+      finalCryptoSalt = crypto.randomBytes(32).toString('hex');
+      
+      // 2. Gerar Master Key
+      const masterKeyBuffer = crypto.randomBytes(32);
+      
+      // 3. Derivar KEK
+      const kekBuffer = crypto.pbkdf2Sync(password, finalCryptoSalt, 100000, 32, 'sha256');
+      
+      // 4. Envelopar Master Key
+      const iv = crypto.randomBytes(12);
+      const cipher = crypto.createCipheriv('aes-256-gcm', kekBuffer, iv);
+      let wrappedKeyBuffer = cipher.update(masterKeyBuffer);
+      wrappedKeyBuffer = Buffer.concat([wrappedKeyBuffer, cipher.final()]);
+      const authTag = cipher.getAuthTag();
+      const finalCiphertext = Buffer.concat([wrappedKeyBuffer, authTag]);
+      finalWrappedKey = `${iv.toString('base64')}:${finalCiphertext.toString('base64')}`;
+
+      // 5. Salvar no banco (incluindo o hash da senha caso fosse o placeholder)
+      const hashSenhaLogin = await argon2.hash(password);
+      await db.query(
+        'UPDATE users SET hash_senha_login = $1, wrapped_key = $2, crypto_salt = $3 WHERE id = $4',
+        [hashSenhaLogin, finalWrappedKey, finalCryptoSalt, user.id]
+      );
+    }
+
     // Gerar token JWT
     const token = jwt.sign(
       { 
@@ -75,8 +110,8 @@ const login = async (req, res) => {
         name: user.name,
         email: user.email,
         role: user.role,
-        wrapped_key: user.wrapped_key,
-        crypto_salt: user.crypto_salt
+        wrapped_key: finalWrappedKey,
+        crypto_salt: finalCryptoSalt
       }
     });
 
