@@ -41,11 +41,20 @@ const getClients = async (req, res) => {
 // POST /api/clients - Cadastra um novo cliente
 const createClient = async (req, res) => {
   try {
-    const { name, address, group_ids } = req.body;
+    // O frontend envia phone e email, mas o banco atual (init.sql) só tem address.
+    // Vamos juntar tudo no campo address para não precisar rodar migration agora,
+    // ou se preferir salvar no metadata futuramente.
+    // O ideal seria adicionar colunas 'phone' e 'email' na tabela clients.
+    const { name, address, phone, email, group_ids } = req.body;
 
     if (!name) {
       return res.status(400).json({ error: 'Nome do cliente é obrigatório' });
     }
+
+    // Compõe um endereço enriquecido com telefone e e-mail
+    let fullAddress = address || '';
+    if (phone) fullAddress += ` | Tel: ${phone}`;
+    if (email) fullAddress += ` | E-mail: ${email}`;
 
     // Iniciar transação
     await db.query('BEGIN');
@@ -53,7 +62,7 @@ const createClient = async (req, res) => {
     // Inserir cliente
     const clientResult = await db.query(
       'INSERT INTO clients (name, address) VALUES ($1, $2) RETURNING *',
-      [name, address]
+      [name, fullAddress]
     );
     
     const newClient = clientResult.rows[0];

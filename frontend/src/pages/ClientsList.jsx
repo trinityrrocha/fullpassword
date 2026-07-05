@@ -1,10 +1,14 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Building2, Search, Plus, ChevronRight, Lock, X } from 'lucide-react';
+import { Building2, Search, Plus, ChevronRight, Lock, X, Loader2 } from 'lucide-react';
+import api from '../services/api';
 
 export default function ClientsList() {
   const [searchTerm, setSearchTerm] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [clients, setClients] = useState([]);
   const [newClient, setNewClient] = useState({
     name: '',
     address: '',
@@ -12,26 +16,43 @@ export default function ClientsList() {
     email: ''
   });
 
-  // Mock de clientes (será substituído por chamada à API)
-  const mockClients = [
-    { id: '1', name: 'Acme Corp', address: 'Av. Paulista, 1000 - SP', itemsCount: 12 },
-    { id: '2', name: 'Tech Solutions', address: 'Rua das Flores, 123 - RJ', itemsCount: 5 },
-    { id: '3', name: 'Global Industries', address: 'Setor Comercial Sul - DF', itemsCount: 28 },
-    { id: '4', name: 'StartUp Innovate', address: 'Av. Rio Branco, 500 - SP', itemsCount: 3 },
-  ];
+  const loadClients = async () => {
+    setIsLoading(true);
+    try {
+      const response = await api.get('/clients');
+      // Adicionando itemsCount provisório, em produção isso viria do backend
+      setClients(response.data.map(c => ({ ...c, itemsCount: 0 })));
+    } catch (error) {
+      console.error('Erro ao carregar clientes:', error);
+      alert('Não foi possível carregar a lista de clientes.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
-  const filteredClients = mockClients.filter(client => 
+  useEffect(() => {
+    loadClients();
+  }, []);
+
+  const filteredClients = clients.filter(client => 
     client.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   const handleCreateClient = async (e) => {
     e.preventDefault();
-    // TODO: Implementar chamada à API
-    // await api.post('/clients', newClient);
-    console.log('Novo cliente:', newClient);
-    alert('Cliente criado com sucesso! (Simulação)');
-    setIsModalOpen(false);
-    setNewClient({ name: '', address: '', phone: '', email: '' });
+    setIsSaving(true);
+    try {
+      await api.post('/clients', newClient);
+      alert('Cliente criado com sucesso!');
+      setIsModalOpen(false);
+      setNewClient({ name: '', address: '', phone: '', email: '' });
+      loadClients(); // Recarrega a lista
+    } catch (error) {
+      console.error('Erro ao criar cliente:', error);
+      alert(error.response?.data?.error || 'Erro ao criar cliente.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -67,7 +88,16 @@ export default function ClientsList() {
         </div>
 
         <ul className="divide-y divide-slate-200">
-          {filteredClients.map((client) => (
+          {isLoading ? (
+            <li className="px-4 py-8 text-center text-slate-500">
+              <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-indigo-600" />
+              Carregando clientes...
+            </li>
+          ) : filteredClients.length === 0 ? (
+            <li className="px-4 py-8 text-center text-slate-500">
+              Nenhum cliente encontrado.
+            </li>
+          ) : filteredClients.map((client) => (
             <li key={client.id}>
               <Link 
                 to={`/client/${client.id}`}
@@ -94,11 +124,7 @@ export default function ClientsList() {
               </Link>
             </li>
           ))}
-          {filteredClients.length === 0 && (
-            <li className="px-4 py-8 text-center text-slate-500">
-              Nenhum cliente encontrado com a busca "{searchTerm}".
-            </li>
-          )}
+
         </ul>
       </div>
 
@@ -176,9 +202,12 @@ export default function ClientsList() {
                 <button 
                   type="submit" 
                   form="newClientForm"
-                  className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-indigo-600 text-base font-medium text-white hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:ml-3 sm:w-auto sm:text-sm"
+                  disabled={isSaving}
+                  className={`w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-indigo-600 text-base font-medium text-white hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:ml-3 sm:w-auto sm:text-sm ${isSaving ? 'opacity-70 cursor-not-allowed' : ''}`}
                 >
-                  Salvar Cliente
+                  {isSaving ? (
+                    <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Salvando...</>
+                  ) : 'Salvar Cliente'}
                 </button>
                 <button 
                   type="button" 

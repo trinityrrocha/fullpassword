@@ -1,9 +1,15 @@
-import { useState } from 'react';
-import { Users, Plus, Shield, Mail, X } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Users, Plus, Shield, Mail, X, Loader2 } from 'lucide-react';
 import SecurePasswordInput from '../components/SecurePasswordInput';
+import api from '../services/api';
+import { useAuth } from '../context/AuthContext';
 
 export default function TeamList() {
+  const { user } = useAuth();
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [teamMembers, setTeamMembers] = useState([]);
   const [newUser, setNewUser] = useState({
     name: '',
     email: '',
@@ -11,21 +17,38 @@ export default function TeamList() {
     role: 'user'
   });
 
-  // Mock de usuários (será substituído por chamada à API)
-  const [teamMembers] = useState([
-    { id: 1, name: 'Admin Principal', email: 'admin@admin.com.br', role: 'admin', status: 'Ativo' },
-    { id: 2, name: 'João Técnico', email: 'joao@empresa.com.br', role: 'user', status: 'Ativo' },
-    { id: 3, name: 'Maria Infra', email: 'maria@empresa.com.br', role: 'user', status: 'Ativo' }
-  ]);
+  const loadUsers = async () => {
+    setIsLoading(true);
+    try {
+      const response = await api.get('/users');
+      setTeamMembers(response.data.map(u => ({ ...u, status: 'Ativo' })));
+    } catch (error) {
+      console.error('Erro ao carregar usuários:', error);
+      alert('Não foi possível carregar a lista de usuários.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadUsers();
+  }, []);
 
   const handleCreateUser = async (e) => {
     e.preventDefault();
-    // TODO: Implementar chamada à API
-    // await api.post('/users', newUser);
-    console.log('Novo usuário:', newUser);
-    alert('Usuário criado com sucesso! (Simulação)');
-    setIsModalOpen(false);
-    setNewUser({ name: '', email: '', password: '', role: 'user' });
+    setIsSaving(true);
+    try {
+      await api.post('/users', newUser);
+      alert('Usuário criado com sucesso!');
+      setIsModalOpen(false);
+      setNewUser({ name: '', email: '', password: '', role: 'user' });
+      loadUsers(); // Recarrega a lista
+    } catch (error) {
+      console.error('Erro ao criar usuário:', error);
+      alert(error.response?.data?.error || 'Erro ao criar usuário. Verifique se o e-mail já existe.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -66,7 +89,20 @@ export default function TeamList() {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-slate-200">
-              {teamMembers.map((member) => (
+              {isLoading ? (
+                <tr>
+                  <td colSpan="4" className="px-6 py-4 text-center text-sm text-slate-500">
+                    <Loader2 className="w-5 h-5 animate-spin mx-auto mb-2 text-indigo-600" />
+                    Carregando usuários...
+                  </td>
+                </tr>
+              ) : teamMembers.length === 0 ? (
+                <tr>
+                  <td colSpan="4" className="px-6 py-4 text-center text-sm text-slate-500">
+                    Nenhum usuário encontrado.
+                  </td>
+                </tr>
+              ) : teamMembers.map((member) => (
                 <tr key={member.id} className="hover:bg-slate-50">
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="flex items-center">
@@ -178,13 +214,16 @@ export default function TeamList() {
                   </div>
                 </form>
               </div>
-              <div className="bg-slate-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+                  <div className="bg-slate-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
                 <button 
                   type="submit" 
                   form="newUserForm"
-                  className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-indigo-600 text-base font-medium text-white hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:ml-3 sm:w-auto sm:text-sm"
+                  disabled={isSaving}
+                  className={`w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-indigo-600 text-base font-medium text-white hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:ml-3 sm:w-auto sm:text-sm ${isSaving ? 'opacity-70 cursor-not-allowed' : ''}`}
                 >
-                  Salvar Usuário
+                  {isSaving ? (
+                    <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Salvando...</>
+                  ) : 'Salvar Usuário'}
                 </button>
                 <button 
                   type="button" 
