@@ -7,6 +7,8 @@ CREATE TABLE IF NOT EXISTS users (
     name VARCHAR(255) NOT NULL,
     email VARCHAR(255) UNIQUE NOT NULL,
     hash_senha_login VARCHAR(255) NOT NULL,
+    wrapped_key TEXT, -- Master Key envelopada com a KEK derivada da senha
+    crypto_salt VARCHAR(255), -- Salt usado para derivar a KEK
     role VARCHAR(50) NOT NULL DEFAULT 'user',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP

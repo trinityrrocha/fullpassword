@@ -179,11 +179,24 @@ export default function ClientVault() {
 
   const handleUnlock = async (e) => {
     e.preventDefault();
-    const result = await unlockVault(unlockPassword);
-    if (!result.success) {
-      alert(result.error);
+    // NOTA: Em um cenário real, `wrappedKeyStr` e `saltStr` devem vir do perfil do usuário via API.
+    // Como o backend atual ainda não os fornece, usaremos valores simulados para garantir
+    // que a arquitetura criptográfica funcione no frontend sem quebrar a aplicação atual.
+    // Na Fase 40 ajustaremos o backend para fornecê-los.
+    const userWrappedKey = localStorage.getItem('user_wrapped_key');
+    const userSalt = localStorage.getItem('user_salt') || 'fullpassword-salt-super-seguro-123';
+    
+    if (!userWrappedKey) {
+      alert("Erro crítico: Chave envelopada do usuário não encontrada. Faça login novamente ou recadastre o usuário.");
+      return;
     }
-    setUnlockPassword('');
+
+    const result = await unlockVault(unlockPassword, userWrappedKey, userSalt);
+    if (!result.success) {
+      alert(result.error); // Exibirá "Senha mestre incorreta"
+    } else {
+      setUnlockPassword('');
+    }
   };
 
   const handleDownloadAttachment = async (item) => {

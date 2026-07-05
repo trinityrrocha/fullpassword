@@ -42,7 +42,7 @@ const base64ToBuffer = (base64) => {
  * @param {string} password - A senha em texto claro
  * @returns {Promise<CryptoKey>} - A chave criptográfica utilizável para AES-GCM
  */
-export const deriveMasterKey = async (password) => {
+export const deriveMasterKey = async (password, saltString = 'fullpassword-salt-super-seguro-123') => {
   const enc = new TextEncoder();
   const keyMaterial = await window.crypto.subtle.importKey(
     'raw',
@@ -52,9 +52,7 @@ export const deriveMasterKey = async (password) => {
     ['deriveBits', 'deriveKey']
   );
 
-  // Em produção, o salt deve ser único por usuário e recuperado do backend antes do login
-  // Aqui usamos um salt fixo apenas para demonstração do conceito
-  const salt = enc.encode('fullpassword-salt-super-seguro-123');
+  const salt = enc.encode(saltString);
 
   return await window.crypto.subtle.deriveKey(
     {
@@ -65,9 +63,79 @@ export const deriveMasterKey = async (password) => {
     },
     keyMaterial,
     { name: 'AES-GCM', length: 256 },
-    true, // Permite exportar se necessário (mas não faremos isso)
+    true, // Permite exportar a chave para wrap/unwrap
+    ['encrypt', 'decrypt', 'wrapKey', 'unwrapKey']
+  );
+};
+
+/**
+ * Gera uma nova Master Key aleatória (AES-GCM 256)
+ */
+export const generateMasterKey = async () => {
+  return await window.crypto.subtle.generateKey(
+    { name: 'AES-GCM', length: 256 },
+    true,
     ['encrypt', 'decrypt']
   );
+};
+
+/**
+ * Envelopa (Wraps) a Master Key usando uma Key Encryption Key (KEK) derivada da senha
+ * @param {CryptoKey} masterKey - A chave mestra a ser protegida
+ * @param {CryptoKey} kek - A chave derivada da senha do usuário
+ * @returns {Promise<string>} - A chave mestra envelopada em formato Base64 (iv:ciphertext)
+ */
+export const wrapMasterKey = async (masterKey, kek) => {
+  try {
+    const iv = window.crypto.getRandomValues(new Uint8Array(12));
+    
+    const wrappedKeyBuffer = await window.crypto.subtle.wrapKey(
+      'raw',
+      masterKey,
+      kek,
+      { name: 'AES-GCM', iv: iv }
+    );
+    
+    const ivBase64 = bufferToBase64(iv);
+    const wrappedKeyBase64 = bufferToBase64(wrappedKeyBuffer);
+    
+    return `${ivBase64}:${wrappedKeyBase64}`;
+  } catch (error) {
+    console.error('Erro ao envelopar Master Key:', error);
+    throw new Error('Falha ao proteger a chave mestra');
+  }
+};
+
+/**
+ * Desenvelopa (Unwraps) a Master Key usando a KEK derivada da senha
+ * @param {string} wrappedKeyStr - A chave envelopada (iv:ciphertext)
+ * @param {CryptoKey} kek - A chave derivada da senha do usuário
+ * @returns {Promise<CryptoKey>} - A Master Key original
+ */
+export const unwrapMasterKey = async (wrappedKeyStr, kek) => {
+  try {
+    if (!wrappedKeyStr || !wrappedKeyStr.includes(':')) {
+      throw new Error('Formato de chave envelopada inválido');
+    }
+
+    const [ivBase64, wrappedKeyBase64] = wrappedKeyStr.split(':');
+    const iv = base64ToBuffer(ivBase64);
+    const wrappedKeyBuffer = base64ToBuffer(wrappedKeyBase64);
+
+    return await window.crypto.subtle.unwrapKey(
+      'raw',
+      wrappedKeyBuffer,
+      kek,
+      { name: 'AES-GCM', iv: new Uint8Array(iv) },
+      { name: 'AES-GCM', length: 256 },
+      true,
+      ['encrypt', 'decrypt']
+    );
+  } catch (error) {
+    console.error('Erro ao desenvelopar Master Key:', error);
+    // Erro criptográfico real (OperationError) ocorre se a KEK estiver errada
+    throw new Error('Senha mestre incorreta'); 
+  }
 };
 
 /**

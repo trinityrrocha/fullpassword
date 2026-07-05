@@ -16,7 +16,7 @@ const login = async (req, res) => {
 
     // Buscar usuário no banco
     const result = await db.query(
-      'SELECT id, name, email, hash_senha_login, role FROM users WHERE email = $1',
+      'SELECT id, name, email, hash_senha_login, role, wrapped_key, crypto_salt FROM users WHERE email = $1',
       [email]
     );
 
@@ -74,7 +74,9 @@ const login = async (req, res) => {
         id: user.id,
         name: user.name,
         email: user.email,
-        role: user.role
+        role: user.role,
+        wrapped_key: user.wrapped_key,
+        crypto_salt: user.crypto_salt
       }
     });
 

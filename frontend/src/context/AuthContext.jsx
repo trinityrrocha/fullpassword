@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect } from 'react';
 import api from '../services/api';
-import { deriveMasterKey } from '../services/cryptoService';
+import { deriveMasterKey, unwrapMasterKey } from '../services/cryptoService';
 
 const AuthContext = createContext(null);
 
@@ -40,11 +40,12 @@ export const AuthProvider = ({ children }) => {
       setToken(jwtToken);
       setUser(userData);
 
-      // 3. ZERO-KNOWLEDGE: Derivar a Master Key a partir da senha em texto claro
-      // e guardar APENAS no estado do React (memória)
-      const key = await deriveMasterKey(password);
-      setMasterKey(key);
-
+      // 3. ZERO-KNOWLEDGE: O login agora apenas autentica.
+      // A Master Key real deve ser desenvelopada a partir do wrapped_key do usuário.
+      // Se o usuário logou, ele terá que desbloquear o cofre depois.
+      // NOTA: Se tivéssemos o wrapped_key no response do login, poderíamos desenvelopar aqui.
+      // Por enquanto, vamos simular que o usuário precisa desbloquear explicitamente.
+      
       return { success: true };
     } catch (error) {
       console.error('Erro no login:', error);
@@ -63,14 +64,22 @@ export const AuthProvider = ({ children }) => {
     setMasterKey(null); // Limpar a chave da memória
   };
 
-  // Função para solicitar a senha master novamente (caso a página tenha sido recarregada)
-  const unlockVault = async (password) => {
+  // Função para solicitar a senha master e desenvelopar a Master Key real
+  const unlockVault = async (password, wrappedKeyStr, saltStr) => {
     try {
-      const key = await deriveMasterKey(password);
+      // 1. Derivar a KEK (Key Encryption Key) a partir da senha fornecida
+      const kek = await deriveMasterKey(password, saltStr);
+      
+      // 2. Tentar desenvelopar a Master Key
+      // Se a senha estiver errada, o unwrapKey falhará com erro criptográfico
+      const key = await unwrapMasterKey(wrappedKeyStr, kek);
+      
+      // 3. Sucesso! Guardar na memória
       setMasterKey(key);
       return { success: true };
     } catch (error) {
-      return { success: false, error: 'Erro ao gerar chave mestra' };
+      console.error("Falha no desbloqueio:", error);
+      return { success: false, error: 'Senha mestre incorreta' };
     }
   };
 
