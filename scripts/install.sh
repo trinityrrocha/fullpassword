@@ -31,7 +31,7 @@ read -p "Digite o domínio para o FullPassword (ex: cofre.seudominio.com.br): " 
 read -p "Digite seu e-mail (para o certificado Let's Encrypt): " LETSENCRYPT_EMAIL
 read -p "Digite a porta SSH atual da sua VPS [Padrão: 22]: " SSH_PORT
 SSH_PORT=${SSH_PORT:-22}
-read -p "Digite a URL do repositório GitHub (ex: https://github.com/usuario/fullpassword.git): " REPO_URL
+REPO_URL="https://github.com/trinityrrocha/fullpassword.git"
 
 # Geração de senhas fortes automáticas
 DB_PASSWORD=$(openssl rand -base64 24 | tr -dc 'a-zA-Z0-9' | head -c 24)
