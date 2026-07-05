@@ -20,12 +20,16 @@ const updateSystem = async (req, res) => {
     setTimeout(() => {
       console.log('Iniciando WebUpdater...');
       
-      // O diretório /opt/fullpassword está mapeado no docker-compose
-      const updateCommand = `
-        cd /opt/fullpassword && \
-        git pull origin main && \
-        docker compose up -d --build
-      `;
+      // Técnica de Contêiner Efêmero Detached:
+      // Disparamos um container independente em background que executará a atualização.
+      // O sleep 3 garante que este container (backend atual) tenha tempo de enviar a resposta HTTP.
+      // A imagem 'fullpassword-backend' já possui o git e o docker-cli-compose instalados.
+      const updateCommand = `docker run --rm -d \
+        -v /var/run/docker.sock:/var/run/docker.sock \
+        -v /opt/fullpassword:/opt/fullpassword \
+        -w /opt/fullpassword \
+        fullpassword-backend \
+        sh -c "sleep 3 && git config --global --add safe.directory /opt/fullpassword && git pull origin main && docker compose up -d --build"`;
 
       exec(updateCommand, (error, stdout, stderr) => {
         if (error) {
