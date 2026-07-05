@@ -7,5 +7,6 @@ const { verifyToken } = require('../middleware/authMiddleware');
 router.use(verifyToken);
 
 router.post('/update', systemController.updateSystem);
+router.get('/backup', systemController.downloadBackup);
 
 module.exports = router;
