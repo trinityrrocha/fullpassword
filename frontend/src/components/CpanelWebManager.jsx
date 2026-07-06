@@ -113,6 +113,8 @@ export default function CpanelWebManager({ cpanelForm, setCpanelForm, handleSave
   const [editingUser, setEditingUser] = useState(null);
   const [deleteCpanelConfirmation, setDeleteCpanelConfirmation] = useState('');
   const [deleteUserConfirmation, setDeleteUserConfirmation] = useState('');
+  const [showCpanelCreateModal, setShowCpanelCreateModal] = useState(false);
+  const [showUserCreateModal, setShowUserCreateModal] = useState(false);
   const [userSearch, setUserSearch] = useState('');
 
   const getCpanelById = (cpanelId) => normalizedForm.cpanels.find((item) => item.id === cpanelId);
@@ -144,6 +146,16 @@ export default function CpanelWebManager({ cpanelForm, setCpanelForm, handleSave
     return domain ? `${login}@${domain}` : login;
   };
 
+  const openCreateCpanelModal = () => {
+    setCpanelDraft(emptyCpanel());
+    setShowCpanelCreateModal(true);
+  };
+
+  const openCreateUserModal = () => {
+    setUserDraft(emptyCpanelUser(normalizedForm.cpanels[0]?.id || ''));
+    setShowUserCreateModal(true);
+  };
+
   const persistCpanelForm = async (nextForm, successMessage) => {
     const saved = await handleSaveData('cPanel', nextForm, { successMessage });
     if (saved) setCpanelForm(nextForm);
@@ -170,6 +182,7 @@ export default function CpanelWebManager({ cpanelForm, setCpanelForm, handleSave
     if (saved) {
       setCpanelDraft(emptyCpanel());
       setUserDraft((current) => ({ ...current, cpanelId: current.cpanelId || newCpanel.id }));
+      setShowCpanelCreateModal(false);
     }
   };
 
@@ -230,7 +243,10 @@ export default function CpanelWebManager({ cpanelForm, setCpanelForm, handleSave
     };
 
     const saved = await persistCpanelForm(nextForm, 'Usuário cadastrado e salvo automaticamente no cofre.');
-    if (saved) setUserDraft(emptyCpanelUser(userDraft.cpanelId));
+    if (saved) {
+      setUserDraft(emptyCpanelUser(userDraft.cpanelId));
+      setShowUserCreateModal(false);
+    }
   };
 
   const saveEditedUser = async () => {
@@ -290,35 +306,17 @@ export default function CpanelWebManager({ cpanelForm, setCpanelForm, handleSave
   return (
     <div className="space-y-6 animate-fadeIn">
       <div className="bg-slate-50 border border-slate-200 rounded-lg p-5">
-        <h3 className="text-lg font-medium text-slate-900 mb-4">Cadastro de cPanel / domínio</h3>
-        <div className="grid grid-cols-1 gap-y-4 gap-x-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Domínio</label>
-            <input type="text" className="w-full border-slate-300 rounded-md shadow-sm p-2 border" value={cpanelDraft.domain} onChange={(e) => setCpanelDraft({ ...cpanelDraft, domain: e.target.value })} placeholder="dominio.com.br" />
+            <h3 className="text-lg font-medium text-slate-900">cPanel / domínio</h3>
+            <p className="text-sm text-slate-500">Cadastre e gerencie múltiplos acessos de hospedagem.</p>
           </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">URL do cPanel</label>
-            <input type="url" className="w-full border-slate-300 rounded-md shadow-sm p-2 border" value={cpanelDraft.url} onChange={(e) => setCpanelDraft({ ...cpanelDraft, url: e.target.value })} placeholder="https://cpanel.dominio.com.br" />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Usuário cPanel</label>
-            <input type="text" className="w-full border-slate-300 rounded-md shadow-sm p-2 border" value={cpanelDraft.username} onChange={(e) => setCpanelDraft({ ...cpanelDraft, username: e.target.value })} />
-          </div>
-          <div className="sm:col-span-2 max-w-md">
-            <SecurePasswordInput name="new_cpanel_password" label="Senha cPanel" value={cpanelDraft.password} onChange={(e) => setCpanelDraft({ ...cpanelDraft, password: e.target.value })} />
-          </div>
-          <div className="sm:col-span-2 lg:col-span-3">
-            <label className="block text-sm font-medium text-slate-700 mb-1">Observações</label>
-            <textarea rows={2} className="w-full border-slate-300 rounded-md shadow-sm p-2 border" value={cpanelDraft.notes} onChange={(e) => setCpanelDraft({ ...cpanelDraft, notes: e.target.value })} placeholder="Observações do domínio / hospedagem"></textarea>
-          </div>
-        </div>
-        <div className="mt-4 flex justify-end">
-          <button type="button" disabled={isSaving} onClick={addCpanel} className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50">
-            <Plus className="w-4 h-4 mr-2" /> {isSaving ? 'Salvando...' : 'Adicionar cPanel / domínio'}
+          <button type="button" disabled={isSaving} onClick={openCreateCpanelModal} className="inline-flex items-center justify-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50">
+            <Plus className="w-4 h-4 mr-2" /> Adicionar cPanel / domínio
           </button>
         </div>
 
-        <div className="mt-6 space-y-3">
+        <div className="mt-5 space-y-3">
           {normalizedForm.cpanels.length === 0 ? (
             <p className="text-sm text-slate-500">Nenhum cPanel / domínio cadastrado.</p>
           ) : normalizedForm.cpanels.map((cpanel) => (
@@ -336,38 +334,13 @@ export default function CpanelWebManager({ cpanelForm, setCpanelForm, handleSave
       </div>
 
       <div className="bg-slate-50 border border-slate-200 rounded-lg p-5">
-        <h3 className="text-lg font-medium text-slate-900 mb-4">Cadastro de usuários</h3>
-        <div className="grid grid-cols-1 gap-y-4 gap-x-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Nome</label>
-            <input type="text" className="w-full border-slate-300 rounded-md shadow-sm p-2 border" value={userDraft.name} onChange={(e) => setUserDraft({ ...userDraft, name: e.target.value })} />
+            <h3 className="text-lg font-medium text-slate-900">Usuários de cPanel / Web</h3>
+            <p className="text-sm text-slate-500">Cadastre usuários vinculados ao cPanel / domínio.</p>
           </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Login</label>
-            <input type="text" className="w-full border-slate-300 rounded-md shadow-sm p-2 border" value={userDraft.login} onChange={(e) => setUserDraft({ ...userDraft, login: e.target.value })} />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">cPanel / domínio</label>
-            <select className="w-full border-slate-300 rounded-md shadow-sm p-2 border bg-white" value={userDraft.cpanelId} onChange={(e) => setUserDraft({ ...userDraft, cpanelId: e.target.value })}>
-              <option value="">Selecione...</option>
-              {normalizedForm.cpanels.map((cpanel) => (
-                <option key={cpanel.id} value={cpanel.id}>{cpanel.domain || cpanel.url}</option>
-              ))}
-            </select>
-          </div>
-          <div className="max-w-md">
-            <SecurePasswordInput name="new_cpanel_user_password" label="Senha do usuário" value={userDraft.password} onChange={(e) => setUserDraft({ ...userDraft, password: e.target.value })} />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Departamento</label>
-            <select className="w-full border-slate-300 rounded-md shadow-sm p-2 border bg-white" value={userDraft.department} onChange={(e) => setUserDraft({ ...userDraft, department: e.target.value })}>
-              {departmentOptions.map((option) => <option key={option} value={option}>{option}</option>)}
-            </select>
-          </div>
-        </div>
-        <div className="mt-4 flex justify-end">
-          <button type="button" disabled={isSaving} onClick={addCpanelUser} className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50">
-            <Plus className="w-4 h-4 mr-2" /> {isSaving ? 'Salvando...' : 'Adicionar usuário'}
+          <button type="button" disabled={isSaving} onClick={openCreateUserModal} className="inline-flex items-center justify-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50">
+            <Plus className="w-4 h-4 mr-2" /> Adicionar usuário
           </button>
         </div>
       </div>
@@ -396,6 +369,87 @@ export default function CpanelWebManager({ cpanelForm, setCpanelForm, handleSave
           ))}
         </div>
       </div>
+
+      {showCpanelCreateModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900 bg-opacity-60 p-4">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
+              <h3 className="text-lg font-semibold text-slate-900">Adicionar cPanel / domínio</h3>
+              <button type="button" onClick={() => setShowCpanelCreateModal(false)} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Domínio</label>
+                  <input type="text" className="w-full border-slate-300 rounded-md shadow-sm p-2 border" value={cpanelDraft.domain} onChange={(e) => setCpanelDraft({ ...cpanelDraft, domain: e.target.value })} placeholder="dominio.com.br" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">URL do cPanel</label>
+                  <input type="text" className="w-full border-slate-300 rounded-md shadow-sm p-2 border" value={cpanelDraft.url} onChange={(e) => setCpanelDraft({ ...cpanelDraft, url: e.target.value })} placeholder="dominio.com.br:2083" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Usuário cPanel</label>
+                  <input type="text" className="w-full border-slate-300 rounded-md shadow-sm p-2 border" value={cpanelDraft.username} onChange={(e) => setCpanelDraft({ ...cpanelDraft, username: e.target.value })} />
+                </div>
+                <div className="max-w-md">
+                  <SecurePasswordInput name="new_cpanel_password" label="Senha cPanel" value={cpanelDraft.password} onChange={(e) => setCpanelDraft({ ...cpanelDraft, password: e.target.value })} />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Observações</label>
+                  <textarea rows={3} className="w-full border-slate-300 rounded-md shadow-sm p-2 border" value={cpanelDraft.notes} onChange={(e) => setCpanelDraft({ ...cpanelDraft, notes: e.target.value })} placeholder="Observações do domínio / hospedagem"></textarea>
+                </div>
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 px-6 py-4 border-t border-slate-200 bg-slate-50">
+              <button type="button" onClick={() => setShowCpanelCreateModal(false)} className="px-4 py-2 border border-slate-300 rounded-md text-sm font-medium text-slate-700 bg-white hover:bg-slate-50">Cancelar</button>
+              <button type="button" disabled={isSaving} onClick={addCpanel} className="px-4 py-2 border border-transparent rounded-md text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50">{isSaving ? 'Salvando...' : 'Salvar cPanel / domínio'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showUserCreateModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900 bg-opacity-60 p-4">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
+              <h3 className="text-lg font-semibold text-slate-900">Adicionar usuário</h3>
+              <button type="button" onClick={() => setShowUserCreateModal(false)} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Nome</label>
+                  <input type="text" className="w-full border-slate-300 rounded-md shadow-sm p-2 border" value={userDraft.name} onChange={(e) => setUserDraft({ ...userDraft, name: e.target.value })} />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Login</label>
+                  <input type="text" className="w-full border-slate-300 rounded-md shadow-sm p-2 border" value={userDraft.login} onChange={(e) => setUserDraft({ ...userDraft, login: e.target.value })} />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">cPanel / domínio</label>
+                  <select className="w-full border-slate-300 rounded-md shadow-sm p-2 border bg-white" value={userDraft.cpanelId} onChange={(e) => setUserDraft({ ...userDraft, cpanelId: e.target.value })}>
+                    <option value="">Selecione...</option>
+                    {normalizedForm.cpanels.map((cpanel) => <option key={cpanel.id} value={cpanel.id}>{cpanel.domain || cpanel.url}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Departamento</label>
+                  <select className="w-full border-slate-300 rounded-md shadow-sm p-2 border bg-white" value={userDraft.department} onChange={(e) => setUserDraft({ ...userDraft, department: e.target.value })}>
+                    {departmentOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+                  </select>
+                </div>
+                <div className="sm:col-span-2 max-w-md">
+                  <SecurePasswordInput name="new_cpanel_user_password" label="Senha do usuário" value={userDraft.password} onChange={(e) => setUserDraft({ ...userDraft, password: e.target.value })} />
+                </div>
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 px-6 py-4 border-t border-slate-200 bg-slate-50">
+              <button type="button" onClick={() => setShowUserCreateModal(false)} className="px-4 py-2 border border-slate-300 rounded-md text-sm font-medium text-slate-700 bg-white hover:bg-slate-50">Cancelar</button>
+              <button type="button" disabled={isSaving} onClick={addCpanelUser} className="px-4 py-2 border border-transparent rounded-md text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50">{isSaving ? 'Salvando...' : 'Salvar usuário'}</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {editingCpanel && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900 bg-opacity-60 p-4">
