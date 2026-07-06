@@ -184,10 +184,12 @@ export default function ClientVault() {
     }
   }, [id, isVaultUnlocked]);
 
-  const handleSaveData = async (category, data) => {
+  const handleSaveData = async (category, data, options = {}) => {
+    const { showSuccess = true, successMessage } = options;
+
     if (!isVaultUnlocked) {
       alert('Cofre bloqueado. Por favor, insira sua senha mestre para continuar.');
-      return;
+      return false;
     }
 
     setIsSaving(true);
@@ -220,13 +222,23 @@ export default function ClientVault() {
       };
 
       await api.post(`/vault-items/${id}`, payload);
-      alert(`Dados de ${category} salvos com sucesso e criptografados localmente!`);
+
+      if (showSuccess) {
+        alert(successMessage || `Dados de ${category} salvos com sucesso e criptografados localmente!`);
+      }
+
+      return true;
     } catch (error) {
       console.error('Erro ao salvar no cofre:', error);
       alert('Erro ao salvar os dados. Verifique o console.');
+      return false;
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const persistTsForm = async (nextForm, successMessage) => {
+    return handleSaveData('Servidor TS', nextForm, { successMessage });
   };
 
   const handleUnlock = async (e) => {
@@ -260,16 +272,28 @@ export default function ClientVault() {
     }
   };
 
-  const addTsServer = () => {
+  const addTsServer = async () => {
     if (!serverDraft.name.trim() || !serverDraft.ip.trim()) {
       alert('Informe pelo menos o nome do servidor e o IP.');
       return;
     }
 
     const newServer = { ...serverDraft, id: makeId() };
-    setTsForm((current) => ({ ...current, servers: [newServer, ...current.servers] }));
-    setServerDraft(emptyServer());
-    setUserDraft((current) => ({ ...current, serverId: current.serverId || newServer.id }));
+    const nextForm = { ...tsForm, servers: [newServer, ...tsForm.servers] };
+
+    const saved = await persistTsForm(
+      nextForm,
+      'Servidor cadastrado e salvo automaticamente no cofre.'
+    );
+
+    if (saved) {
+      setTsForm(nextForm);
+      setServerDraft(emptyServer());
+      setUserDraft((current) => ({
+        ...current,
+        serverId: current.serverId || newServer.id
+      }));
+    }
   };
 
   const updateServerDraft = (field, value) => {
@@ -281,39 +305,49 @@ export default function ClientVault() {
     setDeleteConfirmation('');
   };
 
-  const saveEditedServer = () => {
+  const saveEditedServer = async () => {
     if (!editingServer.name.trim() || !editingServer.ip.trim()) {
       alert('Informe pelo menos o nome do servidor e o IP.');
       return;
     }
 
-    setTsForm((current) => ({
-      ...current,
-      servers: current.servers.map((server) => server.id === editingServer.id ? editingServer : server)
-    }));
-    setEditingServer(null);
-    setDeleteConfirmation('');
+    const nextForm = {
+      ...tsForm,
+      servers: tsForm.servers.map((server) => server.id === editingServer.id ? editingServer : server)
+    };
+
+    const saved = await persistTsForm(nextForm, 'Servidor atualizado e salvo no cofre.');
+    if (saved) {
+      setTsForm(nextForm);
+      setEditingServer(null);
+      setDeleteConfirmation('');
+    }
   };
 
-  const deleteEditedServer = () => {
+  const deleteEditedServer = async () => {
     if (deleteConfirmation !== 'EXCLUIR') {
       alert('Para confirmar a exclusão, escreva EXCLUIR no campo de confirmação.');
       return;
     }
 
-    setTsForm((current) => ({
-      servers: current.servers.filter((server) => server.id !== editingServer.id),
-      users: current.users.map((user) => user.serverId === editingServer.id ? { ...user, serverId: '' } : user)
-    }));
-    setEditingServer(null);
-    setDeleteConfirmation('');
+    const nextForm = {
+      servers: tsForm.servers.filter((server) => server.id !== editingServer.id),
+      users: tsForm.users.map((user) => user.serverId === editingServer.id ? { ...user, serverId: '' } : user)
+    };
+
+    const saved = await persistTsForm(nextForm, 'Servidor excluído e cofre atualizado.');
+    if (saved) {
+      setTsForm(nextForm);
+      setEditingServer(null);
+      setDeleteConfirmation('');
+    }
   };
 
   const updateUserDraft = (field, value) => {
     setUserDraft((current) => ({ ...current, [field]: value }));
   };
 
-  const addTsUser = () => {
+  const addTsUser = async () => {
     if (!userDraft.serverId) {
       alert('Selecione o servidor ao qual este usuário pertence.');
       return;
@@ -324,8 +358,17 @@ export default function ClientVault() {
     }
 
     const newUser = { ...userDraft, id: makeId() };
-    setTsForm((current) => ({ ...current, users: [newUser, ...current.users] }));
-    setUserDraft(emptyTsUser(userDraft.serverId));
+    const nextForm = { ...tsForm, users: [newUser, ...tsForm.users] };
+
+    const saved = await persistTsForm(
+      nextForm,
+      'Usuário cadastrado e salvo automaticamente no cofre.'
+    );
+
+    if (saved) {
+      setTsForm(nextForm);
+      setUserDraft(emptyTsUser(userDraft.serverId));
+    }
   };
 
   const updateTsUser = (userId, field, value) => {
@@ -335,9 +378,12 @@ export default function ClientVault() {
     }));
   };
 
-  const removeTsUser = (userId) => {
+  const removeTsUser = async (userId) => {
     if (!window.confirm('Deseja remover este usuário da lista?')) return;
-    setTsForm((current) => ({ ...current, users: current.users.filter((user) => user.id !== userId) }));
+    
+    const nextForm = { ...tsForm, users: tsForm.users.filter((user) => user.id !== userId) };
+    const saved = await persistTsForm(nextForm, 'Usuário removido e cofre atualizado.');
+    if (saved) setTsForm(nextForm);
   };
 
   if (!isVaultUnlocked) {
@@ -510,8 +556,8 @@ export default function ClientVault() {
                   </div>
                 </div>
                 <div className="mt-4 flex justify-end">
-                  <button type="button" onClick={addTsServer} className="inline-flex items-center px-4 py-2 border border-slate-300 rounded-md shadow-sm text-sm font-medium text-slate-700 bg-white hover:bg-slate-50">
-                    <Plus className="w-4 h-4 mr-2" /> Cadastrar servidor
+                  <button type="button" disabled={isSaving} onClick={addTsServer} className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50">
+                    <Plus className="w-4 h-4 mr-2" /> {isSaving ? 'Salvando...' : 'Cadastrar servidor'}
                   </button>
                 </div>
 
@@ -567,8 +613,8 @@ export default function ClientVault() {
                   </div>
                 </div>
                 <div className="mt-4 flex justify-end">
-                  <button onClick={addTsUser} type="button" className="inline-flex items-center px-4 py-2 border border-slate-300 rounded-md text-sm font-medium text-slate-700 bg-white hover:bg-slate-50">
-                    <Plus className="w-4 h-4 mr-2" /> Adicionar Usuário
+                  <button onClick={addTsUser} type="button" disabled={isSaving} className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50">
+                    <Plus className="w-4 h-4 mr-2" /> {isSaving ? 'Salvando...' : 'Adicionar Usuário'}
                   </button>
                 </div>
 
@@ -618,11 +664,7 @@ export default function ClientVault() {
                 </div>
               </div>
 
-              <div className="pt-2 flex justify-end">
-                <button disabled={isSaving} onClick={() => handleSaveData('Servidor TS', tsForm)} className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50">
-                  <Save className="w-4 h-4 mr-2" /> {isSaving ? 'Criptografando...' : 'Salvar Servidor TS'}
-                </button>
-              </div>
+
             </div>
           )}
 
