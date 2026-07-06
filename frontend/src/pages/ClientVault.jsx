@@ -119,6 +119,8 @@ export default function ClientVault() {
   const [userDraft, setUserDraft] = useState(emptyTsUser());
   const [editingServer, setEditingServer] = useState(null);
   const [deleteConfirmation, setDeleteConfirmation] = useState('');
+  const [editingUser, setEditingUser] = useState(null);
+  const [deleteUserConfirmation, setDeleteUserConfirmation] = useState('');
 
   const [serverForm, setServerForm] = useState({
     port: '',
@@ -386,6 +388,55 @@ export default function ClientVault() {
     if (saved) setTsForm(nextForm);
   };
 
+  const openEditUserModal = (user) => {
+    setEditingUser({ ...user });
+    setDeleteUserConfirmation('');
+  };
+
+  const saveEditedUser = async () => {
+    if (!editingUser.serverId) {
+      alert('Selecione o servidor ao qual este usuário pertence.');
+      return;
+    }
+    if (!editingUser.name.trim() || !editingUser.username.trim()) {
+      alert('Informe o nome e o nome do usuário.');
+      return;
+    }
+
+    const nextForm = {
+      ...tsForm,
+      users: tsForm.users.map((user) =>
+        user.id === editingUser.id ? editingUser : user
+      )
+    };
+
+    const saved = await persistTsForm(nextForm, 'Usuário atualizado e salvo no cofre.');
+    if (saved) {
+      setTsForm(nextForm);
+      setEditingUser(null);
+      setDeleteUserConfirmation('');
+    }
+  };
+
+  const deleteEditedUser = async () => {
+    if (deleteUserConfirmation !== 'EXCLUIR') {
+      alert('Para confirmar a exclusão, escreva EXCLUIR no campo de confirmação.');
+      return;
+    }
+
+    const nextForm = {
+      ...tsForm,
+      users: tsForm.users.filter((user) => user.id !== editingUser.id)
+    };
+
+    const saved = await persistTsForm(nextForm, 'Usuário excluído e cofre atualizado.');
+    if (saved) {
+      setTsForm(nextForm);
+      setEditingUser(null);
+      setDeleteUserConfirmation('');
+    }
+  };
+
   if (!isVaultUnlocked) {
     return (
       <div className="max-w-md mx-auto mt-10 bg-white p-8 rounded-lg shadow-md border border-slate-200">
@@ -608,7 +659,7 @@ export default function ClientVault() {
                       <option value="sistema">Sistema</option>
                     </select>
                   </div>
-                  <div className="sm:col-span-2 lg:col-span-5">
+                  <div className="sm:col-span-2 lg:col-span-5 max-w-md">
                     <SecurePasswordInput name="new_ts_user_password" label="Senha" value={userDraft.password} onChange={(e) => updateUserDraft('password', e.target.value)} />
                   </div>
                 </div>
@@ -622,43 +673,19 @@ export default function ClientVault() {
                   {tsForm.users.length === 0 ? (
                     <p className="text-sm text-slate-500">Nenhum usuário cadastrado.</p>
                   ) : tsForm.users.map((user) => (
-                    <div key={user.id} className="grid grid-cols-1 sm:grid-cols-5 gap-3 items-end bg-white border border-slate-200 rounded-lg p-4">
-                      <div className="sm:col-span-2">
-                        <label className="block text-xs font-medium text-slate-500 mb-1">Servidor</label>
-                        <select className="w-full border-slate-300 rounded-md shadow-sm p-2 border text-sm bg-white" value={user.serverId} onChange={(e) => updateTsUser(user.id, 'serverId', e.target.value)}>
-                          <option value="">Servidor não informado</option>
-                          {tsForm.servers.map((server) => (
-                            <option key={server.id} value={server.id}>{server.name || server.ip}</option>
-                          ))}
-                        </select>
+                    <div key={user.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white border border-slate-200 rounded-lg p-4">
+                      <div className="space-y-1">
+                        <p className="font-medium text-slate-900">{user.name || 'Usuário sem nome'}</p>
+                        <p className="text-sm text-slate-500">Usuário: {user.username || '-'} | Permissão: {user.permission || '-'}</p>
+                        <p className="text-xs text-slate-500">Servidor: {getServerLabel(user.serverId)}</p>
                       </div>
-                      <div>
-                        <label className="block text-xs font-medium text-slate-500 mb-1">Nome</label>
-                        <input type="text" className="w-full border-slate-300 rounded-md shadow-sm p-2 border text-sm" value={user.name} onChange={(e) => updateTsUser(user.id, 'name', e.target.value)} />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-slate-500 mb-1">Nome do usuário</label>
-                        <input type="text" className="w-full border-slate-300 rounded-md shadow-sm p-2 border text-sm" value={user.username} onChange={(e) => updateTsUser(user.id, 'username', e.target.value)} />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-slate-500 mb-1">Permissão</label>
-                        <select className="w-full border-slate-300 rounded-md shadow-sm p-2 border text-sm bg-white" value={user.permission} onChange={(e) => updateTsUser(user.id, 'permission', e.target.value)}>
-                          <option value="admin">Admin</option>
-                          <option value="user">User</option>
-                          <option value="user+TS">User + TS</option>
-                          <option value="admin+TS">Admin + TS</option>
-                          <option value="sistema">Sistema</option>
-                        </select>
-                      </div>
-                      <div className="sm:col-span-4">
-                        <SecurePasswordInput name={`ts_pass_${user.id}`} label="Senha" value={user.password} onChange={(e) => updateTsUser(user.id, 'password', e.target.value)} />
-                        <p className="text-xs text-slate-500 mt-1">Pertence a: {getServerLabel(user.serverId)}</p>
-                      </div>
-                      <div className="flex sm:justify-end">
-                        <button onClick={() => removeTsUser(user.id)} type="button" className="inline-flex items-center px-3 py-2 border border-red-200 rounded-md text-sm text-red-600 bg-white hover:bg-red-50">
-                          <Trash2 className="w-4 h-4 mr-2" /> Remover
-                        </button>
-                      </div>
+                      <button
+                        type="button"
+                        onClick={() => openEditUserModal(user)}
+                        className="inline-flex items-center px-3 py-2 border border-slate-300 rounded-md text-sm text-slate-700 bg-white hover:bg-slate-50"
+                      >
+                        <Edit2 className="w-4 h-4 mr-2" /> Editar
+                      </button>
                     </div>
                   ))}
                 </div>
@@ -708,6 +735,107 @@ export default function ClientVault() {
           )}
         </div>
       </div>
+
+      {editingUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900 bg-opacity-60 p-4">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
+              <h3 className="text-lg font-semibold text-slate-900">Editar usuário</h3>
+              <button type="button" onClick={() => setEditingUser(null)} className="text-slate-400 hover:text-slate-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="sm:col-span-2">
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Servidor</label>
+                  <select
+                    className="w-full border-slate-300 rounded-md shadow-sm p-2 border bg-white"
+                    value={editingUser.serverId}
+                    onChange={(e) => setEditingUser({ ...editingUser, serverId: e.target.value })}
+                  >
+                    <option value="">Selecione o servidor</option>
+                    {tsForm.servers.map((server) => (
+                      <option key={server.id} value={server.id}>{server.name || server.ip}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Nome</label>
+                  <input
+                    type="text"
+                    className="w-full border-slate-300 rounded-md shadow-sm p-2 border"
+                    value={editingUser.name}
+                    onChange={(e) => setEditingUser({ ...editingUser, name: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Nome do usuário</label>
+                  <input
+                    type="text"
+                    className="w-full border-slate-300 rounded-md shadow-sm p-2 border"
+                    value={editingUser.username}
+                    onChange={(e) => setEditingUser({ ...editingUser, username: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Permissão</label>
+                  <select
+                    className="w-full border-slate-300 rounded-md shadow-sm p-2 border bg-white"
+                    value={editingUser.permission}
+                    onChange={(e) => setEditingUser({ ...editingUser, permission: e.target.value })}
+                  >
+                    <option value="admin">Admin</option>
+                    <option value="user">User</option>
+                    <option value="user+TS">User + TS</option>
+                    <option value="admin+TS">Admin + TS</option>
+                    <option value="sistema">Sistema</option>
+                  </select>
+                </div>
+                <div className="sm:col-span-2 max-w-md">
+                  <SecurePasswordInput
+                    name={`edit_ts_pass_${editingUser.id}`}
+                    label="Senha"
+                    value={editingUser.password}
+                    onChange={(e) => setEditingUser({ ...editingUser, password: e.target.value })}
+                  />
+                </div>
+              </div>
+              <div className="border-t border-slate-200 pt-4">
+                <label className="block text-sm font-medium text-red-700 mb-1">Para excluir este usuário, escreva EXCLUIR</label>
+                <input
+                  type="text"
+                  className="w-full border-red-200 rounded-md shadow-sm p-2 border"
+                  value={deleteUserConfirmation}
+                  onChange={(e) => setDeleteUserConfirmation(e.target.value)}
+                  placeholder="EXCLUIR"
+                />
+              </div>
+            </div>
+            <div className="flex flex-col sm:flex-row justify-between gap-3 px-6 py-4 border-t border-slate-200 bg-slate-50">
+              <button
+                type="button"
+                disabled={isSaving}
+                onClick={deleteEditedUser}
+                className="inline-flex items-center justify-center px-4 py-2 border border-red-200 rounded-md text-sm font-medium text-red-600 bg-white hover:bg-red-50 disabled:opacity-50"
+              >
+                <Trash2 className="w-4 h-4 mr-2" /> Excluir
+              </button>
+              <div className="flex gap-3 justify-end">
+                <button type="button" onClick={() => setEditingUser(null)} className="px-4 py-2 border border-slate-300 rounded-md text-sm font-medium text-slate-700 bg-white hover:bg-slate-50">Cancelar</button>
+                <button
+                  type="button"
+                  disabled={isSaving}
+                  onClick={saveEditedUser}
+                  className="px-4 py-2 border border-transparent rounded-md text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50"
+                >
+                  {isSaving ? 'Salvando...' : 'Salvar alterações'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {editingServer && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900 bg-opacity-60 p-4">
