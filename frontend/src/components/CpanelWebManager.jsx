@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Globe, Plus, Edit2, Trash2, X } from 'lucide-react';
+import { Plus, Edit2, Trash2, X } from 'lucide-react';
 import SecurePasswordInput from './SecurePasswordInput';
 
 const departmentOptions = [
@@ -94,6 +94,17 @@ const normalizeCpanelForm = (data = {}) => {
   };
 };
 
+const cleanDomain = (value = '') => {
+  const text = String(value || '').trim();
+  if (!text) return '';
+
+  return text
+    .replace(/^https?:\/\//i, '')
+    .replace(/^www\./i, '')
+    .split('/')[0]
+    .split(':')[0];
+};
+
 export default function CpanelWebManager({ cpanelForm, setCpanelForm, handleSaveData, isSaving }) {
   const normalizedForm = useMemo(() => normalizeCpanelForm(cpanelForm), [cpanelForm]);
   const [cpanelDraft, setCpanelDraft] = useState(emptyCpanel());
@@ -104,10 +115,33 @@ export default function CpanelWebManager({ cpanelForm, setCpanelForm, handleSave
   const [deleteUserConfirmation, setDeleteUserConfirmation] = useState('');
   const [userSearch, setUserSearch] = useState('');
 
+  const getCpanelById = (cpanelId) => normalizedForm.cpanels.find((item) => item.id === cpanelId);
+
   const getCpanelLabel = (cpanelId) => {
-    const cpanel = normalizedForm.cpanels.find((item) => item.id === cpanelId);
+    const cpanel = getCpanelById(cpanelId);
     if (!cpanel) return 'cPanel / domínio não informado';
     return cpanel.domain || cpanel.url || 'cPanel / domínio sem nome';
+  };
+
+  const getCpanelAccessLabel = (cpanelId) => {
+    const cpanel = getCpanelById(cpanelId);
+    if (!cpanel) return 'cPanel / domínio não informado';
+    return cpanel.url || cpanel.domain || 'cPanel / domínio sem nome';
+  };
+
+  const getCpanelDomainForEmail = (cpanelId) => {
+    const cpanel = getCpanelById(cpanelId);
+    if (!cpanel) return '';
+    return cleanDomain(cpanel.domain) || cleanDomain(cpanel.url);
+  };
+
+  const getUserLoginWithDomain = (user) => {
+    const login = String(user.login || '').trim();
+    if (!login) return '-';
+    if (login.includes('@')) return login;
+
+    const domain = getCpanelDomainForEmail(user.cpanelId);
+    return domain ? `${login}@${domain}` : login;
   };
 
   const persistCpanelForm = async (nextForm, successMessage) => {
@@ -246,8 +280,10 @@ export default function CpanelWebManager({ cpanelForm, setCpanelForm, handleSave
     return [
       user.name,
       user.login,
+      getUserLoginWithDomain(user),
       user.department,
-      getCpanelLabel(user.cpanelId)
+      getCpanelLabel(user.cpanelId),
+      getCpanelAccessLabel(user.cpanelId)
     ].join(' ').toLowerCase().includes(search);
   });
 
@@ -350,8 +386,8 @@ export default function CpanelWebManager({ cpanelForm, setCpanelForm, handleSave
             <div key={user.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white border border-slate-200 rounded-lg p-4">
               <div className="space-y-1">
                 <p className="font-medium text-slate-900">{user.name || 'Usuário sem nome'}</p>
-                <p className="text-sm text-slate-500">Login: {user.login || '-'} | Departamento: {user.department || '-'}</p>
-                <p className="text-xs text-slate-500">cPanel / domínio: {getCpanelLabel(user.cpanelId)}</p>
+                <p className="text-sm text-slate-500">Login: {getUserLoginWithDomain(user)} | Departamento: {user.department || '-'}</p>
+                <p className="text-xs text-slate-500">cPanel / domínio: {getCpanelAccessLabel(user.cpanelId)}</p>
               </div>
               <button type="button" onClick={() => { setEditingUser({ ...user }); setDeleteUserConfirmation(''); }} className="inline-flex items-center px-3 py-2 border border-slate-300 rounded-md text-sm text-slate-700 bg-white hover:bg-slate-50">
                 <Edit2 className="w-4 h-4 mr-2" /> Detalhes
