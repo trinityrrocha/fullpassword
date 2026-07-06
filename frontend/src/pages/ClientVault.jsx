@@ -26,7 +26,8 @@ const emptyTsUser = (serverId = '') => ({
   name: '',
   username: '',
   password: '',
-  permission: 'user'
+  permission: 'user',
+  department: ''
 });
 
 const normalizeTsForm = (data = {}) => {
@@ -49,7 +50,8 @@ const normalizeTsForm = (data = {}) => {
             name: user.name || '',
             username: user.username || user.login || '',
             password: user.password || '',
-            permission: user.permission || 'user'
+            permission: user.permission || 'user',
+            department: user.department || ''
           }))
         : []
     };
@@ -76,7 +78,8 @@ const normalizeTsForm = (data = {}) => {
           name: user.name || '',
           username: user.username || user.login || '',
           password: user.password || '',
-          permission: user.permission || 'user'
+          permission: user.permission || 'user',
+          department: user.department || ''
         }))
       : []
   };
@@ -121,6 +124,7 @@ export default function ClientVault() {
   const [deleteConfirmation, setDeleteConfirmation] = useState('');
   const [editingUser, setEditingUser] = useState(null);
   const [deleteUserConfirmation, setDeleteUserConfirmation] = useState('');
+  const [userSearch, setUserSearch] = useState('');
 
   const [serverForm, setServerForm] = useState({
     port: '',
@@ -629,10 +633,11 @@ export default function ClientVault() {
                 </div>
               </div>
 
+              {/* CARD: Cadastro de Usuários */}
               <div className="bg-slate-50 border border-slate-200 rounded-lg p-5">
                 <h3 className="text-lg font-medium text-slate-900 mb-4">Cadastro de Usuários</h3>
-                <div className="grid grid-cols-1 gap-y-4 gap-x-4 sm:grid-cols-2 lg:grid-cols-5">
-                  <div className="lg:col-span-2">
+                <div className="grid grid-cols-1 gap-y-4 gap-x-4 sm:grid-cols-2 lg:grid-cols-3">
+                  <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">Servidor</label>
                     <select className="w-full border-slate-300 rounded-md shadow-sm p-2 border bg-white" value={userDraft.serverId} onChange={(e) => updateUserDraft('serverId', e.target.value)}>
                       <option value="">Selecione o servidor</option>
@@ -659,35 +664,87 @@ export default function ClientVault() {
                       <option value="sistema">Sistema</option>
                     </select>
                   </div>
-                  <div className="sm:col-span-2 lg:col-span-5 max-w-md">
-                    <SecurePasswordInput name="new_ts_user_password" label="Senha" value={userDraft.password} onChange={(e) => updateUserDraft('password', e.target.value)} />
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Departamento</label>
+                    <select className="w-full border-slate-300 rounded-md shadow-sm p-2 border bg-white" value={userDraft.department} onChange={(e) => updateUserDraft('department', e.target.value)}>
+                      <option value="">Selecione...</option>
+                      <option value="Comercial">Comercial</option>
+                      <option value="Contabilidade">Contabilidade</option>
+                      <option value="ERP">ERP</option>
+                      <option value="Financeiro">Financeiro</option>
+                      <option value="Fiscal">Fiscal</option>
+                      <option value="Gerencia">Gerência</option>
+                      <option value="Outro">Outro</option>
+                      <option value="RH">RH</option>
+                      <option value="Suporte">Suporte</option>
+                      <option value="Vendas">Vendas</option>
+                    </select>
                   </div>
                 </div>
-                <div className="mt-4 flex justify-end">
-                  <button onClick={addTsUser} type="button" disabled={isSaving} className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50">
-                    <Plus className="w-4 h-4 mr-2" /> {isSaving ? 'Salvando...' : 'Adicionar Usuário'}
-                  </button>
-                </div>
 
-                <div className="mt-6 space-y-3">
-                  {tsForm.users.length === 0 ? (
-                    <p className="text-sm text-slate-500">Nenhum usuário cadastrado.</p>
-                  ) : tsForm.users.map((user) => (
-                    <div key={user.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white border border-slate-200 rounded-lg p-4">
-                      <div className="space-y-1">
-                        <p className="font-medium text-slate-900">{user.name || 'Usuário sem nome'}</p>
-                        <p className="text-sm text-slate-500">Usuário: {user.username || '-'} | Permissão: {user.permission || '-'}</p>
-                        <p className="text-xs text-slate-500">Servidor: {getServerLabel(user.serverId)}</p>
+                {/* Linha: Senha + Botão na mesma linha */}
+                <div className="mt-4 flex flex-col sm:flex-row sm:items-end gap-3">
+                  <div className="flex-1 max-w-md">
+                    <SecurePasswordInput name="new_ts_user_password" label="Senha" value={userDraft.password} onChange={(e) => updateUserDraft('password', e.target.value)} />
+                  </div>
+                  <div className="flex-shrink-0">
+                    <button onClick={addTsUser} type="button" disabled={isSaving} className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 h-[42px]">
+                      <Plus className="w-4 h-4 mr-2" /> {isSaving ? 'Salvando...' : 'Adicionar Usuário'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* PESQUISA: campo solto, fora do card */}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Pesquisar usuário</label>
+                <input
+                  type="text"
+                  className="w-full border-slate-300 rounded-md shadow-sm p-2 border focus:ring-indigo-500 focus:border-indigo-500"
+                  placeholder="Buscar por nome, login, departamento ou servidor..."
+                  value={userSearch}
+                  onChange={(e) => setUserSearch(e.target.value)}
+                />
+              </div>
+
+              {/* CARD: Lista de Usuários Cadastrados */}
+              <div className="bg-slate-50 border border-slate-200 rounded-lg p-5">
+                <h3 className="text-lg font-medium text-slate-900 mb-4">Usuários Cadastrados</h3>
+                <div className="space-y-3">
+                  {(() => {
+                    const filtered = tsForm.users.filter((user) => {
+                      if (!userSearch.trim()) return true;
+                      const q = userSearch.toLowerCase();
+                      return (
+                        (user.name || '').toLowerCase().includes(q) ||
+                        (user.username || '').toLowerCase().includes(q) ||
+                        (user.department || '').toLowerCase().includes(q) ||
+                        getServerLabel(user.serverId).toLowerCase().includes(q)
+                      );
+                    });
+                    if (filtered.length === 0) {
+                      return <p className="text-sm text-slate-500">{userSearch.trim() ? 'Nenhum usuário encontrado.' : 'Nenhum usuário cadastrado.'}</p>;
+                    }
+                    return filtered.map((user) => (
+                      <div key={user.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white border border-slate-200 rounded-lg p-4">
+                        <div className="space-y-1">
+                          <p className="font-medium text-slate-900">{user.name || 'Usuário sem nome'}</p>
+                          <p className="text-sm text-slate-500">
+                            Usuário: {user.username || '-'} | Permissão: {user.permission || '-'}
+                            {user.department ? ` | Depto: ${user.department}` : ''}
+                          </p>
+                          <p className="text-xs text-slate-500">Servidor: {getServerLabel(user.serverId)}</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => openEditUserModal(user)}
+                          className="inline-flex items-center px-3 py-2 border border-slate-300 rounded-md text-sm text-slate-700 bg-white hover:bg-slate-50"
+                        >
+                          <Edit2 className="w-4 h-4 mr-2" /> Editar
+                        </button>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => openEditUserModal(user)}
-                        className="inline-flex items-center px-3 py-2 border border-slate-300 rounded-md text-sm text-slate-700 bg-white hover:bg-slate-50"
-                      >
-                        <Edit2 className="w-4 h-4 mr-2" /> Editar
-                      </button>
-                    </div>
-                  ))}
+                    ));
+                  })()}
                 </div>
               </div>
 
@@ -790,6 +847,26 @@ export default function ClientVault() {
                     <option value="user+TS">User + TS</option>
                     <option value="admin+TS">Admin + TS</option>
                     <option value="sistema">Sistema</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Departamento</label>
+                  <select
+                    className="w-full border-slate-300 rounded-md shadow-sm p-2 border bg-white"
+                    value={editingUser.department || ''}
+                    onChange={(e) => setEditingUser({ ...editingUser, department: e.target.value })}
+                  >
+                    <option value="">Selecione...</option>
+                    <option value="Comercial">Comercial</option>
+                    <option value="Contabilidade">Contabilidade</option>
+                    <option value="ERP">ERP</option>
+                    <option value="Financeiro">Financeiro</option>
+                    <option value="Fiscal">Fiscal</option>
+                    <option value="Gerencia">Gerência</option>
+                    <option value="Outro">Outro</option>
+                    <option value="RH">RH</option>
+                    <option value="Suporte">Suporte</option>
+                    <option value="Vendas">Vendas</option>
                   </select>
                 </div>
                 <div className="sm:col-span-2 max-w-md">
