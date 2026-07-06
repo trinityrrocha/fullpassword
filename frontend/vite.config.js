@@ -57,6 +57,27 @@ function clientVaultUiPlugin() {
 
       let next = code
 
+      if (!next.includes("CpanelWebManager")) {
+        next = next.replace(
+          `import api from '../services/api';`,
+          `import api from '../services/api';\nimport CpanelWebManager from '../components/CpanelWebManager';`
+        )
+      }
+
+      next = next.replace(
+        /          \{activeTab === 'cpanel' && \(\n[\s\S]*?\n          \)\}\n\n          \{activeTab === 'vpn' && \(/,
+        `          {activeTab === 'cpanel' && (
+            <CpanelWebManager
+              cpanelForm={cpanelForm}
+              setCpanelForm={setCpanelForm}
+              handleSaveData={handleSaveData}
+              isSaving={isSaving}
+            />
+          )}
+
+          {activeTab === 'vpn' && (`
+      )
+
       next = next.replace(
         `{ id: 'ts', name: 'Servidor TS', icon: Server }`,
         `{ id: 'ts', name: 'Servidor Windows', icon: Server }`
