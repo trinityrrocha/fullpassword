@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { Plus, Edit2, Trash2, X, Download } from 'lucide-react';
 import SecurePasswordInput from './SecurePasswordInput';
 
-const vpnTypes = [
+const serverModes = [
   'Peer to Peer (SSL/TLS)',
   'Peer to Peer (Shared Key)',
   'Remote Access (SSL/TLS)',
@@ -10,7 +10,15 @@ const vpnTypes = [
   'Remote Access SSL/TLS+(User Auth)'
 ];
 
-const defaultVpnType = 'Remote Access SSL/TLS+(User Auth)';
+const vpnOptions = [
+  'OpenVPN',
+  'WireGuard',
+  'ZeroTier',
+  'Tailscale'
+];
+
+const defaultServerMode = 'Remote Access SSL/TLS+(User Auth)';
+const defaultVpn = 'OpenVPN';
 
 const makeId = () => {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
@@ -19,13 +27,15 @@ const makeId = () => {
 
 const emptyVpnServer = () => ({
   id: makeId(),
-  type: defaultVpnType,
+  name: '',
+  type: defaultServerMode,
+  vpn: defaultVpn,
   ipv4Local: '',
   ipv4Tunnel: '',
   vlan: '',
   port: '',
   notes: '',
-  attachment: null
+  attachments: []
 });
 
 const emptyVpnUser = (serverId = '') => ({
@@ -37,19 +47,27 @@ const emptyVpnUser = (serverId = '') => ({
   notes: ''
 });
 
+const normalizeAttachments = (server = {}) => {
+  if (Array.isArray(server.attachments)) return server.attachments.filter(Boolean);
+  if (server.attachment) return [server.attachment];
+  return [];
+};
+
 const normalizeVpnForm = (data = {}) => {
   if (Array.isArray(data.servers) || Array.isArray(data.users)) {
     return {
       servers: Array.isArray(data.servers)
         ? data.servers.map((server) => ({
             id: server.id || makeId(),
-            type: server.type || defaultVpnType,
+            name: server.name || server.serverName || '',
+            type: server.type || server.mode || defaultServerMode,
+            vpn: server.vpn || server.vpnType || defaultVpn,
             ipv4Local: server.ipv4Local || server.localIpv4 || '',
             ipv4Tunnel: server.ipv4Tunnel || server.tunnelIpv4 || '',
             vlan: server.vlan || '',
             port: server.port || '',
             notes: server.notes || server.observations || '',
-            attachment: server.attachment || null
+            attachments: normalizeAttachments(server)
           }))
         : [],
       users: Array.isArray(data.users)
@@ -69,13 +87,15 @@ const normalizeVpnForm = (data = {}) => {
   const legacyServer = legacyServerId
     ? [{
         id: legacyServerId,
-        type: data.type || defaultVpnType,
+        name: data.name || 'Servidor VPN principal',
+        type: data.type || defaultServerMode,
+        vpn: data.vpn || defaultVpn,
         ipv4Local: data.ipv4Local || '',
         ipv4Tunnel: data.ipv4Tunnel || '',
         vlan: data.vlan || '',
         port: data.port || '',
         notes: data.notes || '',
-        attachment: null
+        attachments: []
       }]
     : [];
 
@@ -107,6 +127,7 @@ const readFileAsAttachment = (file) => new Promise((resolve, reject) => {
     const result = String(reader.result || '');
     const data = result.includes(',') ? result.split(',')[1] : result;
     resolve({
+      id: makeId(),
       name: file.name,
       type: file.type || 'application/octet-stream',
       size: file.size,
@@ -116,6 +137,12 @@ const readFileAsAttachment = (file) => new Promise((resolve, reject) => {
   reader.onerror = reject;
   reader.readAsDataURL(file);
 });
+
+const readFilesAsAttachments = async (files) => {
+  const selectedFiles = Array.from(files || []);
+  const attachments = await Promise.all(selectedFiles.map((file) => readFileAsAttachment(file)));
+  return attachments.filter(Boolean);
+};
 
 const downloadAttachment = (attachment) => {
   if (!attachment?.data) return;
@@ -148,16 +175,16 @@ export default function VpnManager({ vpnForm, setVpnForm, handleSaveData, isSavi
   const [showServerCreateModal, setShowServerCreateModal] = useState(false);
   const [showUserCreateModal, setShowUserCreateModal] = useState(false);
   const [userSearch, setUserSearch] = useState('');
-  const [serverFile, setServerFile] = useState(null);
 
   const getServerById = (serverId) => normalizedForm.servers.find((item) => item.id === serverId);
 
   const getServerLabel = (serverId) => {
     const server = getServerById(serverId);
     if (!server) return 'Servidor VPN não informado';
-    const main = server.type || 'Servidor VPN';
+    const name = server.name || 'Servidor VPN';
+    const vpn = server.vpn ? ` - ${server.vpn}` : '';
     const detail = server.ipv4Tunnel || server.ipv4Local || server.vlan || server.port;
-    return detail ? `${main} - ${detail}` : main;
+    return detail ? `${name}${vpn} - ${detail}` : `${name}${vpn}`;
   };
 
   const persistVpnForm = async (nextForm, successMessage) => {
@@ -168,7 +195,6 @@ export default function VpnManager({ vpnForm, setVpnForm, handleSaveData, isSavi
 
   const openCreateServerModal = () => {
     setServerDraft(emptyVpnServer());
-    setServerFile(null);
     setShowServerCreateModal(true);
   };
 
@@ -178,13 +204,20 @@ export default function VpnManager({ vpnForm, setVpnForm, handleSaveData, isSavi
   };
 
   const addVpnServer = async () => {
+    if (!serverDraft.name.trim()) {
+      alert('Informe o nome do servidor VPN.');
+      return;
+    }
     if (!serverDraft.type) {
-      alert('Selecione o tipo de VPN.');
+      alert('Selecione o modo de servidor.');
+      return;
+    }
+    if (!serverDraft.vpn) {
+      alert('Selecione a VPN.');
       return;
     }
 
-    const attachment = serverFile ? await readFileAsAttachment(serverFile) : null;
-    const newServer = { ...serverDraft, id: makeId(), attachment };
+    const newServer = { ...serverDraft, id: makeId(), attachments: normalizeAttachments(serverDraft) };
     const nextForm = {
       ...normalizedForm,
       servers: [newServer, ...normalizedForm.servers]
@@ -193,20 +226,26 @@ export default function VpnManager({ vpnForm, setVpnForm, handleSaveData, isSavi
     const saved = await persistVpnForm(nextForm, 'Servidor VPN cadastrado e salvo automaticamente no cofre.');
     if (saved) {
       setServerDraft(emptyVpnServer());
-      setServerFile(null);
       setUserDraft((current) => ({ ...current, serverId: current.serverId || newServer.id }));
       setShowServerCreateModal(false);
     }
   };
 
   const saveEditedServer = async () => {
+    if (!editingServer.name.trim()) {
+      alert('Informe o nome do servidor VPN.');
+      return;
+    }
     if (!editingServer.type) {
-      alert('Selecione o tipo de VPN.');
+      alert('Selecione o modo de servidor.');
+      return;
+    }
+    if (!editingServer.vpn) {
+      alert('Selecione a VPN.');
       return;
     }
 
-    const attachment = serverFile ? await readFileAsAttachment(serverFile) : editingServer.attachment;
-    const updatedServer = { ...editingServer, attachment };
+    const updatedServer = { ...editingServer, attachments: normalizeAttachments(editingServer) };
     const nextForm = {
       ...normalizedForm,
       servers: normalizedForm.servers.map((server) => server.id === updatedServer.id ? updatedServer : server)
@@ -215,7 +254,6 @@ export default function VpnManager({ vpnForm, setVpnForm, handleSaveData, isSavi
     const saved = await persistVpnForm(nextForm, 'Servidor VPN atualizado e salvo no cofre.');
     if (saved) {
       setEditingServer(null);
-      setServerFile(null);
       setDeleteServerConfirmation('');
     }
   };
@@ -234,7 +272,6 @@ export default function VpnManager({ vpnForm, setVpnForm, handleSaveData, isSavi
     const saved = await persistVpnForm(nextForm, 'Servidor VPN excluído e cofre atualizado.');
     if (saved) {
       setEditingServer(null);
-      setServerFile(null);
       setDeleteServerConfirmation('');
     }
   };
@@ -333,11 +370,11 @@ export default function VpnManager({ vpnForm, setVpnForm, handleSaveData, isSavi
           ) : normalizedForm.servers.map((server) => (
             <div key={server.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white border border-slate-200 rounded-lg p-4">
               <div className="space-y-1">
-                <p className="font-medium text-slate-900">{server.type || 'Servidor VPN'}</p>
-                <p className="text-sm text-slate-500">IPv4 local: {server.ipv4Local || '-'} | IPv4 túnel: {server.ipv4Tunnel || '-'}</p>
-                <p className="text-xs text-slate-500">VLAN: {server.vlan || '-'} | Porta: {server.port || '-'}{server.attachment?.name ? ` | Anexo: ${server.attachment.name}` : ''}</p>
+                <p className="font-medium text-slate-900">{server.name || 'Servidor VPN sem nome'} - {server.vpn || '-'}</p>
+                <p className="text-sm text-slate-500">Modo: {server.type || '-'} | IPv4 túnel: {server.ipv4Tunnel || '-'}</p>
+                <p className="text-xs text-slate-500">IPv4 local: {server.ipv4Local || '-'} | VLAN: {server.vlan || '-'} | Porta: {server.port || '-'} | Anexos: {normalizeAttachments(server).length}</p>
               </div>
-              <button type="button" onClick={() => { setEditingServer({ ...server }); setServerFile(null); setDeleteServerConfirmation(''); }} className="inline-flex items-center px-3 py-2 border border-slate-300 rounded-md text-sm text-slate-700 bg-white hover:bg-slate-50">
+              <button type="button" onClick={() => { setEditingServer({ ...server, attachments: normalizeAttachments(server) }); setDeleteServerConfirmation(''); }} className="inline-flex items-center px-3 py-2 border border-slate-300 rounded-md text-sm text-slate-700 bg-white hover:bg-slate-50">
                 <Edit2 className="w-4 h-4 mr-2" /> Detalhes
               </button>
             </div>
@@ -387,10 +424,8 @@ export default function VpnManager({ vpnForm, setVpnForm, handleSaveData, isSavi
           title="Adicionar Servidor"
           server={serverDraft}
           setServer={setServerDraft}
-          serverFile={serverFile}
-          setServerFile={setServerFile}
           isSaving={isSaving}
-          onCancel={() => { setShowServerCreateModal(false); setServerFile(null); }}
+          onCancel={() => setShowServerCreateModal(false)}
           onSave={addVpnServer}
         />
       )}
@@ -413,15 +448,12 @@ export default function VpnManager({ vpnForm, setVpnForm, handleSaveData, isSavi
           title="Detalhes do servidor VPN"
           server={editingServer}
           setServer={setEditingServer}
-          serverFile={serverFile}
-          setServerFile={setServerFile}
           isSaving={isSaving}
           deleteConfirmation={deleteServerConfirmation}
           setDeleteConfirmation={setDeleteServerConfirmation}
-          onCancel={() => { setEditingServer(null); setServerFile(null); }}
+          onCancel={() => setEditingServer(null)}
           onSave={saveEditedServer}
           onDelete={deleteEditedServer}
-          onDownload={() => downloadAttachment(editingServer.attachment)}
         />
       )}
 
@@ -444,7 +476,17 @@ export default function VpnManager({ vpnForm, setVpnForm, handleSaveData, isSavi
   );
 }
 
-function VpnServerModal({ title, server, setServer, serverFile, setServerFile, isSaving, onCancel, onSave, onDelete, deleteConfirmation, setDeleteConfirmation, onDownload }) {
+function VpnServerModal({ title, server, setServer, isSaving, onCancel, onSave, onDelete, deleteConfirmation, setDeleteConfirmation }) {
+  const handleFiles = async (files) => {
+    const attachments = await readFilesAsAttachments(files);
+    if (!attachments.length) return;
+
+    setServer({
+      ...server,
+      attachments: [...normalizeAttachments(server), ...attachments]
+    });
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900 bg-opacity-60 p-4">
       <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -454,10 +496,20 @@ function VpnServerModal({ title, server, setServer, serverFile, setServerFile, i
         </div>
         <div className="p-6 space-y-4">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Nome do servidor</label>
+              <input type="text" className="w-full border-slate-300 rounded-md shadow-sm p-2 border" value={server.name} onChange={(e) => setServer({ ...server, name: e.target.value })} placeholder="Ex: VPN Matriz" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">VPN</label>
+              <select className="w-full border-slate-300 rounded-md shadow-sm p-2 border bg-white" value={server.vpn} onChange={(e) => setServer({ ...server, vpn: e.target.value })}>
+                {vpnOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+              </select>
+            </div>
             <div className="sm:col-span-2">
-              <label className="block text-sm font-medium text-slate-700 mb-1">Tipo de VPN</label>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Modo de servidor</label>
               <select className="w-full border-slate-300 rounded-md shadow-sm p-2 border bg-white" value={server.type} onChange={(e) => setServer({ ...server, type: e.target.value })}>
-                {vpnTypes.map((option) => <option key={option} value={option}>{option}</option>)}
+                {serverModes.map((option) => <option key={option} value={option}>{option}</option>)}
               </select>
             </div>
             <div>
@@ -481,20 +533,30 @@ function VpnServerModal({ title, server, setServer, serverFile, setServerFile, i
               <textarea rows={3} className="w-full border-slate-300 rounded-md shadow-sm p-2 border" value={server.notes} onChange={(e) => setServer({ ...server, notes: e.target.value })} placeholder="Observações do servidor VPN"></textarea>
             </div>
             <div className="sm:col-span-2">
-              <label className="block text-sm font-medium text-slate-700 mb-1">Anexo VPN</label>
-              <input type="file" className="w-full border-slate-300 rounded-md shadow-sm p-2 border bg-white" accept=".txt,.ovpn,.conf,.crt,.cer,.key,.pem" onChange={(e) => setServerFile(e.target.files?.[0] || null)} />
-              <p className="mt-1 text-xs text-slate-500">Aceita arquivos de texto e certificados da VPN.</p>
-              {serverFile && <p className="mt-1 text-xs text-indigo-600">Novo anexo selecionado: {serverFile.name}</p>}
-              {server.attachment?.name && !serverFile && (
-                <div className="mt-2 flex flex-col sm:flex-row sm:items-center gap-2 text-sm text-slate-600">
-                  <span>Anexo atual: {server.attachment.name}</span>
-                  {onDownload && (
-                    <button type="button" onClick={onDownload} className="inline-flex items-center px-3 py-1.5 border border-slate-300 rounded-md text-sm text-slate-700 bg-white hover:bg-slate-50">
+              <label className="block text-sm font-medium text-slate-700 mb-1">Anexos VPN</label>
+              <input
+                type="file"
+                multiple
+                className="w-full border-slate-300 rounded-md shadow-sm p-2 border bg-white"
+                accept=".txt,.ovpn,.conf,.crt,.cer,.key,.pem"
+                onChange={async (e) => {
+                  await handleFiles(e.target.files);
+                  e.target.value = '';
+                }}
+              />
+              <p className="mt-1 text-xs text-slate-500">Permite anexar um ou vários arquivos de texto e certificados da VPN.</p>
+              <div className="mt-3 space-y-2">
+                {normalizeAttachments(server).length === 0 ? (
+                  <p className="text-xs text-slate-500">Nenhum anexo adicionado.</p>
+                ) : normalizeAttachments(server).map((attachment, index) => (
+                  <div key={attachment.id || `${attachment.name}-${index}`} className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+                    <span className="text-sm text-slate-700 truncate">{attachment.name}</span>
+                    <button type="button" onClick={() => downloadAttachment(attachment)} className="inline-flex items-center justify-center px-3 py-1.5 border border-slate-300 rounded-md text-sm text-slate-700 bg-white hover:bg-slate-50">
                       <Download className="w-4 h-4 mr-2" /> Download
                     </button>
-                  )}
-                </div>
-              )}
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
 
