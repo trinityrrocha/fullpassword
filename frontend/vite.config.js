@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react'
 import fs from 'node:fs'
 import path from 'node:path'
 import clientVaultVpnPlugin from './viteClientVaultVpnPlugin.js'
+import clientVaultWindowsPlugin from './viteClientVaultWindowsPlugin.js'
 
 function readGitCommitFromDir(gitDir) {
   const headPath = path.join(gitDir, 'HEAD')
@@ -175,7 +176,7 @@ const appCommit = readGitCommit()
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [clientVaultUiPlugin(), clientVaultVpnPlugin(), react()],
+  plugins: [clientVaultUiPlugin(), clientVaultVpnPlugin(), clientVaultWindowsPlugin(), react()],
   define: {
     __APP_COMMIT__: JSON.stringify(appCommit),
     Share2: '((props) => null)',
