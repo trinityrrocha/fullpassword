@@ -98,8 +98,11 @@ export default function SecurePasswordInput({
     const newPassword = generateSecurePassword();
 
     const applyNewPassword = () => {
-      // Salva o valor anterior para possível desfazer
-      setPreviousValue(value || '');
+      // Preserva sempre a senha original antes da primeira geração.
+      // Gerações seguintes não podem sobrescrever o valor usado pelo Desfazer.
+      setPreviousValue((currentPreviousValue) => (
+        currentPreviousValue === null ? (value || '') : currentPreviousValue
+      ));
 
       // Dispara o onChange simulando um evento nativo
       const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
