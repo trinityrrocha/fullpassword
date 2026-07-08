@@ -3,7 +3,7 @@ const windowsNormalizeTsForm = `const normalizeTsForm = (data = {}) => {
   const sanitizeIpv4MaskInput = (value = '') => {
     const cleaned = String(value).replace(/[^0-9./]/g, '');
     const [address, ...maskParts] = cleaned.split('/');
-    return maskParts.length ? \`${'${address}'}/${'${maskParts.join(\'\').replace(/\\D/g, \'\')}' }\` : address;
+    return maskParts.length ? address + '/' + maskParts.join('').replace(/\\D/g, '') : address;
   };
 
   const normalizeConnections = (server = {}) => {
@@ -130,7 +130,7 @@ const sanitizePortInput = (value = '') => String(value).replace(/\\D/g, '');
 const sanitizeIpv4MaskInput = (value = '') => {
   const cleaned = String(value).replace(/[^0-9./]/g, '');
   const [address, ...maskParts] = cleaned.split('/');
-  return maskParts.length ? \`${'${address}'}/${'${maskParts.join(\'\').replace(/\\D/g, \'\')}' }\` : address;
+  return maskParts.length ? address + '/' + maskParts.join('').replace(/\\D/g, '') : address;
 };`
     )
   }
