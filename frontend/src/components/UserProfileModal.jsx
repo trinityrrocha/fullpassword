@@ -203,6 +203,7 @@ export default function UserProfileModal({ isOpen, onClose }) {
                             value={formData.currentPassword}
                             onChange={handleChange}
                             placeholder="Necessária apenas se for alterar a senha"
+                            enableGenerator={false}
                           />
                         </div>
                         
@@ -223,6 +224,7 @@ export default function UserProfileModal({ isOpen, onClose }) {
                             value={formData.confirmNewPassword}
                             onChange={handleChange}
                             placeholder="Repita a nova senha"
+                            enableGenerator={false}
                           />
                         </div>
                       </div>
