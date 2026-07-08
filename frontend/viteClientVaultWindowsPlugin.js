@@ -1,14 +1,21 @@
 const windowsNormalizeTsForm = `const normalizeTsForm = (data = {}) => {
+  const sanitizePortInput = (value = '') => String(value).replace(/\\D/g, '');
+  const sanitizeIpv4MaskInput = (value = '') => {
+    const cleaned = String(value).replace(/[^0-9./]/g, '');
+    const [address, ...maskParts] = cleaned.split('/');
+    return maskParts.length ? \`${'${address}'}/${'${maskParts.join(\'\').replace(/\\D/g, \'\')}' }\` : address;
+  };
+
   const normalizeConnections = (server = {}) => {
     if (Array.isArray(server.connections)) {
       return server.connections.map((connection) => ({
         id: connection.id || makeId(),
         type: connection.type || 'Eth1',
-        ipv4: connection.ipv4 || connection.ip || ''
+        ipv4: sanitizeIpv4MaskInput(connection.ipv4 || connection.ip || '')
       }));
     }
 
-    if (server.ip) return [{ id: makeId(), type: 'Eth1', ipv4: server.ip }];
+    if (server.ip) return [{ id: makeId(), type: 'Eth1', ipv4: sanitizeIpv4MaskInput(server.ip) }];
     return [];
   };
 
@@ -17,7 +24,7 @@ const windowsNormalizeTsForm = `const normalizeTsForm = (data = {}) => {
       return server.portRules.map((rule) => ({
         id: rule.id || makeId(),
         name: rule.name || '',
-        portNumber: rule.portNumber || rule.port || '',
+        portNumber: sanitizePortInput(rule.portNumber || rule.port || ''),
         direction: rule.direction || 'Entrada',
         protocol: rule.protocol || 'TCP'
       }));
@@ -28,7 +35,7 @@ const windowsNormalizeTsForm = `const normalizeTsForm = (data = {}) => {
       migratedRules.push({
         id: makeId(),
         name: 'Porta interna',
-        portNumber: server.internalPort || server.port || '',
+        portNumber: sanitizePortInput(server.internalPort || server.port || ''),
         direction: 'Entrada',
         protocol: 'RPD'
       });
@@ -37,7 +44,7 @@ const windowsNormalizeTsForm = `const normalizeTsForm = (data = {}) => {
       migratedRules.push({
         id: makeId(),
         name: 'Porta externa',
-        portNumber: server.externalPort,
+        portNumber: sanitizePortInput(server.externalPort),
         direction: 'Entrada',
         protocol: 'RPD'
       });
@@ -53,7 +60,7 @@ const windowsNormalizeTsForm = `const normalizeTsForm = (data = {}) => {
       id: rule.id || makeId(),
       name: rule.name || '',
       host: rule.host || rule.ip || '',
-      port: rule.port || ''
+      port: sanitizePortInput(rule.port || '')
     }));
   };
 
@@ -111,11 +118,46 @@ const windowsNormalizeTsForm = `const normalizeTsForm = (data = {}) => {
   };
 };`
 
+function transformWindowsManager(code) {
+  let next = code
+
+  if (!next.includes('const sanitizePortInput')) {
+    next = next.replace(
+      "const directionOptions = ['Entrada', 'Saída'];",
+      `const directionOptions = ['Entrada', 'Saída'];
+
+const sanitizePortInput = (value = '') => String(value).replace(/\\D/g, '');
+const sanitizeIpv4MaskInput = (value = '') => {
+  const cleaned = String(value).replace(/[^0-9./]/g, '');
+  const [address, ...maskParts] = cleaned.split('/');
+  return maskParts.length ? \`${'${address}'}/${'${maskParts.join(\'\').replace(/\\D/g, \'\')}' }\` : address;
+};`
+    )
+  }
+
+  next = next.replace('ipv4: connection.ipv4 || connection.ip || \'\'', 'ipv4: sanitizeIpv4MaskInput(connection.ipv4 || connection.ip || \'\')')
+  next = next.replace("return [{ id: makeId(), type: 'Eth1', ipv4: server.ip }];", "return [{ id: makeId(), type: 'Eth1', ipv4: sanitizeIpv4MaskInput(server.ip) }];")
+  next = next.replace('portNumber: rule.portNumber || rule.port || \'\'', 'portNumber: sanitizePortInput(rule.portNumber || rule.port || \'\')')
+  next = next.replace('portNumber: server.internalPort || server.port || \'\'', 'portNumber: sanitizePortInput(server.internalPort || server.port || \'\')')
+  next = next.replace('portNumber: server.externalPort,', 'portNumber: sanitizePortInput(server.externalPort),')
+  next = next.replace('port: rule.port || \'\'', 'port: sanitizePortInput(rule.port || \'\')')
+  next = next.replace('updateConnection(connection.id, e.target.value)', 'updateConnection(connection.id, sanitizeIpv4MaskInput(e.target.value))')
+  next = next.replace("updatePortRule(rule.id, 'portNumber', e.target.value)", "updatePortRule(rule.id, 'portNumber', sanitizePortInput(e.target.value))")
+  next = next.replace("updateTsRule(rule.id, 'port', e.target.value)", "updateTsRule(rule.id, 'port', sanitizePortInput(e.target.value))")
+
+  return next
+}
+
 export default function clientVaultWindowsPlugin() {
   return {
     name: 'client-vault-windows-manager-transform',
     enforce: 'pre',
     transform(code, id) {
+      if (id.endsWith('WindowsServerManager.jsx')) {
+        const next = transformWindowsManager(code)
+        return next === code ? null : { code: next, map: null }
+      }
+
       if (!id.endsWith('ClientVault.jsx')) return null
 
       let next = code
