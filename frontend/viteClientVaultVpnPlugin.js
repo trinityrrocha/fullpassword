@@ -15,6 +15,27 @@ const sanitizeIpv4MaskInput = (value = '') => {
     )
   }
 
+  next = next.replace(
+    "const legacyServerId = data.type || data.port || data.vlan ? `legacy-vpn-${makeId()}` : '';",
+    `const hasLegacyServerData = Boolean(
+    data.name ||
+    data.serverName ||
+    data.port ||
+    data.vlan ||
+    data.ipv4Local ||
+    data.ipv4Tunnel ||
+    data.localIpv4 ||
+    data.tunnelIpv4 ||
+    data.notes ||
+    data.observations ||
+    data.username ||
+    data.personName ||
+    data.password ||
+    (data.type && data.type !== defaultVpn)
+  );
+  const legacyServerId = hasLegacyServerData ? \`legacy-vpn-\${makeId()}\` : '';`
+  )
+
   next = next.replace('ipv4Local: server.ipv4Local || server.localIpv4 || \'\'', 'ipv4Local: sanitizeIpv4MaskInput(server.ipv4Local || server.localIpv4 || \'\')')
   next = next.replace('ipv4Tunnel: server.ipv4Tunnel || server.tunnelIpv4 || \'\'', 'ipv4Tunnel: sanitizeIpv4MaskInput(server.ipv4Tunnel || server.tunnelIpv4 || \'\')')
   next = next.replace('vlan: server.vlan || \'\'', 'vlan: sanitizeIpv4MaskInput(server.vlan || \'\')')
