@@ -67,6 +67,7 @@ export default function SecurePasswordInput({
   label = 'Senha',
   required = false,
   className = '',
+  enableGenerator = true,
 }) {
   const [showPassword, setShowPassword]     = useState(false);
   const [copied, setCopied]                 = useState(false);
@@ -95,6 +96,8 @@ export default function SecurePasswordInput({
   // Gerar senha
   // -------------------------------------------------------------------------
   const handleGenerate = () => {
+    if (!enableGenerator) return;
+
     const newPassword = generateSecurePassword();
 
     const applyNewPassword = () => {
@@ -168,19 +171,20 @@ export default function SecurePasswordInput({
           onChange={onChange}
           placeholder={placeholder}
           required={required}
-          className="block w-full rounded-md border-slate-300 pr-28 focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm border p-2.5 bg-white"
+          className={`block w-full rounded-md border-slate-300 ${enableGenerator ? 'pr-28' : 'pr-20'} focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm border p-2.5 bg-white`}
         />
         <div className="absolute inset-y-0 right-0 flex items-center pr-2 gap-0.5">
-          {/* Gerar senha */}
-          <button
-            type="button"
-            onClick={handleGenerate}
-            className="p-1 text-slate-400 hover:text-indigo-600 focus:outline-none transition-colors"
-            aria-label="Gerar senha segura"
-            title="Gerar senha segura"
-          >
-            <KeyRound className="h-4 w-4" />
-          </button>
+          {enableGenerator && (
+            <button
+              type="button"
+              onClick={handleGenerate}
+              className="p-1 text-slate-400 hover:text-indigo-600 focus:outline-none transition-colors"
+              aria-label="Gerar senha segura"
+              title="Gerar senha segura"
+            >
+              <KeyRound className="h-4 w-4" />
+            </button>
+          )}
 
           {/* Copiar senha */}
           <button
@@ -205,7 +209,7 @@ export default function SecurePasswordInput({
       </div>
 
       {/* Aviso de desfazer */}
-      {showUndo && (
+      {enableGenerator && showUndo && (
         <div className="mt-1 flex items-center gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
           <span>Senha gerada automaticamente.</span>
           <button
