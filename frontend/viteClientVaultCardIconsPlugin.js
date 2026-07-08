@@ -32,7 +32,7 @@ const getPermissionIconConfig = (permission = '') => {
   }
 
   if (normalizedPermission.includes('admin')) {
-    return { Icon: UserStar, className: 'text-[#f95a3e]' };
+    return { Icon: UserStar, className: 'text-[#ff8a78]' };
   }
 
   return { Icon: UserRound, className: 'text-slate-500' };
