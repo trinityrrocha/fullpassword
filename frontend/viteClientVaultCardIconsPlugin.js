@@ -28,19 +28,19 @@ const getPermissionIconConfig = (permission = '') => {
   const normalizedPermission = String(permission || '').toLowerCase();
 
   if (normalizedPermission === 'sistema') {
-    return { Icon: TriangleAlert, className: 'text-amber-500' };
+    return { Icon: TriangleAlert, className: 'text-amber-500', style: undefined };
   }
 
   if (normalizedPermission.includes('admin')) {
-    return { Icon: UserStar, className: 'text-[#ff8a78]' };
+    return { Icon: UserStar, className: '', style: { color: '#ff8a78' } };
   }
 
-  return { Icon: UserRound, className: 'text-slate-500' };
+  return { Icon: UserRound, className: 'text-slate-500', style: undefined };
 };
 
 function PermissionIcon({ permission }) {
-  const { Icon, className } = getPermissionIconConfig(permission);
-  return <Icon className={'h-5 w-5 shrink-0 ' + className} />;
+  const { Icon, className, style } = getPermissionIconConfig(permission);
+  return <Icon className={'h-5 w-5 shrink-0 ' + className} style={style} />;
 }`
     )
   }
