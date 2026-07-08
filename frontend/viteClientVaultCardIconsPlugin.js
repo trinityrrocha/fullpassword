@@ -17,7 +17,7 @@ function addMissingLucideImports(code, importNames) {
 function transformWindowsServerManager(code) {
   let next = code
 
-  next = addMissingLucideImports(next, ['Server', 'UserRound', 'UserStar', 'TriangleAlert'])
+  next = addMissingLucideImports(next, ['Server', 'UserRound', 'UserStar', 'TriangleAlert', 'ShieldCheck', 'EthernetPort'])
 
   if (!next.includes('function PermissionIcon')) {
     next = next.replace(
@@ -41,6 +41,12 @@ const getPermissionIconConfig = (permission = '') => {
 function PermissionIcon({ permission }) {
   const { Icon, className, style } = getPermissionIconConfig(permission);
   return <Icon className={'h-5 w-5 shrink-0 ' + className} style={style} />;
+}
+
+function ConnectionIcon({ type }) {
+  const isVpn = String(type || '').toUpperCase() === 'VPN';
+  const Icon = isVpn ? ShieldCheck : EthernetPort;
+  return <Icon className={isVpn ? 'h-5 w-5 shrink-0 text-indigo-500' : 'h-5 w-5 shrink-0 text-slate-500'} />;
 }`
     )
   }
@@ -53,6 +59,11 @@ function PermissionIcon({ permission }) {
   next = next.replace(
     `<p className="font-medium text-slate-900">{user.name || 'Usuário sem nome'}</p>`,
     `<p className="font-medium text-slate-900 flex items-center gap-2"><PermissionIcon permission={user.permission} />{user.name || 'Usuário sem nome'}</p>`
+  )
+
+  next = next.replace(
+    `<div className="rounded-md border border-slate-200 bg-white p-2 text-sm text-slate-700">{getConnectionLabel(connection, connections)}</div>`,
+    `<div className="rounded-md border border-slate-200 bg-white p-2 text-sm text-slate-700 flex items-center gap-2"><ConnectionIcon type={connection.type} />{getConnectionLabel(connection, connections)}</div>`
   )
 
   return next
@@ -76,6 +87,24 @@ function transformCpanelWebManager(code) {
   return next
 }
 
+function transformVpnManager(code) {
+  let next = code
+
+  next = addMissingLucideImports(next, ['Server', 'UserRound'])
+
+  next = next.replace(
+    `<p className="font-medium text-slate-900">{server.name || 'Servidor VPN sem nome'} - {server.vpn || '-'}</p>`,
+    `<p className="font-medium text-slate-900 flex items-center gap-2"><Server className="h-5 w-5 shrink-0 text-slate-500" />{server.name || 'Servidor VPN sem nome'} - {server.vpn || '-'}</p>`
+  )
+
+  next = next.replace(
+    `<p className="font-medium text-slate-900">{user.personName || 'Pessoa não informada'}</p>`,
+    `<p className="font-medium text-slate-900 flex items-center gap-2"><UserRound className="h-5 w-5 shrink-0 text-slate-500" />{user.personName || 'Pessoa não informada'}</p>`
+  )
+
+  return next
+}
+
 export default function clientVaultCardIconsPlugin() {
   return {
     name: 'client-vault-card-icons-transform',
@@ -90,6 +119,11 @@ export default function clientVaultCardIconsPlugin() {
 
       if (id.endsWith('CpanelWebManager.jsx')) {
         next = transformCpanelWebManager(code)
+        return next === code ? null : { code: next, map: null }
+      }
+
+      if (id.endsWith('VpnManager.jsx')) {
+        next = transformVpnManager(code)
         return next === code ? null : { code: next, map: null }
       }
 
