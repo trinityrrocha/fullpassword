@@ -40,7 +40,7 @@ const getPermissionIconConfig = (permission = '') => {
 
 function PermissionIcon({ permission }) {
   const { Icon, className } = getPermissionIconConfig(permission);
-  return <Icon className={\`h-5 w-5 shrink-0 ${className}\`} />;
+  return <Icon className={'h-5 w-5 shrink-0 ' + className} />;
 }`
     )
   }
