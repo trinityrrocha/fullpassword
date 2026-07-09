@@ -34,22 +34,28 @@ CREATE TABLE IF NOT EXISTS user_groups (
     PRIMARY KEY (user_id, group_id)
 );
 
--- Tabela de clientes
+-- Tabela de clientes/cofres
 CREATE TABLE IF NOT EXISTS clients (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     name VARCHAR(255) NOT NULL,
     address TEXT,
     phone VARCHAR(30),
     email VARCHAR(255),
+    created_by UUID REFERENCES users(id) ON DELETE SET NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- Tabela pivot de permissão para clientes e grupos
+-- Tabela pivot de compartilhamento de cofres/clientes com grupos e permissões
 CREATE TABLE IF NOT EXISTS client_group_access (
     client_id UUID REFERENCES clients(id) ON DELETE CASCADE,
     group_id UUID REFERENCES groups(id) ON DELETE CASCADE,
+    can_view BOOLEAN NOT NULL DEFAULT TRUE,
+    can_edit BOOLEAN NOT NULL DEFAULT TRUE,
+    can_add BOOLEAN NOT NULL DEFAULT TRUE,
+    can_delete BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (client_id, group_id)
 );
 
@@ -66,7 +72,7 @@ CREATE TABLE IF NOT EXISTS vault_items (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- Tabela de compartilhamento de cofres (RSA)
+-- Tabela de compartilhamento criptográfico item-usuário (compatibilidade RSA)
 CREATE TABLE IF NOT EXISTS vault_shares (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     vault_item_id UUID REFERENCES vault_items(id) ON DELETE CASCADE,
@@ -76,18 +82,31 @@ CREATE TABLE IF NOT EXISTS vault_shares (
     UNIQUE(vault_item_id, user_id)
 );
 
--- SEEDER DO USUÁRIO ADMINISTRADOR
--- O hash da senha '@dmin123' deve ser gerado pelo backend usando bcrypt/argon2id antes de salvar.
--- Como estamos no SQL, vamos inserir um hash fictício para o Argon2id como placeholder,
--- O ideal é que na inicialização do backend, ele verifique se o admin existe e, se não, crie com o hash correto.
--- Aqui está o SQL para inserção direta:
+-- Tabela de auditoria de acesso/compartilhamento
+CREATE TABLE IF NOT EXISTS vault_access_audit (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    client_id UUID REFERENCES clients(id) ON DELETE CASCADE,
+    actor_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    action VARCHAR(80) NOT NULL,
+    details JSONB,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
 
+-- Ajustes idempotentes para bancos já existentes
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS created_by UUID REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE client_group_access ADD COLUMN IF NOT EXISTS can_view BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE client_group_access ADD COLUMN IF NOT EXISTS can_edit BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE client_group_access ADD COLUMN IF NOT EXISTS can_add BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE client_group_access ADD COLUMN IF NOT EXISTS can_delete BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE client_group_access ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
+
+-- SEEDER DO USUÁRIO ADMINISTRADOR
 INSERT INTO users (id, name, email, hash_senha_login, role)
 VALUES (
     uuid_generate_v4(),
     'Administrador do Sistema',
     'admin@admin.com.br',
-    '$argon2id$v=19$m=65536,t=3,p=4$PLACEHOLDER_HASH_FOR_@dmin123', -- O backend deve substituir por um hash real na inicialização ou o script de setup deve gerar.
+    '$argon2id$v=19$m=65536,t=3,p=4$PLACEHOLDER_HASH_FOR_@dmin123',
     'admin'
 ) ON CONFLICT (email) DO NOTHING;
 
@@ -100,7 +119,6 @@ VALUES (
 ) ON CONFLICT DO NOTHING;
 
 -- Relacionar o admin criado ao grupo de administradores
--- (Assumindo que é a primeira inserção e usando subqueries)
 INSERT INTO user_groups (user_id, group_id)
 SELECT u.id, g.id
 FROM users u, groups g
