@@ -32,7 +32,7 @@ function addVpnConnectionCardFields(code) {
 
   next = next.replace(
     '<div key={connection.id} className="grid grid-cols-1 sm:grid-cols-[160px_1fr_auto] gap-3 items-end rounded-md border border-slate-200 bg-slate-50 p-3">',
-    '<div key={connection.id} className={`grid gap-3 rounded-md border border-slate-200 bg-slate-50 p-3 ${connection.type === \'VPN\' ? \'grid-cols-[160px_190px_minmax(0,1fr)_auto] items-center\' : \'grid-cols-1 sm:grid-cols-[160px_1fr_auto] items-end\'}`}> '
+    '<div key={connection.id} className="grid grid-cols-1 sm:grid-cols-[160px_1fr_auto] gap-3 items-end rounded-md border border-slate-200 bg-slate-50 p-3" style={connection.type === \'VPN\' ? { gridTemplateColumns: \'160px 190px minmax(0, 1fr) auto\', alignItems: \'center\' } : undefined}> '
   )
 
   next = next.replace(
