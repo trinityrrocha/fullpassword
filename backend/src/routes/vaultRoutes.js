@@ -6,6 +6,15 @@ const { verifyToken } = require('../middleware/authMiddleware');
 // Todas as rotas do cofre requerem autenticação
 router.use(verifyToken);
 
+// GET /api/vault-items/:clientId/permissions
+router.get('/:clientId/permissions', vaultController.getVaultPermissions);
+
+// GET /api/vault-items/:clientId/shares
+router.get('/:clientId/shares', vaultController.getClientShares);
+
+// PUT /api/vault-items/:clientId/shares
+router.put('/:clientId/shares', vaultController.updateClientShares);
+
 // GET /api/vault-items/:clientId
 router.get('/:clientId', vaultController.getVaultItems);
 
