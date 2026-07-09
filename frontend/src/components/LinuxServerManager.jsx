@@ -124,7 +124,7 @@ export default function LinuxServerManager({ serverForm, setServerForm, handleSa
 
   const persistLinuxForm = async (nextForm, successMessage) => {
     const normalizedNextForm = normalizeLinuxForm(nextForm);
-    const saved = await handleSaveData('Servidores Diversos', normalizedNextForm, { successMessage });
+    const saved = await handleSaveData('Servidor Linux', normalizedNextForm, { successMessage });
     if (saved) setServerForm(normalizedNextForm);
     return saved;
   };
