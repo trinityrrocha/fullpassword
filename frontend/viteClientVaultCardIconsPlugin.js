@@ -74,6 +74,35 @@ function addVpnConnectionCardFields(code) {
   return next
 }
 
+function addLinuxConnectionNameField(code) {
+  let next = code
+
+  next = next.replace(
+    "type: connection.type || 'Eth1',\n      vpn: connection.type === 'VPN' ? (connection.vpn || connection.vpnType || 'OpenVPN') : '',\n      ipv4: sanitizeIpv4MaskInput(connection.ipv4 || connection.ip || '')",
+    "type: connection.type || 'Eth1',\n      vpn: connection.type === 'VPN' ? (connection.vpn || connection.vpnType || 'OpenVPN') : '',\n      name: connection.name || connection.connectionName || '',\n      ipv4: sanitizeIpv4MaskInput(connection.ipv4 || connection.ip || '')"
+  )
+
+  next = next.replace(
+    "if (server.ip) return [{ id: makeId(), type: 'Eth1', vpn: '', ipv4: sanitizeIpv4MaskInput(server.ip) }];",
+    "if (server.ip) return [{ id: makeId(), type: 'Eth1', vpn: '', name: '', ipv4: sanitizeIpv4MaskInput(server.ip) }];"
+  )
+
+  next = next.replace(
+    "connections: [...connections, { id: makeId(), type, vpn: type === 'VPN' ? 'OpenVPN' : '', ipv4: '' }]",
+    "connections: [...connections, { id: makeId(), type, vpn: type === 'VPN' ? 'OpenVPN' : '', name: '', ipv4: '' }]"
+  )
+
+  if (!next.includes('placeholder="Nome da conexão"')) {
+    next = next.replace(
+      `<div className="w-40 shrink-0 rounded-md border border-slate-200 bg-white p-2 text-sm text-slate-700 flex items-center gap-2"><ConnectionIcon type={connection.type} />{getConnectionLabel(connection, connections)}</div>`,
+      `<div className="w-40 shrink-0 rounded-md border border-slate-200 bg-white p-2 text-sm text-slate-700 flex items-center gap-2"><ConnectionIcon type={connection.type} />{getConnectionLabel(connection, connections)}</div>
+                  <input type="text" className="w-52 shrink-0 border-slate-300 rounded-md shadow-sm p-2 border bg-white" value={connection.name || ''} onChange={(e) => updateConnection(connection.id, 'name', e.target.value)} placeholder="Nome da conexão" />`
+    )
+  }
+
+  return next
+}
+
 function transformWindowsServerManager(code) {
   let next = code
 
@@ -145,6 +174,7 @@ function transformLinuxServerManager(code) {
     "connections: [...connections, { id: makeId(), type, vpn: type === 'VPN' ? 'OpenVPN' : '', ipv4: '' }]"
   )
   next = addVpnConnectionCardFields(next)
+  next = addLinuxConnectionNameField(next)
 
   return next
 }
