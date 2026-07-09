@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
-import { Plus, Edit2, Trash2, X, Server, ShieldCheck, EthernetPort } from 'lucide-react';
+import { Plus, Edit2, Trash2, X, Server, ShieldCheck, EthernetPort, Download, UserRound } from 'lucide-react';
+import SecurePasswordInput from './SecurePasswordInput';
 
 const systemOptions = [
   'Ubuntu',
@@ -13,6 +14,7 @@ const systemOptions = [
 ];
 
 const connectionOptions = ['Eth1', 'Eth2', 'Eth3', 'Eth4', 'Eth5', 'VPN'];
+const connectionVpnOptions = ['OpenVPN', 'WireGuard', 'ZeroTier', 'Tailscale', 'Outro'];
 const protocolOptions = ['TCP', 'UDP', 'TCP/UDP', 'HTTPS', 'HTTP', 'ICMP', 'SMB', 'FTP', 'SSH', 'SMTP', 'RPD', 'ANY'];
 const directionOptions = ['Entrada', 'Saída'];
 
@@ -28,13 +30,61 @@ const makeId = () => {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 };
 
+const emptyProxmoxApi = () => ({
+  username: '',
+  tokenApi: '',
+  tokenName: '',
+  url: '',
+  attachments: []
+});
+
 const emptyLinuxServer = () => ({
   id: makeId(),
   name: '',
   systemType: 'Ubuntu',
   notes: '',
   connections: [],
-  portRules: []
+  portRules: [],
+  proxmoxApi: emptyProxmoxApi()
+});
+
+const emptySshCredential = (serverId = '') => ({
+  id: makeId(),
+  serverId,
+  username: '',
+  password: '',
+  sshPort: '22',
+  publicKeyAttachment: null,
+  privateKeyAttachment: null
+});
+
+const normalizeAttachments = (attachments) => Array.isArray(attachments)
+  ? attachments.filter(Boolean).map((attachment) => ({
+      id: attachment.id || makeId(),
+      name: attachment.name || 'anexo.txt',
+      type: attachment.type || 'application/octet-stream',
+      size: attachment.size || 0,
+      data: attachment.data || ''
+    }))
+  : [];
+
+const normalizeAttachment = (attachment) => {
+  if (!attachment) return null;
+  return {
+    id: attachment.id || makeId(),
+    name: attachment.name || 'anexo',
+    type: attachment.type || 'application/octet-stream',
+    size: attachment.size || 0,
+    data: attachment.data || ''
+  };
+};
+
+const normalizeProxmoxApi = (proxmoxApi = {}) => ({
+  username: proxmoxApi.username || proxmoxApi.user || '',
+  tokenApi: proxmoxApi.tokenApi || proxmoxApi.token || '',
+  tokenName: proxmoxApi.tokenName || '',
+  url: proxmoxApi.url || '',
+  attachments: normalizeAttachments(proxmoxApi.attachments)
 });
 
 const normalizeConnections = (server = {}) => {
@@ -42,11 +92,12 @@ const normalizeConnections = (server = {}) => {
     return server.connections.map((connection) => ({
       id: connection.id || makeId(),
       type: connection.type || 'Eth1',
+      vpn: connection.type === 'VPN' ? (connection.vpn || connection.vpnType || 'OpenVPN') : '',
       ipv4: sanitizeIpv4MaskInput(connection.ipv4 || connection.ip || '')
     }));
   }
 
-  if (server.ip) return [{ id: makeId(), type: 'Eth1', ipv4: sanitizeIpv4MaskInput(server.ip) }];
+  if (server.ip) return [{ id: makeId(), type: 'Eth1', vpn: '', ipv4: sanitizeIpv4MaskInput(server.ip) }];
   return [];
 };
 
@@ -80,13 +131,29 @@ const normalizeLinuxServer = (server = {}) => ({
   systemType: server.systemType || server.os || server.type || 'Ubuntu',
   notes: server.notes || server.observations || server.annotations || '',
   connections: normalizeConnections(server),
-  portRules: normalizePortRules(server)
+  portRules: normalizePortRules(server),
+  proxmoxApi: normalizeProxmoxApi(server.proxmoxApi || {})
+});
+
+const normalizeSshCredential = (credential = {}) => ({
+  id: credential.id || makeId(),
+  serverId: credential.serverId || '',
+  username: credential.username || credential.user || '',
+  password: credential.password || '',
+  sshPort: sanitizePortInput(credential.sshPort || credential.port || '22'),
+  publicKeyAttachment: normalizeAttachment(credential.publicKeyAttachment || credential.publicKey || null),
+  privateKeyAttachment: normalizeAttachment(credential.privateKeyAttachment || credential.privateKey || null)
 });
 
 const normalizeLinuxForm = (data = {}) => {
-  if (Array.isArray(data.servers)) {
+  if (Array.isArray(data.servers) || Array.isArray(data.users) || Array.isArray(data.sshCredentials)) {
     return {
-      servers: data.servers.map((server) => normalizeLinuxServer(server))
+      servers: Array.isArray(data.servers) ? data.servers.map((server) => normalizeLinuxServer(server)) : [],
+      sshCredentials: Array.isArray(data.sshCredentials)
+        ? data.sshCredentials.map((credential) => normalizeSshCredential(credential))
+        : Array.isArray(data.users)
+          ? data.users.map((credential) => normalizeSshCredential(credential))
+          : []
     };
   }
 
@@ -100,7 +167,7 @@ const normalizeLinuxForm = (data = {}) => {
       })]
     : [];
 
-  return { servers: legacyServer };
+  return { servers: legacyServer, sshCredentials: [] };
 };
 
 const getConnectionLabel = (connection, allConnections = []) => {
@@ -115,12 +182,91 @@ function ConnectionIcon({ type }) {
   return <Icon className={isVpn ? 'h-5 w-5 shrink-0 text-indigo-500' : 'h-5 w-5 shrink-0 text-slate-500'} />;
 }
 
+const readFileAsAttachment = (file) => new Promise((resolve, reject) => {
+  if (!file) {
+    resolve(null);
+    return;
+  }
+
+  const reader = new FileReader();
+  reader.onload = () => {
+    const result = String(reader.result || '');
+    const data = result.includes(',') ? result.split(',')[1] : result;
+    resolve({
+      id: makeId(),
+      name: file.name,
+      type: file.type || 'application/octet-stream',
+      size: file.size,
+      data
+    });
+  };
+  reader.onerror = reject;
+  reader.readAsDataURL(file);
+});
+
+const readFilesAsAttachments = async (files) => {
+  const selectedFiles = Array.from(files || []);
+  const attachments = await Promise.all(selectedFiles.map((file) => readFileAsAttachment(file)));
+  return attachments.filter(Boolean);
+};
+
+const downloadAttachment = (attachment) => {
+  if (!attachment?.data) return;
+
+  const binary = atob(attachment.data);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+
+  const blob = new Blob([bytes], { type: attachment.type || 'application/octet-stream' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = attachment.name || 'anexo';
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+};
+
+function AttachmentRow({ attachment, label, onRemove }) {
+  if (!attachment) return <p className="text-xs text-slate-500">Nenhum arquivo anexado.</p>;
+
+  return (
+    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+      <span className="text-sm text-slate-700 truncate">{label}: {attachment.name}</span>
+      <div className="flex gap-2">
+        <button type="button" onClick={() => downloadAttachment(attachment)} className="inline-flex items-center justify-center px-3 py-1.5 border border-slate-300 rounded-md text-sm text-slate-700 bg-white hover:bg-slate-50">
+          <Download className="w-4 h-4 mr-2" /> Download
+        </button>
+        {onRemove && (
+          <button type="button" onClick={onRemove} className="inline-flex items-center justify-center px-3 py-1.5 border border-red-200 rounded-md text-sm text-red-600 bg-white hover:bg-red-50">
+            Remover
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function LinuxServerManager({ serverForm, setServerForm, handleSaveData, isSaving }) {
   const normalizedForm = useMemo(() => normalizeLinuxForm(serverForm), [serverForm]);
   const [serverDraft, setServerDraft] = useState(emptyLinuxServer());
+  const [userDraft, setUserDraft] = useState(emptySshCredential());
   const [editingServer, setEditingServer] = useState(null);
+  const [editingUser, setEditingUser] = useState(null);
   const [deleteConfirmation, setDeleteConfirmation] = useState('');
+  const [deleteUserConfirmation, setDeleteUserConfirmation] = useState('');
   const [showServerCreateModal, setShowServerCreateModal] = useState(false);
+  const [showUserCreateModal, setShowUserCreateModal] = useState(false);
+  const [userSearch, setUserSearch] = useState('');
+
+  const getServerById = (serverId) => normalizedForm.servers.find((item) => item.id === serverId);
+
+  const getServerLabel = (serverId) => {
+    const server = getServerById(serverId);
+    if (!server) return 'Servidor não informado';
+    return server.name ? `${server.name} - ${server.systemType || 'Linux'}` : server.systemType || 'Servidor sem nome';
+  };
 
   const persistLinuxForm = async (nextForm, successMessage) => {
     const normalizedNextForm = normalizeLinuxForm(nextForm);
@@ -132,6 +278,11 @@ export default function LinuxServerManager({ serverForm, setServerForm, handleSa
   const openCreateServerModal = () => {
     setServerDraft(emptyLinuxServer());
     setShowServerCreateModal(true);
+  };
+
+  const openCreateUserModal = () => {
+    setUserDraft(emptySshCredential(normalizedForm.servers[0]?.id || ''));
+    setShowUserCreateModal(true);
   };
 
   const addServer = async () => {
@@ -178,7 +329,8 @@ export default function LinuxServerManager({ serverForm, setServerForm, handleSa
     }
 
     const nextForm = {
-      servers: normalizedForm.servers.filter((server) => server.id !== editingServer.id)
+      servers: normalizedForm.servers.filter((server) => server.id !== editingServer.id),
+      sshCredentials: normalizedForm.sshCredentials.map((credential) => credential.serverId === editingServer.id ? { ...credential, serverId: '' } : credential)
     };
 
     const saved = await persistLinuxForm(nextForm, 'Servidor Linux excluído e cofre atualizado.');
@@ -187,6 +339,75 @@ export default function LinuxServerManager({ serverForm, setServerForm, handleSa
       setDeleteConfirmation('');
     }
   };
+
+  const addSshCredential = async () => {
+    if (!userDraft.serverId) {
+      alert('Selecione o servidor Linux ao qual esta credencial pertence.');
+      return;
+    }
+    if (!userDraft.username.trim()) {
+      alert('Informe o usuário SSH.');
+      return;
+    }
+
+    const newCredential = normalizeSshCredential({ ...userDraft, id: makeId() });
+    const nextForm = {
+      ...normalizedForm,
+      sshCredentials: [newCredential, ...normalizedForm.sshCredentials]
+    };
+
+    const saved = await persistLinuxForm(nextForm, 'Credencial SSH cadastrada e salva automaticamente no cofre.');
+    if (saved) {
+      setUserDraft(emptySshCredential(userDraft.serverId));
+      setShowUserCreateModal(false);
+    }
+  };
+
+  const saveEditedSshCredential = async () => {
+    if (!editingUser.serverId) {
+      alert('Selecione o servidor Linux ao qual esta credencial pertence.');
+      return;
+    }
+    if (!editingUser.username.trim()) {
+      alert('Informe o usuário SSH.');
+      return;
+    }
+
+    const nextForm = {
+      ...normalizedForm,
+      sshCredentials: normalizedForm.sshCredentials.map((credential) => credential.id === editingUser.id ? normalizeSshCredential(editingUser) : credential)
+    };
+
+    const saved = await persistLinuxForm(nextForm, 'Credencial SSH atualizada e salva no cofre.');
+    if (saved) {
+      setEditingUser(null);
+      setDeleteUserConfirmation('');
+    }
+  };
+
+  const deleteEditedSshCredential = async () => {
+    if (deleteUserConfirmation !== 'EXCLUIR') {
+      alert('Para confirmar a exclusão, escreva EXCLUIR no campo de confirmação.');
+      return;
+    }
+
+    const nextForm = {
+      ...normalizedForm,
+      sshCredentials: normalizedForm.sshCredentials.filter((credential) => credential.id !== editingUser.id)
+    };
+
+    const saved = await persistLinuxForm(nextForm, 'Credencial SSH excluída e cofre atualizado.');
+    if (saved) {
+      setEditingUser(null);
+      setDeleteUserConfirmation('');
+    }
+  };
+
+  const filteredCredentials = normalizedForm.sshCredentials.filter((credential) => {
+    const search = userSearch.trim().toLowerCase();
+    if (!search) return true;
+    return [credential.username, credential.sshPort, getServerLabel(credential.serverId)].join(' ').toLowerCase().includes(search);
+  });
 
   return (
     <div className="space-y-6 animate-fadeIn">
@@ -218,6 +439,43 @@ export default function LinuxServerManager({ serverForm, setServerForm, handleSa
         </div>
       </div>
 
+      <div className="bg-slate-50 border border-slate-200 rounded-lg p-5">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div>
+            <h3 className="text-lg font-medium text-slate-900">Credenciais SSH</h3>
+            <p className="text-sm text-slate-500">Cadastre usuários SSH vinculados aos servidores Linux.</p>
+          </div>
+          <button type="button" disabled={isSaving} onClick={openCreateUserModal} className="inline-flex items-center justify-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50">
+            <Plus className="w-4 h-4 mr-2" /> Cadastrar usuário
+          </button>
+        </div>
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-slate-700 mb-1">Pesquisar credencial SSH</label>
+        <input type="text" className="w-full border-slate-300 rounded-md shadow-sm p-2 border focus:ring-indigo-500 focus:border-indigo-500" placeholder="Buscar por usuário, porta SSH ou servidor..." value={userSearch} onChange={(e) => setUserSearch(e.target.value)} />
+      </div>
+
+      <div className="bg-slate-50 border border-slate-200 rounded-lg p-5">
+        <h3 className="text-lg font-medium text-slate-900 mb-4">Credenciais cadastradas</h3>
+        <div className="space-y-3">
+          {filteredCredentials.length === 0 ? (
+            <p className="text-sm text-slate-500">{userSearch.trim() ? 'Nenhuma credencial encontrada.' : 'Nenhuma credencial SSH cadastrada.'}</p>
+          ) : filteredCredentials.map((credential) => (
+            <div key={credential.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white border border-slate-200 rounded-lg p-4">
+              <div className="space-y-1">
+                <p className="font-medium text-slate-900 flex items-center gap-2"><UserRound className="h-5 w-5 shrink-0 text-slate-500" />{credential.username || 'Usuário SSH sem nome'}</p>
+                <p className="text-sm text-slate-500">Porta SSH: {credential.sshPort || '22'} | Servidor: {getServerLabel(credential.serverId)}</p>
+                <p className="text-xs text-slate-500">Chave pública: {credential.publicKeyAttachment?.name || '-'} | Chave privada: {credential.privateKeyAttachment?.name || '-'}</p>
+              </div>
+              <button type="button" onClick={() => { setEditingUser(normalizeSshCredential(credential)); setDeleteUserConfirmation(''); }} className="inline-flex items-center px-3 py-2 border border-slate-300 rounded-md text-sm text-slate-700 bg-white hover:bg-slate-50">
+                <Edit2 className="w-4 h-4 mr-2" /> Detalhes
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+
       {showServerCreateModal && (
         <LinuxServerModal
           title="Cadastrar servidor"
@@ -226,6 +484,19 @@ export default function LinuxServerManager({ serverForm, setServerForm, handleSa
           isSaving={isSaving}
           onCancel={() => setShowServerCreateModal(false)}
           onSave={addServer}
+        />
+      )}
+
+      {showUserCreateModal && (
+        <SshCredentialModal
+          title="Cadastrar usuário"
+          credential={userDraft}
+          setCredential={setUserDraft}
+          servers={normalizedForm.servers}
+          getServerLabel={getServerLabel}
+          isSaving={isSaving}
+          onCancel={() => setShowUserCreateModal(false)}
+          onSave={addSshCredential}
         />
       )}
 
@@ -242,6 +513,22 @@ export default function LinuxServerManager({ serverForm, setServerForm, handleSa
           onDelete={deleteEditedServer}
         />
       )}
+
+      {editingUser && (
+        <SshCredentialModal
+          title="Detalhes da credencial SSH"
+          credential={editingUser}
+          setCredential={setEditingUser}
+          servers={normalizedForm.servers}
+          getServerLabel={getServerLabel}
+          isSaving={isSaving}
+          deleteConfirmation={deleteUserConfirmation}
+          setDeleteConfirmation={setDeleteUserConfirmation}
+          onCancel={() => setEditingUser(null)}
+          onSave={saveEditedSshCredential}
+          onDelete={deleteEditedSshCredential}
+        />
+      )}
     </div>
   );
 }
@@ -249,6 +536,7 @@ export default function LinuxServerManager({ serverForm, setServerForm, handleSa
 function LinuxServerModal({ title, server, setServer, isSaving, onCancel, onSave, onDelete, deleteConfirmation, setDeleteConfirmation }) {
   const connections = normalizeConnections(server);
   const portRules = normalizePortRules(server);
+  const proxmoxApi = normalizeProxmoxApi(server.proxmoxApi || {});
 
   const canAddConnection = (type) => {
     if (!type) return false;
@@ -265,14 +553,14 @@ function LinuxServerModal({ title, server, setServer, isSaving, onCancel, onSave
 
     setServer({
       ...server,
-      connections: [...connections, { id: makeId(), type, ipv4: '' }]
+      connections: [...connections, { id: makeId(), type, vpn: type === 'VPN' ? 'OpenVPN' : '', ipv4: '' }]
     });
   };
 
-  const updateConnection = (connectionId, ipv4) => {
+  const updateConnection = (connectionId, field, value) => {
     setServer({
       ...server,
-      connections: connections.map((connection) => connection.id === connectionId ? { ...connection, ipv4: sanitizeIpv4MaskInput(ipv4) } : connection)
+      connections: connections.map((connection) => connection.id === connectionId ? { ...connection, [field]: field === 'ipv4' ? sanitizeIpv4MaskInput(value) : value } : connection)
     });
   };
 
@@ -304,6 +592,39 @@ function LinuxServerModal({ title, server, setServer, isSaving, onCancel, onSave
     });
   };
 
+  const updateProxmoxApi = (field, value) => {
+    setServer({
+      ...server,
+      proxmoxApi: {
+        ...proxmoxApi,
+        [field]: value
+      }
+    });
+  };
+
+  const addProxmoxAttachments = async (files) => {
+    const attachments = await readFilesAsAttachments(files);
+    if (!attachments.length) return;
+
+    setServer({
+      ...server,
+      proxmoxApi: {
+        ...proxmoxApi,
+        attachments: [...normalizeAttachments(proxmoxApi.attachments), ...attachments]
+      }
+    });
+  };
+
+  const removeProxmoxAttachment = (attachmentId) => {
+    setServer({
+      ...server,
+      proxmoxApi: {
+        ...proxmoxApi,
+        attachments: normalizeAttachments(proxmoxApi.attachments).filter((attachment) => attachment.id !== attachmentId)
+      }
+    });
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900 bg-opacity-60 p-4">
       <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
@@ -329,6 +650,49 @@ function LinuxServerModal({ title, server, setServer, isSaving, onCancel, onSave
             </div>
           </div>
 
+          {server.systemType === 'Proxmox' && (
+            <div className="border border-slate-200 rounded-lg p-4 bg-slate-50">
+              <h4 className="text-sm font-semibold text-slate-900 mb-4">Credencial Principal (Proxmox API)</h4>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Nome do usuário</label>
+                  <input type="text" className="w-full border-slate-300 rounded-md shadow-sm p-2 border bg-white" value={proxmoxApi.username} onChange={(e) => updateProxmoxApi('username', e.target.value)} placeholder="Ex: root@pam" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Token Name</label>
+                  <input type="text" className="w-full border-slate-300 rounded-md shadow-sm p-2 border bg-white" value={proxmoxApi.tokenName} onChange={(e) => updateProxmoxApi('tokenName', e.target.value)} placeholder="Ex: fullpassword" />
+                </div>
+                <div className="sm:col-span-2 max-w-xl">
+                  <SecurePasswordInput name={`proxmox_token_${server.id}`} label="Token API" value={proxmoxApi.tokenApi} onChange={(e) => updateProxmoxApi('tokenApi', e.target.value)} enableGenerator={false} />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="block text-sm font-medium text-slate-700 mb-1">URL: https</label>
+                  <input type="text" className="w-full border-slate-300 rounded-md shadow-sm p-2 border bg-white" value={proxmoxApi.url} onChange={(e) => updateProxmoxApi('url', e.target.value)} placeholder="https://192.168.88.200:8006" />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Arquivos de texto</label>
+                  <input
+                    type="file"
+                    multiple
+                    accept=".txt,.conf,.json,.yaml,.yml,.log,.pem,.key"
+                    className="w-full border-slate-300 rounded-md shadow-sm p-2 border bg-white"
+                    onChange={async (e) => {
+                      await addProxmoxAttachments(e.target.files);
+                      e.target.value = '';
+                    }}
+                  />
+                  <div className="mt-3 space-y-2">
+                    {normalizeAttachments(proxmoxApi.attachments).length === 0 ? (
+                      <p className="text-xs text-slate-500">Nenhum arquivo anexado.</p>
+                    ) : normalizeAttachments(proxmoxApi.attachments).map((attachment) => (
+                      <AttachmentRow key={attachment.id} attachment={attachment} label="Arquivo" onRemove={() => removeProxmoxAttachment(attachment.id)} />
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="border-t border-slate-200 pt-5">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3">
               <div>
@@ -345,16 +709,15 @@ function LinuxServerModal({ title, server, setServer, isSaving, onCancel, onSave
               {connections.length === 0 ? (
                 <p className="text-sm text-slate-500">Nenhuma conexão adicionada.</p>
               ) : connections.map((connection) => (
-                <div key={connection.id} className="grid grid-cols-1 sm:grid-cols-[160px_1fr_auto] gap-3 items-end rounded-md border border-slate-200 bg-slate-50 p-3">
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Conexão</label>
-                    <div className="rounded-md border border-slate-200 bg-white p-2 text-sm text-slate-700 flex items-center gap-2"><ConnectionIcon type={connection.type} />{getConnectionLabel(connection, connections)}</div>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">IPv4</label>
-                    <input type="text" inputMode="decimal" className="w-full border-slate-300 rounded-md shadow-sm p-2 border" value={connection.ipv4} onChange={(e) => updateConnection(connection.id, e.target.value)} placeholder="Ex: 192.168.1.10 ou 192.168.1.0/24" />
-                  </div>
-                  <button type="button" onClick={() => removeConnection(connection.id)} className="inline-flex items-center justify-center px-3 py-2 border border-red-200 rounded-md text-sm text-red-600 bg-white hover:bg-red-50">
+                <div key={connection.id} className={`flex items-center gap-3 rounded-md border border-slate-200 bg-slate-50 p-3 ${connection.type === 'VPN' ? 'flex-nowrap' : 'flex-wrap'}`}>
+                  <div className="w-40 shrink-0 rounded-md border border-slate-200 bg-white p-2 text-sm text-slate-700 flex items-center gap-2"><ConnectionIcon type={connection.type} />{getConnectionLabel(connection, connections)}</div>
+                  {connection.type === 'VPN' && (
+                    <select aria-label="Tipo de VPN" className="w-48 shrink-0 border-slate-300 rounded-md shadow-sm p-2 border bg-white" value={connection.vpn || 'OpenVPN'} onChange={(e) => updateConnection(connection.id, 'vpn', e.target.value)}>
+                      {connectionVpnOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+                    </select>
+                  )}
+                  <input type="text" inputMode="decimal" className="flex-1 min-w-0 border-slate-300 rounded-md shadow-sm p-2 border" value={connection.ipv4} onChange={(e) => updateConnection(connection.id, 'ipv4', e.target.value)} placeholder="Ex: 192.168.1.10 ou 192.168.1.0/24" />
+                  <button type="button" onClick={() => removeConnection(connection.id)} className="shrink-0 inline-flex items-center justify-center px-3 py-2 border border-red-200 rounded-md text-sm text-red-600 bg-white hover:bg-red-50">
                     Remover
                   </button>
                 </div>
@@ -409,6 +772,96 @@ function LinuxServerModal({ title, server, setServer, isSaving, onCancel, onSave
           {onDelete && (
             <div className="border-t border-slate-200 pt-4">
               <label className="block text-sm font-medium text-red-700 mb-1">Para excluir este servidor Linux, escreva EXCLUIR</label>
+              <input type="text" className="w-full border-red-200 rounded-md shadow-sm p-2 border" value={deleteConfirmation} onChange={(e) => setDeleteConfirmation(e.target.value)} placeholder="EXCLUIR" />
+            </div>
+          )}
+        </div>
+        <div className={`flex flex-col sm:flex-row ${onDelete ? 'justify-between' : 'justify-end'} gap-3 px-6 py-4 border-t border-slate-200 bg-slate-50`}>
+          {onDelete && (
+            <button type="button" disabled={isSaving} onClick={onDelete} className="inline-flex items-center justify-center px-4 py-2 border border-red-200 rounded-md text-sm font-medium text-red-600 bg-white hover:bg-red-50 disabled:opacity-50"><Trash2 className="w-4 h-4 mr-2" /> Excluir</button>
+          )}
+          <div className="flex gap-3 justify-end">
+            <button type="button" onClick={onCancel} className="px-4 py-2 border border-slate-300 rounded-md text-sm font-medium text-slate-700 bg-white hover:bg-slate-50">Cancelar</button>
+            <button type="button" disabled={isSaving} onClick={onSave} className="px-4 py-2 border border-transparent rounded-md text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50">{isSaving ? 'Salvando...' : 'Salvar'}</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SshCredentialModal({ title, credential, setCredential, servers, getServerLabel, isSaving, onCancel, onSave, onDelete, deleteConfirmation, setDeleteConfirmation }) {
+  const updateAttachment = async (field, files) => {
+    const [attachment] = await readFilesAsAttachments(files);
+    if (!attachment) return;
+    setCredential({ ...credential, [field]: attachment });
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900 bg-opacity-60 p-4">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
+          <h3 className="text-lg font-semibold text-slate-900">{title}</h3>
+          <button type="button" onClick={onCancel} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5" /></button>
+        </div>
+        <div className="p-6 space-y-5">
+          <div className="border border-slate-200 rounded-lg p-4 bg-slate-50">
+            <h4 className="text-sm font-semibold text-slate-900 mb-4">Credencial SSH</h4>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="sm:col-span-2">
+                <label className="block text-sm font-medium text-slate-700 mb-1">Servidor Linux</label>
+                <select className="w-full border-slate-300 rounded-md shadow-sm p-2 border bg-white" value={credential.serverId} onChange={(e) => setCredential({ ...credential, serverId: e.target.value })}>
+                  <option value="">Selecione o servidor</option>
+                  {servers.map((server) => <option key={server.id} value={server.id}>{getServerLabel(server.id)}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Usuário</label>
+                <input type="text" className="w-full border-slate-300 rounded-md shadow-sm p-2 border bg-white" value={credential.username} onChange={(e) => setCredential({ ...credential, username: e.target.value })} placeholder="Ex: root" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Porta do SSH</label>
+                <input type="text" inputMode="numeric" className="w-full border-slate-300 rounded-md shadow-sm p-2 border bg-white" value={credential.sshPort} onChange={(e) => setCredential({ ...credential, sshPort: sanitizePortInput(e.target.value) })} placeholder="22" />
+              </div>
+              <div className="sm:col-span-2 max-w-md">
+                <SecurePasswordInput name={`linux_ssh_password_${credential.id}`} label="Senha" value={credential.password} onChange={(e) => setCredential({ ...credential, password: e.target.value })} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Chave pública</label>
+                <input
+                  type="file"
+                  accept=".pub,.txt,.pem,.key,.ppk"
+                  className="w-full border-slate-300 rounded-md shadow-sm p-2 border bg-white"
+                  onChange={async (e) => {
+                    await updateAttachment('publicKeyAttachment', e.target.files);
+                    e.target.value = '';
+                  }}
+                />
+                <div className="mt-2">
+                  <AttachmentRow attachment={credential.publicKeyAttachment} label="Chave pública" onRemove={() => setCredential({ ...credential, publicKeyAttachment: null })} />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Chave privada</label>
+                <input
+                  type="file"
+                  accept=".txt,.pem,.key,.ppk,.openssh"
+                  className="w-full border-slate-300 rounded-md shadow-sm p-2 border bg-white"
+                  onChange={async (e) => {
+                    await updateAttachment('privateKeyAttachment', e.target.files);
+                    e.target.value = '';
+                  }}
+                />
+                <div className="mt-2">
+                  <AttachmentRow attachment={credential.privateKeyAttachment} label="Chave privada" onRemove={() => setCredential({ ...credential, privateKeyAttachment: null })} />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {onDelete && (
+            <div className="border-t border-slate-200 pt-4">
+              <label className="block text-sm font-medium text-red-700 mb-1">Para excluir esta credencial SSH, escreva EXCLUIR</label>
               <input type="text" className="w-full border-red-200 rounded-md shadow-sm p-2 border" value={deleteConfirmation} onChange={(e) => setDeleteConfirmation(e.target.value)} placeholder="EXCLUIR" />
             </div>
           )}
