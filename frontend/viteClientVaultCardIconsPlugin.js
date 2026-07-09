@@ -32,26 +32,43 @@ function addVpnConnectionCardFields(code) {
 
   next = next.replace(
     '<div key={connection.id} className="grid grid-cols-1 sm:grid-cols-[160px_1fr_auto] gap-3 items-end rounded-md border border-slate-200 bg-slate-50 p-3">',
-    '<div key={connection.id} className={`grid grid-cols-1 ${connection.type === \'VPN\' ? \'sm:grid-cols-[160px_190px_1fr_auto]\' : \'sm:grid-cols-[160px_1fr_auto]\'} gap-3 items-center rounded-md border border-slate-200 bg-slate-50 p-3`}> '
+    '<div key={connection.id} className={`flex items-center gap-3 rounded-md border border-slate-200 bg-slate-50 p-3 ${connection.type === \'VPN\' ? \'flex-nowrap\' : \'flex-wrap\'}`}> '
   )
 
   next = next.replace(
     /                  <div>\n                    <label className="block text-sm font-medium text-slate-700 mb-1">Conexão<\/label>\n                    (<div className="rounded-md border border-slate-200 bg-white p-2 text-sm text-slate-700 flex items-center gap-2"><ConnectionIcon type=\{connection\.type\} \/>\{getConnectionLabel\(connection, connections\)\}<\/div>)\n                  <\/div>\n                  <div>\n                    <label className="block text-sm font-medium text-slate-700 mb-1">IPv4<\/label>\n                    (<input[\s\S]*?value=\{connection\.ipv4\}[\s\S]*?\/>)[\n\s]*<\/div>/,
-    `                  $1
-                  {connection.type === 'VPN' && (
-                    <select
-                      aria-label="Tipo de VPN"
-                      className="w-full border-slate-300 rounded-md shadow-sm p-2 border bg-white"
-                      value={connection.vpn || 'OpenVPN'}
-                      onChange={(e) => setServer({
-                        ...server,
-                        connections: connections.map((item) => item.id === connection.id ? { ...item, vpn: e.target.value } : item)
-                      })}
-                    >
-                      {connectionVpnOptions.map((option) => <option key={option} value={option}>{option}</option>)}
-                    </select>
-                  )}
-                  $2`
+    `                  {connection.type === 'VPN' ? (
+                    <>
+                      <div className="w-40 shrink-0 rounded-md border border-slate-200 bg-white p-2 text-sm text-slate-700 flex items-center gap-2"><ConnectionIcon type={connection.type} />{getConnectionLabel(connection, connections)}</div>
+                      <select
+                        aria-label="Tipo de VPN"
+                        className="w-48 shrink-0 border-slate-300 rounded-md shadow-sm p-2 border bg-white"
+                        value={connection.vpn || 'OpenVPN'}
+                        onChange={(e) => setServer({
+                          ...server,
+                          connections: connections.map((item) => item.id === connection.id ? { ...item, vpn: e.target.value } : item)
+                        })}
+                      >
+                        {connectionVpnOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+                      </select>
+                      $2
+                    </>
+                  ) : (
+                    <>
+                      $1
+                      $2
+                    </>
+                  )}`
+  )
+
+  next = next.replace(
+    /(<input type="text" inputMode="decimal" className=")w-full( border-slate-300 rounded-md shadow-sm p-2 border" value=\{connection\.ipv4\})/g,
+    '$1flex-1 min-w-0$2'
+  )
+
+  next = next.replace(
+    /(<button type="button" onClick=\{\(\) => removeConnection\(connection\.id\)\} className=")inline-flex items-center justify-center/g,
+    '$1shrink-0 inline-flex items-center justify-center'
   )
 
   return next
