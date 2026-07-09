@@ -32,6 +32,15 @@ export default function clientVaultLinuxPlugin() {
       )
 
       next = next.replace(
+        `          if (item.category === 'Servidores Diversos') {
+            setServerForm({ ...decryptedData, attachment: null });
+          }`,
+        `          if (item.category === 'Servidor Linux' || item.category === 'Servidores Diversos') {
+            setServerForm(decryptedData);
+          }`
+      )
+
+      next = next.replace(
         /          \{activeTab === 'servers' && \(\n[\s\S]*?\n          \)\}\n        <\/div>/,
         `          {activeTab === 'servers' && (
             <LinuxServerManager
