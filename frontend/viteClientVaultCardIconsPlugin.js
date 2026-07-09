@@ -14,10 +14,61 @@ function addMissingLucideImports(code, importNames) {
   return next.replace(importMatch[0], `import { ${mergedImports.join(', ')} } from 'lucide-react';`)
 }
 
+function addVpnConnectionOptions(code) {
+  let next = code
+
+  if (!next.includes('const connectionVpnOptions')) {
+    next = next.replace(
+      "const connectionOptions = ['Eth1', 'Eth2', 'Eth3', 'Eth4', 'Eth5', 'VPN'];",
+      "const connectionOptions = ['Eth1', 'Eth2', 'Eth3', 'Eth4', 'Eth5', 'VPN'];\nconst connectionVpnOptions = ['OpenVPN', 'WireGuard', 'ZeroTier', 'Tailscale', 'Outro'];"
+    )
+  }
+
+  return next
+}
+
+function addVpnConnectionCardFields(code) {
+  let next = code
+
+  next = next.replace(
+    '<div key={connection.id} className="grid grid-cols-1 sm:grid-cols-[160px_1fr_auto] gap-3 items-end rounded-md border border-slate-200 bg-slate-50 p-3">',
+    '<div key={connection.id} className={`grid grid-cols-1 ${connection.type === \'VPN\' ? \'sm:grid-cols-[160px_190px_1fr_auto]\' : \'sm:grid-cols-[160px_1fr_auto]\'} gap-3 items-end rounded-md border border-slate-200 bg-slate-50 p-3`}> '
+  )
+
+  next = next.replace(
+    `<div className="rounded-md border border-slate-200 bg-white p-2 text-sm text-slate-700 flex items-center gap-2"><ConnectionIcon type={connection.type} />{getConnectionLabel(connection, connections)}</div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">IPv4</label>`,
+    `<div className="rounded-md border border-slate-200 bg-white p-2 text-sm text-slate-700 flex items-center gap-2"><ConnectionIcon type={connection.type} />{getConnectionLabel(connection, connections)}</div>
+                  </div>
+                  {connection.type === 'VPN' && (
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">VPN</label>
+                      <select
+                        className="w-full border-slate-300 rounded-md shadow-sm p-2 border bg-white"
+                        value={connection.vpn || 'OpenVPN'}
+                        onChange={(e) => setServer({
+                          ...server,
+                          connections: connections.map((item) => item.id === connection.id ? { ...item, vpn: e.target.value } : item)
+                        })}
+                      >
+                        {connectionVpnOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+                      </select>
+                    </div>
+                  )}
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">IPv4</label>`
+  )
+
+  return next
+}
+
 function transformWindowsServerManager(code) {
   let next = code
 
   next = addMissingLucideImports(next, ['Server', 'UserRound', 'UserStar', 'TriangleAlert', 'ShieldCheck', 'EthernetPort'])
+  next = addVpnConnectionOptions(next)
 
   if (!next.includes('function PermissionIcon')) {
     next = next.replace(
@@ -65,6 +116,25 @@ function ConnectionIcon({ type }) {
     `<div className="rounded-md border border-slate-200 bg-white p-2 text-sm text-slate-700">{getConnectionLabel(connection, connections)}</div>`,
     `<div className="rounded-md border border-slate-200 bg-white p-2 text-sm text-slate-700 flex items-center gap-2"><ConnectionIcon type={connection.type} />{getConnectionLabel(connection, connections)}</div>`
   )
+
+  next = addVpnConnectionCardFields(next)
+
+  return next
+}
+
+function transformLinuxServerManager(code) {
+  let next = code
+
+  next = addVpnConnectionOptions(next)
+  next = next.replace(
+    "type: connection.type || 'Eth1',\n      ipv4: sanitizeIpv4MaskInput(connection.ipv4 || connection.ip || '')",
+    "type: connection.type || 'Eth1',\n      vpn: connection.type === 'VPN' ? (connection.vpn || connection.vpnType || 'OpenVPN') : '',\n      ipv4: sanitizeIpv4MaskInput(connection.ipv4 || connection.ip || '')"
+  )
+  next = next.replace(
+    "connections: [...connections, { id: makeId(), type, ipv4: '' }]",
+    "connections: [...connections, { id: makeId(), type, vpn: type === 'VPN' ? 'OpenVPN' : '', ipv4: '' }]"
+  )
+  next = addVpnConnectionCardFields(next)
 
   return next
 }
@@ -114,6 +184,11 @@ export default function clientVaultCardIconsPlugin() {
 
       if (id.endsWith('WindowsServerManager.jsx')) {
         next = transformWindowsServerManager(code)
+        return next === code ? null : { code: next, map: null }
+      }
+
+      if (id.endsWith('LinuxServerManager.jsx')) {
+        next = transformLinuxServerManager(code)
         return next === code ? null : { code: next, map: null }
       }
 
