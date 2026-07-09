@@ -1,109 +1,98 @@
 const db = require('../config/database');
+const { ensureSharingSchema } = require('../services/accessControlService');
 
-// GET /api/clients - Lista os clientes permitidos para o grupo do usuário logado
+// GET /api/clients - Lista apenas cofres próprios ou compartilhados com visualização
 const getClients = async (req, res) => {
   try {
-    const userGroups = req.user.groups;
-    
-    // Se o usuário não pertence a nenhum grupo e não é admin, não vê nada
-    if ((!userGroups || userGroups.length === 0) && req.user.role !== 'admin') {
-      return res.status(200).json([]);
-    }
+    await ensureSharingSchema();
 
+    const userGroups = Array.isArray(req.user.groups) ? req.user.groups.filter(Boolean) : [];
     let query;
     let params = [];
 
-    // Se for admin, pode ver todos os clientes
     if (req.user.role === 'admin') {
-      query = 'SELECT * FROM clients ORDER BY name ASC';
-    } else {
-      // Caso contrário, vê apenas clientes associados aos seus grupos
       query = `
-        SELECT DISTINCT c.* 
+        SELECT c.*,
+               TRUE AS can_view,
+               TRUE AS can_edit,
+               TRUE AS can_add,
+               TRUE AS can_delete,
+               TRUE AS is_admin,
+               (c.created_by = $1) AS is_owner
         FROM clients c
-        JOIN client_group_access cga ON c.id = cga.client_id
-        WHERE cga.group_id = ANY($1)
         ORDER BY c.name ASC
       `;
-      params = [userGroups];
+      params = [req.user.id];
+    } else {
+      query = `
+        SELECT DISTINCT c.*,
+               COALESCE(bool_or(cga.can_view), false) OR c.created_by = $1 AS can_view,
+               COALESCE(bool_or(cga.can_edit), false) OR c.created_by = $1 AS can_edit,
+               COALESCE(bool_or(cga.can_add), false) OR c.created_by = $1 AS can_add,
+               COALESCE(bool_or(cga.can_delete), false) OR c.created_by = $1 AS can_delete,
+               FALSE AS is_admin,
+               c.created_by = $1 AS is_owner
+        FROM clients c
+        LEFT JOIN client_group_access cga
+          ON c.id = cga.client_id
+         AND cga.group_id = ANY($2::uuid[])
+        WHERE c.created_by = $1 OR cga.can_view = TRUE
+        GROUP BY c.id
+        ORDER BY c.name ASC
+      `;
+      params = [req.user.id, userGroups];
     }
 
     const result = await db.query(query, params);
     res.status(200).json(result.rows);
-
   } catch (error) {
     console.error('Erro ao buscar clientes:', error);
     res.status(500).json({ error: 'Erro ao buscar clientes' });
   }
 };
 
-// POST /api/clients - Cadastra um novo cliente
+// POST /api/clients - Cadastra um novo cofre/cliente
 const createClient = async (req, res) => {
   try {
+    await ensureSharingSchema();
+
     const { name, address, phone, email, group_ids } = req.body;
 
     if (!name) {
       return res.status(400).json({ error: 'Nome do cliente é obrigatório' });
     }
 
-    // Iniciar transação
     await db.query('BEGIN');
 
-    // Inserir cliente
     const clientResult = await db.query(
-      'INSERT INTO clients (name, address, phone, email) VALUES ($1, $2, $3, $4) RETURNING *',
-      [name, address || null, phone || null, email || null]
+      'INSERT INTO clients (name, address, phone, email, created_by) VALUES ($1, $2, $3, $4, $5) RETURNING *',
+      [name, address || null, phone || null, email || null, req.user.id]
     );
     
     const newClient = clientResult.rows[0];
 
-    // Determinar os grupos para vincular ao cliente
-    let groupsToLink = [];
+    const groupsToLink = Array.isArray(group_ids) ? group_ids.filter(Boolean) : [];
 
-    if (group_ids && Array.isArray(group_ids) && group_ids.length > 0) {
-      // Grupos explicitamente fornecidos pelo frontend
-      groupsToLink = group_ids;
-    } else if (req.user.groups && req.user.groups.length > 0) {
-      // Usar o primeiro grupo válido do usuário criador
-      groupsToLink = [req.user.groups[0]];
-    } else {
-      // Fallback: buscar o grupo "Administradores" diretamente no banco
-      // Isso garante que instalações limpas (onde o admin ainda não tem grupo no JWT)
-      // não causem erro de chave estrangeira
-      const adminGroupResult = await db.query(
-        "SELECT id FROM groups WHERE name = 'Administradores' LIMIT 1"
-      );
-
-      if (adminGroupResult.rows.length > 0) {
-        groupsToLink = [adminGroupResult.rows[0].id];
-      } else {
-        // Último recurso: buscar qualquer grupo existente
-        const anyGroupResult = await db.query(
-          'SELECT id FROM groups ORDER BY created_at ASC LIMIT 1'
-        );
-        if (anyGroupResult.rows.length > 0) {
-          groupsToLink = [anyGroupResult.rows[0].id];
-        }
-        // Se não existir nenhum grupo, o cliente é criado sem vínculo (sem erro)
-      }
-    }
-
-    // Inserir vínculos apenas com IDs válidos
     for (const groupId of groupsToLink) {
-      // Verificar se o grupo realmente existe antes de inserir (evita FK violation)
       const groupCheck = await db.query('SELECT id FROM groups WHERE id = $1', [groupId]);
       if (groupCheck.rows.length > 0) {
         await db.query(
-          'INSERT INTO client_group_access (client_id, group_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+          `INSERT INTO client_group_access
+             (client_id, group_id, can_view, can_edit, can_add, can_delete)
+           VALUES ($1, $2, TRUE, TRUE, TRUE, FALSE)
+           ON CONFLICT (client_id, group_id)
+           DO UPDATE SET
+             can_view = TRUE,
+             can_edit = TRUE,
+             can_add = TRUE,
+             updated_at = CURRENT_TIMESTAMP`,
           [newClient.id, groupId]
         );
       }
     }
 
     await db.query('COMMIT');
-    
     res.status(201).json(newClient);
-
   } catch (error) {
     await db.query('ROLLBACK');
     console.error('Erro ao criar cliente:', error);
