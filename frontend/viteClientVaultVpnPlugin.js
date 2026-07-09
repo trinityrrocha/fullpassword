@@ -16,6 +16,11 @@ const sanitizeIpv4MaskInput = (value = '') => {
   }
 
   next = next.replace(
+    "  'Tailscale'\n];",
+    "  'Tailscale',\n  'Outro'\n];"
+  )
+
+  next = next.replace(
     "const legacyServerId = data.type || data.port || data.vlan ? `legacy-vpn-${makeId()}` : '';",
     `const hasLegacyServerData = Boolean(
     data.name ||
