@@ -11,11 +11,14 @@ const requireAdmin = (req, res, next) => {
   next();
 };
 
-// Todas as rotas de grupos exigem autenticação e nível de admin
 router.use(verifyToken);
-router.use(requireAdmin);
 
-// Rotas CRUD
+// Lista simples de grupos para seleção de compartilhamento de cofres.
+// Usuários autenticados podem consultar grupos existentes, mas somente admin gerencia grupos.
+router.get('/options', groupController.getGroupOptions);
+
+// Rotas CRUD restritas a administradores
+router.use(requireAdmin);
 router.get('/', groupController.getGroups);
 router.post('/', groupController.createGroup);
 router.put('/:id', groupController.updateGroup);
