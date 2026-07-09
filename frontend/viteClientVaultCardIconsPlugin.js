@@ -74,6 +74,22 @@ function addVpnConnectionCardFields(code) {
   return next
 }
 
+function addNewPortRowsOnTop(code) {
+  let next = code
+
+  next = next.replace(
+    "portRules: [...portRules, { id: makeId(), name: '', portNumber: '', direction: 'Entrada', protocol: 'TCP' }]",
+    "portRules: [{ id: makeId(), name: '', portNumber: '', direction: 'Entrada', protocol: 'TCP' }, ...portRules]"
+  )
+
+  next = next.replace(
+    "tsRules: [...tsRules, { id: makeId(), name: '', host: '', port: '' }]",
+    "tsRules: [{ id: makeId(), name: '', host: '', port: '' }, ...tsRules]"
+  )
+
+  return next
+}
+
 function addLinuxConnectionNameField(code) {
   let next = code
 
@@ -156,6 +172,7 @@ function ConnectionIcon({ type }) {
   )
 
   next = addVpnConnectionCardFields(next)
+  next = addNewPortRowsOnTop(next)
 
   return next
 }
@@ -174,6 +191,7 @@ function transformLinuxServerManager(code) {
   )
   next = addVpnConnectionCardFields(next)
   next = addLinuxConnectionNameField(next)
+  next = addNewPortRowsOnTop(next)
 
   return next
 }
