@@ -92,11 +92,10 @@ function addLinuxConnectionNameField(code) {
     "connections: [...connections, { id: makeId(), type, vpn: type === 'VPN' ? 'OpenVPN' : '', name: '', ipv4: '' }]"
   )
 
-  if (!next.includes('placeholder="Nome da conexão"')) {
+  if (!next.includes('aria-label="Nome da conexão"')) {
     next = next.replace(
       `<div className="w-40 shrink-0 rounded-md border border-slate-200 bg-white p-2 text-sm text-slate-700 flex items-center gap-2"><ConnectionIcon type={connection.type} />{getConnectionLabel(connection, connections)}</div>`,
-      `<div className="w-40 shrink-0 rounded-md border border-slate-200 bg-white p-2 text-sm text-slate-700 flex items-center gap-2"><ConnectionIcon type={connection.type} />{getConnectionLabel(connection, connections)}</div>
-                  <input type="text" className="w-52 shrink-0 border-slate-300 rounded-md shadow-sm p-2 border bg-white" value={connection.name || ''} onChange={(e) => updateConnection(connection.id, 'name', e.target.value)} placeholder="Nome da conexão" />`
+      `<div className="w-64 shrink-0 rounded-md border border-slate-200 bg-white p-2 text-sm text-slate-700 flex items-center gap-2"><ConnectionIcon type={connection.type} /><span className="shrink-0">{getConnectionLabel(connection, connections)}</span><input type="text" aria-label="Nome da conexão" className="min-w-0 flex-1 border-0 bg-transparent p-0 text-sm text-slate-700 placeholder-slate-400 focus:outline-none focus:ring-0" value={connection.name || ''} onChange={(e) => updateConnection(connection.id, 'name', e.target.value)} placeholder="Nome" /></div>`
     )
   }
 
