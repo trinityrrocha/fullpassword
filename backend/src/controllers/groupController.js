@@ -1,5 +1,27 @@
 const db = require('../config/database');
 
+// GET /api/groups/options - Lista grupos para seleção em compartilhamento de cofres
+const getGroupOptions = async (req, res) => {
+  try {
+    const result = await db.query(`
+      SELECT
+        g.id,
+        g.name,
+        g.description,
+        COUNT(ug.user_id)::int AS members_count
+      FROM groups g
+      LEFT JOIN user_groups ug ON ug.group_id = g.id
+      GROUP BY g.id
+      ORDER BY g.name ASC
+    `);
+
+    res.status(200).json(result.rows);
+  } catch (error) {
+    console.error('Erro ao buscar opções de grupos:', error);
+    res.status(500).json({ error: 'Erro ao buscar opções de grupos' });
+  }
+};
+
 // GET /api/groups - Lista todos os grupos e seus usuários
 const getGroups = async (req, res) => {
   try {
@@ -159,6 +181,7 @@ const deleteGroup = async (req, res) => {
 };
 
 module.exports = {
+  getGroupOptions,
   getGroups,
   createGroup,
   updateGroup,
