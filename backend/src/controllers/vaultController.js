@@ -1,17 +1,28 @@
 const db = require('../config/database');
+const {
+  ensureSharingSchema,
+  normalizePermissionSet,
+  getClientPermissions,
+  requireClientPermission,
+  canManageClientShares,
+  logVaultAccess
+} = require('../services/accessControlService');
 
-// Middleware interno para verificar se o usuário tem acesso ao cliente
-const checkClientAccess = async (clientId, user) => {
-  if (user.role === 'admin') return true;
-  
-  if (!user.groups || user.groups.length === 0) return false;
+// GET /api/vault-items/:clientId/permissions - Retorna as permissões efetivas do usuário no cofre
+const getVaultPermissions = async (req, res) => {
+  try {
+    const { clientId } = req.params;
+    const permissions = await getClientPermissions(clientId, req.user);
 
-  const result = await db.query(
-    'SELECT 1 FROM client_group_access WHERE client_id = $1 AND group_id = ANY($2)',
-    [clientId, user.groups]
-  );
+    if (!permissions.can_view) {
+      return res.status(404).json({ error: 'Cofre não encontrado' });
+    }
 
-  return result.rows.length > 0;
+    res.status(200).json(permissions);
+  } catch (error) {
+    console.error('Erro ao buscar permissões do cofre:', error);
+    res.status(500).json({ error: 'Erro ao buscar permissões do cofre' });
+  }
 };
 
 // GET /api/vault-items/:clientId - Retorna os itens do cofre daquele cliente
@@ -19,14 +30,8 @@ const getVaultItems = async (req, res) => {
   try {
     const { clientId } = req.params;
 
-    // Verificar acesso
-    const hasAccess = await checkClientAccess(clientId, req.user);
-    if (!hasAccess) {
-      return res.status(403).json({ error: 'Acesso negado a este cliente' });
-    }
+    await requireClientPermission(clientId, req.user, 'view');
 
-    // Retorna os dados criptografados (Zero-Knowledge)
-    // Agora busca os itens que o usuário criou OU que foram compartilhados com ele
     const result = await db.query(
       `SELECT 
          v.id, v.category, v.encrypted_data, v.encrypted_attachment, v.metadata, v.created_by, v.created_at, v.updated_at,
@@ -34,14 +39,17 @@ const getVaultItems = async (req, res) => {
        FROM vault_items v
        LEFT JOIN vault_shares vs ON v.id = vs.vault_item_id AND vs.user_id = $2
        WHERE v.client_id = $1 
-         AND (v.created_by = $2 OR vs.user_id = $2 OR $3 = 'admin')
        ORDER BY v.created_at DESC`,
-      [clientId, req.user.id, req.user.role]
+      [clientId, req.user.id]
     );
 
+    await logVaultAccess(clientId, req.user.id, 'vault_view');
     res.status(200).json(result.rows);
-
   } catch (error) {
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ error: error.statusCode === 404 ? 'Cofre não encontrado' : 'Acesso negado' });
+    }
+
     console.error('Erro ao buscar itens do cofre:', error);
     res.status(500).json({ error: 'Erro ao buscar itens do cofre' });
   }
@@ -53,18 +61,12 @@ const createVaultItem = async (req, res) => {
     const { clientId } = req.params;
     const { category, encrypted_data, encrypted_attachment, metadata } = req.body;
 
-    // Validações básicas
     if (!category || !encrypted_data) {
       return res.status(400).json({ error: 'Categoria e dados criptografados são obrigatórios' });
     }
 
-    // Verificar acesso
-    const hasAccess = await checkClientAccess(clientId, req.user);
-    if (!hasAccess) {
-      return res.status(403).json({ error: 'Acesso negado a este cliente' });
-    }
+    await requireClientPermission(clientId, req.user, 'write');
 
-    // Inserir no banco de dados (backend apenas armazena o que recebe)
     const result = await db.query(
       `INSERT INTO vault_items 
        (client_id, category, encrypted_data, encrypted_attachment, metadata, created_by) 
@@ -73,27 +75,119 @@ const createVaultItem = async (req, res) => {
       [clientId, category, encrypted_data, encrypted_attachment, metadata, req.user.id]
     );
 
+    await logVaultAccess(clientId, req.user.id, 'vault_write', { category });
     res.status(201).json(result.rows[0]);
-
   } catch (error) {
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ error: 'Você não tem permissão para alterar este cofre' });
+    }
+
     console.error('Erro ao salvar item no cofre:', error);
     res.status(500).json({ error: 'Erro ao salvar item no cofre' });
   }
 };
 
-// POST /api/vault-items/:id/share - Compartilha um cofre com múltiplos usuários
+// GET /api/vault-items/:clientId/shares - Lista grupos compartilhados e permissões do cofre
+const getClientShares = async (req, res) => {
+  try {
+    const { clientId } = req.params;
+    const canManage = await canManageClientShares(clientId, req.user);
+
+    if (!canManage) {
+      return res.status(403).json({ error: 'Apenas o dono do cofre ou admin pode gerenciar compartilhamentos' });
+    }
+
+    await ensureSharingSchema();
+
+    const result = await db.query(
+      `SELECT
+         cga.group_id,
+         g.name AS group_name,
+         g.description AS group_description,
+         cga.can_view,
+         cga.can_edit,
+         cga.can_add,
+         cga.can_delete,
+         cga.updated_at
+       FROM client_group_access cga
+       JOIN groups g ON g.id = cga.group_id
+       WHERE cga.client_id = $1
+       ORDER BY g.name ASC`,
+      [clientId]
+    );
+
+    res.status(200).json(result.rows);
+  } catch (error) {
+    console.error('Erro ao buscar compartilhamentos do cofre:', error);
+    res.status(500).json({ error: 'Erro ao buscar compartilhamentos do cofre' });
+  }
+};
+
+// PUT /api/vault-items/:clientId/shares - Atualiza grupos e permissões do compartilhamento do cofre
+const updateClientShares = async (req, res) => {
+  try {
+    const { clientId } = req.params;
+    const { shares } = req.body;
+
+    if (!Array.isArray(shares)) {
+      return res.status(400).json({ error: 'Lista de compartilhamentos inválida' });
+    }
+
+    const canManage = await canManageClientShares(clientId, req.user);
+    if (!canManage) {
+      return res.status(403).json({ error: 'Apenas o dono do cofre ou admin pode gerenciar compartilhamentos' });
+    }
+
+    await ensureSharingSchema();
+    await db.query('BEGIN');
+
+    await db.query('DELETE FROM client_group_access WHERE client_id = $1', [clientId]);
+
+    for (const share of shares) {
+      if (!share.group_id) continue;
+      const permissions = normalizePermissionSet(share);
+      if (!permissions.can_view) continue;
+
+      const groupCheck = await db.query('SELECT id FROM groups WHERE id = $1', [share.group_id]);
+      if (groupCheck.rows.length === 0) continue;
+
+      await db.query(
+        `INSERT INTO client_group_access
+           (client_id, group_id, can_view, can_edit, can_add, can_delete)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (client_id, group_id)
+         DO UPDATE SET
+           can_view = EXCLUDED.can_view,
+           can_edit = EXCLUDED.can_edit,
+           can_add = EXCLUDED.can_add,
+           can_delete = EXCLUDED.can_delete,
+           updated_at = CURRENT_TIMESTAMP`,
+        [clientId, share.group_id, permissions.can_view, permissions.can_edit, permissions.can_add, permissions.can_delete]
+      );
+    }
+
+    await db.query('COMMIT');
+    await logVaultAccess(clientId, req.user.id, 'vault_share_update', { shares: shares.length });
+    res.status(200).json({ message: 'Compartilhamento atualizado com sucesso' });
+  } catch (error) {
+    await db.query('ROLLBACK');
+    console.error('Erro ao atualizar compartilhamentos do cofre:', error);
+    res.status(500).json({ error: 'Erro ao atualizar compartilhamentos do cofre' });
+  }
+};
+
+// POST /api/vault-items/:id/share - Compartilha um item criptográfico com múltiplos usuários (compatibilidade)
 const shareVaultItem = async (req, res) => {
   try {
     const { id } = req.params;
-    const { shares } = req.body; // Array de { userId, encryptedVaultKey }
+    const { shares } = req.body;
 
     if (!shares || !Array.isArray(shares) || shares.length === 0) {
       return res.status(400).json({ error: 'Nenhum dado de compartilhamento fornecido' });
     }
 
-    // Verificar se o usuário é dono do cofre ou admin
     const itemCheck = await db.query(
-      'SELECT created_by FROM vault_items WHERE id = $1',
+      'SELECT id, client_id, created_by FROM vault_items WHERE id = $1',
       [id]
     );
 
@@ -101,15 +195,12 @@ const shareVaultItem = async (req, res) => {
       return res.status(404).json({ error: 'Item do cofre não encontrado' });
     }
 
-    if (itemCheck.rows[0].created_by !== req.user.id && req.user.role !== 'admin') {
-      return res.status(403).json({ error: 'Apenas o criador ou admin pode compartilhar este cofre' });
+    const canManage = await canManageClientShares(itemCheck.rows[0].client_id, req.user);
+    if (!canManage && itemCheck.rows[0].created_by !== req.user.id) {
+      return res.status(403).json({ error: 'Apenas o criador, dono do cofre ou admin pode compartilhar este item' });
     }
 
     await db.query('BEGIN');
-
-    // Limpar compartilhamentos anteriores deste cofre para estes usuários (se for re-compartilhamento)
-    // Opcional: dependendo da regra de negócio, você pode deletar todos os compartilhamentos antigos ou apenas dar upsert
-    // Usaremos ON CONFLICT para simplificar
 
     for (const share of shares) {
       await db.query(
@@ -122,9 +213,7 @@ const shareVaultItem = async (req, res) => {
     }
 
     await db.query('COMMIT');
-
     res.status(200).json({ message: 'Cofre compartilhado com sucesso' });
-
   } catch (error) {
     await db.query('ROLLBACK');
     console.error('Erro ao compartilhar cofre:', error);
@@ -133,7 +222,10 @@ const shareVaultItem = async (req, res) => {
 };
 
 module.exports = {
+  getVaultPermissions,
   getVaultItems,
   createVaultItem,
+  getClientShares,
+  updateClientShares,
   shareVaultItem
 };
