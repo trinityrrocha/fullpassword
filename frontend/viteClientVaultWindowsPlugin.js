@@ -5,17 +5,19 @@ const windowsNormalizeTsForm = `const normalizeTsForm = (data = {}) => {
     const [address, ...maskParts] = cleaned.split('/');
     return maskParts.length ? address + '/' + maskParts.join('').replace(/\\D/g, '') : address;
   };
+  const defaultConnectionVpn = 'OpenVPN';
 
   const normalizeConnections = (server = {}) => {
     if (Array.isArray(server.connections)) {
       return server.connections.map((connection) => ({
         id: connection.id || makeId(),
         type: connection.type || 'Eth1',
+        vpn: connection.type === 'VPN' ? (connection.vpn || connection.vpnType || defaultConnectionVpn) : '',
         ipv4: sanitizeIpv4MaskInput(connection.ipv4 || connection.ip || '')
       }));
     }
 
-    if (server.ip) return [{ id: makeId(), type: 'Eth1', ipv4: sanitizeIpv4MaskInput(server.ip) }];
+    if (server.ip) return [{ id: makeId(), type: 'Eth1', vpn: '', ipv4: sanitizeIpv4MaskInput(server.ip) }];
     return [];
   };
 
@@ -121,6 +123,13 @@ const windowsNormalizeTsForm = `const normalizeTsForm = (data = {}) => {
 function transformWindowsManager(code) {
   let next = code
 
+  if (!next.includes('const connectionVpnOptions')) {
+    next = next.replace(
+      "const connectionOptions = ['Eth1', 'Eth2', 'Eth3', 'Eth4', 'Eth5', 'VPN'];",
+      "const connectionOptions = ['Eth1', 'Eth2', 'Eth3', 'Eth4', 'Eth5', 'VPN'];\nconst connectionVpnOptions = ['OpenVPN', 'WireGuard', 'ZeroTier', 'Tailscale', 'Outro'];"
+    )
+  }
+
   if (!next.includes('const sanitizePortInput')) {
     next = next.replace(
       "const directionOptions = ['Entrada', 'Saída'];",
@@ -135,12 +144,14 @@ const sanitizeIpv4MaskInput = (value = '') => {
     )
   }
 
+  next = next.replace('type: connection.type || \'Eth1\',\n      ipv4: connection.ipv4 || connection.ip || \'\'', 'type: connection.type || \'Eth1\',\n      vpn: connection.type === \'VPN\' ? (connection.vpn || connection.vpnType || \'OpenVPN\') : \'\',\n      ipv4: connection.ipv4 || connection.ip || \'\'')
   next = next.replace('ipv4: connection.ipv4 || connection.ip || \'\'', 'ipv4: sanitizeIpv4MaskInput(connection.ipv4 || connection.ip || \'\')')
-  next = next.replace("return [{ id: makeId(), type: 'Eth1', ipv4: server.ip }];", "return [{ id: makeId(), type: 'Eth1', ipv4: sanitizeIpv4MaskInput(server.ip) }];")
+  next = next.replace("return [{ id: makeId(), type: 'Eth1', ipv4: server.ip }];", "return [{ id: makeId(), type: 'Eth1', vpn: '', ipv4: sanitizeIpv4MaskInput(server.ip) }];")
   next = next.replace('portNumber: rule.portNumber || rule.port || \'\'', 'portNumber: sanitizePortInput(rule.portNumber || rule.port || \'\')')
   next = next.replace('portNumber: server.internalPort || server.port || \'\'', 'portNumber: sanitizePortInput(server.internalPort || server.port || \'\')')
   next = next.replace('portNumber: server.externalPort,', 'portNumber: sanitizePortInput(server.externalPort),')
   next = next.replace('port: rule.port || \'\'', 'port: sanitizePortInput(rule.port || \'\')')
+  next = next.replace("connections: [...connections, { id: makeId(), type, ipv4: '' }]", "connections: [...connections, { id: makeId(), type, vpn: type === 'VPN' ? 'OpenVPN' : '', ipv4: '' }]")
   next = next.replace('updateConnection(connection.id, e.target.value)', 'updateConnection(connection.id, sanitizeIpv4MaskInput(e.target.value))')
   next = next.replace("updatePortRule(rule.id, 'portNumber', e.target.value)", "updatePortRule(rule.id, 'portNumber', sanitizePortInput(e.target.value))")
   next = next.replace("updateTsRule(rule.id, 'port', e.target.value)", "updateTsRule(rule.id, 'port', sanitizePortInput(e.target.value))")
