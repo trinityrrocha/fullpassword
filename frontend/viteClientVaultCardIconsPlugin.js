@@ -32,17 +32,17 @@ function addVpnConnectionCardFields(code) {
 
   next = next.replace(
     '<div key={connection.id} className="grid grid-cols-1 sm:grid-cols-[160px_1fr_auto] gap-3 items-end rounded-md border border-slate-200 bg-slate-50 p-3">',
-    '<div key={connection.id} className={`flex items-center gap-3 rounded-md border border-slate-200 bg-slate-50 p-3 ${connection.type === \'VPN\' ? \'flex-nowrap\' : \'flex-wrap\'}`}> '
+    '<div key={connection.id} className={`grid gap-3 rounded-md border border-slate-200 bg-slate-50 p-3 ${connection.type === \'VPN\' ? \'grid-cols-[160px_190px_minmax(0,1fr)_auto] items-center\' : \'grid-cols-1 sm:grid-cols-[160px_1fr_auto] items-end\'}`}> '
   )
 
   next = next.replace(
     /                  <div>\n                    <label className="block text-sm font-medium text-slate-700 mb-1">Conexão<\/label>\n                    (<div className="rounded-md border border-slate-200 bg-white p-2 text-sm text-slate-700 flex items-center gap-2"><ConnectionIcon type=\{connection\.type\} \/>\{getConnectionLabel\(connection, connections\)\}<\/div>)\n                  <\/div>\n                  <div>\n                    <label className="block text-sm font-medium text-slate-700 mb-1">IPv4<\/label>\n                    (<input[\s\S]*?value=\{connection\.ipv4\}[\s\S]*?\/>)[\n\s]*<\/div>/,
     `                  {connection.type === 'VPN' ? (
                     <>
-                      <div className="w-40 shrink-0 rounded-md border border-slate-200 bg-white p-2 text-sm text-slate-700 flex items-center gap-2"><ConnectionIcon type={connection.type} />{getConnectionLabel(connection, connections)}</div>
+                      <div className="w-full rounded-md border border-slate-200 bg-white p-2 text-sm text-slate-700 flex items-center gap-2"><ConnectionIcon type={connection.type} />{getConnectionLabel(connection, connections)}</div>
                       <select
                         aria-label="Tipo de VPN"
-                        className="w-48 shrink-0 border-slate-300 rounded-md shadow-sm p-2 border bg-white"
+                        className="w-full border-slate-300 rounded-md shadow-sm p-2 border bg-white"
                         value={connection.vpn || 'OpenVPN'}
                         onChange={(e) => setServer({
                           ...server,
