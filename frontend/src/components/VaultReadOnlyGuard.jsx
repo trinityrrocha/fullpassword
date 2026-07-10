@@ -11,8 +11,7 @@ const allowedButtonTextPatterns = [
   /copiar/i,
   /mostrar/i,
   /ocultar/i,
-  /cancelar/i,
-  /^$/
+  /cancelar/i
 ];
 
 const getButtonText = (button) => [
@@ -22,6 +21,9 @@ const getButtonText = (button) => [
 ].join(' ').trim();
 
 const getButtonAction = (button) => {
+  const explicitAction = button.getAttribute('data-vault-action');
+  if (explicitAction) return explicitAction;
+
   const text = getButtonText(button);
 
   if (allowedButtonTextPatterns.some((pattern) => pattern.test(text))) {
@@ -82,10 +84,9 @@ const unlockControl = (control) => {
 };
 
 const lockButton = (button) => {
-  if (button.dataset.vaultPermissionButtonLocked === 'true') return;
-
   button.dataset.vaultPermissionButtonLocked = 'true';
   button.disabled = true;
+  button.setAttribute('aria-disabled', 'true');
   button.classList.add('opacity-50', 'cursor-not-allowed');
 };
 
@@ -94,6 +95,7 @@ const unlockButton = (button) => {
 
   delete button.dataset.vaultPermissionButtonLocked;
   button.disabled = false;
+  button.removeAttribute('aria-disabled');
   button.classList.remove('opacity-50', 'cursor-not-allowed');
 };
 
@@ -144,22 +146,51 @@ const applyPermissionState = (permissions) => {
   });
 };
 
+const isInsideVaultScope = (target) => Boolean(target?.closest?.('[data-vault-readonly-scope]'));
+
 export default function VaultReadOnlyGuard({ enabled, permissions }) {
   useEffect(() => {
     const effectivePermissions = permissions || { can_view: true, can_edit: !enabled, can_add: !enabled, can_delete: !enabled };
-    applyPermissionState(effectivePermissions);
+    let animationFrame = null;
 
-    const observer = new MutationObserver(() => applyPermissionState(effectivePermissions));
+    const scheduleApply = () => {
+      if (animationFrame) window.cancelAnimationFrame(animationFrame);
+      animationFrame = window.requestAnimationFrame(() => {
+        applyPermissionState(effectivePermissions);
+      });
+    };
+
+    const handleClickCapture = (event) => {
+      if (!isInsideVaultScope(event.target)) return;
+
+      const button = event.target.closest?.('button');
+      if (!button) return;
+
+      const normalized = normalizePermissions(effectivePermissions);
+      if (!shouldLockButton(button, normalized)) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+      event.nativeEvent?.stopImmediatePropagation?.();
+      lockButton(button);
+    };
+
+    scheduleApply();
+
+    const observer = new MutationObserver(scheduleApply);
     observer.observe(document.body, {
       childList: true,
       subtree: true,
       attributes: true,
-      attributeFilter: ['data-vault-readonly-scope']
+      attributeFilter: ['disabled', 'class', 'aria-disabled', 'data-vault-readonly-scope']
     });
 
+    document.addEventListener('click', handleClickCapture, true);
+
     return () => {
+      if (animationFrame) window.cancelAnimationFrame(animationFrame);
       observer.disconnect();
-      applyPermissionState({ can_view: true, can_edit: true, can_add: true, can_delete: true });
+      document.removeEventListener('click', handleClickCapture, true);
     };
   }, [enabled, permissions]);
 
