@@ -10,13 +10,22 @@ export default function clientVaultSharingPlugin() {
       if (!next.includes("import VaultSharingManager from '../components/VaultSharingManager';")) {
         next = next.replace(
           `import api from '../services/api';`,
-          `import api from '../services/api';\nimport VaultSharingManager from '../components/VaultSharingManager';\nimport { generateClientVaultKey, encryptVaultKeyForPublicKey, decryptVaultKeyShare } from '../services/clientVaultKeyService';`
+          `import api from '../services/api';\nimport VaultSharingManager from '../components/VaultSharingManager';\nimport VaultReadOnlyGuard from '../components/VaultReadOnlyGuard';\nimport { generateClientVaultKey, encryptVaultKeyForPublicKey, decryptVaultKeyShare } from '../services/clientVaultKeyService';`
         )
-      } else if (!next.includes("clientVaultKeyService")) {
-        next = next.replace(
-          `import VaultSharingManager from '../components/VaultSharingManager';`,
-          `import VaultSharingManager from '../components/VaultSharingManager';\nimport { generateClientVaultKey, encryptVaultKeyForPublicKey, decryptVaultKeyShare } from '../services/clientVaultKeyService';`
-        )
+      } else {
+        if (!next.includes("clientVaultKeyService")) {
+          next = next.replace(
+            `import VaultSharingManager from '../components/VaultSharingManager';`,
+            `import VaultSharingManager from '../components/VaultSharingManager';\nimport { generateClientVaultKey, encryptVaultKeyForPublicKey, decryptVaultKeyShare } from '../services/clientVaultKeyService';`
+          )
+        }
+
+        if (!next.includes("VaultReadOnlyGuard")) {
+          next = next.replace(
+            `import VaultSharingManager from '../components/VaultSharingManager';`,
+            `import VaultSharingManager from '../components/VaultSharingManager';\nimport VaultReadOnlyGuard from '../components/VaultReadOnlyGuard';`
+          )
+        }
       }
 
       if (!next.includes("id: 'sharing'")) {
@@ -40,6 +49,22 @@ export default function clientVaultSharingPlugin() {
         next = next.replace(
           `  const [savedItems, setSavedItems] = useState([]);`,
           `  const [savedItems, setSavedItems] = useState([]);\n  const [clientVaultKey, setClientVaultKey] = useState(null);\n  const [clientVaultKeyError, setClientVaultKeyError] = useState('');`
+        )
+      }
+
+      if (!next.includes('const isReadOnlyMode =')) {
+        next = next.replace(
+          `  const loadClient = async () => {`,
+          `  const isReadOnlyMode = Boolean(
+    vaultPermissions.can_view &&
+    !vaultPermissions.is_owner &&
+    !vaultPermissions.is_admin &&
+    !vaultPermissions.can_edit &&
+    !vaultPermissions.can_add &&
+    !vaultPermissions.can_delete
+  );
+
+  const loadClient = async () => {`
         )
       }
 
@@ -250,10 +275,23 @@ export default function clientVaultSharingPlugin() {
         )
       }
 
-      if (!next.includes('activeTab === \'sharing\'')) {
+      if (!next.includes('data-vault-readonly-scope')) {
         next = next.replace(
           `        <div className="p-6">`,
-          `        <div className="p-6">\n          {activeTab === 'sharing' && (\n            <VaultSharingManager clientId={id} clientVaultKey={clientVaultKey} />\n          )}`
+          `        <div className="p-6" data-vault-readonly-scope={isReadOnlyMode ? 'true' : 'false'}>
+          <VaultReadOnlyGuard enabled={isReadOnlyMode} />
+          {isReadOnlyMode && (
+            <div className="mb-5 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              Modo somente leitura: você pode visualizar e copiar as informações deste cofre, mas não pode alterar, adicionar ou excluir dados.
+            </div>
+          )}`
+        )
+      }
+
+      if (!next.includes('activeTab === \'sharing\'')) {
+        next = next.replace(
+          `        <div className="p-6" data-vault-readonly-scope={isReadOnlyMode ? 'true' : 'false'}>`,
+          `        <div className="p-6" data-vault-readonly-scope={isReadOnlyMode ? 'true' : 'false'}>\n          {activeTab === 'sharing' && (\n            <VaultSharingManager clientId={id} clientVaultKey={clientVaultKey} />\n          )}`
         )
       } else {
         next = next.replace(
