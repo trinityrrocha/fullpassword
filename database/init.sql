@@ -17,11 +17,15 @@ CREATE TABLE IF NOT EXISTS users (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- Tabela de grupos de acesso
+-- Tabela de grupos de acesso com permissões herdadas pelos cofres compartilhados
 CREATE TABLE IF NOT EXISTS groups (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     name VARCHAR(255) NOT NULL,
     description TEXT,
+    can_view BOOLEAN NOT NULL DEFAULT TRUE,
+    can_edit BOOLEAN NOT NULL DEFAULT FALSE,
+    can_add BOOLEAN NOT NULL DEFAULT FALSE,
+    can_delete BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -46,7 +50,7 @@ CREATE TABLE IF NOT EXISTS clients (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- Tabela pivot de compartilhamento de cofres/clientes com grupos e permissões
+-- Tabela pivot de compartilhamento de cofres/clientes com grupos
 CREATE TABLE IF NOT EXISTS client_group_access (
     client_id UUID REFERENCES clients(id) ON DELETE CASCADE,
     group_id UUID REFERENCES groups(id) ON DELETE CASCADE,
@@ -94,6 +98,10 @@ CREATE TABLE IF NOT EXISTS vault_access_audit (
 
 -- Ajustes idempotentes para bancos já existentes
 ALTER TABLE clients ADD COLUMN IF NOT EXISTS created_by UUID REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE groups ADD COLUMN IF NOT EXISTS can_view BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE groups ADD COLUMN IF NOT EXISTS can_edit BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE groups ADD COLUMN IF NOT EXISTS can_add BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE groups ADD COLUMN IF NOT EXISTS can_delete BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE client_group_access ADD COLUMN IF NOT EXISTS can_view BOOLEAN NOT NULL DEFAULT TRUE;
 ALTER TABLE client_group_access ADD COLUMN IF NOT EXISTS can_edit BOOLEAN NOT NULL DEFAULT TRUE;
 ALTER TABLE client_group_access ADD COLUMN IF NOT EXISTS can_add BOOLEAN NOT NULL DEFAULT TRUE;
@@ -111,12 +119,20 @@ VALUES (
 ) ON CONFLICT (email) DO NOTHING;
 
 -- Criar um grupo padrão de administradores
-INSERT INTO groups (id, name, description)
+INSERT INTO groups (id, name, description, can_view, can_edit, can_add, can_delete)
 VALUES (
     uuid_generate_v4(),
     'Administradores',
-    'Acesso total ao sistema'
+    'Acesso total ao sistema',
+    TRUE,
+    TRUE,
+    TRUE,
+    TRUE
 ) ON CONFLICT DO NOTHING;
+
+UPDATE groups
+SET can_view = TRUE, can_edit = TRUE, can_add = TRUE, can_delete = TRUE
+WHERE name = 'Administradores';
 
 -- Relacionar o admin criado ao grupo de administradores
 INSERT INTO user_groups (user_id, group_id)
