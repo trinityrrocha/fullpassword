@@ -95,6 +95,10 @@ export default function clientVaultSharingPlugin() {
   };
 
   const ensureClientVaultKey = async () => {
+    const permissionsResponse = await api.get(\`/vault-items/${'${id}'}/permissions\`);
+    const permissions = permissionsResponse.data || {};
+    setVaultPermissions(permissions);
+
     if (clientVaultKey) return clientVaultKey;
 
     const currentUser = getStoredUser();
@@ -112,10 +116,6 @@ export default function clientVaultSharingPlugin() {
     } catch (error) {
       console.warn('Chave compartilhada do cofre ainda não disponível:', error);
     }
-
-    const permissionsResponse = await api.get(\`/vault-items/${'${id}'}/permissions\`);
-    const permissions = permissionsResponse.data || {};
-    setVaultPermissions(permissions);
 
     if (permissions.is_owner || permissions.is_admin) {
       const key = await generateClientVaultKey();
