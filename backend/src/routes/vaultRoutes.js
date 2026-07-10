@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const vaultController = require('../controllers/vaultController');
+const clientKeyController = require('../controllers/clientKeyController');
 const { verifyToken } = require('../middleware/authMiddleware');
 
 // Todas as rotas do cofre requerem autenticação
@@ -8,6 +9,12 @@ router.use(verifyToken);
 
 // GET /api/vault-items/:clientId/permissions
 router.get('/:clientId/permissions', vaultController.getVaultPermissions);
+
+// GET /api/vault-items/:clientId/key-share
+router.get('/:clientId/key-share', clientKeyController.getClientKeyShare);
+
+// PUT /api/vault-items/:clientId/key-shares
+router.put('/:clientId/key-shares', clientKeyController.updateClientKeyShares);
 
 // GET /api/vault-items/:clientId/shares
 router.get('/:clientId/shares', vaultController.getClientShares);
