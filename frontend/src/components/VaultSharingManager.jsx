@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Plus, Save, Trash2, Users, ShieldCheck } from 'lucide-react';
 import api from '../services/api';
+import { encryptVaultKeyForPublicKey } from '../services/clientVaultKeyService';
 
 const permissionLabels = [
   { key: 'can_view', label: 'Visualizar' },
@@ -27,8 +28,9 @@ const getPermissionSummary = (group = {}) => {
   return permissions.length ? permissions.join(', ') : 'Sem permissão definida';
 };
 
-export default function VaultSharingManager({ clientId }) {
+export default function VaultSharingManager({ clientId, clientVaultKey }) {
   const [groups, setGroups] = useState([]);
+  const [users, setUsers] = useState([]);
   const [shares, setShares] = useState([]);
   const [selectedGroupId, setSelectedGroupId] = useState('');
   const [isLoading, setIsLoading] = useState(true);
@@ -46,13 +48,15 @@ export default function VaultSharingManager({ clientId }) {
     setError('');
 
     try {
-      const [groupsResponse, sharesResponse] = await Promise.all([
+      const [groupsResponse, sharesResponse, usersResponse] = await Promise.all([
         api.get('/groups/options'),
-        api.get(`/vault-items/${clientId}/shares`)
+        api.get(`/vault-items/${clientId}/shares`),
+        api.get('/users')
       ]);
 
       setGroups(groupsResponse.data || []);
       setShares((sharesResponse.data || []).map(normalizeShare));
+      setUsers(usersResponse.data || []);
     } catch (err) {
       console.error('Erro ao carregar compartilhamento do cofre:', err);
       setError(err.response?.data?.error || 'Você não tem permissão para gerenciar o compartilhamento deste cofre.');
@@ -96,6 +100,40 @@ export default function VaultSharingManager({ clientId }) {
     setShares((current) => current.filter((share) => share.group_id !== groupId));
   };
 
+  const syncKeyShares = async (groupIds) => {
+    if (!clientVaultKey) {
+      throw new Error('A chave do cofre ainda não foi carregada. Desbloqueie o cofre novamente antes de compartilhar.');
+    }
+
+    const selected = new Set(groupIds);
+    const targetUsers = users.filter((item) => (
+      item.is_active !== false &&
+      Array.isArray(item.groups) &&
+      item.groups.some((group) => selected.has(group.id))
+    ));
+
+    const prepared = [];
+    const pending = [];
+
+    for (const item of targetUsers) {
+      if (!item.public_key) {
+        pending.push(item);
+        continue;
+      }
+
+      prepared.push({
+        user_id: item.id,
+        encrypted_client_key: await encryptVaultKeyForPublicKey(clientVaultKey, item.public_key)
+      });
+    }
+
+    if (prepared.length > 0) {
+      await api.put(`/vault-items/${clientId}/key-shares`, { shares: prepared });
+    }
+
+    return pending.length;
+  };
+
   const saveShares = async () => {
     const cleanedShares = shares
       .filter((share) => share.group_id)
@@ -113,11 +151,18 @@ export default function VaultSharingManager({ clientId }) {
     setIsSaving(true);
     try {
       await api.put(`/vault-items/${clientId}/shares`, { shares: cleanedShares });
-      alert('Compartilhamento do cofre atualizado com sucesso.');
+      const pendingCount = await syncKeyShares([...uniqueGroupIds]);
+
+      if (pendingCount > 0) {
+        alert(`Compartilhamento salvo. ${pendingCount} usuário(s) ainda precisam entrar no sistema e desbloquear o cofre uma vez para receber acesso criptográfico.`);
+      } else {
+        alert('Compartilhamento do cofre atualizado com sucesso.');
+      }
+
       await loadSharingData();
     } catch (err) {
       console.error('Erro ao salvar compartilhamento:', err);
-      alert(err.response?.data?.error || 'Erro ao salvar compartilhamento do cofre.');
+      alert(err.message || err.response?.data?.error || 'Erro ao salvar compartilhamento do cofre.');
     } finally {
       setIsSaving(false);
     }
