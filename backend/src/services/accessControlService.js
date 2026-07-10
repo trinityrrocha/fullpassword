@@ -54,6 +54,16 @@ const ensureSharingSchema = async () => {
     await db.query('ALTER TABLE client_group_access ADD COLUMN IF NOT EXISTS can_add BOOLEAN NOT NULL DEFAULT TRUE');
     await db.query('ALTER TABLE client_group_access ADD COLUMN IF NOT EXISTS can_delete BOOLEAN NOT NULL DEFAULT FALSE');
     await db.query('ALTER TABLE client_group_access ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP');
+    await db.query(`CREATE TABLE IF NOT EXISTS client_key_shares (
+      id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+      client_id UUID REFERENCES clients(id) ON DELETE CASCADE,
+      user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+      encrypted_client_key TEXT NOT NULL,
+      created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(client_id, user_id)
+    )`);
     await db.query(`UPDATE groups
        SET can_view = TRUE, can_edit = TRUE, can_add = TRUE, can_delete = TRUE
        WHERE name = 'Administradores'`);
