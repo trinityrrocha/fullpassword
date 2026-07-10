@@ -272,12 +272,17 @@ export default function clientVaultSharingPlugin() {
         next = next.replace(
           `        <div className="p-6">`,
           `        <div className="p-6" data-vault-readonly-scope={isReadOnlyMode ? 'true' : 'false'}>
-          <VaultReadOnlyGuard enabled={isReadOnlyMode} />
+          <VaultReadOnlyGuard enabled={isReadOnlyMode} permissions={vaultPermissions} />
           {isReadOnlyMode && (
             <div className="mb-5 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
               Modo somente leitura: você pode visualizar e copiar as informações deste cofre, mas não pode alterar, adicionar ou excluir dados.
             </div>
           )}`
+        )
+      } else {
+        next = next.replace(
+          `<VaultReadOnlyGuard enabled={isReadOnlyMode} />`,
+          `<VaultReadOnlyGuard enabled={isReadOnlyMode} permissions={vaultPermissions} />`
         )
       }
 
