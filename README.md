@@ -75,9 +75,12 @@ O projeto evoluiu para suportar **múltiplos usuários**, **grupos**, **permiss�
 
 ### Pré-requisitos
 
-- <mark>VPS com Ubuntu 20.04/22.04 LTS ou Debian 11/12</mark>
-- <mark>Domínio apontando para o IP da VPS (DNS A record)</mark>
-- <mark>Acesso SSH como root</mark>
+> [!CAUTION]
+> **Atenção: valide estes pré-requisitos antes da instalação para evitar erro no deploy.**
+>
+> - 🟡 **VPS com Ubuntu 20.04/22.04 LTS ou Debian 11/12**
+> - 🟡 **Domínio apontando para o IP da VPS (DNS A record)**
+> - 🟡 **Acesso SSH como root**
 
 ### Instalação em 3 Passos
 
@@ -107,7 +110,24 @@ https://seu-dominio.com.br
 
 ## 🔁 Atualização em Produção
 
-Para atualizar uma instalação existente em `/opt/fullpassword`:
+Existem duas formas de atualizar uma instalação existente do FullPassword.
+
+### Opção 1 — Atualização diretamente pelo painel
+
+Use esta opção quando o módulo de atualização estiver disponível para o usuário administrador/super administrador:
+
+1. Acesse o FullPassword pelo navegador.
+2. Entre com um usuário administrador/super administrador.
+3. Abra o módulo de atualização do sistema no painel, identificado como **Web Updater**, **Atualização Web** ou **Atualização do Sistema**, conforme a versão instalada.
+4. Execute a verificação de atualização.
+5. Confirme a atualização pelo painel.
+6. Aguarde o processo concluir e pressione `Ctrl + F5` no navegador.
+
+A atualização pelo painel deve executar o fluxo equivalente a buscar a versão mais recente do repositório, reconstruir os containers e reiniciar os serviços necessários.
+
+### Opção 2 — Atualização manual por SSH
+
+Use esta opção quando preferir atualizar diretamente no servidor ou quando o painel não estiver disponível:
 
 ```bash
 cd /opt/fullpassword
