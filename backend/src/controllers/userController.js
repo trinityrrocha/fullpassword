@@ -1,14 +1,74 @@
 const db = require('../config/database');
 const argon2 = require('argon2');
 const crypto = require('crypto');
+const { ensureSharingSchema } = require('../services/accessControlService');
 
-// GET /api/users - Lista todos os usuários (apenas admin ou leitura básica)
+const getValidGroupIds = async (groupIds = []) => {
+  const uniqueIds = [...new Set((Array.isArray(groupIds) ? groupIds : []).filter(Boolean))];
+  if (uniqueIds.length === 0) return [];
+
+  const result = await db.query('SELECT id FROM groups WHERE id = ANY($1::uuid[])', [uniqueIds]);
+  return result.rows.map((row) => row.id);
+};
+
+const ensureAdminGroupMembership = async (client, userId) => {
+  const adminGroup = await client.query("SELECT id FROM groups WHERE name = 'Administradores' LIMIT 1");
+  if (adminGroup.rows.length > 0) {
+    await client.query(
+      'INSERT INTO user_groups (user_id, group_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+      [userId, adminGroup.rows[0].id]
+    );
+  }
+};
+
+const loadUserGroups = async (userIds = []) => {
+  const uniqueIds = [...new Set(userIds.filter(Boolean))];
+  if (uniqueIds.length === 0) return new Map();
+
+  const result = await db.query(
+    `SELECT ug.user_id, g.id, g.name, g.description, g.can_view, g.can_edit, g.can_add, g.can_delete
+     FROM user_groups ug
+     JOIN groups g ON g.id = ug.group_id
+     WHERE ug.user_id = ANY($1::uuid[])
+     ORDER BY g.name ASC`,
+    [uniqueIds]
+  );
+
+  const map = new Map();
+  uniqueIds.forEach((id) => map.set(id, []));
+
+  result.rows.forEach((row) => {
+    if (!map.has(row.user_id)) map.set(row.user_id, []);
+    map.get(row.user_id).push({
+      id: row.id,
+      name: row.name,
+      description: row.description,
+      can_view: row.can_view,
+      can_edit: row.can_edit,
+      can_add: row.can_add,
+      can_delete: row.can_delete
+    });
+  });
+
+  return map;
+};
+
+// GET /api/users - Lista todos os usuários com seus grupos
 const getUsers = async (req, res) => {
   try {
+    await ensureSharingSchema();
+
     const result = await db.query(
       'SELECT id, name, email, role, is_active, public_key, created_at FROM users ORDER BY name ASC'
     );
-    res.status(200).json(result.rows);
+
+    const groupMap = await loadUserGroups(result.rows.map((user) => user.id));
+    const users = result.rows.map((user) => ({
+      ...user,
+      groups: groupMap.get(user.id) || []
+    }));
+
+    res.status(200).json(users);
   } catch (error) {
     console.error('Erro ao buscar usuários:', error);
     res.status(500).json({ error: 'Erro ao buscar usuários' });
@@ -17,78 +77,70 @@ const getUsers = async (req, res) => {
 
 // POST /api/users - Cadastra um novo usuário com chaves criptográficas
 const createUser = async (req, res) => {
+  const client = await db.pool.connect();
+
   try {
-    // Apenas admins podem criar usuários (proteção extra)
+    await ensureSharingSchema();
+
     if (req.user.role !== 'admin') {
       return res.status(403).json({ error: 'Apenas administradores podem criar usuários' });
     }
 
-    const { name, email, password, role } = req.body;
+    const { name, email, password, role, groupIds } = req.body;
 
     if (!name || !email || !password) {
       return res.status(400).json({ error: 'Nome, email e senha são obrigatórios' });
     }
 
-    // Verificar se o email já existe
-    const existingUser = await db.query('SELECT id FROM users WHERE email = $1', [email]);
+    const existingUser = await client.query('SELECT id FROM users WHERE email = $1', [email]);
     if (existingUser.rows.length > 0) {
       return res.status(400).json({ error: 'E-mail já cadastrado' });
     }
 
-    // 1. Hash da senha para login (Argon2)
     const hashSenhaLogin = await argon2.hash(password);
-
-    // 2. Gerar Salt Criptográfico Único
     const cryptoSalt = crypto.randomBytes(32).toString('hex');
-
-    // 3. Gerar Master Key Randômica (256 bits / 32 bytes)
     const masterKeyBuffer = crypto.randomBytes(32);
-
-    // 4. Derivar KEK usando PBKDF2 (Senha + Salt)
-    // Parâmetros: senha, salt, iterações (100000), tamanho da chave (32 bytes = 256 bits), hash (sha256)
     const kekBuffer = crypto.pbkdf2Sync(password, cryptoSalt, 100000, 32, 'sha256');
 
-    // 5. Envelopar (Wrap) a Master Key com a KEK usando AES-256-GCM
     const iv = crypto.randomBytes(12);
     const cipher = crypto.createCipheriv('aes-256-gcm', kekBuffer, iv);
-    
     let wrappedKeyBuffer = cipher.update(masterKeyBuffer);
     wrappedKeyBuffer = Buffer.concat([wrappedKeyBuffer, cipher.final()]);
     const authTag = cipher.getAuthTag();
-
-    // No Node.js com AES-GCM, precisamos concatenar o authTag ao ciphertext
-    // Para manter compatibilidade com o formato da Web Crypto API do frontend:
-    // A Web Crypto API anexa a auth tag de 16 bytes no final do ciphertext
     const finalCiphertext = Buffer.concat([wrappedKeyBuffer, authTag]);
-    
-    // Formato final: base64(iv):base64(ciphertext+authtag)
     const wrappedKey = `${iv.toString('base64')}:${finalCiphertext.toString('base64')}`;
 
-    // 6. Salvar no banco de dados
-    const result = await db.query(
+    await client.query('BEGIN');
+
+    const result = await client.query(
       `INSERT INTO users (name, email, hash_senha_login, role, wrapped_key, crypto_salt) 
-       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, name, email, role, created_at`,
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, name, email, role, is_active, created_at`,
       [name, email, hashSenhaLogin, role || 'user', wrappedKey, cryptoSalt]
     );
 
     const newUser = result.rows[0];
+    const validGroupIds = await getValidGroupIds(groupIds);
 
-    // Se for admin, adicionar ao grupo Administradores (se existir)
-    if (newUser.role === 'admin') {
-      const adminGroup = await db.query("SELECT id FROM groups WHERE name = 'Administradores'");
-      if (adminGroup.rows.length > 0) {
-        await db.query(
-          'INSERT INTO user_groups (user_id, group_id) VALUES ($1, $2)',
-          [newUser.id, adminGroup.rows[0].id]
-        );
-      }
+    for (const groupId of validGroupIds) {
+      await client.query(
+        'INSERT INTO user_groups (user_id, group_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+        [newUser.id, groupId]
+      );
     }
 
-    res.status(201).json(newUser);
+    if (newUser.role === 'admin') {
+      await ensureAdminGroupMembership(client, newUser.id);
+    }
 
+    await client.query('COMMIT');
+
+    res.status(201).json(newUser);
   } catch (error) {
+    await client.query('ROLLBACK');
     console.error('Erro ao criar usuário:', error);
     res.status(500).json({ error: 'Erro interno ao criar usuário' });
+  } finally {
+    client.release();
   }
 };
 
@@ -102,10 +154,8 @@ const updateProfile = async (req, res) => {
       return res.status(400).json({ error: 'Nome e email são obrigatórios' });
     }
 
-    // Iniciar transação
     await db.query('BEGIN');
 
-    // Se forneceu nova senha, atualiza a senha e o novo wrapped_key
     if (new_password && wrapped_key) {
       const hashSenhaLogin = await argon2.hash(new_password);
       
@@ -114,7 +164,6 @@ const updateProfile = async (req, res) => {
         [name, email, hashSenhaLogin, wrapped_key, userId]
       );
     } else {
-      // Atualiza apenas nome e email
       await db.query(
         'UPDATE users SET name = $1, email = $2 WHERE id = $3',
         [name, email, userId]
@@ -123,7 +172,6 @@ const updateProfile = async (req, res) => {
 
     await db.query('COMMIT');
 
-    // Retorna o usuário atualizado
     const result = await db.query(
       'SELECT id, name, email, role, wrapped_key, crypto_salt FROM users WHERE id = $1',
       [userId]
@@ -133,11 +181,10 @@ const updateProfile = async (req, res) => {
       message: 'Perfil atualizado com sucesso',
       user: result.rows[0]
     });
-
   } catch (error) {
     await db.query('ROLLBACK');
     console.error('Erro ao atualizar perfil:', error);
-    if (error.code === '23505') { // Unique violation
+    if (error.code === '23505') {
       return res.status(400).json({ error: 'Este e-mail já está em uso' });
     }
     res.status(500).json({ error: 'Erro ao atualizar perfil' });
@@ -146,23 +193,26 @@ const updateProfile = async (req, res) => {
 
 // PUT /api/users/:id - Atualiza um usuário específico (Apenas admin)
 const updateUser = async (req, res) => {
+  const client = await db.pool.connect();
+
   try {
+    await ensureSharingSchema();
+
     if (req.user.role !== 'admin') {
       return res.status(403).json({ error: 'Apenas administradores podem editar usuários' });
     }
 
     const { id } = req.params;
-    const { name, email, role, is_active, password } = req.body;
+    const { name, email, role, is_active, password, groupIds } = req.body;
 
-    // Verificar se o usuário existe
-    const existingUser = await db.query('SELECT id, email FROM users WHERE id = $1', [id]);
+    const existingUser = await client.query('SELECT id, email, role FROM users WHERE id = $1', [id]);
     if (existingUser.rows.length === 0) {
       return res.status(404).json({ error: 'Usuário não encontrado' });
     }
 
     const targetEmail = existingUser.rows[0].email;
+    const nextRole = role !== undefined ? role : existingUser.rows[0].role;
 
-    // Proteção Imutável do Admin Principal
     if (targetEmail === 'admin@admin.com.br') {
       if (role && role !== 'admin') {
         return res.status(403).json({ error: 'Não é possível remover o nível de administrador do usuário principal' });
@@ -172,15 +222,13 @@ const updateUser = async (req, res) => {
       }
     }
 
-    // Verificar unicidade do novo e-mail (se foi alterado)
     if (email && email !== targetEmail) {
-      const emailCheck = await db.query('SELECT id FROM users WHERE email = $1 AND id != $2', [email, id]);
+      const emailCheck = await client.query('SELECT id FROM users WHERE email = $1 AND id != $2', [email, id]);
       if (emailCheck.rows.length > 0) {
         return res.status(400).json({ error: 'Este e-mail já está em uso por outro usuário' });
       }
     }
 
-    // Construir a query dinamicamente baseada nos campos enviados
     const updates = [];
     const values = [];
     let paramIndex = 1;
@@ -205,16 +253,13 @@ const updateUser = async (req, res) => {
       values.push(is_active);
     }
 
-    // Se uma nova senha foi fornecida, gerar novo hash e re-envelope das chaves
     if (password && password.trim() !== '') {
-      // 1. Novo hash Argon2 para login
       const hashSenhaLogin = await argon2.hash(password);
       updates.push(`hash_senha_login = $${paramIndex++}`);
       values.push(hashSenhaLogin);
 
-      // 2. Gerar novo salt e re-envelopar a Master Key com a nova senha
       const cryptoSalt = crypto.randomBytes(32).toString('hex');
-      const masterKeyBuffer = crypto.randomBytes(32); // Nova Master Key (o usuário precisará fazer login novamente)
+      const masterKeyBuffer = crypto.randomBytes(32);
       const kekBuffer = crypto.pbkdf2Sync(password, cryptoSalt, 100000, 32, 'sha256');
 
       const iv = crypto.randomBytes(12);
@@ -229,30 +274,57 @@ const updateUser = async (req, res) => {
       values.push(cryptoSalt);
       updates.push(`wrapped_key = $${paramIndex++}`);
       values.push(wrappedKey);
-      // Limpar chaves RSA antigas pois a Master Key mudou
       updates.push(`public_key = $${paramIndex++}`);
       values.push(null);
       updates.push(`encrypted_private_key = $${paramIndex++}`);
       values.push(null);
     }
 
-    if (updates.length === 0) {
+    if (updates.length === 0 && groupIds === undefined) {
       return res.status(400).json({ error: 'Nenhum dado fornecido para atualização' });
     }
 
-    values.push(id);
-    const query = `UPDATE users SET ${updates.join(', ')} WHERE id = $${paramIndex} RETURNING id, name, email, role, is_active`;
+    await client.query('BEGIN');
 
-    const result = await db.query(query, values);
+    let updatedUser = null;
+    if (updates.length > 0) {
+      values.push(id);
+      const query = `UPDATE users SET ${updates.join(', ')} WHERE id = $${paramIndex} RETURNING id, name, email, role, is_active`;
+      const result = await client.query(query, values);
+      updatedUser = result.rows[0];
+    } else {
+      const result = await client.query('SELECT id, name, email, role, is_active FROM users WHERE id = $1', [id]);
+      updatedUser = result.rows[0];
+    }
+
+    if (Array.isArray(groupIds)) {
+      const validGroupIds = await getValidGroupIds(groupIds);
+      await client.query('DELETE FROM user_groups WHERE user_id = $1', [id]);
+
+      for (const groupId of validGroupIds) {
+        await client.query(
+          'INSERT INTO user_groups (user_id, group_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+          [id, groupId]
+        );
+      }
+    }
+
+    if (targetEmail === 'admin@admin.com.br' || nextRole === 'admin') {
+      await ensureAdminGroupMembership(client, id);
+    }
+
+    await client.query('COMMIT');
 
     res.status(200).json({
       message: 'Usuário atualizado com sucesso',
-      user: result.rows[0]
+      user: updatedUser
     });
-
   } catch (error) {
+    await client.query('ROLLBACK');
     console.error('Erro ao atualizar usuário:', error);
     res.status(500).json({ error: 'Erro interno ao atualizar usuário' });
+  } finally {
+    client.release();
   }
 };
 
