@@ -1,13 +1,10 @@
 import { useEffect } from 'react';
 
-const mutatingTextPatterns = [
-  /adicionar/i,
-  /salvar/i,
-  /excluir/i,
-  /remover/i,
-  /gerar senha/i,
-  /desfazer/i
-];
+const actionPatterns = {
+  add: [/adicionar/i, /novo/i, /nova/i, /cadastrar/i, /incluir/i],
+  edit: [/salvar/i, /gerar senha/i, /desfazer/i],
+  delete: [/excluir/i, /remover/i, /apagar/i, /deletar/i]
+};
 
 const allowedButtonTextPatterns = [
   /detalhes/i,
@@ -24,14 +21,30 @@ const getButtonText = (button) => [
   button.getAttribute('aria-label') || ''
 ].join(' ').trim();
 
-const shouldLockButton = (button) => {
+const getButtonAction = (button) => {
   const text = getButtonText(button);
 
   if (allowedButtonTextPatterns.some((pattern) => pattern.test(text))) {
-    return false;
+    return 'allowed';
   }
 
-  return mutatingTextPatterns.some((pattern) => pattern.test(text));
+  for (const [action, patterns] of Object.entries(actionPatterns)) {
+    if (patterns.some((pattern) => pattern.test(text))) return action;
+  }
+
+  return 'unknown';
+};
+
+const shouldLockButton = (button, permissions) => {
+  const action = getButtonAction(button);
+
+  if (action === 'allowed') return false;
+  if (permissions.readOnly && action !== 'allowed') return action !== 'unknown';
+  if (action === 'add') return !permissions.canAdd;
+  if (action === 'edit') return !permissions.canEdit;
+  if (action === 'delete') return !permissions.canDelete;
+
+  return false;
 };
 
 const lockControl = (control) => {
@@ -69,26 +82,53 @@ const unlockControl = (control) => {
 };
 
 const lockButton = (button) => {
-  if (button.dataset.vaultReadonlyButtonLocked === 'true') return;
+  if (button.dataset.vaultPermissionButtonLocked === 'true') return;
 
-  button.dataset.vaultReadonlyButtonLocked = 'true';
+  button.dataset.vaultPermissionButtonLocked = 'true';
   button.disabled = true;
   button.classList.add('opacity-50', 'cursor-not-allowed');
 };
 
 const unlockButton = (button) => {
-  if (button.dataset.vaultReadonlyButtonLocked !== 'true') return;
+  if (button.dataset.vaultPermissionButtonLocked !== 'true') return;
 
-  delete button.dataset.vaultReadonlyButtonLocked;
+  delete button.dataset.vaultPermissionButtonLocked;
   button.disabled = false;
   button.classList.remove('opacity-50', 'cursor-not-allowed');
 };
 
-const applyReadOnlyState = (enabled) => {
+const normalizePermissions = (permissions = {}) => {
+  const canView = Boolean(permissions.can_view ?? permissions.canView ?? true);
+  const isOwner = Boolean(permissions.is_owner ?? permissions.isOwner ?? false);
+  const isAdmin = Boolean(permissions.is_admin ?? permissions.isAdmin ?? false);
+
+  if (isOwner || isAdmin) {
+    return {
+      readOnly: false,
+      canAdd: true,
+      canEdit: true,
+      canDelete: true
+    };
+  }
+
+  const canEdit = Boolean(permissions.can_edit ?? permissions.canEdit ?? false);
+  const canAdd = Boolean(permissions.can_add ?? permissions.canAdd ?? false);
+  const canDelete = Boolean(permissions.can_delete ?? permissions.canDelete ?? false);
+
+  return {
+    readOnly: canView && !canEdit && !canAdd && !canDelete,
+    canAdd,
+    canEdit,
+    canDelete
+  };
+};
+
+const applyPermissionState = (permissions) => {
+  const normalized = normalizePermissions(permissions);
   const roots = Array.from(document.querySelectorAll('[data-vault-readonly-scope]'));
 
   roots.forEach((root) => {
-    const isScopeReadOnly = enabled && root.getAttribute('data-vault-readonly-scope') === 'true';
+    const isScopeReadOnly = normalized.readOnly && root.getAttribute('data-vault-readonly-scope') === 'true';
     const controls = root.querySelectorAll('input, textarea, select');
     const buttons = root.querySelectorAll('button');
 
@@ -98,17 +138,18 @@ const applyReadOnlyState = (enabled) => {
     });
 
     buttons.forEach((button) => {
-      if (isScopeReadOnly && shouldLockButton(button)) lockButton(button);
+      if (shouldLockButton(button, normalized)) lockButton(button);
       else unlockButton(button);
     });
   });
 };
 
-export default function VaultReadOnlyGuard({ enabled }) {
+export default function VaultReadOnlyGuard({ enabled, permissions }) {
   useEffect(() => {
-    applyReadOnlyState(enabled);
+    const effectivePermissions = permissions || { can_view: true, can_edit: !enabled, can_add: !enabled, can_delete: !enabled };
+    applyPermissionState(effectivePermissions);
 
-    const observer = new MutationObserver(() => applyReadOnlyState(enabled));
+    const observer = new MutationObserver(() => applyPermissionState(effectivePermissions));
     observer.observe(document.body, {
       childList: true,
       subtree: true,
@@ -118,9 +159,9 @@ export default function VaultReadOnlyGuard({ enabled }) {
 
     return () => {
       observer.disconnect();
-      applyReadOnlyState(false);
+      applyPermissionState({ can_view: true, can_edit: true, can_add: true, can_delete: true });
     };
-  }, [enabled]);
+  }, [enabled, permissions]);
 
   return null;
 }
