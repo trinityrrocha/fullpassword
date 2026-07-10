@@ -2,6 +2,20 @@ import { useState, useEffect } from 'react';
 import { X, Loader2 } from 'lucide-react';
 import api from '../services/api';
 
+const permissionFields = [
+  { key: 'can_view', label: 'Visualizar' },
+  { key: 'can_edit', label: 'Editar' },
+  { key: 'can_add', label: 'Adicionar' },
+  { key: 'can_delete', label: 'Excluir' }
+];
+
+const defaultPermissions = {
+  can_view: true,
+  can_edit: false,
+  can_add: false,
+  can_delete: false
+};
+
 export default function GroupModal({ isOpen, onClose, groupToEdit, onSaveSuccess }) {
   const [isSaving, setIsSaving] = useState(false);
   const [isLoadingUsers, setIsLoadingUsers] = useState(false);
@@ -10,7 +24,8 @@ export default function GroupModal({ isOpen, onClose, groupToEdit, onSaveSuccess
   const [formData, setFormData] = useState({
     name: '',
     description: '',
-    userIds: []
+    userIds: [],
+    ...defaultPermissions
   });
 
   useEffect(() => {
@@ -20,13 +35,18 @@ export default function GroupModal({ isOpen, onClose, groupToEdit, onSaveSuccess
         setFormData({
           name: groupToEdit.name || '',
           description: groupToEdit.description || '',
-          userIds: groupToEdit.users ? groupToEdit.users.map(u => u.id) : []
+          userIds: groupToEdit.users ? groupToEdit.users.map(u => u.id) : [],
+          can_view: Boolean(groupToEdit.can_view ?? true),
+          can_edit: Boolean(groupToEdit.can_edit ?? false),
+          can_add: Boolean(groupToEdit.can_add ?? false),
+          can_delete: Boolean(groupToEdit.can_delete ?? false)
         });
       } else {
         setFormData({
           name: '',
           description: '',
-          userIds: []
+          userIds: [],
+          ...defaultPermissions
         });
       }
     }
@@ -36,7 +56,6 @@ export default function GroupModal({ isOpen, onClose, groupToEdit, onSaveSuccess
     setIsLoadingUsers(true);
     try {
       const response = await api.get('/users');
-      // Filtrar apenas usuários ativos para seleção
       setUsers(response.data.filter(u => u.is_active));
     } catch (error) {
       console.error('Erro ao carregar usuários:', error);
@@ -51,6 +70,24 @@ export default function GroupModal({ isOpen, onClose, groupToEdit, onSaveSuccess
         ? prev.userIds.filter(id => id !== userId)
         : [...prev.userIds, userId];
       return { ...prev, userIds: newUserIds };
+    });
+  };
+
+  const handlePermissionChange = (field, checked) => {
+    setFormData((current) => {
+      const next = { ...current, [field]: checked };
+
+      if (['can_edit', 'can_add', 'can_delete'].includes(field) && checked) {
+        next.can_view = true;
+      }
+
+      if (field === 'can_view' && !checked) {
+        next.can_edit = false;
+        next.can_add = false;
+        next.can_delete = false;
+      }
+
+      return next;
     });
   };
 
@@ -82,7 +119,7 @@ export default function GroupModal({ isOpen, onClose, groupToEdit, onSaveSuccess
         <div className="fixed inset-0 bg-slate-500 bg-opacity-75 transition-opacity" aria-hidden="true" onClick={onClose}></div>
         <span className="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
         
-        <div className="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
+        <div className="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-xl sm:w-full">
           <div className="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
             <div className="flex justify-between items-center mb-5">
               <h3 className="text-lg leading-6 font-medium text-slate-900" id="modal-title">
@@ -119,6 +156,25 @@ export default function GroupModal({ isOpen, onClose, groupToEdit, onSaveSuccess
                   onChange={e => setFormData({...formData, description: e.target.value})}
                   placeholder="Ex: Acesso básico aos clientes"
                 />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Permissões do Grupo nos cofres compartilhados</label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 rounded-md border border-slate-200 bg-slate-50 p-3">
+                  {permissionFields.map((permission) => (
+                    <label key={permission.key} className="flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-slate-300 rounded"
+                        checked={Boolean(formData[permission.key])}
+                        disabled={isSystemGroup}
+                        onChange={(e) => handlePermissionChange(permission.key, e.target.checked)}
+                      />
+                      {permission.label}
+                    </label>
+                  ))}
+                </div>
+                <p className="mt-1 text-xs text-slate-500">Essas permissões serão herdadas por todos os cofres compartilhados com este grupo.</p>
               </div>
 
               <div>
