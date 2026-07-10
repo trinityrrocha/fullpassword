@@ -45,11 +45,18 @@ const ensureSharingSchema = async () => {
   try {
     await db.query('CREATE EXTENSION IF NOT EXISTS "uuid-ossp"');
     await db.query('ALTER TABLE clients ADD COLUMN IF NOT EXISTS created_by UUID REFERENCES users(id) ON DELETE SET NULL');
+    await db.query('ALTER TABLE groups ADD COLUMN IF NOT EXISTS can_view BOOLEAN NOT NULL DEFAULT TRUE');
+    await db.query('ALTER TABLE groups ADD COLUMN IF NOT EXISTS can_edit BOOLEAN NOT NULL DEFAULT FALSE');
+    await db.query('ALTER TABLE groups ADD COLUMN IF NOT EXISTS can_add BOOLEAN NOT NULL DEFAULT FALSE');
+    await db.query('ALTER TABLE groups ADD COLUMN IF NOT EXISTS can_delete BOOLEAN NOT NULL DEFAULT FALSE');
     await db.query('ALTER TABLE client_group_access ADD COLUMN IF NOT EXISTS can_view BOOLEAN NOT NULL DEFAULT TRUE');
     await db.query('ALTER TABLE client_group_access ADD COLUMN IF NOT EXISTS can_edit BOOLEAN NOT NULL DEFAULT TRUE');
     await db.query('ALTER TABLE client_group_access ADD COLUMN IF NOT EXISTS can_add BOOLEAN NOT NULL DEFAULT TRUE');
     await db.query('ALTER TABLE client_group_access ADD COLUMN IF NOT EXISTS can_delete BOOLEAN NOT NULL DEFAULT FALSE');
     await db.query('ALTER TABLE client_group_access ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP');
+    await db.query(`UPDATE groups
+       SET can_view = TRUE, can_edit = TRUE, can_add = TRUE, can_delete = TRUE
+       WHERE name = 'Administradores'`);
     await db.query(`CREATE TABLE IF NOT EXISTS vault_access_audit (
       id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
       client_id UUID REFERENCES clients(id) ON DELETE CASCADE,
@@ -78,14 +85,15 @@ const getClientPermissions = async (clientId, user = {}) => {
   const result = await db.query(
     `SELECT
        c.created_by,
-       COALESCE(bool_or(cga.can_view), false) AS can_view,
-       COALESCE(bool_or(cga.can_edit), false) AS can_edit,
-       COALESCE(bool_or(cga.can_add), false) AS can_add,
-       COALESCE(bool_or(cga.can_delete), false) AS can_delete
+       COALESCE(bool_or(g.can_view), false) AS can_view,
+       COALESCE(bool_or(g.can_edit), false) AS can_edit,
+       COALESCE(bool_or(g.can_add), false) AS can_add,
+       COALESCE(bool_or(g.can_delete), false) AS can_delete
      FROM clients c
      LEFT JOIN client_group_access cga
        ON c.id = cga.client_id
       AND cga.group_id = ANY($2::uuid[])
+     LEFT JOIN groups g ON g.id = cga.group_id
      WHERE c.id = $1
      GROUP BY c.id, c.created_by`,
     [clientId, userGroups]
