@@ -1,7 +1,7 @@
 const db = require('../config/database');
 const { ensureSharingSchema } = require('../services/accessControlService');
 
-// GET /api/clients - Lista apenas cofres próprios ou compartilhados com visualização
+// GET /api/clients - Lista apenas cofres próprios ou compartilhados com grupos que podem visualizar
 const getClients = async (req, res) => {
   try {
     await ensureSharingSchema();
@@ -26,17 +26,18 @@ const getClients = async (req, res) => {
     } else {
       query = `
         SELECT DISTINCT c.*,
-               COALESCE(bool_or(cga.can_view), false) OR c.created_by = $1 AS can_view,
-               COALESCE(bool_or(cga.can_edit), false) OR c.created_by = $1 AS can_edit,
-               COALESCE(bool_or(cga.can_add), false) OR c.created_by = $1 AS can_add,
-               COALESCE(bool_or(cga.can_delete), false) OR c.created_by = $1 AS can_delete,
+               COALESCE(bool_or(g.can_view), false) OR c.created_by = $1 AS can_view,
+               COALESCE(bool_or(g.can_edit), false) OR c.created_by = $1 AS can_edit,
+               COALESCE(bool_or(g.can_add), false) OR c.created_by = $1 AS can_add,
+               COALESCE(bool_or(g.can_delete), false) OR c.created_by = $1 AS can_delete,
                FALSE AS is_admin,
                c.created_by = $1 AS is_owner
         FROM clients c
         LEFT JOIN client_group_access cga
           ON c.id = cga.client_id
          AND cga.group_id = ANY($2::uuid[])
-        WHERE c.created_by = $1 OR cga.can_view = TRUE
+        LEFT JOIN groups g ON g.id = cga.group_id
+        WHERE c.created_by = $1 OR g.can_view = TRUE
         GROUP BY c.id
         ORDER BY c.name ASC
       `;
@@ -77,15 +78,9 @@ const createClient = async (req, res) => {
       const groupCheck = await db.query('SELECT id FROM groups WHERE id = $1', [groupId]);
       if (groupCheck.rows.length > 0) {
         await db.query(
-          `INSERT INTO client_group_access
-             (client_id, group_id, can_view, can_edit, can_add, can_delete)
-           VALUES ($1, $2, TRUE, TRUE, TRUE, FALSE)
-           ON CONFLICT (client_id, group_id)
-           DO UPDATE SET
-             can_view = TRUE,
-             can_edit = TRUE,
-             can_add = TRUE,
-             updated_at = CURRENT_TIMESTAMP`,
+          `INSERT INTO client_group_access (client_id, group_id)
+           VALUES ($1, $2)
+           ON CONFLICT (client_id, group_id) DO NOTHING`,
           [newClient.id, groupId]
         );
       }
