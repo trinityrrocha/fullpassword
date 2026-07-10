@@ -13,21 +13,16 @@ const AuthContext = createContext(null);
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [token, setToken] = useState(null);
-  // A Master Key fica APENAS na memória do React. Nunca vai para o localStorage.
   const [masterKey, setMasterKey] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Restaurar sessão do localStorage (exceto a Master Key)
     const storedToken = localStorage.getItem('token');
     const storedUser = localStorage.getItem('user');
 
     if (storedToken && storedUser) {
       setToken(storedToken);
       setUser(JSON.parse(storedUser));
-      // NOTA CRÍTICA: Se a página for recarregada (F5), a Master Key é perdida por segurança.
-      // O usuário precisará redigitar a senha master para derivar a chave novamente
-      // e poder descriptografar os dados do cofre.
     }
     
     setLoading(false);
@@ -35,23 +30,16 @@ export const AuthProvider = ({ children }) => {
 
   const login = async (email, password) => {
     try {
-      // 1. Fazer login na API
       const response = await api.post('/auth/login', { email, password });
       const { token: jwtToken, user: userData } = response.data;
 
-      // 2. Salvar JWT e dados não sensíveis no localStorage
       localStorage.setItem('token', jwtToken);
       localStorage.setItem('user', JSON.stringify(userData));
+      localStorage.setItem('user_wrapped_key', userData.wrapped_key || '');
+      localStorage.setItem('user_salt', userData.crypto_salt || '');
       
       setToken(jwtToken);
       setUser(userData);
-
-      // 3. ZERO-KNOWLEDGE: O login agora apenas autentica.
-      // A Master Key real deve ser desenvelopada a partir do wrapped_key do usuário.
-      // Se o usuário logou, ele terá que desbloquear o cofre depois.
-      // NOTA: Se tivéssemos o wrapped_key no response do login, poderíamos desenvelopar aqui.
-      // Por enquanto, vamos simular que o usuário precisa desbloquear explicitamente.
-      
       return { success: true };
     } catch (error) {
       console.error('Erro no login:', error);
@@ -65,59 +53,45 @@ export const AuthProvider = ({ children }) => {
   const logout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
+    localStorage.removeItem('user_wrapped_key');
+    localStorage.removeItem('user_salt');
     setToken(null);
     setUser(null);
-    setMasterKey(null); // Limpar a chave da memória
+    setMasterKey(null);
   };
 
-  // Função para solicitar a senha master e desenvelopar a Master Key real
   const unlockVault = async (password, wrappedKeyStr, saltStr) => {
     try {
-      // 1. Derivar a KEK (Key Encryption Key) a partir da senha fornecida
       const kek = await deriveMasterKey(password, saltStr);
-      
-      // 2. Tentar desenvelopar a Master Key
-      // Se a senha estiver errada, o unwrapKey falhará com erro criptográfico
       const key = await unwrapMasterKey(wrappedKeyStr, kek);
-      
-      // 3. Sucesso! Guardar na memória
       setMasterKey(key);
 
-      // 4. BOOTSTRAP DE CHAVES RSA: Verificar se o usuário já tem chaves assimétricas
       const currentUser = JSON.parse(localStorage.getItem('user'));
-      if (currentUser && !currentUser.public_key) {
-        console.log("Realizando bootstrap de chaves RSA para o usuário...");
+      if (currentUser && (!currentUser.public_key || !currentUser.encrypted_private_key)) {
+        console.log('Gerando chaves RSA para compartilhamento de cofres...');
         try {
-          // Gerar par de chaves RSA-OAEP
           const keyPair = await generateRSAKeyPair();
-          
-          // Exportar chave pública
           const publicKeyStr = await exportPublicKey(keyPair.publicKey);
-          
-          // Envelopar chave privada com a Master Key recém-desbloqueada
           const encryptedPrivateKeyStr = await encryptPrivateKey(keyPair.privateKey, key);
           
-          // Enviar para o backend
           await api.put('/users/keys', {
             public_key: publicKeyStr,
             encrypted_private_key: encryptedPrivateKeyStr
           });
           
-          // Atualizar localStorage com a flag para não repetir o bootstrap
-          currentUser.public_key = true;
+          currentUser.public_key = publicKeyStr;
+          currentUser.encrypted_private_key = encryptedPrivateKeyStr;
           localStorage.setItem('user', JSON.stringify(currentUser));
           setUser(currentUser);
-          
-          console.log("Chaves RSA geradas e salvas com sucesso!");
+          console.log('Chaves RSA salvas para compartilhamento de cofres.');
         } catch (rsaError) {
-          console.error("Erro ao gerar/salvar chaves RSA:", rsaError);
-          // Não falhamos o unlockVault se o RSA falhar, mas registramos o erro
+          console.error('Erro ao gerar/salvar chaves RSA:', rsaError);
         }
       }
 
       return { success: true };
     } catch (error) {
-      console.error("Falha no desbloqueio:", error);
+      console.error('Falha no desbloqueio:', error);
       return { success: false, error: 'Senha mestre incorreta' };
     }
   };
