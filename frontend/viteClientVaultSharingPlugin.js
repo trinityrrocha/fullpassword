@@ -52,9 +52,9 @@ export default function clientVaultSharingPlugin() {
         )
       }
 
-      if (!next.includes('const isReadOnlyMode =')) {
+      if (!next.includes('const getStoredUser = () =>')) {
         next = next.replace(
-          `  const loadClient = async () => {`,
+          `  const loadVaultItems = async () => {`,
           `  const isReadOnlyMode = Boolean(
     vaultPermissions.can_view &&
     !vaultPermissions.is_owner &&
@@ -64,14 +64,7 @@ export default function clientVaultSharingPlugin() {
     !vaultPermissions.can_delete
   );
 
-  const loadClient = async () => {`
-        )
-      }
-
-      if (!next.includes('const getStoredUser = () =>')) {
-        next = next.replace(
-          `  const loadVaultItems = async () => {`,
-          `  const getStoredUser = () => {
+  const getStoredUser = () => {
     try {
       return user || JSON.parse(localStorage.getItem('user') || 'null');
     } catch {
