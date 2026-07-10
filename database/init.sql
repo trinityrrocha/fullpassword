@@ -63,6 +63,18 @@ CREATE TABLE IF NOT EXISTS client_group_access (
     PRIMARY KEY (client_id, group_id)
 );
 
+-- Chave própria de cada cofre envelopada para cada usuário autorizado
+CREATE TABLE IF NOT EXISTS client_key_shares (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    client_id UUID REFERENCES clients(id) ON DELETE CASCADE,
+    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+    encrypted_client_key TEXT NOT NULL,
+    created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(client_id, user_id)
+);
+
 -- Tabela do cofre (vault_items)
 CREATE TABLE IF NOT EXISTS vault_items (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
