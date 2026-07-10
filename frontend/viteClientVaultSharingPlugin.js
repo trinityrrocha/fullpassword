@@ -101,7 +101,12 @@ export default function clientVaultSharingPlugin() {
 
     if (permissions.is_owner || permissions.is_admin) {
       const key = await generateClientVaultKey();
-      await saveClientKeyShareForCurrentUser(key);
+      const saved = await saveClientKeyShareForCurrentUser(key);
+      if (!saved) {
+        const message = 'Não foi possível preparar sua chave de compartilhamento. Desbloqueie o cofre novamente para gerar suas chaves de usuário.';
+        setClientVaultKeyError(message);
+        return null;
+      }
       setClientVaultKey(key);
       setClientVaultKeyError('');
       return key;
