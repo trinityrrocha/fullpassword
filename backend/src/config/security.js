@@ -35,10 +35,13 @@ const timingSafeEqualText = (left, right) => {
 const JWT_SECRET = getRequiredSecret('JWT_SECRET', 64);
 const ADMIN_BOOTSTRAP_TOKEN = getRequiredSecret('ADMIN_BOOTSTRAP_TOKEN', 48);
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '8h';
+
+// Usado apenas como e-mail inicial sugerido pelo instalador/bootstrap.
+// A permissão real de Super Admin é persistida em users.is_super_admin.
 const SUPER_ADMIN_EMAIL = normalizeEmail(process.env.SUPER_ADMIN_EMAIL || 'admin@admin.com.br');
 
 const isSuperAdmin = (user) => {
-  return normalizeRole(user?.role) === 'admin' && normalizeEmail(user?.email) === SUPER_ADMIN_EMAIL;
+  return normalizeRole(user?.role) === 'admin' && user?.is_super_admin === true;
 };
 
 module.exports = {
