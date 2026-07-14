@@ -13,6 +13,8 @@ CREATE TABLE IF NOT EXISTS users (
     encrypted_private_key TEXT, -- Chave privada RSA-OAEP criptografada com a Master Key
     role VARCHAR(50) NOT NULL DEFAULT 'user',
     is_active BOOLEAN DEFAULT TRUE,
+    is_super_admin BOOLEAN NOT NULL DEFAULT FALSE,
+    must_change_password BOOLEAN NOT NULL DEFAULT FALSE,
     token_version INTEGER NOT NULL DEFAULT 0,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
@@ -121,6 +123,44 @@ ALTER TABLE client_group_access ADD COLUMN IF NOT EXISTS can_add BOOLEAN NOT NUL
 ALTER TABLE client_group_access ADD COLUMN IF NOT EXISTS can_delete BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE client_group_access ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS is_super_admin BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- Protege o Super Admin permanente contra desativação ou rebaixamento de papel.
+CREATE OR REPLACE FUNCTION protect_super_admin_user()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF OLD.is_super_admin = TRUE THEN
+        IF NEW.role <> 'admin' OR NEW.is_active = FALSE THEN
+            RAISE EXCEPTION 'O Super Admin não pode ser desativado ou deixar de ser administrador';
+        END IF;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_protect_super_admin_user ON users;
+CREATE TRIGGER trg_protect_super_admin_user
+BEFORE UPDATE ON users
+FOR EACH ROW
+EXECUTE FUNCTION protect_super_admin_user();
+
+-- Ao trocar a senha, remove a exigência de troca obrigatória.
+CREATE OR REPLACE FUNCTION clear_must_change_password_on_hash_update()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF OLD.hash_senha_login IS DISTINCT FROM NEW.hash_senha_login THEN
+        NEW.must_change_password = FALSE;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_clear_must_change_password ON users;
+CREATE TRIGGER trg_clear_must_change_password
+BEFORE UPDATE ON users
+FOR EACH ROW
+EXECUTE FUNCTION clear_must_change_password_on_hash_update();
 
 -- Criar um grupo padrão de administradores
 INSERT INTO groups (id, name, description, can_view, can_edit, can_add, can_delete)
