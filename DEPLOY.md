@@ -57,10 +57,10 @@ Durante a execução, o script fará 4 perguntas:
 
 Ao final do script, ele exibirá:
 1. As credenciais geradas para o banco de dados.
-2. As credenciais do usuário Administrador padrão (`admin@admin.com.br` / `@dmin123`).
+2. Um token aleatório de configuração inicial para cadastrar o primeiro administrador.
 
 **Ação Imediata Necessária:**
-Acesse `https://seu-dominio.com.br`, faça login com o usuário padrão e **ALTERE A SENHA IMEDIATAMENTE**, pois a senha padrão é de conhecimento público e é a base para derivar a Master Key do cofre.
+Acesse `https://seu-dominio.com.br` e cadastre o primeiro administrador usando o token exibido pelo instalador. O token deve ser tratado como segredo e usado apenas nessa configuração inicial.
 
 ## Manutenção e Comandos Úteis
 

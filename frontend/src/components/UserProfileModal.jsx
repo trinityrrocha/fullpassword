@@ -1,12 +1,12 @@
 import { useState, useEffect } from 'react';
-import { X, User, Lock, Loader2 } from 'lucide-react';
+import { User, Lock, Loader2 } from 'lucide-react';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { deriveMasterKey, unwrapMasterKey, wrapMasterKey } from '../services/cryptoService';
 import SecurePasswordInput from './SecurePasswordInput';
 
 export default function UserProfileModal({ isOpen, onClose }) {
-  const { user, login } = useAuth();
+  const { user } = useAuth();
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -49,7 +49,8 @@ export default function UserProfileModal({ isOpen, onClose }) {
     try {
       let payload = {
         name: formData.name,
-        email: formData.email
+        email: formData.email,
+        current_password: formData.currentPassword
       };
 
       // Se o usuário quer alterar a senha, precisamos fazer o re-envelope criptográfico
@@ -60,8 +61,8 @@ export default function UserProfileModal({ isOpen, onClose }) {
         if (formData.newPassword !== formData.confirmNewPassword) {
           throw new Error('As novas senhas não coincidem.');
         }
-        if (formData.newPassword.length < 8) {
-          throw new Error('A nova senha deve ter pelo menos 8 caracteres.');
+        if (formData.newPassword.length < 12) {
+          throw new Error('A nova senha deve ter pelo menos 12 caracteres.');
         }
 
         // 1. Obter o wrapped_key e salt atuais do localStorage (ou do context)
@@ -80,7 +81,7 @@ export default function UserProfileModal({ isOpen, onClose }) {
         try {
           masterKey = await unwrapMasterKey(currentWrappedKey, currentKek);
         } catch (err) {
-          throw new Error('Senha atual incorreta. Não foi possível acessar a chave mestra.');
+          throw new Error('Senha atual incorreta. Não foi possível acessar a chave mestra.', { cause: err });
         }
 
         // 4. Derivar a NOVA KEK usando a NOVA senha e o mesmo salt
@@ -97,7 +98,7 @@ export default function UserProfileModal({ isOpen, onClose }) {
       }
 
       // Enviar para o backend
-      const response = await api.put('/users/profile', payload);
+      await api.put('/users/profile', payload);
 
       // Se a senha foi alterada, precisamos atualizar o localStorage
       if (payload.wrapped_key) {
@@ -213,7 +214,7 @@ export default function UserProfileModal({ isOpen, onClose }) {
                             name="newPassword"
                             value={formData.newPassword}
                             onChange={handleChange}
-                            placeholder="Mínimo de 8 caracteres"
+                            placeholder="Mínimo de 12 caracteres"
                           />
                         </div>
                         

@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS users (
     encrypted_private_key TEXT, -- Chave privada RSA-OAEP criptografada com a Master Key
     role VARCHAR(50) NOT NULL DEFAULT 'user',
     is_active BOOLEAN DEFAULT TRUE,
+    token_version INTEGER NOT NULL DEFAULT 0,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -119,16 +120,7 @@ ALTER TABLE client_group_access ADD COLUMN IF NOT EXISTS can_edit BOOLEAN NOT NU
 ALTER TABLE client_group_access ADD COLUMN IF NOT EXISTS can_add BOOLEAN NOT NULL DEFAULT TRUE;
 ALTER TABLE client_group_access ADD COLUMN IF NOT EXISTS can_delete BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE client_group_access ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
-
--- SEEDER DO USUÁRIO ADMINISTRADOR
-INSERT INTO users (id, name, email, hash_senha_login, role)
-VALUES (
-    uuid_generate_v4(),
-    'Administrador do Sistema',
-    'admin@admin.com.br',
-    '$argon2id$v=19$m=65536,t=3,p=4$PLACEHOLDER_HASH_FOR_@dmin123',
-    'admin'
-) ON CONFLICT (email) DO NOTHING;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version INTEGER NOT NULL DEFAULT 0;
 
 -- Criar um grupo padrão de administradores
 INSERT INTO groups (id, name, description, can_view, can_edit, can_add, can_delete)
@@ -145,10 +137,3 @@ VALUES (
 UPDATE groups
 SET can_view = TRUE, can_edit = TRUE, can_add = TRUE, can_delete = TRUE
 WHERE name = 'Administradores';
-
--- Relacionar o admin criado ao grupo de administradores
-INSERT INTO user_groups (user_id, group_id)
-SELECT u.id, g.id
-FROM users u, groups g
-WHERE u.email = 'admin@admin.com.br' AND g.name = 'Administradores'
-ON CONFLICT DO NOTHING;

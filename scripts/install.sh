@@ -36,6 +36,7 @@ REPO_URL="https://github.com/trinityrrocha/fullpassword.git"
 # Geração de senhas fortes automáticas
 DB_PASSWORD=$(openssl rand -base64 24 | tr -dc 'a-zA-Z0-9' | head -c 24)
 JWT_SECRET=$(openssl rand -hex 64)
+ADMIN_BOOTSTRAP_TOKEN=$(openssl rand -hex 32)
 
 # ==========================================
 # 2. ATUALIZAÇÃO E DEPENDÊNCIAS BÁSICAS
@@ -126,6 +127,8 @@ PORT=3000
 NODE_ENV=production
 JWT_SECRET=$JWT_SECRET
 JWT_EXPIRES_IN=8h
+ADMIN_BOOTSTRAP_TOKEN=$ADMIN_BOOTSTRAP_TOKEN
+APP_ORIGIN=https://$DOMAIN
 
 # Configurações do Frontend
 VITE_API_URL=https://$DOMAIN/api
@@ -245,8 +248,8 @@ echo -e "${BLUE}======================================================${NC}"
 echo -e "\n${YELLOW}Credenciais de Banco de Dados geradas (salvas no .env):${NC}"
 echo -e "DB_USER: fullpassword_user"
 echo -e "DB_PASSWORD: $DB_PASSWORD"
-echo -e "\n${YELLOW}Credenciais do Sistema (Seeder padrão):${NC}"
-echo -e "Email: admin@admin.com.br"
-echo -e "Senha: @dmin123 (Recomendado alterar imediatamente)"
+echo -e "\n${YELLOW}Token de configuração inicial do administrador:${NC}"
+echo -e "$ADMIN_BOOTSTRAP_TOKEN"
+echo -e "${YELLOW}Guarde este token em local seguro e use-o uma única vez para cadastrar o primeiro administrador.${NC}"
 echo -e "\n${GREEN}Acesse o sistema em: https://$DOMAIN${NC}"
 echo -e "${BLUE}======================================================${NC}"

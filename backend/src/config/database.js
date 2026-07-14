@@ -1,12 +1,21 @@
 const { Pool } = require('pg');
 require('dotenv').config();
 
+const requiredDatabaseValue = (name) => {
+  const value = String(process.env[name] || '').trim();
+  if (!value) throw new Error(`Variável obrigatória ausente: ${name}`);
+  if (name === 'DB_PASSWORD' && value === 'fullpassword_pass') {
+    throw new Error('DB_PASSWORD padrão é proibida');
+  }
+  return value;
+};
+
 const pool = new Pool({
-  host: process.env.DB_HOST || 'localhost',
-  port: process.env.DB_PORT || 5432,
-  user: process.env.DB_USER || 'fullpassword_user',
-  password: process.env.DB_PASSWORD || 'fullpassword_pass',
-  database: process.env.DB_NAME || 'fullpassword_db',
+  host: requiredDatabaseValue('DB_HOST'),
+  port: Number(process.env.DB_PORT || 5432),
+  user: requiredDatabaseValue('DB_USER'),
+  password: requiredDatabaseValue('DB_PASSWORD'),
+  database: requiredDatabaseValue('DB_NAME'),
 });
 
 // Testar a conexão

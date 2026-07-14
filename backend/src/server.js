@@ -1,7 +1,10 @@
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 require('dotenv').config();
+
+require('./config/security');
 
 // Importação das rotas (serão criadas nos próximos passos)
 const authRoutes = require('./routes/authRoutes');
@@ -14,10 +17,24 @@ const groupRoutes = require('./routes/groupRoutes');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+app.set('trust proxy', 1);
+
+const authenticationLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { error: 'Muitas tentativas. Aguarde 15 minutos e tente novamente.' }
+});
+
 // Middlewares globais de segurança e parse
 app.use(helmet()); // Proteção de headers HTTP
-app.use(cors()); // Permitir requisições do frontend
-app.use(express.json()); // Parse de JSON no body
+const allowedOrigin = process.env.APP_ORIGIN;
+if (!allowedOrigin) throw new Error('Variável obrigatória ausente: APP_ORIGIN');
+app.use(cors({ origin: allowedOrigin, credentials: false }));
+app.use(express.json({ limit: '256kb' })); // Parse de JSON no body
+app.use('/api/auth/login', authenticationLimiter);
+app.use('/api/auth/bootstrap', authenticationLimiter);
 
 // Rota de verificação de saúde (Healthcheck)
 app.get('/api/health', (req, res) => {

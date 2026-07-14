@@ -49,18 +49,20 @@ npm start
 
 ```env
 PORT=3000
-NODE_ENV=development
+NODE_ENV=production
 
 # Database
 DB_HOST=localhost
 DB_PORT=5432
 DB_USER=fullpassword_user
-DB_PASSWORD=fullpassword_pass
+DB_PASSWORD=GERE_UMA_SENHA_ALEATORIA_FORTE
 DB_NAME=fullpassword_db
 
 # JWT
-JWT_SECRET=sua_chave_secreta_super_segura_aqui
+JWT_SECRET=GERE_128_CARACTERES_HEXADECIMAIS
 JWT_EXPIRES_IN=8h
+ADMIN_BOOTSTRAP_TOKEN=GERE_64_CARACTERES_HEXADECIMAIS
+APP_ORIGIN=https://cofre.exemplo.com.br
 ```
 
 ## Estrutura de Pastas
@@ -97,8 +99,8 @@ Realiza login do usuário e retorna um token JWT.
 **Request:**
 ```json
 {
-  "email": "admin@admin.com.br",
-  "password": "@dmin123"
+  "email": "administrador@exemplo.com.br",
+  "password": "SUA_SENHA_MASTER"
 }
 ```
 

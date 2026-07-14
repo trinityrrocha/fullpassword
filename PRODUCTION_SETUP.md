@@ -66,9 +66,8 @@ Após a instalação, o script exibirá:
    - Usuário: `fullpassword_user`
    - Senha: Gerada aleatoriamente (24+ caracteres)
 
-2. **Usuário Administrador Padrão**
-   - Email: `admin@admin.com.br`
-   - Senha: `@dmin123` (⚠️ Alterar imediatamente!)
+2. **Token de configuração inicial**
+   - Gerado aleatoriamente e usado uma única vez para cadastrar o primeiro administrador
 
 3. **JWT Secret**
    - Gerado aleatoriamente (64 caracteres hex)
@@ -76,8 +75,8 @@ Após a instalação, o script exibirá:
 ## ⚠️ Ações Imediatas Pós-Instalação
 
 1. Acesse `https://seu-dominio.com.br`
-2. Faça login com `admin@admin.com.br` / `@dmin123`
-3. **ALTERE A SENHA DO ADMINISTRADOR IMEDIATAMENTE**
+2. Cadastre o primeiro administrador usando o token exibido pelo instalador
+3. Guarde a senha Master e remova qualquer cópia desnecessária do token de instalação
 4. Crie novos usuários e grupos conforme necessário
 5. Teste o cofre salvando algumas credenciais
 
