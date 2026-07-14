@@ -7,6 +7,9 @@ const PLACEHOLDER_VALUES = new Set([
   'changeme'
 ]);
 
+const normalizeEmail = (email) => String(email || '').trim().toLowerCase();
+const normalizeRole = (role) => String(role || '').trim().toLowerCase();
+
 const getRequiredSecret = (name, minimumLength = 32) => {
   const value = String(process.env[name] || '').trim();
 
@@ -32,10 +35,19 @@ const timingSafeEqualText = (left, right) => {
 const JWT_SECRET = getRequiredSecret('JWT_SECRET', 64);
 const ADMIN_BOOTSTRAP_TOKEN = getRequiredSecret('ADMIN_BOOTSTRAP_TOKEN', 48);
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '8h';
+const SUPER_ADMIN_EMAIL = normalizeEmail(process.env.SUPER_ADMIN_EMAIL || 'admin@admin.com.br');
+
+const isSuperAdmin = (user) => {
+  return normalizeRole(user?.role) === 'admin' && normalizeEmail(user?.email) === SUPER_ADMIN_EMAIL;
+};
 
 module.exports = {
   JWT_SECRET,
   JWT_EXPIRES_IN,
   ADMIN_BOOTSTRAP_TOKEN,
+  SUPER_ADMIN_EMAIL,
+  normalizeEmail,
+  normalizeRole,
+  isSuperAdmin,
   timingSafeEqualText
 };
