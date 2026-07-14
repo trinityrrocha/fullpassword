@@ -6,13 +6,15 @@ const {
   JWT_SECRET,
   JWT_EXPIRES_IN,
   ADMIN_BOOTSTRAP_TOKEN,
+  SUPER_ADMIN_EMAIL,
+  normalizeEmail,
+  normalizeRole,
   timingSafeEqualText
 } = require('../config/security');
 
-const LEGACY_ADMIN_EMAIL = 'admin@admin.com.br';
+const LEGACY_ADMIN_EMAIL = SUPER_ADMIN_EMAIL;
 const LEGACY_ADMIN_HASH = '$argon2id$v=19$m=65536,t=3,p=4$PLACEHOLDER_HASH_FOR_@dmin123';
 
-const normalizeEmail = (email) => String(email || '').trim().toLowerCase();
 const isStrongPassword = (password) => typeof password === 'string' && password.length >= 12;
 
 const getBootstrapState = async (client = db) => {
@@ -35,7 +37,10 @@ const getBootstrapState = async (client = db) => {
 const bootstrapStatus = async (_req, res) => {
   try {
     const state = await getBootstrapState();
-    return res.status(200).json({ required: state.required });
+    return res.status(200).json({
+      required: state.required,
+      super_admin_email: SUPER_ADMIN_EMAIL
+    });
   } catch (error) {
     console.error('Erro ao consultar bootstrap:', error);
     return res.status(500).json({ error: 'Não foi possível consultar a configuração inicial' });
@@ -46,11 +51,18 @@ const bootstrapAdmin = async (req, res) => {
   const client = await db.pool.connect();
   try {
     const { name, email, password, bootstrap_token: bootstrapToken } = req.body || {};
+    const adminEmail = normalizeEmail(email);
+
     if (!timingSafeEqualText(bootstrapToken, ADMIN_BOOTSTRAP_TOKEN)) {
       return res.status(403).json({ error: 'Token de configuração inicial inválido' });
     }
-    if (!String(name || '').trim() || !normalizeEmail(email) || !isStrongPassword(password)) {
+    if (!String(name || '').trim() || !adminEmail || !isStrongPassword(password)) {
       return res.status(400).json({ error: 'Nome, e-mail e senha com ao menos 12 caracteres são obrigatórios' });
+    }
+    if (adminEmail !== SUPER_ADMIN_EMAIL) {
+      return res.status(400).json({
+        error: `O primeiro administrador deve usar o e-mail do Super Admin: ${SUPER_ADMIN_EMAIL}`
+      });
     }
 
     await client.query('BEGIN');
@@ -90,7 +102,7 @@ const bootstrapAdmin = async (req, res) => {
              updated_at = CURRENT_TIMESTAMP
          WHERE email = $4 AND hash_senha_login = $5
          RETURNING id, name, email, role, is_active`,
-        [String(name).trim(), normalizeEmail(email), passwordHash, LEGACY_ADMIN_EMAIL, LEGACY_ADMIN_HASH]
+        [String(name).trim(), adminEmail, passwordHash, LEGACY_ADMIN_EMAIL, LEGACY_ADMIN_HASH]
       );
       user = updated.rows[0];
     } else {
@@ -98,7 +110,7 @@ const bootstrapAdmin = async (req, res) => {
         `INSERT INTO users (name, email, hash_senha_login, role)
          VALUES ($1, $2, $3, 'admin')
          RETURNING id, name, email, role, is_active`,
-        [String(name).trim(), normalizeEmail(email), passwordHash]
+        [String(name).trim(), adminEmail, passwordHash]
       );
       user = inserted.rows[0];
     }
@@ -117,7 +129,7 @@ const bootstrapAdmin = async (req, res) => {
       [user.id, groupId]
     );
     await client.query('COMMIT');
-    return res.status(201).json({ message: 'Administrador configurado com sucesso', user });
+    return res.status(201).json({ message: 'Super Admin configurado com sucesso', user });
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {});
     console.error('Erro no bootstrap:', error);
@@ -186,6 +198,7 @@ const login = async (req, res) => {
         id: user.id, name: user.name, email: user.email, role: user.role,
         is_active: user.is_active, wrapped_key: finalWrappedKey, crypto_salt: finalCryptoSalt,
         public_key: user.public_key, encrypted_private_key: user.encrypted_private_key,
+        is_super_admin: normalizeRole(user.role) === 'admin' && normalizeEmail(user.email) === SUPER_ADMIN_EMAIL,
         groups
       }
     });
