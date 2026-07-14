@@ -5,6 +5,8 @@
 # SO Suportado: Ubuntu 20.04/22.04 LTS ou Debian 11/12
 # ==============================================================================
 
+set -e
+
 # Cores para output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -32,18 +34,31 @@ read -p "Digite seu e-mail (para o certificado Let's Encrypt): " LETSENCRYPT_EMA
 read -p "Digite a porta SSH atual da sua VPS [Padrão: 22]: " SSH_PORT
 SSH_PORT=${SSH_PORT:-22}
 REPO_URL="https://github.com/trinityrrocha/fullpassword.git"
+APP_DIR="/opt/fullpassword"
+RUNTIME_NGINX_CONF="./docker/nginx.runtime.conf"
 
 # Geração de senhas fortes automáticas
-DB_PASSWORD=$(openssl rand -base64 24 | tr -dc 'a-zA-Z0-9' | head -c 24)
+DB_PASSWORD=$(openssl rand -base64 48 | tr -dc 'a-zA-Z0-9' | head -c 40)
 JWT_SECRET=$(openssl rand -hex 64)
 ADMIN_BOOTSTRAP_TOKEN=$(openssl rand -hex 32)
+
+compose() {
+    if docker compose version >/dev/null 2>&1; then
+        docker compose "$@"
+    elif command -v docker-compose >/dev/null 2>&1; then
+        docker-compose "$@"
+    else
+        echo -e "${RED}Docker Compose não está disponível.${NC}"
+        exit 1
+    fi
+}
 
 # ==========================================
 # 2. ATUALIZAÇÃO E DEPENDÊNCIAS BÁSICAS
 # ==========================================
 echo -e "\n${GREEN}[1/6] Atualizando pacotes do sistema e instalando dependências...${NC}"
 apt-get update && apt-get upgrade -y
-apt-get install -y curl git ufw fail2ban certbot python3-certbot-nginx apt-transport-https ca-certificates software-properties-common netcat-openbsd dnsutils
+apt-get install -y curl git ufw fail2ban certbot python3-certbot-nginx apt-transport-https ca-certificates software-properties-common netcat-openbsd dnsutils openssl
 
 # ==========================================
 # 3. SEGURANÇA DA INFRAESTRUTURA (UFW E FAIL2BAN)
@@ -89,20 +104,18 @@ else
     echo "Docker já está instalado."
 fi
 
-if ! command -v docker-compose &> /dev/null; then
-    echo "Instalando Docker Compose..."
+if ! docker compose version >/dev/null 2>&1 && ! command -v docker-compose &> /dev/null; then
+    echo "Instalando Docker Compose standalone..."
     curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
     chmod +x /usr/local/bin/docker-compose
 else
-    echo "Docker Compose já está instalado."
+    echo "Docker Compose já está disponível."
 fi
 
 # ==========================================
 # 5. CLONE DO REPOSITÓRIO E CONFIGURAÇÃO
 # ==========================================
 echo -e "\n${GREEN}[4/6] Clonando repositório e configurando ambiente...${NC}"
-
-APP_DIR="/opt/fullpassword"
 
 if [ -d "$APP_DIR" ]; then
     echo -e "${YELLOW}O diretório $APP_DIR já existe. Fazendo backup...${NC}"
@@ -132,12 +145,11 @@ APP_ORIGIN=https://$DOMAIN
 
 # Configurações do Frontend
 VITE_API_URL=https://$DOMAIN/api
-EOF
 
-# Substituir o domínio no nginx.conf (se existir um template)
-if [ -f "$APP_DIR/docker/nginx.conf" ]; then
-    sed -i "s/server_name localhost;/server_name $DOMAIN;/g" $APP_DIR/docker/nginx.conf
-fi
+# Configuração runtime do Nginx gerada pelo instalador
+NGINX_CONF_PATH=$RUNTIME_NGINX_CONF
+EOF
+chmod 600 $APP_DIR/.env
 
 # ==========================================
 # 6. CERTIFICADO SSL (LET'S ENCRYPT) COM PRE-FLIGHT CHECKS
@@ -149,7 +161,7 @@ PUBLIC_IP=$(curl -s ifconfig.me)
 echo -e "${BLUE}Seu IP público atual é: $PUBLIC_IP${NC}"
 
 # Verificar apontamento DNS
-DOMAIN_IP=$(dig +short $DOMAIN)
+DOMAIN_IP=$(dig +short $DOMAIN | tail -n 1)
 if [ "$DOMAIN_IP" != "$PUBLIC_IP" ]; then
     echo -e "${RED}ERRO CRÍTICO: O domínio $DOMAIN aponta para $DOMAIN_IP, mas o IP desta VPS é $PUBLIC_IP.${NC}"
     echo -e "${YELLOW}Por favor, corrija o apontamento DNS no seu provedor (Cloudflare, Registro.br, etc) e aguarde a propagação antes de rodar este script novamente.${NC}"
@@ -178,9 +190,9 @@ certbot certonly --standalone -d $DOMAIN --non-interactive --agree-tos -m $LETSE
 
 if [ $? -eq 0 ]; then
     echo -e "${GREEN}Certificado SSL gerado com sucesso!${NC}"
-    
-    # Atualizar o nginx.conf para usar SSL
-    cat > $APP_DIR/docker/nginx.conf << EOF
+
+    # Criar configuração runtime do Nginx sem alterar arquivos versionados pelo Git
+    cat > $APP_DIR/docker/nginx.runtime.conf << EOF
 server {
     listen 80;
     server_name $DOMAIN;
@@ -193,7 +205,7 @@ server {
 
     ssl_certificate /etc/letsencrypt/live/$DOMAIN/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/$DOMAIN/privkey.pem;
-    
+
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_ciphers HIGH:!aNULL:!MD5;
     ssl_prefer_server_ciphers on;
@@ -204,7 +216,7 @@ server {
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection 'upgrade';
-        proxy_set_header Host localhost; # Contorno para bloqueio de DNS Rebinding do Vite
+        proxy_set_header Host localhost;
         proxy_cache_bypass \$http_upgrade;
     }
 
@@ -230,6 +242,10 @@ else
     exit 1
 fi
 
+# Guardar token de bootstrap em arquivo root-only para evitar perda durante a primeira configuração
+umask 077
+printf "%s\n" "$ADMIN_BOOTSTRAP_TOKEN" > /root/fullpassword-admin-bootstrap-token.txt
+
 # ==========================================
 # 7. DEPLOY COM DOCKER COMPOSE
 # ==========================================
@@ -239,17 +255,25 @@ echo -e "\n${GREEN}[6/6] Iniciando os containers com Docker Compose...${NC}"
 systemctl disable nginx 2>/dev/null || true
 systemctl stop nginx 2>/dev/null || true
 
-# Subir os containers
-docker-compose up -d --build
+# Validar e subir os containers
+compose config >/tmp/fullpassword-compose-config.txt
+compose up -d --build
+
+cat > /root/fullpassword-install-info.txt << EOF
+FullPassword instalado em: https://$DOMAIN
+Diretório: $APP_DIR
+Token de configuração inicial: /root/fullpassword-admin-bootstrap-token.txt
+Arquivo .env: $APP_DIR/.env
+EOF
+chmod 600 /root/fullpassword-install-info.txt
 
 echo -e "\n${BLUE}======================================================${NC}"
 echo -e "${GREEN}  Instalação Concluída com Sucesso! ${NC}"
 echo -e "${BLUE}======================================================${NC}"
-echo -e "\n${YELLOW}Credenciais de Banco de Dados geradas (salvas no .env):${NC}"
-echo -e "DB_USER: fullpassword_user"
-echo -e "DB_PASSWORD: $DB_PASSWORD"
-echo -e "\n${YELLOW}Token de configuração inicial do administrador:${NC}"
+echo -e "\n${YELLOW}Credenciais de Banco de Dados geradas e salvas no .env.${NC}"
+echo -e "${YELLOW}Token de configuração inicial do administrador:${NC}"
 echo -e "$ADMIN_BOOTSTRAP_TOKEN"
 echo -e "${YELLOW}Guarde este token em local seguro e use-o uma única vez para cadastrar o primeiro administrador.${NC}"
+echo -e "${YELLOW}Uma cópia root-only foi salva em: /root/fullpassword-admin-bootstrap-token.txt${NC}"
 echo -e "\n${GREEN}Acesse o sistema em: https://$DOMAIN${NC}"
 echo -e "${BLUE}======================================================${NC}"
