@@ -8,7 +8,6 @@ const {
   ADMIN_BOOTSTRAP_TOKEN,
   SUPER_ADMIN_EMAIL,
   normalizeEmail,
-  normalizeRole,
   timingSafeEqualText
 } = require('../config/security');
 
@@ -21,14 +20,14 @@ const getBootstrapState = async (client = db) => {
   const result = await client.query(
     `SELECT
        COUNT(*)::integer AS total_users,
-       COUNT(*) FILTER (WHERE role = 'admin' AND hash_senha_login <> $1)::integer AS secure_admins,
+       COUNT(*) FILTER (WHERE role = 'admin' AND is_super_admin = TRUE AND hash_senha_login <> $1)::integer AS secure_super_admins,
        COUNT(*) FILTER (WHERE email = $2 AND hash_senha_login = $1)::integer AS legacy_admins
      FROM users`,
     [LEGACY_ADMIN_HASH, LEGACY_ADMIN_EMAIL]
   );
   const state = result.rows[0];
   return {
-    required: state.secure_admins === 0,
+    required: state.secure_super_admins === 0,
     empty: state.total_users === 0,
     legacyOnly: state.total_users === 1 && state.legacy_admins === 1
   };
@@ -61,7 +60,7 @@ const bootstrapAdmin = async (req, res) => {
     }
     if (adminEmail !== SUPER_ADMIN_EMAIL) {
       return res.status(400).json({
-        error: `O primeiro administrador deve usar o e-mail do Super Admin: ${SUPER_ADMIN_EMAIL}`
+        error: `O primeiro administrador deve usar o e-mail inicial configurado: ${SUPER_ADMIN_EMAIL}`
       });
     }
 
@@ -98,18 +97,19 @@ const bootstrapAdmin = async (req, res) => {
         `UPDATE users
          SET name = $1, email = $2, hash_senha_login = $3, wrapped_key = NULL,
              crypto_salt = NULL, public_key = NULL, encrypted_private_key = NULL,
-             role = 'admin', is_active = TRUE, token_version = token_version + 1,
+             role = 'admin', is_active = TRUE, is_super_admin = TRUE, must_change_password = FALSE,
+             token_version = token_version + 1,
              updated_at = CURRENT_TIMESTAMP
          WHERE email = $4 AND hash_senha_login = $5
-         RETURNING id, name, email, role, is_active`,
+         RETURNING id, name, email, role, is_active, is_super_admin, must_change_password`,
         [String(name).trim(), adminEmail, passwordHash, LEGACY_ADMIN_EMAIL, LEGACY_ADMIN_HASH]
       );
       user = updated.rows[0];
     } else {
       const inserted = await client.query(
-        `INSERT INTO users (name, email, hash_senha_login, role)
-         VALUES ($1, $2, $3, 'admin')
-         RETURNING id, name, email, role, is_active`,
+        `INSERT INTO users (name, email, hash_senha_login, role, is_super_admin, must_change_password)
+         VALUES ($1, $2, $3, 'admin', TRUE, FALSE)
+         RETURNING id, name, email, role, is_active, is_super_admin, must_change_password`,
         [String(name).trim(), adminEmail, passwordHash]
       );
       user = inserted.rows[0];
@@ -148,7 +148,8 @@ const login = async (req, res) => {
 
     const result = await db.query(
       `SELECT id, name, email, hash_senha_login, role, wrapped_key, crypto_salt,
-              is_active, public_key, encrypted_private_key, token_version
+              is_active, is_super_admin, must_change_password,
+              public_key, encrypted_private_key, token_version
        FROM users WHERE email = $1`,
       [email]
     );
@@ -174,7 +175,6 @@ const login = async (req, res) => {
     if (!user.wrapped_key) {
       finalCryptoSalt = crypto.randomBytes(32).toString('hex');
       const masterKeyBuffer = crypto.randomBytes(32);
-      // Compatibilidade com o formato atual. Aumento de custo exige versão/migração da chave.
       const kekBuffer = crypto.pbkdf2Sync(password, finalCryptoSalt, 100000, 32, 'sha256');
       const iv = crypto.randomBytes(12);
       const cipher = crypto.createCipheriv('aes-256-gcm', kekBuffer, iv);
@@ -196,9 +196,11 @@ const login = async (req, res) => {
       token,
       user: {
         id: user.id, name: user.name, email: user.email, role: user.role,
-        is_active: user.is_active, wrapped_key: finalWrappedKey, crypto_salt: finalCryptoSalt,
+        is_active: user.is_active,
+        is_super_admin: user.is_super_admin === true,
+        must_change_password: user.must_change_password === true,
+        wrapped_key: finalWrappedKey, crypto_salt: finalCryptoSalt,
         public_key: user.public_key, encrypted_private_key: user.encrypted_private_key,
-        is_super_admin: normalizeRole(user.role) === 'admin' && normalizeEmail(user.email) === SUPER_ADMIN_EMAIL,
         groups
       }
     });
