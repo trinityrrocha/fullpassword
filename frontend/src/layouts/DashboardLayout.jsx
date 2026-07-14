@@ -11,6 +11,7 @@ export default function DashboardLayout() {
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
 
   const { user, logout } = useAuth();
+  const mustChangePassword = user?.must_change_password === true;
 
   const handleLogout = () => {
     logout();
@@ -62,7 +63,7 @@ export default function DashboardLayout() {
             </div>
             <div className="ml-3 cursor-pointer" onClick={() => setIsProfileModalOpen(true)}>
               <p className="text-sm font-medium text-white hover:text-indigo-300">{user?.name || 'Usuário'}</p>
-              <p className="text-xs text-slate-400 capitalize">{user?.role || 'user'}</p>
+              <p className="text-xs text-slate-400 capitalize">{user?.is_super_admin ? 'Super Admin' : user?.role || 'user'}</p>
             </div>
           </div>
           <button
@@ -122,8 +123,11 @@ export default function DashboardLayout() {
       </main>
 
       <UserProfileModal 
-        isOpen={isProfileModalOpen} 
-        onClose={() => setIsProfileModalOpen(false)} 
+        isOpen={isProfileModalOpen || mustChangePassword} 
+        onClose={() => {
+          if (!mustChangePassword) setIsProfileModalOpen(false);
+        }}
+        forcePasswordChange={mustChangePassword}
       />
     </div>
   );
