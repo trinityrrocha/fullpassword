@@ -3,7 +3,6 @@ const db = require('../config/database');
 const { JWT_SECRET } = require('../config/security');
 
 const verifyToken = async (req, res, next) => {
-  // Pegar o token do header de autorização
   const authHeader = req.headers.authorization;
 
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -20,7 +19,7 @@ const verifyToken = async (req, res, next) => {
     }
 
     const userResult = await db.query(
-      `SELECT id, email, role, is_active, token_version
+      `SELECT id, email, role, is_active, is_super_admin, must_change_password, token_version
        FROM users
        WHERE id = $1
        LIMIT 1`,
@@ -41,6 +40,8 @@ const verifyToken = async (req, res, next) => {
       id: user.id,
       email: user.email,
       role: user.role,
+      is_super_admin: user.is_super_admin === true,
+      must_change_password: user.must_change_password === true,
       token_version: user.token_version,
       groups: groupsResult.rows.map((row) => row.group_id)
     };
