@@ -1,15 +1,10 @@
 const { exec } = require('child_process');
 const db = require('../config/database');
+const { SUPER_ADMIN_EMAIL, normalizeRole, isSuperAdmin } = require('../config/security');
 
-const normalizeRole = (role) => String(role || '').trim().toLowerCase();
-
-const canManageSystem = (user) => {
-  return normalizeRole(user?.role) === 'admin';
-};
-
-const denyNonAdmin = (res) => {
+const denyNonSuperAdmin = (res) => {
   return res.status(403).json({
-    error: 'Acesso negado. Esta ação é permitida apenas para administradores.'
+    error: 'Acesso negado. Esta ação é permitida apenas para o Super Admin inicial.'
   });
 };
 
@@ -19,8 +14,10 @@ const backupTables = [
   'user_groups',
   'clients',
   'client_group_access',
+  'client_key_shares',
   'vault_items',
-  'vault_shares'
+  'vault_shares',
+  'vault_access_audit'
 ];
 
 const escapeCsv = (value) => {
@@ -42,8 +39,9 @@ const buildBackupPayload = async (generatedBy) => {
       project: 'FullPassword',
       type: 'full-encrypted-backup',
       generated_at: new Date().toISOString(),
-      generated_by: generatedBy || 'admin',
-      warning: 'Este backup contém dados sensíveis do sistema, incluindo hashes, chaves envelopadas e cofres criptografados. As senhas dos cofres não são descriptografadas pelo servidor.'
+      generated_by: generatedBy || SUPER_ADMIN_EMAIL,
+      super_admin_email: SUPER_ADMIN_EMAIL,
+      warning: 'Este backup contém dados sensíveis do sistema, incluindo hashes, chaves envelopadas, chaves privadas criptografadas e cofres criptografados. As senhas dos cofres não são descriptografadas pelo servidor.'
     },
     data
   };
@@ -57,6 +55,7 @@ const renderBackupAsTxt = (payload) => {
   lines.push('================================');
   lines.push(`Gerado em: ${payload.metadata.generated_at}`);
   lines.push(`Gerado por: ${payload.metadata.generated_by}`);
+  lines.push(`Super Admin: ${payload.metadata.super_admin_email}`);
   lines.push(`Tipo: ${payload.metadata.type}`);
   lines.push(`Aviso: ${payload.metadata.warning}`);
   lines.push('');
@@ -89,12 +88,14 @@ const renderBackupAsCsv = (payload) => {
 
 // GET /api/system/permissions - Informa permissões especiais do usuário autenticado
 const getSystemPermissions = async (req, res) => {
-  const isAdmin = canManageSystem(req.user);
+  const isAdmin = normalizeRole(req.user?.role) === 'admin';
+  const isSuper = isSuperAdmin(req.user);
 
   return res.status(200).json({
-    can_manage_system: isAdmin,
+    can_manage_system: isSuper,
     is_admin: isAdmin,
-    is_super_admin: isAdmin,
+    is_super_admin: isSuper,
+    super_admin_email: SUPER_ADMIN_EMAIL,
     role: req.user?.role || null,
     email: req.user?.email || null
   });
@@ -103,8 +104,8 @@ const getSystemPermissions = async (req, res) => {
 // POST /api/system/update - Dispara a atualização do sistema pelo painel
 const updateSystem = async (req, res) => {
   try {
-    if (!canManageSystem(req.user)) {
-      return denyNonAdmin(res);
+    if (!isSuperAdmin(req.user)) {
+      return denyNonSuperAdmin(res);
     }
 
     res.status(200).json({
@@ -113,7 +114,7 @@ const updateSystem = async (req, res) => {
     });
 
     setTimeout(() => {
-      console.log(`Iniciando WebUpdater pelo administrador ${req.user.email}...`);
+      console.log(`Iniciando WebUpdater pelo Super Admin ${req.user.email}...`);
 
       const updateCommand = `docker run --rm -d \
         -v /var/run/docker.sock:/var/run/docker.sock \
@@ -143,8 +144,8 @@ const updateSystem = async (req, res) => {
 // GET /api/system/backup?format=json|txt|csv - Exporta backup completo criptografado
 const downloadBackup = async (req, res) => {
   try {
-    if (!canManageSystem(req.user)) {
-      return denyNonAdmin(res);
+    if (!isSuperAdmin(req.user)) {
+      return denyNonSuperAdmin(res);
     }
 
     const requestedFormat = String(req.query.format || 'json').toLowerCase();
