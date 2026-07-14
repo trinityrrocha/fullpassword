@@ -100,21 +100,18 @@ const getSystemPermissions = async (req, res) => {
   });
 };
 
-// POST /api/system/update - Dispara a atualização do sistema
+// POST /api/system/update - Dispara a atualização do sistema pelo painel
 const updateSystem = async (req, res) => {
   try {
-    // Apenas administradores podem atualizar o sistema
     if (!canManageSystem(req.user)) {
       return denyNonAdmin(res);
     }
 
-    // Retorna a resposta imediatamente para o frontend
     res.status(200).json({
-      message: 'Atualização iniciada. O sistema será reiniciado em breve.',
-      estimatedTime: 45 // Segundos estimados para o frontend aguardar
+      message: 'Atualização iniciada. O sistema será atualizado e reiniciado em breve.',
+      estimatedTime: 60
     });
 
-    // Executa o script de atualização em background (fire and forget)
     setTimeout(() => {
       console.log(`Iniciando WebUpdater pelo administrador ${req.user.email}...`);
 
@@ -123,7 +120,7 @@ const updateSystem = async (req, res) => {
         -v /opt/fullpassword:/opt/fullpassword \
         -w /opt/fullpassword \
         fullpassword-backend \
-        sh -c "sleep 3 && git config --global --add safe.directory /opt/fullpassword && git pull origin main && docker compose up -d --build && sleep 5 && docker compose restart nginx"`;
+        sh -c "sleep 3 && sh scripts/update.sh"`;
 
       exec(updateCommand, (error, stdout, stderr) => {
         if (error) {
@@ -135,7 +132,7 @@ const updateSystem = async (req, res) => {
         }
         console.log(`Stdout da atualização: ${stdout}`);
       });
-    }, 1000); // Aguarda 1 segundo para enviar a resposta antes de iniciar
+    }, 1000);
 
   } catch (error) {
     console.error('Erro ao iniciar atualização:', error);
