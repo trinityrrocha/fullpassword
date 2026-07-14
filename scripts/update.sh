@@ -42,7 +42,7 @@ set -a
 . ./.env
 set +a
 
-required_vars="DB_HOST DB_USER DB_PASSWORD DB_NAME JWT_SECRET ADMIN_BOOTSTRAP_TOKEN APP_ORIGIN"
+required_vars="DB_HOST DB_USER DB_PASSWORD DB_NAME JWT_SECRET ADMIN_BOOTSTRAP_TOKEN SUPER_ADMIN_EMAIL APP_ORIGIN"
 for var_name in $required_vars; do
   eval var_value=\${$var_name:-}
   [ -n "$var_value" ] || fail "Variável obrigatória ausente no .env: $var_name"
@@ -61,6 +61,11 @@ esac
 case "$APP_ORIGIN" in
   https://*) ;;
   *) fail "APP_ORIGIN deve usar HTTPS" ;;
+esac
+
+case "$SUPER_ADMIN_EMAIL" in
+  *@*) ;;
+  *) fail "SUPER_ADMIN_EMAIL inválido" ;;
 esac
 
 log "Validando estado do repositório"
