@@ -16,7 +16,7 @@ export default function Settings() {
 
   const canManageSystem = systemPermissions?.can_manage_system === true && systemPermissions?.is_super_admin === true;
   const currentUserEmail = systemPermissions?.email || user?.email || 'e-mail não identificado';
-  const superAdminEmail = systemPermissions?.super_admin_email || 'admin@admin.com.br';
+  const superAdminEmail = systemPermissions?.super_admin_email || 'e-mail configurado na instalação';
 
   useEffect(() => {
     const loadSystemPermissions = async () => {

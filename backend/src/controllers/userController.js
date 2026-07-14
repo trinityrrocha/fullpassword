@@ -2,6 +2,7 @@ const db = require('../config/database');
 const argon2 = require('argon2');
 const crypto = require('crypto');
 const { ensureSharingSchema } = require('../services/accessControlService');
+const { isSuperAdmin } = require('../config/security');
 const VALID_ROLES = new Set(['admin', 'user']);
 const isStrongPassword = (password) => typeof password === 'string' && password.length >= 12;
 
@@ -61,7 +62,10 @@ const getUsers = async (req, res) => {
     await ensureSharingSchema();
 
     const result = await db.query(
-      'SELECT id, name, email, role, is_active, public_key, created_at FROM users ORDER BY name ASC'
+      `SELECT id, name, email, role, is_active, is_super_admin, must_change_password,
+              public_key, created_at
+       FROM users
+       ORDER BY name ASC`
     );
 
     const groupMap = await loadUserGroups(result.rows.map((user) => user.id));
@@ -248,20 +252,24 @@ const updateUser = async (req, res) => {
       return res.status(400).json({ error: 'A senha deve ter ao menos 12 caracteres' });
     }
 
-    const existingUser = await client.query('SELECT id, email, role FROM users WHERE id = $1', [id]);
+    const existingUser = await client.query(
+      'SELECT id, email, role, is_super_admin FROM users WHERE id = $1',
+      [id]
+    );
     if (existingUser.rows.length === 0) {
       return res.status(404).json({ error: 'Usuário não encontrado' });
     }
 
     const targetEmail = existingUser.rows[0].email;
     const nextRole = role !== undefined ? role : existingUser.rows[0].role;
+    const targetIsSuperAdmin = isSuperAdmin(existingUser.rows[0]);
 
-    if (targetEmail === 'admin@admin.com.br') {
+    if (targetIsSuperAdmin) {
       if (role && role !== 'admin') {
-        return res.status(403).json({ error: 'Não é possível remover o nível de administrador do usuário principal' });
+        return res.status(403).json({ error: 'Não é possível remover o nível de administrador do Super Admin' });
       }
       if (is_active === false) {
-        return res.status(403).json({ error: 'Não é possível inativar o administrador principal' });
+        return res.status(403).json({ error: 'Não é possível inativar o Super Admin' });
       }
     }
 
@@ -336,11 +344,14 @@ const updateUser = async (req, res) => {
     let updatedUser = null;
     if (updates.length > 0) {
       values.push(id);
-      const query = `UPDATE users SET ${updates.join(', ')} WHERE id = $${paramIndex} RETURNING id, name, email, role, is_active`;
+      const query = `UPDATE users SET ${updates.join(', ')} WHERE id = $${paramIndex} RETURNING id, name, email, role, is_active, is_super_admin, must_change_password`;
       const result = await client.query(query, values);
       updatedUser = result.rows[0];
     } else {
-      const result = await client.query('SELECT id, name, email, role, is_active FROM users WHERE id = $1', [id]);
+      const result = await client.query(
+        'SELECT id, name, email, role, is_active, is_super_admin, must_change_password FROM users WHERE id = $1',
+        [id]
+      );
       updatedUser = result.rows[0];
     }
 
@@ -356,7 +367,7 @@ const updateUser = async (req, res) => {
       }
     }
 
-    if (targetEmail === 'admin@admin.com.br' || nextRole === 'admin') {
+    if (targetIsSuperAdmin || nextRole === 'admin') {
       await ensureAdminGroupMembership(client, id);
     }
 

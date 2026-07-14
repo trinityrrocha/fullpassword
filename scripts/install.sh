@@ -33,14 +33,10 @@ read -p "Digite o domínio para o FullPassword (ex: cofre.seudominio.com.br): " 
 read -p "Digite seu e-mail (para o certificado Let's Encrypt): " LETSENCRYPT_EMAIL
 read -p "Digite a porta SSH atual da sua VPS [Padrão: 22]: " SSH_PORT
 SSH_PORT=${SSH_PORT:-22}
+SUPER_ADMIN_EMAIL="$LETSENCRYPT_EMAIL"
 REPO_URL="https://github.com/trinityrrocha/fullpassword.git"
 APP_DIR="/opt/fullpassword"
 RUNTIME_NGINX_CONF="./docker/nginx.runtime.conf"
-
-# Geração de senhas fortes automáticas
-DB_PASSWORD=$(openssl rand -base64 48 | tr -dc 'a-zA-Z0-9' | head -c 40)
-JWT_SECRET=$(openssl rand -hex 64)
-ADMIN_BOOTSTRAP_TOKEN=$(openssl rand -hex 32)
 
 compose() {
     if docker compose version >/dev/null 2>&1; then
@@ -59,6 +55,12 @@ compose() {
 echo -e "\n${GREEN}[1/6] Atualizando pacotes do sistema e instalando dependências...${NC}"
 apt-get update && apt-get upgrade -y
 apt-get install -y curl git ufw fail2ban certbot python3-certbot-nginx apt-transport-https ca-certificates software-properties-common netcat-openbsd dnsutils openssl
+
+# Geração de segredos após garantir que o OpenSSL esteja disponível
+DB_PASSWORD=$(openssl rand -base64 48 | tr -dc 'a-zA-Z0-9' | head -c 40)
+JWT_SECRET=$(openssl rand -hex 64)
+ADMIN_BOOTSTRAP_TOKEN=$(openssl rand -hex 32)
+INITIAL_SUPER_ADMIN_PASSWORD=$(openssl rand -base64 48 | tr -dc 'a-zA-Z0-9' | head -c 32)
 
 # ==========================================
 # 3. SEGURANÇA DA INFRAESTRUTURA (UFW E FAIL2BAN)
@@ -127,6 +129,7 @@ cd $APP_DIR
 
 # Criar arquivo .env de produção
 echo -e "\n${GREEN}Gerando arquivo .env de produção...${NC}"
+umask 077
 cat > $APP_DIR/.env << EOF
 # Configurações de Banco de Dados
 DB_HOST=db
@@ -141,6 +144,7 @@ NODE_ENV=production
 JWT_SECRET=$JWT_SECRET
 JWT_EXPIRES_IN=8h
 ADMIN_BOOTSTRAP_TOKEN=$ADMIN_BOOTSTRAP_TOKEN
+SUPER_ADMIN_EMAIL=$SUPER_ADMIN_EMAIL
 APP_ORIGIN=https://$DOMAIN
 
 # Configurações do Frontend
@@ -242,10 +246,6 @@ else
     exit 1
 fi
 
-# Guardar token de bootstrap em arquivo root-only para evitar perda durante a primeira configuração
-umask 077
-printf "%s\n" "$ADMIN_BOOTSTRAP_TOKEN" > /root/fullpassword-admin-bootstrap-token.txt
-
 # ==========================================
 # 7. DEPLOY COM DOCKER COMPOSE
 # ==========================================
@@ -256,14 +256,23 @@ systemctl disable nginx 2>/dev/null || true
 systemctl stop nginx 2>/dev/null || true
 
 # Validar e subir os containers
-compose config >/tmp/fullpassword-compose-config.txt
+compose config >/dev/null
 compose up -d --build
 
+echo -e "${GREEN}Aguardando o backend para criar o Super Admin inicial...${NC}"
+sleep 5
+compose exec -T \
+    -e INITIAL_SUPER_ADMIN_EMAIL="$SUPER_ADMIN_EMAIL" \
+    -e INITIAL_SUPER_ADMIN_PASSWORD="$INITIAL_SUPER_ADMIN_PASSWORD" \
+    -e INITIAL_SUPER_ADMIN_NAME="Super Admin" \
+    backend node scripts/create-super-admin.js
+
 cat > /root/fullpassword-install-info.txt << EOF
-FullPassword instalado em: https://$DOMAIN
-Diretório: $APP_DIR
-Token de configuração inicial: /root/fullpassword-admin-bootstrap-token.txt
-Arquivo .env: $APP_DIR/.env
+URL: https://$DOMAIN
+Diretório da instalação: $APP_DIR
+E-mail do Super Admin: $SUPER_ADMIN_EMAIL
+Senha temporária: $INITIAL_SUPER_ADMIN_PASSWORD
+Aviso: No primeiro login será obrigatório trocar a senha temporária.
 EOF
 chmod 600 /root/fullpassword-install-info.txt
 
@@ -271,9 +280,9 @@ echo -e "\n${BLUE}======================================================${NC}"
 echo -e "${GREEN}  Instalação Concluída com Sucesso! ${NC}"
 echo -e "${BLUE}======================================================${NC}"
 echo -e "\n${YELLOW}Credenciais de Banco de Dados geradas e salvas no .env.${NC}"
-echo -e "${YELLOW}Token de configuração inicial do administrador:${NC}"
-echo -e "$ADMIN_BOOTSTRAP_TOKEN"
-echo -e "${YELLOW}Guarde este token em local seguro e use-o uma única vez para cadastrar o primeiro administrador.${NC}"
-echo -e "${YELLOW}Uma cópia root-only foi salva em: /root/fullpassword-admin-bootstrap-token.txt${NC}"
-echo -e "\n${GREEN}Acesse o sistema em: https://$DOMAIN${NC}"
+echo -e "\n${GREEN}Link de acesso: https://$DOMAIN${NC}"
+echo -e "${YELLOW}Usuário Super Admin: $SUPER_ADMIN_EMAIL${NC}"
+echo -e "${YELLOW}Senha temporária: $INITIAL_SUPER_ADMIN_PASSWORD${NC}"
+echo -e "${YELLOW}No primeiro login será obrigatório trocar a senha temporária.${NC}"
+echo -e "${YELLOW}Uma cópia root-only foi salva em: /root/fullpassword-install-info.txt${NC}"
 echo -e "${BLUE}======================================================${NC}"

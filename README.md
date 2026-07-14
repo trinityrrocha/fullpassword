@@ -97,8 +97,10 @@ chmod +x install.sh
 O script solicitará:
 
 - Domínio, exemplo: `cofre.suaempresa.com.br`
-- E-mail para Let's Encrypt
+- E-mail para Let's Encrypt, também usado como e-mail inicial do Super Admin
 - Porta SSH, caso esteja customizada
+
+O instalador gera uma senha temporária forte, cria automaticamente o primeiro usuário com a flag persistente `is_super_admin=true` e salva as informações iniciais em `/root/fullpassword-install-info.txt` com permissão `600`.
 
 Após a conclusão, acesse:
 
@@ -106,46 +108,20 @@ Após a conclusão, acesse:
 https://seu-dominio.com.br
 ```
 
-> Após o primeiro acesso, revise imediatamente as credenciais administrativas e as configurações de segurança.
+> No primeiro login, o Super Admin deve obrigatoriamente trocar a senha temporária antes de usar o sistema.
 
 ## 🔁 Atualização em Produção
 
-Existem duas formas de atualizar uma instalação existente do FullPassword.
-
-### Opção 1 — Atualização diretamente pelo painel
-
-Use esta opção quando o módulo de atualização estiver disponível para o usuário administrador/super administrador:
+O acesso por SSH faz parte apenas da primeira instalação. Depois que o instalador conclui, o fluxo oficial de atualização é exclusivamente pelo painel, usando o **WebUpdater**, e permanece restrito ao usuário com `is_super_admin=true`.
 
 1. Acesse o FullPassword pelo navegador.
-2. Entre com um usuário administrador/super administrador.
-3. Abra o módulo de atualização do sistema no painel, identificado como **Web Updater**, **Atualização Web** ou **Atualização do Sistema**, conforme a versão instalada.
+2. Entre com o Super Admin.
+3. Abra **Configurações do Sistema > WebUpdater**.
 4. Execute a verificação de atualização.
 5. Confirme a atualização pelo painel.
 6. Aguarde o processo concluir e pressione `Ctrl + F5` no navegador.
 
-A atualização pelo painel deve executar o fluxo equivalente a buscar a versão mais recente do repositório, reconstruir os containers e reiniciar os serviços necessários.
-
-### Opção 2 — Atualização manual por SSH
-
-Use esta opção quando preferir atualizar diretamente no servidor ou quando o painel não estiver disponível:
-
-```bash
-cd /opt/fullpassword
-sudo git pull origin main
-sudo docker compose up -d --build
-sleep 5
-sudo docker compose restart nginx
-```
-
-Validação básica:
-
-```bash
-cd /opt/fullpassword
-sudo docker compose ps
-curl http://127.0.0.1:3000/api/health
-curl -I http://127.0.0.1:5173
-curl -I https://seu-dominio.com.br -k
-```
+Não use `git pull`, rebuild manual ou configuração recorrente por terminal como rotina operacional. O WebUpdater executa a sincronização do código, a reconstrução dos containers e o reinício dos serviços necessários.
 
 ## 📚 Documentação
 

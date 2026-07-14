@@ -297,7 +297,7 @@ export default function TeamList() {
                       <div className="flex items-center">
                         <Shield className={`w-4 h-4 mr-1.5 ${member.role === 'admin' ? 'text-amber-500' : 'text-slate-400'}`} />
                         <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${member.role === 'admin' ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-800'}`}>
-                          {member.role === 'admin' ? 'Administrador' : 'Usuário Padrão'}
+                          {member.is_super_admin ? 'Super Admin' : member.role === 'admin' ? 'Administrador' : 'Usuário Padrão'}
                         </span>
                       </div>
                     </td>
@@ -314,7 +314,7 @@ export default function TeamList() {
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      {member.email !== 'admin@admin.com.br' ? (
+                      {!member.is_super_admin ? (
                         <div className="flex justify-end space-x-3">
                           <button onClick={() => openEditModal(member)} className="text-indigo-600 hover:text-indigo-900">Editar</button>
                           <button onClick={() => handleToggleStatus(member.id, member.is_active)} className={`${member.is_active ? 'text-red-600 hover:text-red-900' : 'text-green-600 hover:text-green-900'}`}>

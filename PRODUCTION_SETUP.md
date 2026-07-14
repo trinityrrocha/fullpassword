@@ -19,9 +19,8 @@ chmod +x install.sh
 
 O script solicitará:
 - Domínio (ex: `cofre.suaempresa.com.br`)
-- E-mail para Let's Encrypt
+- E-mail para Let's Encrypt, também usado como e-mail inicial do Super Admin
 - Porta SSH (se não for a padrão 22)
-- URL do repositório GitHub
 
 ## 📋 O que é Instalado Automaticamente
 
@@ -66,49 +65,33 @@ Após a instalação, o script exibirá:
    - Usuário: `fullpassword_user`
    - Senha: Gerada aleatoriamente (24+ caracteres)
 
-2. **Token de configuração inicial**
-   - Gerado aleatoriamente e usado uma única vez para cadastrar o primeiro administrador
+2. **Super Admin inicial**
+   - E-mail: o mesmo informado para o certificado Let's Encrypt
+   - Senha temporária: gerada automaticamente com 32 caracteres aleatórios
+   - Flags: `is_super_admin=true` e `must_change_password=true`
 
 3. **JWT Secret**
    - Gerado aleatoriamente (64 caracteres hex)
 
+As credenciais iniciais também são salvas em `/root/fullpassword-install-info.txt` com permissão `600`.
+
 ## ⚠️ Ações Imediatas Pós-Instalação
 
 1. Acesse `https://seu-dominio.com.br`
-2. Cadastre o primeiro administrador usando o token exibido pelo instalador
-3. Guarde a senha Master e remova qualquer cópia desnecessária do token de instalação
+2. Entre com o e-mail e a senha temporária exibidos pelo instalador
+3. Troque obrigatoriamente a senha temporária no primeiro login
 4. Crie novos usuários e grupos conforme necessário
 5. Teste o cofre salvando algumas credenciais
 
 ## 🛠️ Manutenção
 
-**Localização do projeto:**
-```bash
-/opt/fullpassword
-```
+O acesso SSH é usado somente na primeira instalação. Depois disso, o fluxo operacional não exige configuração manual recorrente por terminal.
 
-**Comandos úteis:**
-```bash
-# Ver logs do backend
-docker-compose logs -f backend
-
-# Reiniciar todos os serviços
-docker-compose restart
-
-# Atualizar para nova versão
-git pull
-docker-compose up -d --build
-
-# Verificar status
-docker-compose ps
-```
+Atualizações devem ser feitas por **Configurações do Sistema > WebUpdater**, exclusivamente pelo Super Admin identificado por `is_super_admin=true`. O e-mail inicial pode ser alterado posteriormente sem remover essa permissão.
 
 ## 🔄 Renovação de Certificado SSL
 
-O Let's Encrypt é renovado automaticamente pelo Certbot. Para verificar:
-```bash
-certbot renew --dry-run
-```
+O Let's Encrypt é renovado automaticamente pelo Certbot, sem exigir manutenção recorrente por SSH.
 
 ## 🚨 Troubleshooting
 
@@ -118,12 +101,12 @@ certbot renew --dry-run
 - Verifique se as portas 80/443 estão abertas
 
 **Problema: "Nginx não inicia"**
-- Verifique se o nginx do host não está rodando: `systemctl stop nginx`
-- Verifique os logs: `docker-compose logs nginx`
+- Confirme que a instalação inicial foi concluída e que `docker/nginx.runtime.conf` foi gerado
+- Verifique no provedor se as portas 80/443 continuam liberadas
 
 **Problema: "Conexão recusada no banco"**
-- Verifique se o container do PostgreSQL está rodando: `docker-compose ps`
-- Verifique os logs: `docker-compose logs db`
+- Use os recursos de diagnóstico disponibilizados pelo painel e pelo provedor da VPS
+- Se o sistema não estiver acessível, registre o incidente antes de qualquer intervenção manual
 
 ## 📚 Documentação Adicional
 
@@ -136,7 +119,7 @@ certbot renew --dry-run
 1. Configurar backups automáticos do banco de dados
 2. Implementar monitoramento e alertas
 3. Configurar auto-scaling se necessário
-4. Implementar CI/CD para atualizações automáticas
+4. Manter o WebUpdater como fluxo oficial de atualização
 5. Auditar logs de acesso regularmente
 
 ## 📞 Suporte

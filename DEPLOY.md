@@ -34,12 +34,11 @@ Antes de executar o script de instalação, você **DEVE** garantir que:
 
 ## O que o script solicitará?
 
-Durante a execução, o script fará 4 perguntas:
+Durante a execução, o script fará 3 perguntas:
 
 1. **Domínio**: Ex: `cofre.suaempresa.com.br` (Não coloque http/https)
-2. **E-mail**: Seu e-mail para receber avisos de expiração do SSL da Let's Encrypt.
+2. **E-mail**: Seu e-mail para receber avisos do Let's Encrypt. O mesmo endereço será usado como e-mail inicial do Super Admin.
 3. **Porta SSH**: Se você mudou a porta padrão (22) da sua VPS, informe aqui para que o Firewall (UFW) não bloqueie seu acesso.
-4. **URL do Repositório**: Ex: `https://github.com/trinityrrocha/fullpassword.git`
 
 ## O que o script faz automaticamente?
 
@@ -49,44 +48,24 @@ Durante a execução, o script fará 4 perguntas:
 - Configura o Fail2Ban para banir IPs que tentarem ataques de força bruta no SSH.
 - Clona o repositório na pasta `/opt/fullpassword`.
 - Gera senhas extremamente fortes (24+ caracteres) para o PostgreSQL e JWT Secret e cria o `.env`.
+- Gera uma senha temporária aleatória de 32 caracteres e cria automaticamente o Super Admin com `is_super_admin=true` e `must_change_password=true`.
 - Gera o certificado SSL/TLS válido (Let's Encrypt).
-- Configura o Nginx como Proxy Reverso com SSL ativado.
+- Gera `docker/nginx.runtime.conf` para o domínio informado, sem alterar o `docker/nginx.conf` versionado.
+- Valida a configuração com `docker compose config`.
 - Sobe todos os containers (Banco, Backend, Frontend e Nginx).
 
 ## Pós-Instalação
 
 Ao final do script, ele exibirá:
-1. As credenciais geradas para o banco de dados.
-2. Um token aleatório de configuração inicial para cadastrar o primeiro administrador.
+1. O link de acesso.
+2. O e-mail inicial do Super Admin, igual ao e-mail usado no certificado.
+3. A senha temporária gerada automaticamente.
 
 **Ação Imediata Necessária:**
-Acesse `https://seu-dominio.com.br` e cadastre o primeiro administrador usando o token exibido pelo instalador. O token deve ser tratado como segredo e usado apenas nessa configuração inicial.
+Acesse `https://seu-dominio.com.br` com o Super Admin criado pelo instalador. No primeiro login será obrigatório trocar a senha temporária. As informações também ficam em `/root/fullpassword-install-info.txt`, protegido com permissão `600`.
 
-## Manutenção e Comandos Úteis
+## Operação após a instalação
 
-O projeto fica instalado em `/opt/fullpassword`.
+O SSH é usado somente para a primeira instalação. Depois disso, atualizações futuras devem ser executadas no painel por **Configurações do Sistema > WebUpdater**, disponível apenas para o Super Admin persistido no banco.
 
-**Ver logs do backend:**
-```bash
-cd /opt/fullpassword
-docker-compose logs -f backend
-```
-
-**Reiniciar serviços:**
-```bash
-cd /opt/fullpassword
-docker-compose restart
-```
-
-**Atualizar o sistema (Nova versão do Git):**
-```bash
-cd /opt/fullpassword
-git pull
-docker-compose up -d --build
-```
-
-**Renovar Certificado SSL (Normalmente é automático):**
-```bash
-certbot renew
-docker-compose restart nginx
-```
+Não adote `git pull`, rebuild manual ou configuração recorrente por terminal como procedimento operacional. O Certbot mantém a renovação automática do certificado.

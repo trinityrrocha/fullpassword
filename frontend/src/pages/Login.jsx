@@ -11,7 +11,7 @@ export default function Login() {
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [bootstrapRequired, setBootstrapRequired] = useState(false);
-  const [superAdminEmail, setSuperAdminEmail] = useState('admin@admin.com.br');
+  const [superAdminEmail, setSuperAdminEmail] = useState('');
   const [bootstrap, setBootstrap] = useState({ name: '', email: '', password: '', confirm: '', token: '' });
   const navigate = useNavigate();
   const { login } = useAuth();
@@ -19,7 +19,7 @@ export default function Login() {
   useEffect(() => {
     api.get('/auth/bootstrap/status')
       .then(({ data }) => {
-        const configuredSuperAdminEmail = data.super_admin_email || 'admin@admin.com.br';
+        const configuredSuperAdminEmail = data.super_admin_email || '';
         setSuperAdminEmail(configuredSuperAdminEmail);
         setBootstrapRequired(Boolean(data.required));
         if (data.required) {
@@ -32,7 +32,7 @@ export default function Login() {
   const handleBootstrap = async (e) => {
     e.preventDefault();
     setError('');
-    if (bootstrap.email.trim().toLowerCase() !== superAdminEmail.toLowerCase()) {
+    if (superAdminEmail && bootstrap.email.trim().toLowerCase() !== superAdminEmail.toLowerCase()) {
       return setError(`O primeiro administrador deve usar o e-mail do Super Admin: ${superAdminEmail}`);
     }
     if (bootstrap.password.length < 12) return setError('A senha deve ter ao menos 12 caracteres.');

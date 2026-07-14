@@ -112,7 +112,7 @@ Realiza login do usuário e retorna um token JWT.
   "user": {
     "id": "uuid",
     "name": "Administrador do Sistema",
-    "email": "admin@admin.com.br",
+    "email": "superadmin@exemplo.com.br",
     "role": "admin"
   }
 }
