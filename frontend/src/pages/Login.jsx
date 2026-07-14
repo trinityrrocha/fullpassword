@@ -11,19 +11,30 @@ export default function Login() {
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [bootstrapRequired, setBootstrapRequired] = useState(false);
+  const [superAdminEmail, setSuperAdminEmail] = useState('admin@admin.com.br');
   const [bootstrap, setBootstrap] = useState({ name: '', email: '', password: '', confirm: '', token: '' });
   const navigate = useNavigate();
   const { login } = useAuth();
 
   useEffect(() => {
     api.get('/auth/bootstrap/status')
-      .then(({ data }) => setBootstrapRequired(Boolean(data.required)))
+      .then(({ data }) => {
+        const configuredSuperAdminEmail = data.super_admin_email || 'admin@admin.com.br';
+        setSuperAdminEmail(configuredSuperAdminEmail);
+        setBootstrapRequired(Boolean(data.required));
+        if (data.required) {
+          setBootstrap((value) => ({ ...value, email: configuredSuperAdminEmail }));
+        }
+      })
       .catch(() => setError('Não foi possível verificar a configuração inicial.'));
   }, []);
 
   const handleBootstrap = async (e) => {
     e.preventDefault();
     setError('');
+    if (bootstrap.email.trim().toLowerCase() !== superAdminEmail.toLowerCase()) {
+      return setError(`O primeiro administrador deve usar o e-mail do Super Admin: ${superAdminEmail}`);
+    }
     if (bootstrap.password.length < 12) return setError('A senha deve ter ao menos 12 caracteres.');
     if (bootstrap.password !== bootstrap.confirm) return setError('As senhas não coincidem.');
     setIsLoading(true);
@@ -100,6 +111,17 @@ export default function Login() {
             )}
 
             {bootstrapRequired && (
+              <div className="bg-amber-50 border-l-4 border-amber-400 p-4">
+                <p className="text-sm text-amber-700">
+                  Configuração inicial: o primeiro administrador será o Super Admin do sistema.
+                </p>
+                <p className="text-xs text-amber-600 mt-1">
+                  E-mail obrigatório do Super Admin: {superAdminEmail}
+                </p>
+              </div>
+            )}
+
+            {bootstrapRequired && (
               <div>
                 <label htmlFor="name" className="block text-sm font-medium text-slate-700">Nome do administrador</label>
                 <input id="name" type="text" required value={bootstrap.name}
@@ -124,7 +146,7 @@ export default function Login() {
                     ? setBootstrap((value) => ({ ...value, email: e.target.value }))
                     : setEmail(e.target.value)}
                   className="appearance-none block w-full px-3 py-2 border border-slate-300 rounded-md shadow-sm placeholder-slate-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                  placeholder="admin@admin.com.br"
+                  placeholder={superAdminEmail}
                 />
               </div>
             </div>
@@ -193,7 +215,7 @@ export default function Login() {
                 ) : (
                   <span className="flex items-center">
                     <Lock className="w-4 h-4 mr-2" />
-                    {bootstrapRequired ? 'Cadastrar administrador' : 'Acessar Cofre'}
+                    {bootstrapRequired ? 'Cadastrar Super Admin' : 'Acessar Cofre'}
                   </span>
                 )}
               </button>
