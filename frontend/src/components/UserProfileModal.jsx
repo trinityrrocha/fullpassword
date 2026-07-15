@@ -270,8 +270,8 @@ export default function UserProfileModal({ isOpen, onClose, forcePasswordChange 
               ) : 'Salvar Alterações'}
             </button>
             {!forcePasswordChange && (
-              <button 
-                type="button" 
+              <button
+                type="button"
                 onClick={onClose}
                 disabled={isSaving}
                 className="mt-3 w-full inline-flex justify-center rounded-md border border-slate-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
