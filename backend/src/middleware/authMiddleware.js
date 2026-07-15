@@ -2,6 +2,10 @@ const jwt = require('jsonwebtoken');
 const db = require('../config/database');
 const { JWT_SECRET } = require('../config/security');
 
+const isRequiredPasswordChangeRoute = (req) => {
+  return req.method === 'PUT' && req.baseUrl === '/api/users' && req.path === '/profile';
+};
+
 const verifyToken = async (req, res, next) => {
   const authHeader = req.headers.authorization;
 
@@ -45,6 +49,13 @@ const verifyToken = async (req, res, next) => {
       token_version: user.token_version,
       groups: groupsResult.rows.map((row) => row.group_id)
     };
+
+    if (req.user.must_change_password && !isRequiredPasswordChangeRoute(req)) {
+      return res.status(403).json({
+        error: 'Troca de senha obrigatória',
+        code: 'MUST_CHANGE_PASSWORD'
+      });
+    }
 
     next();
   } catch (error) {

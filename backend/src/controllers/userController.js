@@ -166,6 +166,15 @@ const updateProfile = async (req, res) => {
     if (!name || !email) {
       return res.status(400).json({ error: 'Nome e email são obrigatórios' });
     }
+    if (req.user.must_change_password && (!new_password || !wrapped_key)) {
+      return res.status(403).json({
+        error: 'Troca de senha obrigatória',
+        code: 'MUST_CHANGE_PASSWORD'
+      });
+    }
+    if (Boolean(new_password) !== Boolean(wrapped_key)) {
+      return res.status(400).json({ error: 'Nova senha e chave envelopada devem ser enviadas juntas' });
+    }
 
     await client.query('BEGIN');
     const currentResult = await client.query(
@@ -265,6 +274,10 @@ const updateUser = async (req, res) => {
     const targetIsSuperAdmin = isSuperAdmin(existingUser.rows[0]);
 
     if (targetIsSuperAdmin) {
+      const isSelfUpdateBySuperAdmin = String(req.user.id) === String(id) && isSuperAdmin(req.user);
+      if (!isSelfUpdateBySuperAdmin) {
+        return res.status(403).json({ error: 'Apenas o próprio Super Admin pode alterar sua conta' });
+      }
       if (role && role !== 'admin') {
         return res.status(403).json({ error: 'Não é possível remover o nível de administrador do Super Admin' });
       }

@@ -5,6 +5,7 @@ const rateLimit = require('express-rate-limit');
 require('dotenv').config();
 
 require('./config/security');
+const { ensureSecuritySchema } = require('./config/securitySchema');
 
 // Importação das rotas (serão criadas nos próximos passos)
 const authRoutes = require('./routes/authRoutes');
@@ -59,7 +60,17 @@ app.use((err, req, res, next) => {
 });
 
 // Inicialização do servidor
-app.listen(PORT, () => {
-  console.log(`Servidor backend rodando na porta ${PORT}`);
-  console.log(`Ambiente: ${process.env.NODE_ENV || 'development'}`);
-});
+const startServer = async () => {
+  try {
+    await ensureSecuritySchema();
+    app.listen(PORT, () => {
+      console.log(`Servidor backend rodando na porta ${PORT}`);
+      console.log(`Ambiente: ${process.env.NODE_ENV || 'development'}`);
+    });
+  } catch (error) {
+    console.error('Falha ao garantir o schema de segurança:', error);
+    process.exit(1);
+  }
+};
+
+startServer();

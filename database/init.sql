@@ -131,8 +131,8 @@ CREATE OR REPLACE FUNCTION protect_super_admin_user()
 RETURNS TRIGGER AS $$
 BEGIN
     IF OLD.is_super_admin = TRUE THEN
-        IF NEW.role <> 'admin' OR NEW.is_active = FALSE THEN
-            RAISE EXCEPTION 'O Super Admin não pode ser desativado ou deixar de ser administrador';
+        IF NEW.role <> 'admin' OR NEW.is_active = FALSE OR NEW.is_super_admin = FALSE THEN
+            RAISE EXCEPTION 'O Super Admin não pode ser desativado, rebaixado ou perder a permissão de Super Admin';
         END IF;
     END IF;
     RETURN NEW;

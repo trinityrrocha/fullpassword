@@ -24,6 +24,17 @@ if [ "$EUID" -ne 0 ]; then
   exit 1
 fi
 
+APP_DIR="/opt/fullpassword"
+if [ -d "$APP_DIR" ]; then
+  echo -e "${RED}ATENÇÃO: já existe uma instalação em $APP_DIR.${NC}"
+  echo -e "${YELLOW}Continuar pode interromper ou substituir a instalação existente.${NC}"
+  read -r -p "Digite REINSTALAR para confirmar explicitamente: " REINSTALL_CONFIRMATION
+  if [ "$REINSTALL_CONFIRMATION" != "REINSTALAR" ]; then
+    echo -e "${RED}Instalação abortada sem alterar a instalação existente.${NC}"
+    exit 1
+  fi
+fi
+
 # ==========================================
 # 1. COLETA DE VARIÁVEIS DO USUÁRIO
 # ==========================================
@@ -35,7 +46,6 @@ read -p "Digite a porta SSH atual da sua VPS [Padrão: 22]: " SSH_PORT
 SSH_PORT=${SSH_PORT:-22}
 SUPER_ADMIN_EMAIL="$LETSENCRYPT_EMAIL"
 REPO_URL="https://github.com/trinityrrocha/fullpassword.git"
-APP_DIR="/opt/fullpassword"
 RUNTIME_NGINX_CONF="./docker/nginx.runtime.conf"
 
 compose() {
@@ -120,7 +130,7 @@ fi
 echo -e "\n${GREEN}[4/6] Clonando repositório e configurando ambiente...${NC}"
 
 if [ -d "$APP_DIR" ]; then
-    echo -e "${YELLOW}O diretório $APP_DIR já existe. Fazendo backup...${NC}"
+    echo -e "${YELLOW}Reinstalação confirmada. Fazendo backup de $APP_DIR...${NC}"
     mv $APP_DIR "${APP_DIR}_backup_$(date +%Y%m%d_%H%M%S)"
 fi
 

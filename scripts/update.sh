@@ -83,7 +83,7 @@ git checkout main
 git pull --ff-only origin main
 
 log "Validando Docker Compose"
-compose config >/tmp/fullpassword-compose-config.txt
+compose config >/dev/null
 
 log "Reconstruindo e reiniciando containers"
 compose up -d --build

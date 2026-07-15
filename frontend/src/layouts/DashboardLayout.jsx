@@ -123,7 +123,7 @@ export default function DashboardLayout() {
       </main>
 
       <UserProfileModal 
-        isOpen={isProfileModalOpen || mustChangePassword} 
+        isOpen={isProfileModalOpen || mustChangePassword}
         onClose={() => {
           if (!mustChangePassword) setIsProfileModalOpen(false);
         }}
