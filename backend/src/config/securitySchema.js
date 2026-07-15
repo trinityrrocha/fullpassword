@@ -1,7 +1,37 @@
 const db = require('./database');
 
+const MAX_CONNECTION_ATTEMPTS = 15;
+const MAX_RETRY_DELAY_MS = 5000;
+
+const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+
+const connectWithRetry = async () => {
+  let lastError;
+
+  for (let attempt = 1; attempt <= MAX_CONNECTION_ATTEMPTS; attempt += 1) {
+    try {
+      return await db.pool.connect();
+    } catch (error) {
+      lastError = error;
+      if (attempt === MAX_CONNECTION_ATTEMPTS) break;
+
+      const retryDelay = Math.min(1000 * (2 ** (attempt - 1)), MAX_RETRY_DELAY_MS);
+      console.warn(
+        `Banco de dados ainda indisponível para o schema de segurança ` +
+        `(tentativa ${attempt}/${MAX_CONNECTION_ATTEMPTS}). Nova tentativa em ${retryDelay / 1000}s.`
+      );
+      await sleep(retryDelay);
+    }
+  }
+
+  throw new Error(
+    `Não foi possível conectar ao banco de dados após ${MAX_CONNECTION_ATTEMPTS} tentativas em aproximadamente 60 segundos.`,
+    { cause: lastError }
+  );
+};
+
 const ensureSecuritySchema = async () => {
-  const client = await db.pool.connect();
+  const client = await connectWithRetry();
 
   try {
     await client.query('BEGIN');

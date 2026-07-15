@@ -7,6 +7,12 @@ services:
       POSTGRES_USER: ${DB_USER:-fullpassword_user}
       POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD obrigatória}
       POSTGRES_DB: ${DB_NAME:-fullpassword_db}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+      start_period: 5s
     expose:
       - "5432"
     volumes:
@@ -37,7 +43,8 @@ services:
       - SUPER_ADMIN_EMAIL=${SUPER_ADMIN_EMAIL:?SUPER_ADMIN_EMAIL obrigatório}
       - APP_ORIGIN=${APP_ORIGIN:?APP_ORIGIN obrigatória}
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     volumes:
       - ./backend:/usr/src/app
       - /usr/src/app/node_modules

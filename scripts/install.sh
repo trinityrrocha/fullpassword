@@ -269,8 +269,27 @@ systemctl stop nginx 2>/dev/null || true
 compose config >/dev/null
 compose up -d --build
 
-echo -e "${GREEN}Aguardando o backend para criar o Super Admin inicial...${NC}"
-sleep 5
+echo -e "${GREEN}Aguardando o backend responder ao healthcheck...${NC}"
+BACKEND_READY=false
+for attempt in $(seq 1 30); do
+    if compose exec -T backend node -e \
+        "fetch('http://127.0.0.1:3000/api/health').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))" \
+        >/dev/null 2>&1; then
+        BACKEND_READY=true
+        break
+    fi
+    echo -e "${YELLOW}Backend ainda não está pronto (tentativa $attempt/30).${NC}"
+    sleep 2
+done
+
+if [ "$BACKEND_READY" != "true" ]; then
+    echo -e "${RED}ERRO: o backend não respondeu ao healthcheck após aproximadamente 60 segundos.${NC}"
+    echo -e "${YELLOW}Logs recentes do backend:${NC}"
+    compose logs --tail=100 backend >&2 || true
+    exit 1
+fi
+
+echo -e "${GREEN}Backend saudável. Criando o Super Admin inicial...${NC}"
 compose exec -T \
     -e INITIAL_SUPER_ADMIN_EMAIL="$SUPER_ADMIN_EMAIL" \
     -e INITIAL_SUPER_ADMIN_PASSWORD="$INITIAL_SUPER_ADMIN_PASSWORD" \
