@@ -3,7 +3,6 @@ import { Settings as SettingsIcon, RefreshCw, AlertTriangle, ShieldCheck, Downlo
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 
-const normalizeRole = (role) => String(role || '').trim().toLowerCase();
 const APP_COMMIT = typeof __APP_COMMIT__ !== 'undefined' ? __APP_COMMIT__ : 'unknown';
 
 export default function Settings() {
@@ -15,9 +14,9 @@ export default function Settings() {
   const [systemPermissions, setSystemPermissions] = useState(null);
   const [isLoadingPermissions, setIsLoadingPermissions] = useState(true);
 
-  const fallbackAdmin = normalizeRole(user?.role) === 'admin';
-  const canManageSystem = systemPermissions?.can_manage_system === true || systemPermissions?.is_admin === true || (!systemPermissions && fallbackAdmin);
+  const canManageSystem = systemPermissions?.can_manage_system === true && systemPermissions?.is_super_admin === true;
   const currentUserEmail = systemPermissions?.email || user?.email || 'e-mail não identificado';
+  const superAdminEmail = systemPermissions?.super_admin_email || 'e-mail configurado na instalação';
 
   useEffect(() => {
     const loadSystemPermissions = async () => {
@@ -49,7 +48,6 @@ export default function Settings() {
         setUpdateCountdown((prev) => prev - 1);
       }, 1000);
     } else if (updateCountdown === 0 && isUpdating) {
-      // Quando o timer zerar, recarrega a página para carregar o novo frontend
       window.location.reload();
     }
     return () => clearInterval(timer);
@@ -57,7 +55,7 @@ export default function Settings() {
 
   const handleUpdateSystem = async () => {
     if (!canManageSystem) {
-      alert('Apenas administradores podem executar o WebUpdater.');
+      alert(`Apenas o Super Admin inicial (${superAdminEmail}) pode executar o WebUpdater.`);
       return;
     }
 
@@ -67,22 +65,18 @@ export default function Settings() {
 
     try {
       const response = await api.post('/system/update');
-
-      // Só inicia o timer se o backend confirmou sucesso
       setIsUpdating(true);
-      // Define o countdown com base na estimativa do backend (ou 45s por padrão)
-      setUpdateCountdown(response.data.estimatedTime || 45);
-
+      setUpdateCountdown(response.data.estimatedTime || 60);
     } catch (error) {
       setIsUpdating(false);
       console.error('Erro ao iniciar atualização:', error);
-      alert(error.response?.data?.error || 'Erro ao iniciar atualização. Verifique se você está logado como administrador.');
+      alert(error.response?.data?.error || 'Erro ao iniciar atualização. Verifique se você está logado como Super Admin.');
     }
   };
 
   const handleDownloadBackup = async () => {
     if (!canManageSystem) {
-      alert('Apenas administradores podem gerar backup completo do sistema.');
+      alert(`Apenas o Super Admin inicial (${superAdminEmail}) pode gerar backup completo do sistema.`);
       return;
     }
 
@@ -122,7 +116,7 @@ export default function Settings() {
 
     } catch (error) {
       console.error('Erro ao baixar backup:', error);
-      alert('Erro ao gerar backup. Verifique se você está logado como administrador.');
+      alert(error.response?.data?.error || 'Erro ao gerar backup. Verifique se você está logado como Super Admin.');
     } finally {
       setIsDownloadingBackup(false);
     }
@@ -137,7 +131,7 @@ export default function Settings() {
         <div className="ml-3">
           <p className="text-sm text-amber-700">{message}</p>
           <p className="text-xs text-amber-600 mt-1">
-            Usuário autenticado: {currentUserEmail}. Perfil necessário: admin.
+            Usuário autenticado: {currentUserEmail}. Super Admin exigido: {superAdminEmail}.
           </p>
         </div>
       </div>
@@ -146,7 +140,6 @@ export default function Settings() {
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
-      {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 flex items-center">
@@ -162,7 +155,6 @@ export default function Settings() {
         </div>
       </div>
 
-      {/* Overlay de Atualização em Andamento */}
       {isUpdating && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900 bg-opacity-90">
           <div className="bg-white p-8 rounded-lg shadow-2xl max-w-md w-full text-center">
@@ -181,10 +173,7 @@ export default function Settings() {
         </div>
       )}
 
-      {/* Cards de Configuração */}
       <div className="grid grid-cols-1 gap-6">
-
-        {/* Card: WebUpdater */}
         <div className="bg-white shadow rounded-lg overflow-hidden border border-slate-200">
           <div className="px-6 py-5 border-b border-slate-200 bg-slate-50 flex justify-between items-center">
             <h3 className="text-lg leading-6 font-medium text-slate-900 flex items-center">
@@ -193,20 +182,20 @@ export default function Settings() {
             </h3>
             {canManageSystem && (
               <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                Admin
+                Super Admin
               </span>
             )}
           </div>
           <div className="p-6">
             <p className="text-sm text-slate-600 mb-4">
               O WebUpdater sincroniza o código fonte do repositório GitHub (branch main) e recria os containers Docker automaticamente.
-              Recomendamos realizar backups do banco de dados antes de grandes atualizações.
+              Esta ação é restrita ao Super Admin inicial.
             </p>
 
             {isLoadingPermissions ? (
-              <div className="text-sm text-slate-500">Validando permissão de administrador...</div>
+              <div className="text-sm text-slate-500">Validando permissão de Super Admin...</div>
             ) : !canManageSystem ? (
-              restrictedWarning('Apenas administradores podem executar a atualização do sistema.')
+              restrictedWarning('Apenas o Super Admin inicial pode executar a atualização do sistema.')
             ) : (
               <button
                 onClick={handleUpdateSystem}
@@ -220,7 +209,6 @@ export default function Settings() {
           </div>
         </div>
 
-        {/* Card: Web Backup */}
         <div className="bg-white shadow rounded-lg overflow-hidden border border-slate-200">
           <div className="px-6 py-5 border-b border-slate-200 bg-slate-50 flex justify-between items-center">
             <h3 className="text-lg leading-6 font-medium text-slate-900 flex items-center">
@@ -229,15 +217,15 @@ export default function Settings() {
             </h3>
             {canManageSystem && (
               <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                Admin
+                Super Admin
               </span>
             )}
           </div>
           <div className="p-6">
             <p className="text-sm text-slate-600 mb-4">
               Gere um backup completo do FullPassword. O arquivo contém usuários, grupos, clientes,
-              chaves envelopadas, cofres criptografados e compartilhamentos. As senhas dos cofres não são
-              descriptografadas pelo servidor.
+              hashes, chaves envelopadas, chaves privadas criptografadas, cofres criptografados e compartilhamentos.
+              As senhas dos cofres não são descriptografadas pelo servidor.
             </p>
 
             <div className="bg-red-50 border-l-4 border-red-400 p-4 mb-4">
@@ -254,9 +242,9 @@ export default function Settings() {
             </div>
 
             {isLoadingPermissions ? (
-              <div className="text-sm text-slate-500">Validando permissão de administrador...</div>
+              <div className="text-sm text-slate-500">Validando permissão de Super Admin...</div>
             ) : !canManageSystem ? (
-              restrictedWarning('Apenas administradores podem gerar backup completo do sistema.')
+              restrictedWarning('Apenas o Super Admin inicial pode gerar backup completo do sistema.')
             ) : (
               <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
                 <select
@@ -282,7 +270,6 @@ export default function Settings() {
           </div>
         </div>
 
-        {/* Card: Status de Segurança */}
         <div className="bg-white shadow rounded-lg overflow-hidden border border-slate-200">
           <div className="px-6 py-5 border-b border-slate-200 bg-slate-50">
             <h3 className="text-lg leading-6 font-medium text-slate-900 flex items-center">
@@ -311,7 +298,6 @@ export default function Settings() {
             </dl>
           </div>
         </div>
-
       </div>
     </div>
   );

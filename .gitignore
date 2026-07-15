@@ -57,6 +57,10 @@ logs/
 *.crt
 *.cert
 
+# Configuração gerada na instalação
+# O instalador cria este arquivo com o domínio real da VPS.
+docker/nginx.runtime.conf
+
 # Backup e Temporários
 *.bak
 *.tmp

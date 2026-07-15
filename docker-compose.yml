@@ -1,16 +1,14 @@
-version: '3.8'
-
 services:
   db:
     image: postgres:15-alpine
     container_name: fullpassword_db
     restart: always
     environment:
-      POSTGRES_USER: fullpassword_user
-      POSTGRES_PASSWORD: fullpassword_pass
-      POSTGRES_DB: fullpassword_db
-    ports:
-      - "5432:5432"
+      POSTGRES_USER: ${DB_USER:-fullpassword_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD obrigatória}
+      POSTGRES_DB: ${DB_NAME:-fullpassword_db}
+    expose:
+      - "5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
@@ -23,16 +21,21 @@ services:
       dockerfile: Dockerfile
     container_name: fullpassword_backend
     restart: always
-    ports:
-      - "3000:3000"
+    expose:
+      - "3000"
     environment:
       - PORT=3000
       - DB_HOST=db
       - DB_PORT=5432
-      - DB_USER=fullpassword_user
-      - DB_PASSWORD=fullpassword_pass
-      - DB_NAME=fullpassword_db
-      - NODE_ENV=development
+      - DB_USER=${DB_USER:-fullpassword_user}
+      - DB_PASSWORD=${DB_PASSWORD:?DB_PASSWORD obrigatória}
+      - DB_NAME=${DB_NAME:-fullpassword_db}
+      - NODE_ENV=production
+      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET obrigatória}
+      - JWT_EXPIRES_IN=${JWT_EXPIRES_IN:-8h}
+      - ADMIN_BOOTSTRAP_TOKEN=${ADMIN_BOOTSTRAP_TOKEN:?ADMIN_BOOTSTRAP_TOKEN obrigatório}
+      - SUPER_ADMIN_EMAIL=${SUPER_ADMIN_EMAIL:?SUPER_ADMIN_EMAIL obrigatório}
+      - APP_ORIGIN=${APP_ORIGIN:?APP_ORIGIN obrigatória}
     depends_on:
       - db
     volumes:
@@ -49,10 +52,10 @@ services:
       dockerfile: Dockerfile
     container_name: fullpassword_frontend
     restart: always
-    ports:
-      - "5173:5173"
+    expose:
+      - "5173"
     environment:
-      - VITE_API_URL=${VITE_API_URL:-http://localhost:3000}
+      - VITE_API_URL=${VITE_API_URL:-/api}
     volumes:
       - ./frontend:/usr/src/app
       - /usr/src/app/node_modules
@@ -68,7 +71,7 @@ services:
       - "80:80"
       - "443:443"
     volumes:
-      - ./docker/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ${NGINX_CONF_PATH:-./docker/nginx.conf}:/etc/nginx/conf.d/default.conf:ro
       - /etc/letsencrypt:/etc/letsencrypt:ro
     depends_on:
       - frontend

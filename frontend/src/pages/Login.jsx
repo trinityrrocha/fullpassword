@@ -1,17 +1,59 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Shield, Lock } from 'lucide-react';
 import SecurePasswordInput from '../components/SecurePasswordInput';
 import { useAuth } from '../context/AuthContext';
-import { generateMasterKey, deriveMasterKey, wrapMasterKey } from '../services/cryptoService';
+import api from '../services/api';
 
 export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [bootstrapRequired, setBootstrapRequired] = useState(false);
+  const [superAdminEmail, setSuperAdminEmail] = useState('');
+  const [bootstrap, setBootstrap] = useState({ name: '', email: '', password: '', confirm: '', token: '' });
   const navigate = useNavigate();
   const { login } = useAuth();
+
+  useEffect(() => {
+    api.get('/auth/bootstrap/status')
+      .then(({ data }) => {
+        const configuredSuperAdminEmail = data.super_admin_email || '';
+        setSuperAdminEmail(configuredSuperAdminEmail);
+        setBootstrapRequired(Boolean(data.required));
+        if (data.required) {
+          setBootstrap((value) => ({ ...value, email: configuredSuperAdminEmail }));
+        }
+      })
+      .catch(() => setError('Não foi possível verificar a configuração inicial.'));
+  }, []);
+
+  const handleBootstrap = async (e) => {
+    e.preventDefault();
+    setError('');
+    if (superAdminEmail && bootstrap.email.trim().toLowerCase() !== superAdminEmail.toLowerCase()) {
+      return setError(`O primeiro administrador deve usar o e-mail do Super Admin: ${superAdminEmail}`);
+    }
+    if (bootstrap.password.length < 12) return setError('A senha deve ter ao menos 12 caracteres.');
+    if (bootstrap.password !== bootstrap.confirm) return setError('As senhas não coincidem.');
+    setIsLoading(true);
+    try {
+      await api.post('/auth/bootstrap', {
+        name: bootstrap.name,
+        email: bootstrap.email,
+        password: bootstrap.password,
+        bootstrap_token: bootstrap.token
+      });
+      setEmail(bootstrap.email);
+      setBootstrapRequired(false);
+      setBootstrap({ name: '', email: '', password: '', confirm: '', token: '' });
+    } catch (err) {
+      setError(err.response?.data?.error || 'Não foi possível configurar o administrador.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -32,7 +74,7 @@ export default function Login() {
       } else {
         setError(result.error || 'Credenciais inválidas. Tente novamente.');
       }
-    } catch (err) {
+    } catch {
       setError('Erro ao conectar com o servidor.');
     } finally {
       setIsLoading(false);
@@ -57,7 +99,7 @@ export default function Login() {
 
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
         <div className="bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10 border border-slate-200">
-          <form className="space-y-6" onSubmit={handleLogin}>
+          <form className="space-y-6" onSubmit={bootstrapRequired ? handleBootstrap : handleLogin}>
             {error && (
               <div className="bg-red-50 border-l-4 border-red-400 p-4">
                 <div className="flex">
@@ -65,6 +107,26 @@ export default function Login() {
                     <p className="text-sm text-red-700">{error}</p>
                   </div>
                 </div>
+              </div>
+            )}
+
+            {bootstrapRequired && (
+              <div className="bg-amber-50 border-l-4 border-amber-400 p-4">
+                <p className="text-sm text-amber-700">
+                  Configuração inicial: o primeiro administrador será o Super Admin do sistema.
+                </p>
+                <p className="text-xs text-amber-600 mt-1">
+                  E-mail obrigatório do Super Admin: {superAdminEmail}
+                </p>
+              </div>
+            )}
+
+            {bootstrapRequired && (
+              <div>
+                <label htmlFor="name" className="block text-sm font-medium text-slate-700">Nome do administrador</label>
+                <input id="name" type="text" required value={bootstrap.name}
+                  onChange={(e) => setBootstrap((value) => ({ ...value, name: e.target.value }))}
+                  className="mt-1 appearance-none block w-full px-3 py-2 border border-slate-300 rounded-md shadow-sm" />
               </div>
             )}
 
@@ -79,10 +141,12 @@ export default function Login() {
                   type="email"
                   autoComplete="email"
                   required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  value={bootstrapRequired ? bootstrap.email : email}
+                  onChange={(e) => bootstrapRequired
+                    ? setBootstrap((value) => ({ ...value, email: e.target.value }))
+                    : setEmail(e.target.value)}
                   className="appearance-none block w-full px-3 py-2 border border-slate-300 rounded-md shadow-sm placeholder-slate-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                  placeholder="admin@admin.com.br"
+                  placeholder={superAdminEmail}
                 />
               </div>
             </div>
@@ -90,15 +154,31 @@ export default function Login() {
             <div>
               <SecurePasswordInput
                 name="password"
-                label="Senha Master"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                label={bootstrapRequired ? 'Nova senha Master' : 'Senha Master'}
+                value={bootstrapRequired ? bootstrap.password : password}
+                onChange={(e) => bootstrapRequired
+                  ? setBootstrap((value) => ({ ...value, password: e.target.value }))
+                  : setPassword(e.target.value)}
                 required={true}
                 placeholder="Sua senha mestre"
               />
             </div>
 
-            <div className="flex items-center justify-between">
+            {bootstrapRequired && <>
+              <div>
+                <SecurePasswordInput name="confirm" label="Confirmar senha" value={bootstrap.confirm}
+                  onChange={(e) => setBootstrap((value) => ({ ...value, confirm: e.target.value }))}
+                  required={true} enableGenerator={false} />
+              </div>
+              <div>
+                <label htmlFor="bootstrap-token" className="block text-sm font-medium text-slate-700">Token de instalação</label>
+                <input id="bootstrap-token" type="password" required autoComplete="off" value={bootstrap.token}
+                  onChange={(e) => setBootstrap((value) => ({ ...value, token: e.target.value }))}
+                  className="mt-1 appearance-none block w-full px-3 py-2 border border-slate-300 rounded-md shadow-sm" />
+              </div>
+            </>}
+
+            {!bootstrapRequired && <div className="flex items-center justify-between">
               <div className="flex items-center">
                 <input
                   id="remember-me"
@@ -116,7 +196,7 @@ export default function Login() {
                   Esqueceu a senha?
                 </a>
               </div>
-            </div>
+            </div>}
 
             <div>
               <button
@@ -130,12 +210,12 @@ export default function Login() {
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                     </svg>
-                    Autenticando...
+                    {bootstrapRequired ? 'Configurando...' : 'Autenticando...'}
                   </span>
                 ) : (
                   <span className="flex items-center">
                     <Lock className="w-4 h-4 mr-2" />
-                    Acessar Cofre
+                    {bootstrapRequired ? 'Cadastrar Super Admin' : 'Acessar Cofre'}
                   </span>
                 )}
               </button>
@@ -144,7 +224,7 @@ export default function Login() {
           
           <div className="mt-6 border-t border-slate-200 pt-6">
             <p className="text-xs text-center text-slate-500">
-              Arquitetura Zero-Knowledge. Sua senha master nunca é enviada ao servidor.
+              Seus dados sensíveis são criptografados antes de serem armazenados.
             </p>
           </div>
         </div>

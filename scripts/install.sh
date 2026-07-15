@@ -5,6 +5,8 @@
 # SO Suportado: Ubuntu 20.04/22.04 LTS ou Debian 11/12
 # ==============================================================================
 
+set -e
+
 # Cores para output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -22,6 +24,17 @@ if [ "$EUID" -ne 0 ]; then
   exit 1
 fi
 
+APP_DIR="/opt/fullpassword"
+if [ -d "$APP_DIR" ]; then
+  echo -e "${RED}ATENÇÃO: já existe uma instalação em $APP_DIR.${NC}"
+  echo -e "${YELLOW}Continuar pode interromper ou substituir a instalação existente.${NC}"
+  read -r -p "Digite REINSTALAR para confirmar explicitamente: " REINSTALL_CONFIRMATION
+  if [ "$REINSTALL_CONFIRMATION" != "REINSTALAR" ]; then
+    echo -e "${RED}Instalação abortada sem alterar a instalação existente.${NC}"
+    exit 1
+  fi
+fi
+
 # ==========================================
 # 1. COLETA DE VARIÁVEIS DO USUÁRIO
 # ==========================================
@@ -31,18 +44,33 @@ read -p "Digite o domínio para o FullPassword (ex: cofre.seudominio.com.br): " 
 read -p "Digite seu e-mail (para o certificado Let's Encrypt): " LETSENCRYPT_EMAIL
 read -p "Digite a porta SSH atual da sua VPS [Padrão: 22]: " SSH_PORT
 SSH_PORT=${SSH_PORT:-22}
+SUPER_ADMIN_EMAIL="$LETSENCRYPT_EMAIL"
 REPO_URL="https://github.com/trinityrrocha/fullpassword.git"
+RUNTIME_NGINX_CONF="./docker/nginx.runtime.conf"
 
-# Geração de senhas fortes automáticas
-DB_PASSWORD=$(openssl rand -base64 24 | tr -dc 'a-zA-Z0-9' | head -c 24)
-JWT_SECRET=$(openssl rand -hex 64)
+compose() {
+    if docker compose version >/dev/null 2>&1; then
+        docker compose "$@"
+    elif command -v docker-compose >/dev/null 2>&1; then
+        docker-compose "$@"
+    else
+        echo -e "${RED}Docker Compose não está disponível.${NC}"
+        exit 1
+    fi
+}
 
 # ==========================================
 # 2. ATUALIZAÇÃO E DEPENDÊNCIAS BÁSICAS
 # ==========================================
 echo -e "\n${GREEN}[1/6] Atualizando pacotes do sistema e instalando dependências...${NC}"
 apt-get update && apt-get upgrade -y
-apt-get install -y curl git ufw fail2ban certbot python3-certbot-nginx apt-transport-https ca-certificates software-properties-common netcat-openbsd dnsutils
+apt-get install -y curl git ufw fail2ban certbot python3-certbot-nginx apt-transport-https ca-certificates software-properties-common netcat-openbsd dnsutils openssl
+
+# Geração de segredos após garantir que o OpenSSL esteja disponível
+DB_PASSWORD=$(openssl rand -base64 48 | tr -dc 'a-zA-Z0-9' | head -c 40)
+JWT_SECRET=$(openssl rand -hex 64)
+ADMIN_BOOTSTRAP_TOKEN=$(openssl rand -hex 32)
+INITIAL_SUPER_ADMIN_PASSWORD=$(openssl rand -base64 48 | tr -dc 'a-zA-Z0-9' | head -c 32)
 
 # ==========================================
 # 3. SEGURANÇA DA INFRAESTRUTURA (UFW E FAIL2BAN)
@@ -88,12 +116,12 @@ else
     echo "Docker já está instalado."
 fi
 
-if ! command -v docker-compose &> /dev/null; then
-    echo "Instalando Docker Compose..."
+if ! docker compose version >/dev/null 2>&1 && ! command -v docker-compose &> /dev/null; then
+    echo "Instalando Docker Compose standalone..."
     curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
     chmod +x /usr/local/bin/docker-compose
 else
-    echo "Docker Compose já está instalado."
+    echo "Docker Compose já está disponível."
 fi
 
 # ==========================================
@@ -101,10 +129,8 @@ fi
 # ==========================================
 echo -e "\n${GREEN}[4/6] Clonando repositório e configurando ambiente...${NC}"
 
-APP_DIR="/opt/fullpassword"
-
 if [ -d "$APP_DIR" ]; then
-    echo -e "${YELLOW}O diretório $APP_DIR já existe. Fazendo backup...${NC}"
+    echo -e "${YELLOW}Reinstalação confirmada. Fazendo backup de $APP_DIR...${NC}"
     mv $APP_DIR "${APP_DIR}_backup_$(date +%Y%m%d_%H%M%S)"
 fi
 
@@ -113,6 +139,7 @@ cd $APP_DIR
 
 # Criar arquivo .env de produção
 echo -e "\n${GREEN}Gerando arquivo .env de produção...${NC}"
+umask 077
 cat > $APP_DIR/.env << EOF
 # Configurações de Banco de Dados
 DB_HOST=db
@@ -126,15 +153,17 @@ PORT=3000
 NODE_ENV=production
 JWT_SECRET=$JWT_SECRET
 JWT_EXPIRES_IN=8h
+ADMIN_BOOTSTRAP_TOKEN=$ADMIN_BOOTSTRAP_TOKEN
+SUPER_ADMIN_EMAIL=$SUPER_ADMIN_EMAIL
+APP_ORIGIN=https://$DOMAIN
 
 # Configurações do Frontend
 VITE_API_URL=https://$DOMAIN/api
-EOF
 
-# Substituir o domínio no nginx.conf (se existir um template)
-if [ -f "$APP_DIR/docker/nginx.conf" ]; then
-    sed -i "s/server_name localhost;/server_name $DOMAIN;/g" $APP_DIR/docker/nginx.conf
-fi
+# Configuração runtime do Nginx gerada pelo instalador
+NGINX_CONF_PATH=$RUNTIME_NGINX_CONF
+EOF
+chmod 600 $APP_DIR/.env
 
 # ==========================================
 # 6. CERTIFICADO SSL (LET'S ENCRYPT) COM PRE-FLIGHT CHECKS
@@ -146,7 +175,7 @@ PUBLIC_IP=$(curl -s ifconfig.me)
 echo -e "${BLUE}Seu IP público atual é: $PUBLIC_IP${NC}"
 
 # Verificar apontamento DNS
-DOMAIN_IP=$(dig +short $DOMAIN)
+DOMAIN_IP=$(dig +short $DOMAIN | tail -n 1)
 if [ "$DOMAIN_IP" != "$PUBLIC_IP" ]; then
     echo -e "${RED}ERRO CRÍTICO: O domínio $DOMAIN aponta para $DOMAIN_IP, mas o IP desta VPS é $PUBLIC_IP.${NC}"
     echo -e "${YELLOW}Por favor, corrija o apontamento DNS no seu provedor (Cloudflare, Registro.br, etc) e aguarde a propagação antes de rodar este script novamente.${NC}"
@@ -175,9 +204,9 @@ certbot certonly --standalone -d $DOMAIN --non-interactive --agree-tos -m $LETSE
 
 if [ $? -eq 0 ]; then
     echo -e "${GREEN}Certificado SSL gerado com sucesso!${NC}"
-    
-    # Atualizar o nginx.conf para usar SSL
-    cat > $APP_DIR/docker/nginx.conf << EOF
+
+    # Criar configuração runtime do Nginx sem alterar arquivos versionados pelo Git
+    cat > $APP_DIR/docker/nginx.runtime.conf << EOF
 server {
     listen 80;
     server_name $DOMAIN;
@@ -190,7 +219,7 @@ server {
 
     ssl_certificate /etc/letsencrypt/live/$DOMAIN/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/$DOMAIN/privkey.pem;
-    
+
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_ciphers HIGH:!aNULL:!MD5;
     ssl_prefer_server_ciphers on;
@@ -201,7 +230,7 @@ server {
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection 'upgrade';
-        proxy_set_header Host localhost; # Contorno para bloqueio de DNS Rebinding do Vite
+        proxy_set_header Host localhost;
         proxy_cache_bypass \$http_upgrade;
     }
 
@@ -236,17 +265,34 @@ echo -e "\n${GREEN}[6/6] Iniciando os containers com Docker Compose...${NC}"
 systemctl disable nginx 2>/dev/null || true
 systemctl stop nginx 2>/dev/null || true
 
-# Subir os containers
-docker-compose up -d --build
+# Validar e subir os containers
+compose config >/dev/null
+compose up -d --build
+
+echo -e "${GREEN}Aguardando o backend para criar o Super Admin inicial...${NC}"
+sleep 5
+compose exec -T \
+    -e INITIAL_SUPER_ADMIN_EMAIL="$SUPER_ADMIN_EMAIL" \
+    -e INITIAL_SUPER_ADMIN_PASSWORD="$INITIAL_SUPER_ADMIN_PASSWORD" \
+    -e INITIAL_SUPER_ADMIN_NAME="Super Admin" \
+    backend node scripts/create-super-admin.js
+
+cat > /root/fullpassword-install-info.txt << EOF
+URL: https://$DOMAIN
+Diretório da instalação: $APP_DIR
+E-mail do Super Admin: $SUPER_ADMIN_EMAIL
+Senha temporária: $INITIAL_SUPER_ADMIN_PASSWORD
+Aviso: No primeiro login será obrigatório trocar a senha temporária.
+EOF
+chmod 600 /root/fullpassword-install-info.txt
 
 echo -e "\n${BLUE}======================================================${NC}"
 echo -e "${GREEN}  Instalação Concluída com Sucesso! ${NC}"
 echo -e "${BLUE}======================================================${NC}"
-echo -e "\n${YELLOW}Credenciais de Banco de Dados geradas (salvas no .env):${NC}"
-echo -e "DB_USER: fullpassword_user"
-echo -e "DB_PASSWORD: $DB_PASSWORD"
-echo -e "\n${YELLOW}Credenciais do Sistema (Seeder padrão):${NC}"
-echo -e "Email: admin@admin.com.br"
-echo -e "Senha: @dmin123 (Recomendado alterar imediatamente)"
-echo -e "\n${GREEN}Acesse o sistema em: https://$DOMAIN${NC}"
+echo -e "\n${YELLOW}Credenciais de Banco de Dados geradas e salvas no .env.${NC}"
+echo -e "\n${GREEN}Link de acesso: https://$DOMAIN${NC}"
+echo -e "${YELLOW}Usuário Super Admin: $SUPER_ADMIN_EMAIL${NC}"
+echo -e "${YELLOW}Senha temporária: $INITIAL_SUPER_ADMIN_PASSWORD${NC}"
+echo -e "${YELLOW}No primeiro login será obrigatório trocar a senha temporária.${NC}"
+echo -e "${YELLOW}Uma cópia root-only foi salva em: /root/fullpassword-install-info.txt${NC}"
 echo -e "${BLUE}======================================================${NC}"

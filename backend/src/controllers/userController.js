@@ -2,6 +2,9 @@ const db = require('../config/database');
 const argon2 = require('argon2');
 const crypto = require('crypto');
 const { ensureSharingSchema } = require('../services/accessControlService');
+const { isSuperAdmin } = require('../config/security');
+const VALID_ROLES = new Set(['admin', 'user']);
+const isStrongPassword = (password) => typeof password === 'string' && password.length >= 12;
 
 const getValidGroupIds = async (groupIds = []) => {
   const uniqueIds = [...new Set((Array.isArray(groupIds) ? groupIds : []).filter(Boolean))];
@@ -59,7 +62,10 @@ const getUsers = async (req, res) => {
     await ensureSharingSchema();
 
     const result = await db.query(
-      'SELECT id, name, email, role, is_active, public_key, created_at FROM users ORDER BY name ASC'
+      `SELECT id, name, email, role, is_active, is_super_admin, must_change_password,
+              public_key, created_at
+       FROM users
+       ORDER BY name ASC`
     );
 
     const groupMap = await loadUserGroups(result.rows.map((user) => user.id));
@@ -90,6 +96,12 @@ const createUser = async (req, res) => {
 
     if (!name || !email || !password) {
       return res.status(400).json({ error: 'Nome, email e senha são obrigatórios' });
+    }
+    if (!isStrongPassword(password)) {
+      return res.status(400).json({ error: 'A senha deve ter ao menos 12 caracteres' });
+    }
+    if (role !== undefined && !VALID_ROLES.has(role)) {
+      return res.status(400).json({ error: 'Nível de acesso inválido' });
     }
 
     const existingUser = await client.query('SELECT id FROM users WHERE email = $1', [email]);
@@ -146,48 +158,86 @@ const createUser = async (req, res) => {
 
 // PUT /api/users/profile - Atualiza o próprio perfil (nome, email, senha e re-envelope da Master Key)
 const updateProfile = async (req, res) => {
+  const client = await db.pool.connect();
   try {
     const userId = req.user.id;
-    const { name, email, new_password, wrapped_key } = req.body;
+    const { name, email, current_password, new_password, wrapped_key } = req.body;
 
     if (!name || !email) {
       return res.status(400).json({ error: 'Nome e email são obrigatórios' });
     }
+    if (req.user.must_change_password && (!new_password || !wrapped_key)) {
+      return res.status(403).json({
+        error: 'Troca de senha obrigatória',
+        code: 'MUST_CHANGE_PASSWORD'
+      });
+    }
+    if (Boolean(new_password) !== Boolean(wrapped_key)) {
+      return res.status(400).json({ error: 'Nova senha e chave envelopada devem ser enviadas juntas' });
+    }
 
-    await db.query('BEGIN');
+    await client.query('BEGIN');
+    const currentResult = await client.query(
+      'SELECT email, hash_senha_login FROM users WHERE id = $1 FOR UPDATE',
+      [userId]
+    );
+    const currentUser = currentResult.rows[0];
+    if (!currentUser) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Usuário não encontrado' });
+    }
+
+    const sensitiveChange = new_password || String(email).trim().toLowerCase() !== currentUser.email;
+    if (sensitiveChange) {
+      if (!current_password || !(await argon2.verify(currentUser.hash_senha_login, current_password))) {
+        await client.query('ROLLBACK');
+        return res.status(403).json({ error: 'Senha atual inválida' });
+      }
+    }
 
     if (new_password && wrapped_key) {
+      if (!isStrongPassword(new_password)) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'A nova senha deve ter ao menos 12 caracteres' });
+      }
       const hashSenhaLogin = await argon2.hash(new_password);
       
-      await db.query(
-        'UPDATE users SET name = $1, email = $2, hash_senha_login = $3, wrapped_key = $4 WHERE id = $5',
-        [name, email, hashSenhaLogin, wrapped_key, userId]
+      await client.query(
+        `UPDATE users SET name = $1, email = $2, hash_senha_login = $3, wrapped_key = $4,
+                          token_version = token_version + 1, updated_at = CURRENT_TIMESTAMP
+         WHERE id = $5`,
+        [name, String(email).trim().toLowerCase(), hashSenhaLogin, wrapped_key, userId]
       );
     } else {
-      await db.query(
-        'UPDATE users SET name = $1, email = $2 WHERE id = $3',
-        [name, email, userId]
+      await client.query(
+        `UPDATE users SET name = $1, email = $2,
+                          token_version = token_version + CASE WHEN email <> $2 THEN 1 ELSE 0 END,
+                          updated_at = CURRENT_TIMESTAMP WHERE id = $3`,
+        [name, String(email).trim().toLowerCase(), userId]
       );
     }
 
-    await db.query('COMMIT');
+    await client.query('COMMIT');
 
-    const result = await db.query(
+    const result = await client.query(
       'SELECT id, name, email, role, wrapped_key, crypto_salt FROM users WHERE id = $1',
       [userId]
     );
 
     res.status(200).json({
       message: 'Perfil atualizado com sucesso',
-      user: result.rows[0]
+      user: result.rows[0],
+      session_invalidated: Boolean(sensitiveChange)
     });
   } catch (error) {
-    await db.query('ROLLBACK');
+    await client.query('ROLLBACK').catch(() => {});
     console.error('Erro ao atualizar perfil:', error);
     if (error.code === '23505') {
       return res.status(400).json({ error: 'Este e-mail já está em uso' });
     }
     res.status(500).json({ error: 'Erro ao atualizar perfil' });
+  } finally {
+    client.release();
   }
 };
 
@@ -204,21 +254,35 @@ const updateUser = async (req, res) => {
 
     const { id } = req.params;
     const { name, email, role, is_active, password, groupIds } = req.body;
+    if (role !== undefined && !VALID_ROLES.has(role)) {
+      return res.status(400).json({ error: 'Nível de acesso inválido' });
+    }
+    if (password && !isStrongPassword(password)) {
+      return res.status(400).json({ error: 'A senha deve ter ao menos 12 caracteres' });
+    }
 
-    const existingUser = await client.query('SELECT id, email, role FROM users WHERE id = $1', [id]);
+    const existingUser = await client.query(
+      'SELECT id, email, role, is_super_admin FROM users WHERE id = $1',
+      [id]
+    );
     if (existingUser.rows.length === 0) {
       return res.status(404).json({ error: 'Usuário não encontrado' });
     }
 
     const targetEmail = existingUser.rows[0].email;
     const nextRole = role !== undefined ? role : existingUser.rows[0].role;
+    const targetIsSuperAdmin = isSuperAdmin(existingUser.rows[0]);
 
-    if (targetEmail === 'admin@admin.com.br') {
+    if (targetIsSuperAdmin) {
+      const isSelfUpdateBySuperAdmin = String(req.user.id) === String(id) && isSuperAdmin(req.user);
+      if (!isSelfUpdateBySuperAdmin) {
+        return res.status(403).json({ error: 'Apenas o próprio Super Admin pode alterar sua conta' });
+      }
       if (role && role !== 'admin') {
-        return res.status(403).json({ error: 'Não é possível remover o nível de administrador do usuário principal' });
+        return res.status(403).json({ error: 'Não é possível remover o nível de administrador do Super Admin' });
       }
       if (is_active === false) {
-        return res.status(403).json({ error: 'Não é possível inativar o administrador principal' });
+        return res.status(403).json({ error: 'Não é possível inativar o Super Admin' });
       }
     }
 
@@ -280,6 +344,10 @@ const updateUser = async (req, res) => {
       values.push(null);
     }
 
+    if (password || role !== undefined || is_active !== undefined || email !== undefined) {
+      updates.push('token_version = token_version + 1');
+    }
+
     if (updates.length === 0 && groupIds === undefined) {
       return res.status(400).json({ error: 'Nenhum dado fornecido para atualização' });
     }
@@ -289,11 +357,14 @@ const updateUser = async (req, res) => {
     let updatedUser = null;
     if (updates.length > 0) {
       values.push(id);
-      const query = `UPDATE users SET ${updates.join(', ')} WHERE id = $${paramIndex} RETURNING id, name, email, role, is_active`;
+      const query = `UPDATE users SET ${updates.join(', ')} WHERE id = $${paramIndex} RETURNING id, name, email, role, is_active, is_super_admin, must_change_password`;
       const result = await client.query(query, values);
       updatedUser = result.rows[0];
     } else {
-      const result = await client.query('SELECT id, name, email, role, is_active FROM users WHERE id = $1', [id]);
+      const result = await client.query(
+        'SELECT id, name, email, role, is_active, is_super_admin, must_change_password FROM users WHERE id = $1',
+        [id]
+      );
       updatedUser = result.rows[0];
     }
 
@@ -309,7 +380,7 @@ const updateUser = async (req, res) => {
       }
     }
 
-    if (targetEmail === 'admin@admin.com.br' || nextRole === 'admin') {
+    if (targetIsSuperAdmin || nextRole === 'admin') {
       await ensureAdminGroupMembership(client, id);
     }
 

@@ -1,9 +1,12 @@
 const jwt = require('jsonwebtoken');
+const db = require('../config/database');
+const { JWT_SECRET } = require('../config/security');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'sua_chave_secreta_super_segura_aqui';
+const isRequiredPasswordChangeRoute = (req) => {
+  return req.method === 'PUT' && req.baseUrl === '/api/users' && req.path === '/profile';
+};
 
-const verifyToken = (req, res, next) => {
-  // Pegar o token do header de autorização
+const verifyToken = async (req, res, next) => {
   const authHeader = req.headers.authorization;
 
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -13,16 +16,55 @@ const verifyToken = (req, res, next) => {
   const token = authHeader.split(' ')[1];
 
   try {
-    // Verificar o token
     const decoded = jwt.verify(token, JWT_SECRET);
-    
-    // Adicionar os dados do usuário ao objeto request
-    req.user = decoded;
-    
-    next(); // Continuar para a próxima rota
+
+    if (!decoded.id || !Number.isInteger(decoded.token_version)) {
+      return res.status(401).json({ error: 'Sessão inválida. Faça login novamente.' });
+    }
+
+    const userResult = await db.query(
+      `SELECT id, email, role, is_active, is_super_admin, must_change_password, token_version
+       FROM users
+       WHERE id = $1
+       LIMIT 1`,
+      [decoded.id]
+    );
+
+    const user = userResult.rows[0];
+    if (!user || user.is_active === false || user.token_version !== decoded.token_version) {
+      return res.status(401).json({ error: 'Sessão revogada. Faça login novamente.' });
+    }
+
+    const groupsResult = await db.query(
+      'SELECT group_id FROM user_groups WHERE user_id = $1',
+      [user.id]
+    );
+
+    req.user = {
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      is_super_admin: user.is_super_admin === true,
+      must_change_password: user.must_change_password === true,
+      token_version: user.token_version,
+      groups: groupsResult.rows.map((row) => row.group_id)
+    };
+
+    if (req.user.must_change_password && !isRequiredPasswordChangeRoute(req)) {
+      return res.status(403).json({
+        error: 'Troca de senha obrigatória',
+        code: 'MUST_CHANGE_PASSWORD'
+      });
+    }
+
+    next();
   } catch (error) {
     if (error.name === 'TokenExpiredError') {
       return res.status(401).json({ error: 'Token expirado. Faça login novamente.' });
+    }
+    if (error.code) {
+      console.error('Erro ao validar sessão no banco:', error);
+      return res.status(503).json({ error: 'Não foi possível validar a sessão.' });
     }
     return res.status(401).json({ error: 'Token inválido.' });
   }

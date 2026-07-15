@@ -1,12 +1,12 @@
 import { useState, useEffect } from 'react';
-import { X, User, Lock, Loader2 } from 'lucide-react';
+import { User, Lock, Loader2, AlertTriangle } from 'lucide-react';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { deriveMasterKey, unwrapMasterKey, wrapMasterKey } from '../services/cryptoService';
 import SecurePasswordInput from './SecurePasswordInput';
 
-export default function UserProfileModal({ isOpen, onClose }) {
-  const { user, login } = useAuth();
+export default function UserProfileModal({ isOpen, onClose, forcePasswordChange = false }) {
+  const { user, logout } = useAuth();
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -49,10 +49,14 @@ export default function UserProfileModal({ isOpen, onClose }) {
     try {
       let payload = {
         name: formData.name,
-        email: formData.email
+        email: formData.email,
+        current_password: formData.currentPassword
       };
 
-      // Se o usuário quer alterar a senha, precisamos fazer o re-envelope criptográfico
+      if (forcePasswordChange && !formData.newPassword) {
+        throw new Error('A troca da senha temporária é obrigatória no primeiro acesso.');
+      }
+
       if (formData.newPassword) {
         if (!formData.currentPassword) {
           throw new Error('A senha atual é obrigatória para alterar a senha.');
@@ -60,11 +64,10 @@ export default function UserProfileModal({ isOpen, onClose }) {
         if (formData.newPassword !== formData.confirmNewPassword) {
           throw new Error('As novas senhas não coincidem.');
         }
-        if (formData.newPassword.length < 8) {
-          throw new Error('A nova senha deve ter pelo menos 8 caracteres.');
+        if (formData.newPassword.length < 12) {
+          throw new Error('A nova senha deve ter pelo menos 12 caracteres.');
         }
 
-        // 1. Obter o wrapped_key e salt atuais do localStorage (ou do context)
         const currentWrappedKey = localStorage.getItem('user_wrapped_key');
         const currentSalt = localStorage.getItem('user_salt');
 
@@ -72,43 +75,39 @@ export default function UserProfileModal({ isOpen, onClose }) {
           throw new Error('Chaves criptográficas não encontradas. Faça login novamente.');
         }
 
-        // 2. Derivar a KEK atual usando a senha atual
         const currentKek = await deriveMasterKey(formData.currentPassword, currentSalt);
 
-        // 3. Desenvelopar a Master Key
         let masterKey;
         try {
           masterKey = await unwrapMasterKey(currentWrappedKey, currentKek);
         } catch (err) {
-          throw new Error('Senha atual incorreta. Não foi possível acessar a chave mestra.');
+          throw new Error('Senha atual incorreta. Não foi possível acessar a chave mestra.', { cause: err });
         }
 
-        // 4. Derivar a NOVA KEK usando a NOVA senha e o mesmo salt
-        // (Opcionalmente, poderíamos gerar um novo salt aqui e mandar pro backend,
-        // mas para simplificar vamos reutilizar o salt atual).
         const newKek = await deriveMasterKey(formData.newPassword, currentSalt);
-
-        // 5. Re-envelopar a Master Key com a NOVA KEK
         const newWrappedKey = await wrapMasterKey(masterKey, newKek);
 
-        // 6. Adicionar ao payload
         payload.new_password = formData.newPassword;
         payload.wrapped_key = newWrappedKey;
       }
 
-      // Enviar para o backend
       const response = await api.put('/users/profile', payload);
 
-      // Se a senha foi alterada, precisamos atualizar o localStorage
       if (payload.wrapped_key) {
         localStorage.setItem('user_wrapped_key', payload.wrapped_key);
-        // Opcional: forçar um re-login silencioso ou pedir pro usuário logar de novo
-        // Aqui vamos apenas atualizar o context e avisar
       }
 
-      setSuccess('Perfil atualizado com sucesso!');
+      if (response.data?.user) {
+        const currentStoredUser = JSON.parse(localStorage.getItem('user') || '{}');
+        localStorage.setItem('user', JSON.stringify({ ...currentStoredUser, ...response.data.user }));
+      }
+
+      setSuccess(
+        response.data?.session_invalidated
+          ? 'Perfil atualizado. Faça login novamente com a nova senha.'
+          : 'Perfil atualizado com sucesso!'
+      );
       
-      // Limpar campos de senha
       setFormData(prev => ({
         ...prev,
         currentPassword: '',
@@ -116,11 +115,14 @@ export default function UserProfileModal({ isOpen, onClose }) {
         confirmNewPassword: ''
       }));
 
-      // Atualiza os dados no context (opcional, dependendo de como o AuthContext foi implementado)
-      // O ideal seria um fetch /me, mas podemos recarregar a página após 2s
       setTimeout(() => {
+        if (response.data?.session_invalidated) {
+          logout();
+          window.location.href = '/login';
+          return;
+        }
         window.location.reload();
-      }, 2000);
+      }, 1800);
 
     } catch (err) {
       console.error('Erro ao atualizar perfil:', err);
@@ -133,7 +135,13 @@ export default function UserProfileModal({ isOpen, onClose }) {
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
       <div className="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
-        <div className="fixed inset-0 bg-slate-900 bg-opacity-75 transition-opacity" aria-hidden="true" onClick={onClose}></div>
+        <div
+          className="fixed inset-0 bg-slate-900 bg-opacity-75 transition-opacity"
+          aria-hidden="true"
+          onClick={() => {
+            if (!forcePasswordChange) onClose();
+          }}
+        ></div>
 
         <span className="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
 
@@ -145,12 +153,25 @@ export default function UserProfileModal({ isOpen, onClose }) {
               </div>
               <div className="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left w-full">
                 <h3 className="text-lg leading-6 font-medium text-slate-900" id="modal-title">
-                  Meu Perfil
+                  {forcePasswordChange ? 'Troca obrigatória de senha' : 'Meu Perfil'}
                 </h3>
                 <div className="mt-2">
                   <p className="text-sm text-slate-500 mb-4">
-                    Atualize suas informações pessoais e senha de acesso.
+                    {forcePasswordChange
+                      ? 'Você está usando uma senha temporária gerada na instalação. Defina uma nova senha antes de continuar.'
+                      : 'Atualize suas informações pessoais e senha de acesso.'}
                   </p>
+
+                  {forcePasswordChange && (
+                    <div className="mb-4 bg-amber-50 border-l-4 border-amber-400 p-4">
+                      <div className="flex">
+                        <AlertTriangle className="h-5 w-5 text-amber-400 flex-shrink-0" />
+                        <p className="ml-3 text-sm text-amber-700">
+                          Acesso ao sistema bloqueado até a troca da senha temporária.
+                        </p>
+                      </div>
+                    </div>
+                  )}
 
                   {error && (
                     <div className="mb-4 bg-red-50 border-l-4 border-red-400 p-4">
@@ -192,7 +213,7 @@ export default function UserProfileModal({ isOpen, onClose }) {
                     <div className="pt-4 border-t border-slate-200">
                       <h4 className="text-sm font-medium text-slate-900 mb-4 flex items-center">
                         <Lock className="w-4 h-4 mr-1" />
-                        Alterar Senha (Opcional)
+                        {forcePasswordChange ? 'Alterar Senha (Obrigatório)' : 'Alterar Senha (Opcional)'}
                       </h4>
                       
                       <div className="space-y-4">
@@ -202,8 +223,9 @@ export default function UserProfileModal({ isOpen, onClose }) {
                             name="currentPassword"
                             value={formData.currentPassword}
                             onChange={handleChange}
-                            placeholder="Necessária apenas se for alterar a senha"
+                            placeholder={forcePasswordChange ? 'Senha temporária da instalação' : 'Necessária apenas se for alterar a senha'}
                             enableGenerator={false}
+                            required={forcePasswordChange}
                           />
                         </div>
                         
@@ -213,7 +235,8 @@ export default function UserProfileModal({ isOpen, onClose }) {
                             name="newPassword"
                             value={formData.newPassword}
                             onChange={handleChange}
-                            placeholder="Mínimo de 8 caracteres"
+                            placeholder="Mínimo de 12 caracteres"
+                            required={forcePasswordChange}
                           />
                         </div>
                         
@@ -225,6 +248,7 @@ export default function UserProfileModal({ isOpen, onClose }) {
                             onChange={handleChange}
                             placeholder="Repita a nova senha"
                             enableGenerator={false}
+                            required={forcePasswordChange}
                           />
                         </div>
                       </div>
@@ -235,8 +259,8 @@ export default function UserProfileModal({ isOpen, onClose }) {
             </div>
           </div>
           <div className="bg-slate-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
-            <button 
-              type="submit" 
+            <button
+              type="submit"
               form="profileForm"
               disabled={isSaving}
               className={`w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-indigo-600 text-base font-medium text-white hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:ml-3 sm:w-auto sm:text-sm ${isSaving ? 'opacity-70 cursor-not-allowed' : ''}`}
@@ -245,14 +269,16 @@ export default function UserProfileModal({ isOpen, onClose }) {
                 <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Salvando...</>
               ) : 'Salvar Alterações'}
             </button>
-            <button 
-              type="button" 
-              onClick={onClose}
-              disabled={isSaving}
-              className="mt-3 w-full inline-flex justify-center rounded-md border border-slate-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
-            >
-              Cancelar
-            </button>
+            {!forcePasswordChange && (
+              <button
+                type="button"
+                onClick={onClose}
+                disabled={isSaving}
+                className="mt-3 w-full inline-flex justify-center rounded-md border border-slate-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
+              >
+                Cancelar
+              </button>
+            )}
           </div>
         </div>
       </div>
