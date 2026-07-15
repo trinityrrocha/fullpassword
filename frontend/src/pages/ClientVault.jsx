@@ -9,6 +9,20 @@ import { encryptData, encryptFile, decryptData, base64ToBlob, downloadBlob } fro
 import { decryptVaultKeyShare } from '../services/clientVaultKeyService';
 import api from '../services/api';
 
+const normalizeVaultPermissions = (permissions) => {
+  const isOwner = Boolean(permissions?.is_owner ?? permissions?.isOwner ?? false);
+  const isAdmin = Boolean(permissions?.is_admin ?? permissions?.isAdmin ?? false);
+
+  return {
+    is_owner: isOwner,
+    is_admin: isAdmin,
+    can_view: Boolean(permissions?.can_view ?? permissions?.canView ?? false),
+    can_edit: Boolean(permissions?.can_edit ?? permissions?.canEdit ?? false),
+    can_add: Boolean(permissions?.can_add ?? permissions?.canAdd ?? false),
+    can_delete: Boolean(permissions?.can_delete ?? permissions?.canDelete ?? false)
+  };
+};
+
 const makeId = () => {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -143,6 +157,9 @@ export default function ClientVault() {
   const [vaultDataKey, setVaultDataKey] = useState(null);
   const [vaultPermissions, setVaultPermissions] = useState(null);
   const [vaultKeyError, setVaultKeyError] = useState('');
+  const effectiveVaultPermissions = vaultPermissions
+    ? normalizeVaultPermissions(vaultPermissions)
+    : null;
 
   const getServerLabel = (serverId) => {
     const server = tsForm.servers.find((item) => item.id === serverId);
@@ -200,10 +217,19 @@ export default function ClientVault() {
       try {
         const permissionsResponse = await api.get(`/vault-items/${id}/permissions`);
         const permissions = permissionsResponse.data;
-        if (cancelled) return;
-        setVaultPermissions(permissions);
+        if (!permissions || typeof permissions !== 'object') {
+          throw new Error('O servidor retornou permissões inválidas para este cofre.');
+        }
 
-        if (permissions.is_owner) {
+        const normalizedPermissions = normalizeVaultPermissions(permissions);
+        if (!normalizedPermissions.can_view && !normalizedPermissions.is_owner && !normalizedPermissions.is_admin) {
+          throw new Error('Você não possui permissão para visualizar este cofre.');
+        }
+
+        if (cancelled) return;
+        setVaultPermissions(normalizedPermissions);
+
+        if (normalizedPermissions.is_owner) {
           setVaultDataKey(masterKey);
           return;
         }
@@ -519,13 +545,13 @@ export default function ClientVault() {
     );
   }
 
-  if (!vaultDataKey || !vaultPermissions) {
+  if (!vaultDataKey || !effectiveVaultPermissions) {
     return <p className="max-w-5xl mx-auto mt-10 text-sm text-slate-500">Carregando acesso seguro ao cofre...</p>;
   }
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto" data-vault-readonly-scope="true">
-      <VaultReadOnlyGuard enabled permissions={vaultPermissions} />
+      <VaultReadOnlyGuard enabled permissions={effectiveVaultPermissions} />
       <div className="flex items-center gap-4">
         <Link to="/" className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-full transition-colors">
           <ArrowLeft className="w-5 h-5" />
@@ -853,7 +879,7 @@ export default function ClientVault() {
         </div>
       </div>
 
-      {(vaultPermissions.is_owner || vaultPermissions.is_admin) && (
+      {(effectiveVaultPermissions.is_owner || effectiveVaultPermissions.is_admin) && (
         <div className="bg-white shadow rounded-lg border border-slate-200 p-6">
           <VaultSharingManager clientId={id} clientVaultKey={vaultDataKey} />
         </div>
