@@ -1,5 +1,6 @@
 const db = require('../config/database');
 const { ensureSharingSchema } = require('../services/accessControlService');
+const { isSuperAdmin } = require('../config/security');
 
 // GET /api/clients - Lista apenas cofres próprios ou compartilhados com grupos que podem visualizar
 const getClients = async (req, res) => {
@@ -10,7 +11,7 @@ const getClients = async (req, res) => {
     let query;
     let params = [];
 
-    if (req.user.role === 'admin') {
+    if (isSuperAdmin(req.user)) {
       query = `
         SELECT c.*,
                TRUE AS can_view,

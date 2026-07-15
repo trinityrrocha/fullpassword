@@ -140,10 +140,6 @@ const createUser = async (req, res) => {
       );
     }
 
-    if (newUser.role === 'admin') {
-      await ensureAdminGroupMembership(client, newUser.id);
-    }
-
     await client.query('COMMIT');
 
     res.status(201).json(newUser);
@@ -253,7 +249,16 @@ const updateUser = async (req, res) => {
     }
 
     const { id } = req.params;
-    const { name, email, role, is_active, password, groupIds } = req.body;
+    const { name, email, role, is_active, password } = req.body;
+    const groupIdsProvided = Object.prototype.hasOwnProperty.call(req.body, 'groupIds') ||
+      Object.prototype.hasOwnProperty.call(req.body, 'group_ids');
+    const groupIds = Object.prototype.hasOwnProperty.call(req.body, 'groupIds')
+      ? req.body.groupIds
+      : req.body.group_ids;
+
+    if (groupIdsProvided && !Array.isArray(groupIds)) {
+      return res.status(400).json({ error: 'Lista de grupos inválida' });
+    }
     if (role !== undefined && !VALID_ROLES.has(role)) {
       return res.status(400).json({ error: 'Nível de acesso inválido' });
     }
@@ -270,7 +275,6 @@ const updateUser = async (req, res) => {
     }
 
     const targetEmail = existingUser.rows[0].email;
-    const nextRole = role !== undefined ? role : existingUser.rows[0].role;
     const targetIsSuperAdmin = isSuperAdmin(existingUser.rows[0]);
 
     if (targetIsSuperAdmin) {
@@ -348,7 +352,7 @@ const updateUser = async (req, res) => {
       updates.push('token_version = token_version + 1');
     }
 
-    if (updates.length === 0 && groupIds === undefined) {
+    if (updates.length === 0 && !groupIdsProvided) {
       return res.status(400).json({ error: 'Nenhum dado fornecido para atualização' });
     }
 
@@ -368,7 +372,7 @@ const updateUser = async (req, res) => {
       updatedUser = result.rows[0];
     }
 
-    if (Array.isArray(groupIds)) {
+    if (groupIdsProvided) {
       const validGroupIds = await getValidGroupIds(groupIds);
       await client.query('DELETE FROM user_groups WHERE user_id = $1', [id]);
 
@@ -380,7 +384,7 @@ const updateUser = async (req, res) => {
       }
     }
 
-    if (targetIsSuperAdmin || nextRole === 'admin') {
+    if (targetIsSuperAdmin) {
       await ensureAdminGroupMembership(client, id);
     }
 

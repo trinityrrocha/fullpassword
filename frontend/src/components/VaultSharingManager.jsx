@@ -127,11 +127,12 @@ export default function VaultSharingManager({ clientId, clientVaultKey }) {
       });
     }
 
-    if (prepared.length > 0) {
-      await api.put(`/vault-items/${clientId}/key-shares`, { shares: prepared });
+    if (pending.length > 0) {
+      const names = pending.map((item) => item.name || item.email).join(', ');
+      throw new Error(`Compartilhamento não salvo. Estes usuários ainda precisam entrar e desbloquear o cofre uma vez: ${names}.`);
     }
 
-    return pending.length;
+    await api.put(`/vault-items/${clientId}/key-shares`, { shares: prepared });
   };
 
   const saveShares = async () => {
@@ -150,14 +151,9 @@ export default function VaultSharingManager({ clientId, clientVaultKey }) {
 
     setIsSaving(true);
     try {
+      await syncKeyShares([...uniqueGroupIds]);
       await api.put(`/vault-items/${clientId}/shares`, { shares: cleanedShares });
-      const pendingCount = await syncKeyShares([...uniqueGroupIds]);
-
-      if (pendingCount > 0) {
-        alert(`Compartilhamento salvo. ${pendingCount} usuário(s) ainda precisam entrar no sistema e desbloquear o cofre uma vez para receber acesso criptográfico.`);
-      } else {
-        alert('Compartilhamento do cofre atualizado com sucesso.');
-      }
+      alert('Compartilhamento do cofre atualizado com sucesso.');
 
       await loadSharingData();
     } catch (err) {

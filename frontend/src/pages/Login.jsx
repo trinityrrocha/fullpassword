@@ -160,6 +160,7 @@ export default function Login() {
                   ? setBootstrap((value) => ({ ...value, password: e.target.value }))
                   : setPassword(e.target.value)}
                 required={true}
+                enableGenerator={bootstrapRequired}
                 placeholder="Sua senha mestre"
               />
             </div>

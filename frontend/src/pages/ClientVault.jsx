@@ -2,8 +2,11 @@ import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft, Server, Globe, Shield, HardDrive, Plus, Save, KeyRound, Edit2, Trash2, X } from 'lucide-react';
 import SecurePasswordInput from '../components/SecurePasswordInput';
+import VaultSharingManager from '../components/VaultSharingManager';
+import VaultReadOnlyGuard from '../components/VaultReadOnlyGuard';
 import { useAuth } from '../context/AuthContext';
 import { encryptData, encryptFile, decryptData, base64ToBlob, downloadBlob } from '../services/cryptoService';
+import { decryptVaultKeyShare } from '../services/clientVaultKeyService';
 import api from '../services/api';
 
 const makeId = () => {
@@ -132,11 +135,14 @@ export default function ClientVault() {
     attachment: null
   });
 
-  const { masterKey, isVaultUnlocked, unlockVault } = useAuth();
+  const { user, masterKey, isVaultUnlocked, unlockVault } = useAuth();
   const [unlockPassword, setUnlockPassword] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [savedItems, setSavedItems] = useState([]);
+  const [vaultDataKey, setVaultDataKey] = useState(null);
+  const [vaultPermissions, setVaultPermissions] = useState(null);
+  const [vaultKeyError, setVaultKeyError] = useState('');
 
   const getServerLabel = (serverId) => {
     const server = tsForm.servers.find((item) => item.id === serverId);
@@ -145,7 +151,7 @@ export default function ClientVault() {
   };
 
   const loadVaultItems = async () => {
-    if (!isVaultUnlocked) return;
+    if (!vaultDataKey) return;
 
     setIsLoading(true);
     try {
@@ -156,7 +162,7 @@ export default function ClientVault() {
 
       for (const item of items) {
         try {
-          const decryptedData = await decryptData(item.encrypted_data, masterKey);
+          const decryptedData = await decryptData(item.encrypted_data, vaultDataKey);
           decryptedItems.push({ ...item, decrypted: decryptedData });
 
           // O backend retorna por created_at DESC. Só o primeiro item de cada categoria deve popular o formulário.
@@ -185,15 +191,54 @@ export default function ClientVault() {
   };
 
   useEffect(() => {
-    if (isVaultUnlocked) {
-      loadVaultItems();
-    }
-  }, [id, isVaultUnlocked]);
+    if (!isVaultUnlocked || !masterKey || !user) return;
+
+    let cancelled = false;
+    const loadVaultAccess = async () => {
+      setVaultDataKey(null);
+      setVaultKeyError('');
+      try {
+        const permissionsResponse = await api.get(`/vault-items/${id}/permissions`);
+        const permissions = permissionsResponse.data;
+        if (cancelled) return;
+        setVaultPermissions(permissions);
+
+        if (permissions.is_owner) {
+          setVaultDataKey(masterKey);
+          return;
+        }
+
+        const keyResponse = await api.get(`/vault-items/${id}/key-share`);
+        if (!keyResponse.data?.encrypted_client_key || !user.encrypted_private_key) {
+          throw new Error('A chave criptográfica deste cofre ainda não foi entregue. Peça ao proprietário para salvar o compartilhamento novamente.');
+        }
+
+        const sharedKey = await decryptVaultKeyShare(
+          keyResponse.data.encrypted_client_key,
+          user.encrypted_private_key,
+          masterKey
+        );
+        if (!cancelled) setVaultDataKey(sharedKey);
+      } catch (error) {
+        console.error('Erro ao carregar acesso criptográfico do cofre:', error);
+        if (!cancelled) {
+          setVaultKeyError(error.response?.data?.error || error.message || 'Não foi possível carregar a chave deste cofre.');
+        }
+      }
+    };
+
+    loadVaultAccess();
+    return () => { cancelled = true; };
+  }, [id, isVaultUnlocked, masterKey, user]);
+
+  useEffect(() => {
+    if (vaultDataKey) loadVaultItems();
+  }, [id, vaultDataKey]);
 
   const handleSaveData = async (category, data, options = {}) => {
     const { showSuccess = true, successMessage } = options;
 
-    if (!isVaultUnlocked) {
+    if (!vaultDataKey) {
       alert('Cofre bloqueado. Por favor, insira sua senha mestre para continuar.');
       return false;
     }
@@ -213,13 +258,13 @@ export default function ClientVault() {
       let dataToEncrypt = { ...normalizedData };
 
       if (category === 'Servidores Diversos' && normalizedData.attachment) {
-        encryptedAttachment = await encryptFile(normalizedData.attachment, masterKey);
+        encryptedAttachment = await encryptFile(normalizedData.attachment, vaultDataKey);
         delete dataToEncrypt.attachment;
         dataToEncrypt.hasAttachment = true;
         dataToEncrypt.attachmentName = normalizedData.attachment.name;
       }
 
-      const encryptedData = await encryptData(dataToEncrypt, masterKey);
+      const encryptedData = await encryptData(dataToEncrypt, vaultDataKey);
       const payload = {
         category,
         encrypted_data: encryptedData,
@@ -269,7 +314,7 @@ export default function ClientVault() {
     if (!item.encrypted_attachment) return;
 
     try {
-      const decryptedFile = await decryptData(item.encrypted_attachment, masterKey);
+      const decryptedFile = await decryptData(item.encrypted_attachment, vaultDataKey);
       const blob = base64ToBlob(decryptedFile.data);
       downloadBlob(blob, decryptedFile.name);
     } catch (error) {
@@ -464,8 +509,23 @@ export default function ClientVault() {
     );
   }
 
+  if (vaultKeyError) {
+    return (
+      <div className="max-w-2xl mx-auto mt-10 rounded-lg border border-amber-200 bg-amber-50 p-6 text-amber-900">
+        <h2 className="text-lg font-semibold">Acesso criptográfico pendente</h2>
+        <p className="mt-2 text-sm">{vaultKeyError}</p>
+        <Link to="/" className="inline-flex mt-4 text-sm font-medium text-indigo-600 hover:text-indigo-800">Voltar aos cofres</Link>
+      </div>
+    );
+  }
+
+  if (!vaultDataKey || !vaultPermissions) {
+    return <p className="max-w-5xl mx-auto mt-10 text-sm text-slate-500">Carregando acesso seguro ao cofre...</p>;
+  }
+
   return (
-    <div className="space-y-6 max-w-5xl mx-auto">
+    <div className="space-y-6 max-w-5xl mx-auto" data-vault-readonly-scope="true">
+      <VaultReadOnlyGuard enabled permissions={vaultPermissions} />
       <div className="flex items-center gap-4">
         <Link to="/" className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-full transition-colors">
           <ArrowLeft className="w-5 h-5" />
@@ -792,6 +852,12 @@ export default function ClientVault() {
           )}
         </div>
       </div>
+
+      {(vaultPermissions.is_owner || vaultPermissions.is_admin) && (
+        <div className="bg-white shadow rounded-lg border border-slate-200 p-6">
+          <VaultSharingManager clientId={id} clientVaultKey={vaultDataKey} />
+        </div>
+      )}
 
       {editingUser && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900 bg-opacity-60 p-4">

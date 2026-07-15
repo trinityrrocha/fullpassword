@@ -1,4 +1,5 @@
 const db = require('../config/database');
+const { isSuperAdmin } = require('../config/security');
 
 let schemaReady = false;
 
@@ -89,7 +90,7 @@ const getClientPermissions = async (clientId, user = {}) => {
   await ensureSharingSchema();
 
   if (!user.id) return emptyPermissions();
-  if (user.role === 'admin') return fullPermissions('admin');
+  if (isSuperAdmin(user)) return fullPermissions('admin');
 
   const userGroups = getUserGroups(user);
   const result = await db.query(
