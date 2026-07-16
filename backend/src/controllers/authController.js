@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const db = require('../config/database');
 const { recordAuditEvent } = require('../services/auditService');
 const { applyAutomaticBlockForLoginFailure } = require('../services/ipSecurityService');
+const { getTrustedCountry } = require('../services/securityMetadataService');
 const {
   JWT_SECRET,
   JWT_EXPIRES_IN,
@@ -26,7 +27,7 @@ const auditLoginFailure = async (req, emailAttempted, reason, user = null) => {
     action: 'login_failed',
     status: 'denied',
     req,
-    metadata: { email_attempted: emailAttempted || null, reason }
+    metadata: { email_attempted: emailAttempted || null, reason, country: getTrustedCountry(req) }
   });
   await applyAutomaticBlockForLoginFailure(req);
 };
@@ -252,7 +253,7 @@ const login = async (req, res) => {
       action: 'login_success',
       status: 'success',
       req,
-      metadata: { email: user.email, method: 'password' }
+      metadata: { email: user.email, method: 'password', country: getTrustedCountry(req) }
     });
     return res.status(200).json({
       message: 'Login realizado com sucesso',
