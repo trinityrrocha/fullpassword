@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Server, Globe, Shield, HardDrive, Plus, Save, KeyRound, Edit2, Trash2, X } from 'lucide-react';
+import { ArrowLeft, Server, Globe, Shield, HardDrive, Plus, Save, Share, KeyRound, Edit2, Trash2, X } from 'lucide-react';
 import SecurePasswordInput from '../components/SecurePasswordInput';
 import VaultSharingManager from '../components/VaultSharingManager';
 import VaultReadOnlyGuard from '../components/VaultReadOnlyGuard';
@@ -157,6 +157,7 @@ export default function ClientVault() {
   const [vaultDataKey, setVaultDataKey] = useState(null);
   const [vaultPermissions, setVaultPermissions] = useState(null);
   const [vaultKeyError, setVaultKeyError] = useState('');
+  const [isSharingModalOpen, setIsSharingModalOpen] = useState(false);
   const effectiveVaultPermissions = vaultPermissions
     ? normalizeVaultPermissions(vaultPermissions)
     : null;
@@ -562,14 +563,21 @@ export default function ClientVault() {
   return (
     <div className="space-y-6 max-w-5xl mx-auto" data-vault-readonly-scope="true">
       <VaultReadOnlyGuard enabled permissions={effectiveVaultPermissions} />
-      <div className="flex items-center gap-4">
-        <Link to="/" className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-full transition-colors">
-          <ArrowLeft className="w-5 h-5" />
-        </Link>
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">{client.name}</h1>
-          <p className="text-sm text-slate-500">Cofre de Senhas e Credenciais</p>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div className="flex items-center gap-4">
+          <Link to="/" className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-full transition-colors">
+            <ArrowLeft className="w-5 h-5" />
+          </Link>
+          <div>
+            <h1 className="text-2xl font-bold text-slate-900">{client.name}</h1>
+            <p className="text-sm text-slate-500">Cofre de Senhas e Credenciais</p>
+          </div>
         </div>
+        {(effectiveVaultPermissions.is_owner || effectiveVaultPermissions.is_admin) && (
+          <button type="button" onClick={() => setIsSharingModalOpen(true)} className="inline-flex items-center justify-center px-4 py-2 border border-indigo-200 rounded-md shadow-sm text-sm font-medium text-indigo-700 bg-white hover:bg-indigo-50">
+            <Share className="w-4 h-4 mr-2" /> Compartilhar
+          </button>
+        )}
       </div>
 
       {allVaultItemsFailed && !effectiveVaultPermissions.is_owner && (
@@ -907,9 +915,19 @@ export default function ClientVault() {
         </div>
       </div>
 
-      {(effectiveVaultPermissions.is_owner || effectiveVaultPermissions.is_admin) && (
-        <div className="bg-white shadow rounded-lg border border-slate-200 p-6">
-          <VaultSharingManager clientId={id} clientVaultKey={vaultDataKey} />
+      {isSharingModalOpen && (effectiveVaultPermissions.is_owner || effectiveVaultPermissions.is_admin) && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900 bg-opacity-60 p-4">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
+              <h2 className="text-lg font-semibold text-slate-900">Compartilhamento do Cofre</h2>
+              <button type="button" onClick={() => setIsSharingModalOpen(false)} className="text-slate-400 hover:text-slate-600" aria-label="Fechar compartilhamento">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-6">
+              <VaultSharingManager clientId={id} clientVaultKey={vaultDataKey} compact />
+            </div>
+          </div>
         </div>
       )}
 

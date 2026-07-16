@@ -57,16 +57,12 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL:-/api}
     container_name: fullpassword_frontend
     restart: always
     expose:
-      - "5173"
-    environment:
-      - VITE_API_URL=${VITE_API_URL:-/api}
-    volumes:
-      - ./frontend:/usr/src/app
-      - /usr/src/app/node_modules
-      - ./.git:/opt/fullpassword/.git:ro
+      - "80"
     networks:
       - fullpassword_network
 

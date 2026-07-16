@@ -69,6 +69,7 @@ docker/nginx.runtime.conf
 
 # Docker
 .dockerignore
+!frontend/.dockerignore
 
 # Arquivos de Sistema
 Thumbs.db

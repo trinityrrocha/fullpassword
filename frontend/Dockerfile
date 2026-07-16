@@ -1,18 +1,19 @@
-FROM node:20-alpine
+FROM node:20-alpine AS build
 
 WORKDIR /usr/src/app
 
-# Copiar os arquivos de dependências
 COPY package*.json ./
+RUN npm ci
 
-# Instalar dependências
-RUN npm install
-
-# Copiar o resto do código
 COPY . .
 
-# Expor a porta do Vite
-EXPOSE 5173
+ARG VITE_API_URL=/api
+ENV VITE_API_URL=$VITE_API_URL
+RUN npm run build
 
-# Comando para iniciar o Vite com host 0.0.0.0
-CMD ["npm", "run", "dev", "--", "--host"]
+FROM nginx:alpine
+
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=build /usr/src/app/dist /usr/share/nginx/html
+
+EXPOSE 80
