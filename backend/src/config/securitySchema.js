@@ -39,6 +39,20 @@ const ensureSecuritySchema = async () => {
     await client.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version INTEGER NOT NULL DEFAULT 0');
     await client.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS is_super_admin BOOLEAN NOT NULL DEFAULT FALSE');
     await client.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT FALSE');
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS system_audit_events (
+        id BIGSERIAL PRIMARY KEY,
+        user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+        user_email TEXT,
+        action VARCHAR(100) NOT NULL,
+        status VARCHAR(40) NOT NULL,
+        ip_address TEXT,
+        user_agent TEXT,
+        metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    await client.query('CREATE INDEX IF NOT EXISTS idx_system_audit_events_created_at ON system_audit_events (created_at DESC)');
 
     await client.query(`
       CREATE OR REPLACE FUNCTION protect_super_admin_user()

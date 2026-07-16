@@ -1,6 +1,11 @@
-const { exec } = require('child_process');
+const crypto = require('crypto');
+const fs = require('fs/promises');
+const path = require('path');
 const db = require('../config/database');
 const { SUPER_ADMIN_EMAIL, normalizeRole, isSuperAdmin } = require('../config/security');
+const { recordAuditEvent } = require('../services/auditService');
+
+const UPDATER_REQUEST_DIR = process.env.UPDATER_REQUEST_DIR || '/var/lib/fullpassword-updater/requests';
 
 const denyNonSuperAdmin = (res) => {
   return res.status(403).json({
@@ -105,39 +110,44 @@ const getSystemPermissions = async (req, res) => {
 const updateSystem = async (req, res) => {
   try {
     if (!isSuperAdmin(req.user)) {
+      await recordAuditEvent({ user: req.user, action: 'system_update_request', status: 'denied', req });
       return denyNonSuperAdmin(res);
     }
 
-    res.status(200).json({
-      message: 'Atualização iniciada. O sistema será atualizado e reiniciado em breve.',
+    const requestId = crypto.randomUUID();
+    const request = {
+      request_id: requestId,
+      requested_by_user_id: req.user.id,
+      requested_by_email: req.user.email,
+      requested_at: new Date().toISOString(),
+      ip: req.ip || null,
+      user_agent: String(req.get('user-agent') || '').slice(0, 1000) || null
+    };
+
+    await fs.mkdir(UPDATER_REQUEST_DIR, { recursive: true });
+    const finalPath = path.join(UPDATER_REQUEST_DIR, `${requestId}.json`);
+    const temporaryPath = `${finalPath}.tmp`;
+    await fs.writeFile(temporaryPath, JSON.stringify(request), { encoding: 'utf8', flag: 'wx', mode: 0o600 });
+    await fs.rename(temporaryPath, finalPath);
+
+    await recordAuditEvent({
+      user: req.user,
+      action: 'system_update_request',
+      status: 'accepted',
+      req,
+      metadata: { request_id: requestId }
+    });
+
+    return res.status(202).json({
+      message: 'Solicitação de atualização registrada. O sistema será atualizado em breve.',
+      request_id: requestId,
       estimatedTime: 60
     });
 
-    setTimeout(() => {
-      console.log(`Iniciando WebUpdater pelo Super Admin ${req.user.email}...`);
-
-      const updateCommand = `docker run --rm -d \
-        -v /var/run/docker.sock:/var/run/docker.sock \
-        -v /opt/fullpassword:/opt/fullpassword \
-        -w /opt/fullpassword \
-        fullpassword-backend \
-        sh -c "sleep 3 && sh scripts/update.sh"`;
-
-      exec(updateCommand, (error, stdout, stderr) => {
-        if (error) {
-          console.error(`Erro na atualização: ${error.message}`);
-          return;
-        }
-        if (stderr) {
-          console.error(`Stderr da atualização: ${stderr}`);
-        }
-        console.log(`Stdout da atualização: ${stdout}`);
-      });
-    }, 1000);
-
   } catch (error) {
     console.error('Erro ao iniciar atualização:', error);
-    res.status(500).json({ error: 'Erro interno ao iniciar atualização' });
+    await recordAuditEvent({ user: req.user, action: 'system_update_request', status: 'failed', req });
+    return res.status(500).json({ error: 'Erro interno ao registrar solicitação de atualização' });
   }
 };
 

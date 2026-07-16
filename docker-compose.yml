@@ -46,10 +46,23 @@ services:
       db:
         condition: service_healthy
     volumes:
-      - ./backend:/usr/src/app
-      - /usr/src/app/node_modules
+      - updater_requests:/var/lib/fullpassword-updater
+    networks:
+      - fullpassword_network
+
+  updater:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: fullpassword_updater
+    restart: always
+    command: ["sh", "/opt/fullpassword/scripts/updater-daemon.sh"]
+    environment:
+      - APP_DIR=/opt/fullpassword
+    volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ./:/opt/fullpassword # Mapeia a raiz do projeto para permitir o git pull
+      - ./:/opt/fullpassword
+      - updater_requests:/var/lib/fullpassword-updater
     networks:
       - fullpassword_network
 
@@ -84,6 +97,7 @@ services:
 
 volumes:
   pgdata:
+  updater_requests:
 
 networks:
   fullpassword_network:

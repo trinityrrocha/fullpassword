@@ -138,7 +138,14 @@ log "Validando Docker Compose"
 compose config >/dev/null
 
 log "Reconstruindo e reiniciando containers"
-compose up -d --build --remove-orphans
+if [ -n "${UPDATE_SERVICES:-}" ]; then
+  # O daemon não recria o próprio container durante uma solicitação em andamento.
+  # A lista é definida internamente pelo updater, não por entrada HTTP.
+  # shellcheck disable=SC2086
+  compose up -d --build --remove-orphans $UPDATE_SERVICES
+else
+  compose up -d --build --remove-orphans
+fi
 sleep 5
 compose restart nginx
 compose ps
