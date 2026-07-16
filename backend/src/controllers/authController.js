@@ -2,6 +2,7 @@ const jwt = require('jsonwebtoken');
 const argon2 = require('argon2');
 const crypto = require('crypto');
 const db = require('../config/database');
+const { recordAuditEvent } = require('../services/auditService');
 const {
   JWT_SECRET,
   JWT_EXPIRES_IN,
@@ -16,6 +17,18 @@ const LEGACY_ADMIN_HASH = '$argon2id$v=19$m=65536,t=3,p=4$PLACEHOLDER_HASH_FOR_@
 
 const isStrongPassword = (password) => typeof password === 'string' && password.length >= 12;
 const SESSION_COOKIE_NAME = 'fp_session';
+
+const auditLoginFailure = (req, emailAttempted, reason, user = null) => recordAuditEvent({
+  user,
+  userEmail: emailAttempted || null,
+  action: 'login_failed',
+  status: 'denied',
+  req,
+  metadata: {
+    email_attempted: emailAttempted || null,
+    reason
+  }
+});
 
 const parseDurationMs = (duration) => {
   const match = String(duration || '').trim().match(/^(\d+)([smhd])$/i);
@@ -175,7 +188,10 @@ const login = async (req, res) => {
   try {
     const email = normalizeEmail(req.body?.email);
     const password = req.body?.password;
-    if (!email || !password) return res.status(400).json({ error: 'Email e senha são obrigatórios' });
+    if (!email || !password) {
+      await auditLoginFailure(req, email, 'missing_credentials');
+      return res.status(400).json({ error: 'Email e senha são obrigatórios' });
+    }
 
     const result = await db.query(
       `SELECT id, name, email, hash_senha_login, role, wrapped_key, crypto_salt,
@@ -186,9 +202,13 @@ const login = async (req, res) => {
     );
     const user = result.rows[0];
     if (!user || user.hash_senha_login === LEGACY_ADMIN_HASH) {
+      await auditLoginFailure(req, email, user ? 'legacy_admin_blocked' : 'invalid_credentials');
       return res.status(401).json({ error: 'Credenciais inválidas' });
     }
-    if (user.is_active === false) return res.status(403).json({ error: 'Conta inativa. Contate o administrador.' });
+    if (user.is_active === false) {
+      await auditLoginFailure(req, email, 'inactive_account', user);
+      return res.status(403).json({ error: 'Conta inativa. Contate o administrador.' });
+    }
 
     let isPasswordValid = false;
     try {
@@ -196,7 +216,10 @@ const login = async (req, res) => {
     } catch (error) {
       console.error('Erro ao verificar senha com Argon2:', error);
     }
-    if (!isPasswordValid) return res.status(401).json({ error: 'Credenciais inválidas' });
+    if (!isPasswordValid) {
+      await auditLoginFailure(req, email, 'invalid_credentials', user);
+      return res.status(401).json({ error: 'Credenciais inválidas' });
+    }
 
     const groupsResult = await db.query('SELECT group_id FROM user_groups WHERE user_id = $1', [user.id]);
     const groups = groupsResult.rows.map((row) => row.group_id);
@@ -223,6 +246,13 @@ const login = async (req, res) => {
       { expiresIn: JWT_EXPIRES_IN }
     );
     res.cookie(SESSION_COOKIE_NAME, token, sessionCookieOptions());
+    await recordAuditEvent({
+      user,
+      action: 'login_success',
+      status: 'success',
+      req,
+      metadata: { email: user.email, method: 'password' }
+    });
     return res.status(200).json({
       message: 'Login realizado com sucesso',
       user: serializeUser({ ...user, wrapped_key: finalWrappedKey, crypto_salt: finalCryptoSalt }, groups)

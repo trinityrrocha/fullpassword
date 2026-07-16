@@ -1,6 +1,6 @@
 const db = require('../config/database');
 
-const recordAuditEvent = async ({ user, action, status, req, metadata = {} }) => {
+const recordAuditEvent = async ({ user, userEmail, action, status, req, metadata = {} }) => {
   try {
     await db.query(
       `INSERT INTO system_audit_events
@@ -8,7 +8,7 @@ const recordAuditEvent = async ({ user, action, status, req, metadata = {} }) =>
        VALUES ($1, $2, $3, $4, $5, $6, $7)`,
       [
         user?.id || null,
-        user?.email || null,
+        user?.email || userEmail || null,
         action,
         status,
         req?.ip || null,
