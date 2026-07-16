@@ -8,9 +8,7 @@ const isRequiredPasswordChangeRoute = (req) => {
 };
 
 const verifyToken = async (req, res, next) => {
-  const authHeader = req.headers.authorization;
-  const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.split(' ')[1] : null;
-  const token = req.cookies?.fp_session || bearerToken;
+  const token = req.cookies?.fp_session;
 
   if (!token) return res.status(401).json({ error: 'Sessão não encontrada. Faça login novamente.' });
 
