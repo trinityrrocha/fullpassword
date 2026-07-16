@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Plus, Save, Trash2, Users, ShieldCheck } from 'lucide-react';
+import { Plus, RefreshCw, Save, Trash2, Users, ShieldCheck } from 'lucide-react';
 import api from '../services/api';
 import { encryptVaultKeyForPublicKey } from '../services/clientVaultKeyService';
 
@@ -30,11 +30,11 @@ const getPermissionSummary = (group = {}) => {
 
 export default function VaultSharingManager({ clientId, clientVaultKey }) {
   const [groups, setGroups] = useState([]);
-  const [users, setUsers] = useState([]);
   const [shares, setShares] = useState([]);
   const [selectedGroupId, setSelectedGroupId] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
   const [error, setError] = useState('');
 
   const groupMap = useMemo(() => {
@@ -48,15 +48,13 @@ export default function VaultSharingManager({ clientId, clientVaultKey }) {
     setError('');
 
     try {
-      const [groupsResponse, sharesResponse, usersResponse] = await Promise.all([
+      const [groupsResponse, sharesResponse] = await Promise.all([
         api.get('/groups/options'),
-        api.get(`/vault-items/${clientId}/shares`),
-        api.get('/users')
+        api.get(`/vault-items/${clientId}/shares`)
       ]);
 
       setGroups(groupsResponse.data || []);
       setShares((sharesResponse.data || []).map(normalizeShare));
-      setUsers(usersResponse.data || []);
     } catch (err) {
       console.error('Erro ao carregar compartilhamento do cofre:', err);
       setError(err.response?.data?.error || 'Você não tem permissão para gerenciar o compartilhamento deste cofre.');
@@ -105,8 +103,11 @@ export default function VaultSharingManager({ clientId, clientVaultKey }) {
       throw new Error('A chave do cofre ainda não foi carregada. Desbloqueie o cofre novamente antes de compartilhar.');
     }
 
+    const usersResponse = await api.get('/users');
+    const currentUsers = usersResponse.data || [];
+
     const selected = new Set(groupIds);
-    const targetUsers = users.filter((item) => (
+    const targetUsers = currentUsers.filter((item) => (
       item.is_active !== false &&
       Array.isArray(item.groups) &&
       item.groups.some((group) => selected.has(group.id))
@@ -128,8 +129,10 @@ export default function VaultSharingManager({ clientId, clientVaultKey }) {
     }
 
     if (pending.length > 0) {
-      const names = pending.map((item) => item.name || item.email).join(', ');
-      throw new Error(`Compartilhamento não salvo. Estes usuários ainda precisam entrar e desbloquear o cofre uma vez: ${names}.`);
+      const names = pending
+        .map((item) => item.name && item.email ? `${item.name} (${item.email})` : item.name || item.email)
+        .join(', ');
+      throw new Error(`Nenhuma chave foi alterada. Usuários sem chave pública: ${names}. Eles precisam entrar e desbloquear o cofre uma vez.`);
     }
 
     await api.put(`/vault-items/${clientId}/key-shares`, { shares: prepared });
@@ -140,7 +143,10 @@ export default function VaultSharingManager({ clientId, clientVaultKey }) {
       .filter((share) => share.group_id)
       .map((share) => ({
         group_id: share.group_id,
-        can_view: true
+        can_view: share.can_view,
+        can_edit: share.can_edit,
+        can_add: share.can_add,
+        can_delete: share.can_delete
       }));
 
     const uniqueGroupIds = new Set(cleanedShares.map((share) => share.group_id));
@@ -161,6 +167,23 @@ export default function VaultSharingManager({ clientId, clientVaultKey }) {
       alert(err.message || err.response?.data?.error || 'Erro ao salvar compartilhamento do cofre.');
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const resyncKeyShares = async () => {
+    setIsSyncing(true);
+    try {
+      const sharesResponse = await api.get(`/vault-items/${clientId}/shares`);
+      const currentShares = (sharesResponse.data || []).map(normalizeShare);
+      const currentGroupIds = currentShares.map((share) => share.group_id).filter(Boolean);
+      setShares(currentShares);
+      await syncKeyShares(currentGroupIds);
+      alert('Chaves do compartilhamento ressincronizadas com sucesso.');
+    } catch (err) {
+      console.error('Erro ao ressincronizar chaves do compartilhamento:', err);
+      alert(err.message || err.response?.data?.error || 'Erro ao ressincronizar chaves do compartilhamento.');
+    } finally {
+      setIsSyncing(false);
     }
   };
 
@@ -232,7 +255,10 @@ export default function VaultSharingManager({ clientId, clientVaultKey }) {
         })}
       </div>
 
-      <div className="flex justify-end pt-2">
+      <div className="flex flex-col sm:flex-row justify-end gap-3 pt-2">
+        <button type="button" onClick={resyncKeyShares} disabled={isSaving || isSyncing} className="inline-flex items-center justify-center px-4 py-2 border border-indigo-200 rounded-md shadow-sm text-sm font-medium text-indigo-700 bg-white hover:bg-indigo-50 disabled:opacity-50">
+          <RefreshCw className={`w-4 h-4 mr-2 ${isSyncing ? 'animate-spin' : ''}`} /> {isSyncing ? 'Ressincronizando...' : 'Ressincronizar chaves do compartilhamento'}
+        </button>
         <button type="button" onClick={saveShares} disabled={isSaving} className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50">
           <Save className="w-4 h-4 mr-2" /> {isSaving ? 'Salvando...' : 'Salvar compartilhamento'}
         </button>

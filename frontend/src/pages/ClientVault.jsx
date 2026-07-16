@@ -160,6 +160,8 @@ export default function ClientVault() {
   const effectiveVaultPermissions = vaultPermissions
     ? normalizeVaultPermissions(vaultPermissions)
     : null;
+  const failedVaultItems = savedItems.filter((item) => item.decryptError);
+  const allVaultItemsFailed = savedItems.length > 0 && failedVaultItems.length === savedItems.length;
 
   const getServerLabel = (serverId) => {
     const server = tsForm.servers.find((item) => item.id === serverId);
@@ -176,6 +178,7 @@ export default function ClientVault() {
       const items = response.data || [];
       const decryptedItems = [];
       const loadedCategories = new Set();
+      const decryptionFailures = [];
 
       for (const item of items) {
         try {
@@ -194,9 +197,16 @@ export default function ClientVault() {
             setServerForm({ ...decryptedData, attachment: null });
           }
         } catch (err) {
-          console.error(`Falha ao descriptografar item ${item.id}:`, err);
+          decryptionFailures.push({ id: item.id, category: item.category, error: err });
           decryptedItems.push({ ...item, decryptError: true });
         }
+      }
+
+      if (decryptionFailures.length > 0) {
+        console.warn('Alguns itens do cofre não puderam ser descriptografados.', {
+          failedItems: decryptionFailures.map(({ id: itemId, category }) => ({ id: itemId, category })),
+          total: items.length
+        });
       }
 
       setSavedItems(decryptedItems);
@@ -561,6 +571,24 @@ export default function ClientVault() {
           <p className="text-sm text-slate-500">Cofre de Senhas e Credenciais</p>
         </div>
       </div>
+
+      {allVaultItemsFailed && !effectiveVaultPermissions.is_owner && (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 p-5 text-amber-900">
+          <h2 className="font-semibold">Não foi possível descriptografar os itens deste cofre</h2>
+          <p className="mt-1 text-sm">A chave compartilhada deste cofre está inválida ou desatualizada. Peça ao proprietário para ressincronizar o compartilhamento.</p>
+        </div>
+      )}
+
+      {failedVaultItems.length > 0 && !allVaultItemsFailed && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-5">
+          <h2 className="font-semibold text-amber-900">Alguns itens não puderam ser abertos</h2>
+          <ul className="mt-2 space-y-1 text-sm text-amber-800">
+            {failedVaultItems.map((item) => (
+              <li key={item.id}>{item.category || 'Item do cofre'}: Não foi possível descriptografar este item.</li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <div className="bg-white shadow rounded-lg border border-slate-200 overflow-hidden">
         <div className="border-b border-slate-200">
