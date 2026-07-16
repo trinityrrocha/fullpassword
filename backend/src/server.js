@@ -7,6 +7,7 @@ require('dotenv').config();
 
 require('./config/security');
 const { ensureSecuritySchema } = require('./config/securitySchema');
+const { ipSecurityMiddleware } = require('./middleware/ipSecurityMiddleware');
 
 // Importação das rotas (serão criadas nos próximos passos)
 const authRoutes = require('./routes/authRoutes');
@@ -45,6 +46,8 @@ app.use('/api/auth/bootstrap', authenticationLimiter);
 app.get('/api/health', (req, res) => {
   res.status(200).json({ status: 'ok', message: 'Servidor rodando perfeitamente!' });
 });
+
+app.use('/api', ipSecurityMiddleware);
 
 // Configuração das rotas da API
 app.use('/api/auth', authRoutes);
