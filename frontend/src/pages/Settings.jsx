@@ -5,6 +5,26 @@ import { useAuth } from '../context/AuthContext';
 
 const APP_COMMIT = typeof __APP_COMMIT__ !== 'undefined' ? __APP_COMMIT__ : 'unknown';
 
+const AUDIT_ACTION_OPTIONS = [
+  ['', 'Todas as ações'],
+  ['system_update_request', 'Atualização'],
+  ['backup_export_attempt', 'Tentativa de backup'],
+  ['backup_export_success', 'Backup bem-sucedido'],
+  ['backup_export_denied', 'Backup negado'],
+  ['backup_export_failed', 'Falha de backup'],
+  ['audit_events_access', 'Acesso auditoria'],
+  ['login_success', 'Login bem-sucedido'],
+  ['login_failed', 'Login falhado'],
+  ['ip_blocked', 'IP bloqueado'],
+  ['ip_unblocked', 'IP desbloqueado'],
+  ['ip_whitelisted', 'IP adicionado à whitelist'],
+  ['ip_whitelist_removed', 'IP removido da whitelist'],
+  ['login_security_policy_updated', 'Política de login alterada'],
+  ['ip_access_blocked', 'Acesso bloqueado por IP']
+];
+
+const AUDIT_ACTION_LABELS = Object.fromEntries(AUDIT_ACTION_OPTIONS.filter(([value]) => value));
+
 export default function Settings() {
   const { user } = useAuth();
   const [isUpdating, setIsUpdating] = useState(false);
@@ -268,7 +288,9 @@ export default function Settings() {
             </div>
             <div className="p-6 space-y-5">
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-3">
-                <input type="text" value={auditFilters.action} onChange={(e) => setAuditFilters({ ...auditFilters, action: e.target.value })} placeholder="Ação" className="border border-slate-300 rounded-md px-3 py-2 text-sm" />
+                <select value={auditFilters.action} onChange={(e) => setAuditFilters({ ...auditFilters, action: e.target.value })} aria-label="Ação" className="border border-slate-300 rounded-md px-3 py-2 text-sm bg-white">
+                  {AUDIT_ACTION_OPTIONS.map(([value, label]) => <option key={value || 'all'} value={value}>{label}</option>)}
+                </select>
                 <select value={auditFilters.status} onChange={(e) => setAuditFilters({ ...auditFilters, status: e.target.value })} className="border border-slate-300 rounded-md px-3 py-2 text-sm bg-white">
                   <option value="">Todos os status</option>
                   <option value="attempt">Tentativa</option>
@@ -302,7 +324,10 @@ export default function Settings() {
                       <tr key={event.id}>
                         <td className="px-3 py-3 whitespace-nowrap">{new Date(event.created_at).toLocaleString('pt-BR')}</td>
                         <td className="px-3 py-3 max-w-56 break-words">{event.user_email || '-'}</td>
-                        <td className="px-3 py-3 font-mono text-xs">{event.action}</td>
+                        <td className="px-3 py-3" title={event.action}>
+                          <div className="text-sm">{AUDIT_ACTION_LABELS[event.action] || event.action}</div>
+                          {AUDIT_ACTION_LABELS[event.action] && <div className="font-mono text-xs text-slate-500">{event.action}</div>}
+                        </td>
                         <td className="px-3 py-3">{event.status}</td>
                         <td className="px-3 py-3 font-mono text-xs">{event.ip_address || '-'}</td>
                         <td className="px-3 py-3 max-w-72">
