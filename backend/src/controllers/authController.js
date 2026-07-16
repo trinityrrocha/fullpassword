@@ -3,6 +3,7 @@ const argon2 = require('argon2');
 const crypto = require('crypto');
 const db = require('../config/database');
 const { recordAuditEvent } = require('../services/auditService');
+const { applyAutomaticBlockForLoginFailure } = require('../services/ipSecurityService');
 const {
   JWT_SECRET,
   JWT_EXPIRES_IN,
@@ -18,17 +19,17 @@ const LEGACY_ADMIN_HASH = '$argon2id$v=19$m=65536,t=3,p=4$PLACEHOLDER_HASH_FOR_@
 const isStrongPassword = (password) => typeof password === 'string' && password.length >= 12;
 const SESSION_COOKIE_NAME = 'fp_session';
 
-const auditLoginFailure = (req, emailAttempted, reason, user = null) => recordAuditEvent({
-  user,
-  userEmail: emailAttempted || null,
-  action: 'login_failed',
-  status: 'denied',
-  req,
-  metadata: {
-    email_attempted: emailAttempted || null,
-    reason
-  }
-});
+const auditLoginFailure = async (req, emailAttempted, reason, user = null) => {
+  await recordAuditEvent({
+    user,
+    userEmail: emailAttempted || null,
+    action: 'login_failed',
+    status: 'denied',
+    req,
+    metadata: { email_attempted: emailAttempted || null, reason }
+  });
+  await applyAutomaticBlockForLoginFailure(req);
+};
 
 const parseDurationMs = (duration) => {
   const match = String(duration || '').trim().match(/^(\d+)([smhd])$/i);

@@ -23,7 +23,9 @@ app.set('trust proxy', 1);
 
 const authenticationLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  limit: 10,
+  // Limite de contenção acima do maior limiar configurável (15). A política
+  // persistida aplica os bloqueios temporários antes deste teto de emergência.
+  limit: 100,
   standardHeaders: 'draft-7',
   legacyHeaders: false,
   message: { error: 'Muitas tentativas. Aguarde 15 minutos e tente novamente.' }

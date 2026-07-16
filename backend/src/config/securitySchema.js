@@ -53,6 +53,39 @@ const ensureSecuritySchema = async () => {
       )
     `);
     await client.query('CREATE INDEX IF NOT EXISTS idx_system_audit_events_created_at ON system_audit_events (created_at DESC)');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_system_audit_events_action_ip_created ON system_audit_events (action, ip_address, created_at DESC)');
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS login_security_policy (
+        id INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+        auto_block_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+        failed_attempts_threshold INTEGER NOT NULL DEFAULT 5 CHECK (failed_attempts_threshold IN (5, 10, 15)),
+        observation_window_minutes INTEGER NOT NULL DEFAULT 15 CHECK (observation_window_minutes IN (10, 15, 30, 60)),
+        block_duration_minutes INTEGER NOT NULL DEFAULT 30 CHECK (block_duration_minutes IN (10, 15, 30, 60, 120, 240, 360, 720, 1440)),
+        updated_by UUID REFERENCES users(id) ON DELETE SET NULL,
+        updated_by_email TEXT,
+        updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    await client.query('INSERT INTO login_security_policy (id) VALUES (1) ON CONFLICT (id) DO NOTHING');
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS ip_security_rules (
+        id BIGSERIAL PRIMARY KEY,
+        ip_address TEXT NOT NULL,
+        rule_type VARCHAR(20) NOT NULL CHECK (rule_type IN ('block', 'allow', 'temporary_block')),
+        reason TEXT,
+        expires_at TIMESTAMP WITH TIME ZONE,
+        is_active BOOLEAN NOT NULL DEFAULT TRUE,
+        created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+        created_by_email TEXT,
+        created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    await client.query('CREATE INDEX IF NOT EXISTS idx_ip_security_rules_ip ON ip_security_rules (ip_address)');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_ip_security_rules_type ON ip_security_rules (rule_type)');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_ip_security_rules_active ON ip_security_rules (is_active)');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_ip_security_rules_expires ON ip_security_rules (expires_at)');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_ip_security_rules_created ON ip_security_rules (created_at DESC)');
 
     await client.query(`
       CREATE OR REPLACE FUNCTION protect_super_admin_user()
