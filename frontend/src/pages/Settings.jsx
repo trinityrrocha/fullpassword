@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Settings as SettingsIcon, RefreshCw, AlertTriangle, ShieldCheck, Download, Database } from 'lucide-react';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
@@ -27,6 +28,7 @@ const AUDIT_ACTION_OPTIONS = [
 const AUDIT_ACTION_LABELS = Object.fromEntries(AUDIT_ACTION_OPTIONS.filter(([value]) => value));
 
 export default function Settings() {
+  const [searchParams] = useSearchParams();
   const { user } = useAuth();
   const [isUpdating, setIsUpdating] = useState(false);
   const [updateCountdown, setUpdateCountdown] = useState(0);
@@ -167,14 +169,14 @@ export default function Settings() {
     }
   };
 
-  const loadAuditEvents = async (page = 1) => {
+  const loadAuditEvents = async (page = 1, filterOverride = null) => {
     if (!canManageSystem) return;
 
     setIsLoadingAudit(true);
     setAuditError('');
     try {
       const params = { page, limit: auditPagination.limit };
-      Object.entries(auditFilters).forEach(([key, value]) => {
+      Object.entries(filterOverride || auditFilters).forEach(([key, value]) => {
         if (value) params[key] = value;
       });
       const response = await api.get('/system/audit-events', { params });
@@ -191,6 +193,24 @@ export default function Settings() {
       setIsLoadingAudit(false);
     }
   };
+
+  useEffect(() => {
+    if (!canManageSystem) return;
+    const auditAction = searchParams.get('audit_action');
+    const userEmail = searchParams.get('user_email');
+    const requestedIp = searchParams.get('ip');
+    if (auditAction) {
+      const filters = { ...auditFilters, action: auditAction, ...(userEmail ? { user_email: userEmail } : {}) };
+      setAuditFilters(filters);
+      loadAuditEvents(1, filters);
+      setTimeout(() => document.getElementById('system-audit')?.scrollIntoView({ behavior: 'smooth' }), 0);
+    }
+    if (searchParams.get('security_tab') || requestedIp) {
+      setTimeout(() => document.getElementById('security-card')?.scrollIntoView({ behavior: 'smooth' }), 0);
+    }
+  // Query strings are intentionally applied once after Super Admin permission is known.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canManageSystem, searchParams]);
 
   const viewSecurityAudit = (filters) => {
     setAuditFilters((current) => ({ ...current, ...filters }));

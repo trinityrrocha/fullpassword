@@ -148,4 +148,18 @@ const blockFromAudit = async (req, res) => {
   }
 };
 
-module.exports = { getPolicy, updatePolicy, getLoginFailures, createIpRule, listIpRules, deactivateIpRule, blockFromAudit };
+const getSecurityNotifications = async (req, res) => {
+  if (!requireSuperAdmin(req, res)) return;
+  const [failures, blocked] = await Promise.all([
+    db.query(`SELECT COUNT(*)::integer AS count, MAX(created_at) AS latest_at FROM system_audit_events WHERE action = 'login_failed' AND created_at >= CURRENT_TIMESTAMP - INTERVAL '24 hours'`),
+    db.query(`SELECT COUNT(*)::integer AS count, MAX(updated_at) AS latest_at FROM ip_security_rules WHERE is_active = TRUE AND (rule_type = 'block' OR (rule_type = 'temporary_block' AND expires_at > CURRENT_TIMESTAMP))`)
+  ]);
+  const items = [];
+  const failureCount = failures.rows[0]?.count || 0;
+  const blockedCount = blocked.rows[0]?.count || 0;
+  if (failureCount > 0) items.push({ type: 'login_failed', label: 'Falhas de login recentes', count: failureCount, latest_at: failures.rows[0].latest_at, target_url: '/settings?audit_action=login_failed' });
+  if (blockedCount > 0) items.push({ type: 'ip_blocked', label: 'IPs bloqueados', count: blockedCount, latest_at: blocked.rows[0].latest_at, target_url: '/settings?security_tab=ip-rules' });
+  return res.json({ unread_count: items.reduce((total, item) => total + item.count, 0), items });
+};
+
+module.exports = { getPolicy, updatePolicy, getLoginFailures, createIpRule, listIpRules, deactivateIpRule, blockFromAudit, getSecurityNotifications };

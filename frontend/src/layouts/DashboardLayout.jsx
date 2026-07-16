@@ -1,17 +1,35 @@
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
-import { Users, Settings, Shield, LogOut, Menu, X, Building2, UserCircle } from 'lucide-react';
-import { useState } from 'react';
+import { Users, Settings, Shield, LogOut, Menu, X, Building2, Bell } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import UserProfileModal from '../components/UserProfileModal';
+import api from '../services/api';
 
 export default function DashboardLayout() {
   const location = useLocation();
   const navigate = useNavigate();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [notifications, setNotifications] = useState({ unread_count: 0, items: [] });
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
 
   const { user, logout } = useAuth();
   const mustChangePassword = user?.must_change_password === true;
+
+  useEffect(() => {
+    if (!user?.is_super_admin) {
+      setNotifications({ unread_count: 0, items: [] });
+      return;
+    }
+    api.get('/system/security-notifications')
+      .then((response) => setNotifications(response.data))
+      .catch(() => setNotifications({ unread_count: 0, items: [] }));
+  }, [user?.is_super_admin]);
+
+  const openNotification = (targetUrl) => {
+    setIsNotificationsOpen(false);
+    navigate(targetUrl);
+  };
 
   const handleLogout = async () => {
     await logout();
@@ -117,6 +135,17 @@ export default function DashboardLayout() {
 
       {/* Main Content */}
       <main className="flex-1 flex flex-col overflow-hidden pt-16 md:pt-0">
+        {user?.is_super_admin && (
+          <div className="hidden md:flex h-16 shrink-0 items-center justify-end border-b border-slate-200 bg-white px-8">
+            <div className="relative">
+              <button type="button" onClick={() => setIsNotificationsOpen((open) => !open)} className="relative rounded-full p-2 text-slate-600 hover:bg-slate-100" aria-label="Notificações de segurança">
+                <Bell className="w-5 h-5" />
+                {notifications.unread_count > 0 && <span className="absolute -right-1 -top-1 min-w-5 rounded-full bg-red-600 px-1 text-center text-xs text-white">{Math.min(99, notifications.unread_count)}{notifications.unread_count > 99 ? '+' : ''}</span>}
+              </button>
+              {isNotificationsOpen && <div className="absolute right-0 z-30 mt-2 w-80 rounded-lg border border-slate-200 bg-white shadow-xl"><div className="border-b px-4 py-3 font-medium">Notificações de segurança</div>{notifications.items.length ? notifications.items.map((item) => <button key={item.type} type="button" onClick={() => openNotification(item.target_url)} className="block w-full border-b px-4 py-3 text-left hover:bg-slate-50"><span className="block text-sm font-medium text-slate-800">{item.label}</span><span className="text-xs text-slate-500">{item.count} evento(s)</span></button>) : <div className="px-4 py-6 text-center text-sm text-slate-500">Nenhuma notificação recente.</div>}</div>}
+            </div>
+          </div>
+        )}
         <div className="flex-1 overflow-y-auto p-4 md:p-8">
           <Outlet />
         </div>
