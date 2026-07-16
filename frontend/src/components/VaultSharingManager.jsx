@@ -28,7 +28,7 @@ const getPermissionSummary = (group = {}) => {
   return permissions.length ? permissions.join(', ') : 'Sem permissão definida';
 };
 
-export default function VaultSharingManager({ clientId, clientVaultKey }) {
+export default function VaultSharingManager({ clientId, clientVaultKey, compact = false }) {
   const [groups, setGroups] = useState([]);
   const [shares, setShares] = useState([]);
   const [selectedGroupId, setSelectedGroupId] = useState('');
@@ -200,20 +200,22 @@ export default function VaultSharingManager({ clientId, clientVaultKey }) {
   }
 
   return (
-    <div className="space-y-6 animate-fadeIn">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-slate-200 pb-4">
-        <div>
-          <h3 className="text-lg font-medium text-slate-900 flex items-center gap-2">
-            <ShieldCheck className="w-5 h-5 text-indigo-500" /> Compartilhamento do Cofre
-          </h3>
-          <p className="text-sm text-slate-500 mt-1">
-            Adicione quais grupos terão acesso a este cofre. As permissões são definidas no cadastro do grupo.
-          </p>
+    <div className="space-y-5 animate-fadeIn">
+      {!compact && (
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-slate-200 pb-4">
+          <div>
+            <h3 className="text-lg font-medium text-slate-900 flex items-center gap-2">
+              <ShieldCheck className="w-5 h-5 text-indigo-500" /> Compartilhamento do Cofre
+            </h3>
+            <p className="text-sm text-slate-500 mt-1">
+              Adicione quais grupos terão acesso a este cofre. As permissões são definidas no cadastro do grupo.
+            </p>
+          </div>
         </div>
-      </div>
+      )}
 
       <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-        <label className="block text-sm font-medium text-slate-700 mb-2">Adicionar grupo ao cofre</label>
+        <label className="block text-sm font-medium text-slate-700 mb-2">Grupo para compartilhar</label>
         <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_auto] gap-3">
           <select
             value={selectedGroupId}
@@ -259,7 +261,7 @@ export default function VaultSharingManager({ clientId, clientVaultKey }) {
         <button type="button" onClick={resyncKeyShares} disabled={isSaving || isSyncing} className="inline-flex items-center justify-center px-4 py-2 border border-indigo-200 rounded-md shadow-sm text-sm font-medium text-indigo-700 bg-white hover:bg-indigo-50 disabled:opacity-50">
           <RefreshCw className={`w-4 h-4 mr-2 ${isSyncing ? 'animate-spin' : ''}`} /> {isSyncing ? 'Ressincronizando...' : 'Ressincronizar chaves do compartilhamento'}
         </button>
-        <button type="button" onClick={saveShares} disabled={isSaving} className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50">
+        <button type="button" onClick={saveShares} disabled={isSaving} className="inline-flex items-center justify-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50">
           <Save className="w-4 h-4 mr-2" /> {isSaving ? 'Salvando...' : 'Salvar compartilhamento'}
         </button>
       </div>
