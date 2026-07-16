@@ -7,6 +7,7 @@ const { verifyToken } = require('../middleware/authMiddleware');
 router.use(verifyToken);
 
 router.get('/permissions', systemController.getSystemPermissions);
+router.get('/audit-events', systemController.getAuditEvents);
 router.post('/update', systemController.updateSystem);
 router.get('/backup', systemController.rejectLegacyBackupDownload);
 router.post('/backup', systemController.downloadBackup);

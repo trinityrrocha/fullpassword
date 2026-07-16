@@ -14,6 +14,11 @@ export default function Settings() {
   const [isDownloadingBackup, setIsDownloadingBackup] = useState(false);
   const [systemPermissions, setSystemPermissions] = useState(null);
   const [isLoadingPermissions, setIsLoadingPermissions] = useState(true);
+  const [auditEvents, setAuditEvents] = useState([]);
+  const [auditPagination, setAuditPagination] = useState({ page: 1, limit: 50, total: 0, total_pages: 0 });
+  const [auditFilters, setAuditFilters] = useState({ action: '', status: '', user_email: '', date_from: '', date_to: '' });
+  const [isLoadingAudit, setIsLoadingAudit] = useState(false);
+  const [auditError, setAuditError] = useState('');
 
   const canManageSystem = systemPermissions?.can_manage_system === true && systemPermissions?.is_super_admin === true;
   const currentUserEmail = systemPermissions?.email || user?.email || 'e-mail não identificado';
@@ -141,6 +146,31 @@ export default function Settings() {
     }
   };
 
+  const loadAuditEvents = async (page = 1) => {
+    if (!canManageSystem) return;
+
+    setIsLoadingAudit(true);
+    setAuditError('');
+    try {
+      const params = { page, limit: auditPagination.limit };
+      Object.entries(auditFilters).forEach(([key, value]) => {
+        if (value) params[key] = value;
+      });
+      const response = await api.get('/system/audit-events', { params });
+      setAuditEvents(response.data.events || []);
+      setAuditPagination(response.data.pagination || { page, limit: 50, total: 0, total_pages: 0 });
+    } catch (error) {
+      setAuditEvents([]);
+      setAuditError(
+        error.response?.status === 403
+          ? 'Acesso restrito ao Super Admin.'
+          : error.response?.data?.error || 'Não foi possível carregar a auditoria.'
+      );
+    } finally {
+      setIsLoadingAudit(false);
+    }
+  };
+
   const restrictedWarning = (message) => (
     <div className="bg-amber-50 border-l-4 border-amber-400 p-4">
       <div className="flex">
@@ -227,6 +257,74 @@ export default function Settings() {
             )}
           </div>
         </div>
+
+        {canManageSystem && (
+          <div className="bg-white shadow rounded-lg overflow-hidden border border-slate-200">
+            <div className="px-6 py-5 border-b border-slate-200 bg-slate-50">
+              <h3 className="text-lg leading-6 font-medium text-slate-900 flex items-center">
+                <ShieldCheck className="w-5 h-5 mr-2 text-indigo-500" /> Auditoria do Sistema
+              </h3>
+              <p className="mt-1 text-sm text-slate-500">Consulte eventos administrativos sensíveis, como WebUpdater, exportação de backup e acessos negados.</p>
+            </div>
+            <div className="p-6 space-y-5">
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-3">
+                <input type="text" value={auditFilters.action} onChange={(e) => setAuditFilters({ ...auditFilters, action: e.target.value })} placeholder="Ação" className="border border-slate-300 rounded-md px-3 py-2 text-sm" />
+                <select value={auditFilters.status} onChange={(e) => setAuditFilters({ ...auditFilters, status: e.target.value })} className="border border-slate-300 rounded-md px-3 py-2 text-sm bg-white">
+                  <option value="">Todos os status</option>
+                  <option value="attempt">Tentativa</option>
+                  <option value="accepted">Aceito</option>
+                  <option value="success">Sucesso</option>
+                  <option value="denied">Negado</option>
+                  <option value="failed">Falha</option>
+                </select>
+                <input type="email" value={auditFilters.user_email} onChange={(e) => setAuditFilters({ ...auditFilters, user_email: e.target.value })} placeholder="E-mail do usuário" className="border border-slate-300 rounded-md px-3 py-2 text-sm" />
+                <input type="date" value={auditFilters.date_from} onChange={(e) => setAuditFilters({ ...auditFilters, date_from: e.target.value })} aria-label="Data inicial" className="border border-slate-300 rounded-md px-3 py-2 text-sm" />
+                <input type="date" value={auditFilters.date_to} onChange={(e) => setAuditFilters({ ...auditFilters, date_to: e.target.value })} aria-label="Data final" className="border border-slate-300 rounded-md px-3 py-2 text-sm" />
+              </div>
+
+              <button type="button" onClick={() => loadAuditEvents(1)} disabled={isLoadingAudit} className="inline-flex items-center px-4 py-2 rounded-md bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-50">
+                <RefreshCw className={`w-4 h-4 mr-2 ${isLoadingAudit ? 'animate-spin' : ''}`} /> Atualizar Auditoria
+              </button>
+
+              {auditError && <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">{auditError}</div>}
+
+              <div className="overflow-x-auto border border-slate-200 rounded-lg">
+                <table className="min-w-full divide-y divide-slate-200 text-sm">
+                  <thead className="bg-slate-50">
+                    <tr>
+                      {['Data/Hora', 'Usuário', 'Ação', 'Status', 'IP', 'Detalhes'].map((label) => <th key={label} className="px-3 py-3 text-left font-medium text-slate-600">{label}</th>)}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 bg-white">
+                    {auditEvents.length === 0 ? (
+                      <tr><td colSpan={6} className="px-3 py-6 text-center text-slate-500">{isLoadingAudit ? 'Carregando eventos...' : 'Nenhum evento carregado.'}</td></tr>
+                    ) : auditEvents.map((event) => (
+                      <tr key={event.id}>
+                        <td className="px-3 py-3 whitespace-nowrap">{new Date(event.created_at).toLocaleString('pt-BR')}</td>
+                        <td className="px-3 py-3 max-w-56 break-words">{event.user_email || '-'}</td>
+                        <td className="px-3 py-3 font-mono text-xs">{event.action}</td>
+                        <td className="px-3 py-3">{event.status}</td>
+                        <td className="px-3 py-3 font-mono text-xs">{event.ip_address || '-'}</td>
+                        <td className="px-3 py-3 max-w-72">
+                          <details>
+                            <summary className="cursor-pointer text-indigo-600">Ver JSON</summary>
+                            <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-all rounded bg-slate-900 p-2 text-xs text-slate-100">{JSON.stringify(event.metadata || {}, null, 2)}</pre>
+                          </details>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="flex items-center justify-between gap-3">
+                <button type="button" onClick={() => loadAuditEvents(auditPagination.page - 1)} disabled={isLoadingAudit || auditPagination.page <= 1} className="px-3 py-2 border border-slate-300 rounded-md text-sm disabled:opacity-50">Anterior</button>
+                <span className="text-sm text-slate-600">Página {auditPagination.page} de {Math.max(1, auditPagination.total_pages)}</span>
+                <button type="button" onClick={() => loadAuditEvents(auditPagination.page + 1)} disabled={isLoadingAudit || auditPagination.page >= auditPagination.total_pages} className="px-3 py-2 border border-slate-300 rounded-md text-sm disabled:opacity-50">Próxima</button>
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="bg-white shadow rounded-lg overflow-hidden border border-slate-200">
           <div className="px-6 py-5 border-b border-slate-200 bg-slate-50 flex justify-between items-center">

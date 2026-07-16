@@ -196,9 +196,108 @@ const rejectLegacyBackupDownload = async (req, res) => {
   return res.status(405).json({ error: 'Use POST /api/system/backup com confirmação e frase de criptografia.' });
 };
 
+const parseAuditDate = (value, endOfDay = false) => {
+  if (!value) return null;
+  const normalized = /^\d{4}-\d{2}-\d{2}$/.test(value)
+    ? `${value}T${endOfDay ? '23:59:59.999' : '00:00:00.000'}Z`
+    : value;
+  const date = new Date(normalized);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const getAuditEvents = async (req, res) => {
+  if (!isSuperAdmin(req.user)) {
+    await recordAuditEvent({
+      user: req.user,
+      action: 'audit_events_access',
+      status: 'denied',
+      req
+    });
+    return denyNonSuperAdmin(res);
+  }
+
+  const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
+  const limit = Math.min(200, Math.max(1, Number.parseInt(req.query.limit, 10) || 50));
+  const filters = {
+    action: String(req.query.action || '').trim().slice(0, 100),
+    status: String(req.query.status || '').trim().slice(0, 40),
+    user_email: String(req.query.user_email || '').trim().slice(0, 320),
+    date_from: String(req.query.date_from || '').trim(),
+    date_to: String(req.query.date_to || '').trim()
+  };
+  const dateFrom = parseAuditDate(filters.date_from);
+  const dateTo = parseAuditDate(filters.date_to, true);
+
+  if ((filters.date_from && !dateFrom) || (filters.date_to && !dateTo)) {
+    return res.status(400).json({ error: 'Filtro de data inválido.' });
+  }
+  if (dateFrom && dateTo && dateFrom > dateTo) {
+    return res.status(400).json({ error: 'A data inicial não pode ser posterior à data final.' });
+  }
+
+  try {
+    const conditions = [];
+    const values = [];
+    const addCondition = (sql, value) => {
+      values.push(value);
+      conditions.push(sql.replace('?', `$${values.length}`));
+    };
+
+    if (filters.action) addCondition('action = ?', filters.action);
+    if (filters.status) addCondition('status = ?', filters.status);
+    if (filters.user_email) addCondition('user_email ILIKE ?', `%${filters.user_email}%`);
+    if (dateFrom) addCondition('created_at >= ?', dateFrom.toISOString());
+    if (dateTo) addCondition('created_at <= ?', dateTo.toISOString());
+
+    const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    const countResult = await db.query(
+      `SELECT COUNT(*)::integer AS total FROM system_audit_events ${whereClause}`,
+      values
+    );
+    const total = countResult.rows[0]?.total || 0;
+    const offset = (page - 1) * limit;
+    const eventsResult = await db.query(
+      `SELECT id, user_id, user_email, action, status, ip_address, user_agent,
+              CASE
+                WHEN octet_length(metadata::text) > 16384 THEN jsonb_build_object('_truncated', TRUE)
+                ELSE metadata
+              END AS metadata,
+              created_at
+       FROM system_audit_events
+       ${whereClause}
+       ORDER BY created_at DESC
+       LIMIT $${values.length + 1} OFFSET $${values.length + 2}`,
+      [...values, limit, offset]
+    );
+
+    await recordAuditEvent({
+      user: req.user,
+      action: 'audit_events_access',
+      status: 'success',
+      req,
+      metadata: { filters, page, limit, result_count: eventsResult.rows.length }
+    });
+
+    return res.status(200).json({
+      events: eventsResult.rows,
+      pagination: {
+        page,
+        limit,
+        total,
+        total_pages: Math.ceil(total / limit)
+      }
+    });
+  } catch (error) {
+    console.error('Erro ao consultar eventos de auditoria:', error);
+    await recordAuditEvent({ user: req.user, action: 'audit_events_access', status: 'failed', req });
+    return res.status(500).json({ error: 'Erro interno ao consultar auditoria.' });
+  }
+};
+
 module.exports = {
   getSystemPermissions,
   updateSystem,
   downloadBackup,
-  rejectLegacyBackupDownload
+  rejectLegacyBackupDownload,
+  getAuditEvents
 };
