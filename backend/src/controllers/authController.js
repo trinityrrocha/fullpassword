@@ -15,6 +15,37 @@ const LEGACY_ADMIN_EMAIL = SUPER_ADMIN_EMAIL;
 const LEGACY_ADMIN_HASH = '$argon2id$v=19$m=65536,t=3,p=4$PLACEHOLDER_HASH_FOR_@dmin123';
 
 const isStrongPassword = (password) => typeof password === 'string' && password.length >= 12;
+const SESSION_COOKIE_NAME = 'fp_session';
+
+const parseDurationMs = (duration) => {
+  const match = String(duration || '').trim().match(/^(\d+)([smhd])$/i);
+  if (!match) return 8 * 60 * 60 * 1000;
+  const units = { s: 1000, m: 60000, h: 3600000, d: 86400000 };
+  return Number(match[1]) * units[match[2].toLowerCase()];
+};
+
+const sessionCookieOptions = () => ({
+  httpOnly: true,
+  secure: process.env.NODE_ENV === 'production',
+  sameSite: 'strict',
+  path: '/',
+  maxAge: parseDurationMs(JWT_EXPIRES_IN)
+});
+
+const serializeUser = (user, groups = []) => ({
+  id: user.id,
+  name: user.name,
+  email: user.email,
+  role: user.role,
+  is_active: user.is_active,
+  is_super_admin: user.is_super_admin === true,
+  must_change_password: user.must_change_password === true,
+  wrapped_key: user.wrapped_key,
+  crypto_salt: user.crypto_salt,
+  public_key: user.public_key,
+  encrypted_private_key: user.encrypted_private_key,
+  groups
+});
 
 const getBootstrapState = async (client = db) => {
   const result = await client.query(
@@ -191,18 +222,10 @@ const login = async (req, res) => {
       JWT_SECRET,
       { expiresIn: JWT_EXPIRES_IN }
     );
+    res.cookie(SESSION_COOKIE_NAME, token, sessionCookieOptions());
     return res.status(200).json({
       message: 'Login realizado com sucesso',
-      token,
-      user: {
-        id: user.id, name: user.name, email: user.email, role: user.role,
-        is_active: user.is_active,
-        is_super_admin: user.is_super_admin === true,
-        must_change_password: user.must_change_password === true,
-        wrapped_key: finalWrappedKey, crypto_salt: finalCryptoSalt,
-        public_key: user.public_key, encrypted_private_key: user.encrypted_private_key,
-        groups
-      }
+      user: serializeUser({ ...user, wrapped_key: finalWrappedKey, crypto_salt: finalCryptoSalt }, groups)
     });
   } catch (error) {
     console.error('Erro no login:', error);
@@ -210,4 +233,30 @@ const login = async (req, res) => {
   }
 };
 
-module.exports = { login, bootstrapStatus, bootstrapAdmin };
+const me = async (req, res) => {
+  try {
+    const result = await db.query(
+      `SELECT id, name, email, role, is_active, is_super_admin, must_change_password,
+              wrapped_key, crypto_salt, public_key, encrypted_private_key
+       FROM users WHERE id = $1 LIMIT 1`,
+      [req.user.id]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Usuário não encontrado' });
+    return res.status(200).json({ user: serializeUser(result.rows[0], req.user.groups) });
+  } catch (error) {
+    console.error('Erro ao restaurar sessão:', error);
+    return res.status(500).json({ error: 'Não foi possível restaurar a sessão' });
+  }
+};
+
+const logout = async (_req, res) => {
+  res.clearCookie(SESSION_COOKIE_NAME, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'strict',
+    path: '/'
+  });
+  return res.status(200).json({ message: 'Logout realizado com sucesso' });
+};
+
+module.exports = { login, logout, me, bootstrapStatus, bootstrapAdmin };

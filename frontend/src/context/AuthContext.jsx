@@ -12,33 +12,25 @@ const AuthContext = createContext(null);
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
-  const [token, setToken] = useState(null);
   const [masterKey, setMasterKey] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const storedToken = localStorage.getItem('token');
-    const storedUser = localStorage.getItem('user');
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    localStorage.removeItem('user_wrapped_key');
+    localStorage.removeItem('user_salt');
 
-    if (storedToken && storedUser) {
-      setToken(storedToken);
-      setUser(JSON.parse(storedUser));
-    }
-    
-    setLoading(false);
+    api.get('/auth/me')
+      .then(({ data }) => setUser(data.user || null))
+      .catch(() => setUser(null))
+      .finally(() => setLoading(false));
   }, []);
 
   const login = async (email, password) => {
     try {
       const response = await api.post('/auth/login', { email, password });
-      const { token: jwtToken, user: userData } = response.data;
-
-      localStorage.setItem('token', jwtToken);
-      localStorage.setItem('user', JSON.stringify(userData));
-      localStorage.setItem('user_wrapped_key', userData.wrapped_key || '');
-      localStorage.setItem('user_salt', userData.crypto_salt || '');
-      
-      setToken(jwtToken);
+      const { user: userData } = response.data;
       setUser(userData);
       return { success: true };
     } catch (error) {
@@ -50,14 +42,15 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const logout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    localStorage.removeItem('user_wrapped_key');
-    localStorage.removeItem('user_salt');
-    setToken(null);
-    setUser(null);
-    setMasterKey(null);
+  const logout = async () => {
+    try {
+      await api.post('/auth/logout');
+    } catch (error) {
+      console.error('Erro ao encerrar sessão no servidor:', error);
+    } finally {
+      setUser(null);
+      setMasterKey(null);
+    }
   };
 
   const unlockVault = async (password, wrappedKeyStr, saltStr) => {
@@ -66,7 +59,7 @@ export const AuthProvider = ({ children }) => {
       const key = await unwrapMasterKey(wrappedKeyStr, kek);
       setMasterKey(key);
 
-      const currentUser = JSON.parse(localStorage.getItem('user'));
+      const currentUser = user;
       if (currentUser && (!currentUser.public_key || !currentUser.encrypted_private_key)) {
         console.log('Gerando chaves RSA para compartilhamento de cofres...');
         try {
@@ -79,10 +72,11 @@ export const AuthProvider = ({ children }) => {
             encrypted_private_key: encryptedPrivateKeyStr
           });
           
-          currentUser.public_key = publicKeyStr;
-          currentUser.encrypted_private_key = encryptedPrivateKeyStr;
-          localStorage.setItem('user', JSON.stringify(currentUser));
-          setUser(currentUser);
+          setUser((existingUser) => ({
+            ...existingUser,
+            public_key: publicKeyStr,
+            encrypted_private_key: encryptedPrivateKeyStr
+          }));
           console.log('Chaves RSA salvas para compartilhamento de cofres.');
         } catch (rsaError) {
           console.error('Erro ao gerar/salvar chaves RSA:', rsaError);
@@ -98,9 +92,8 @@ export const AuthProvider = ({ children }) => {
 
   const value = {
     user,
-    token,
     masterKey,
-    isAuthenticated: !!token,
+    isAuthenticated: !!user,
     isVaultUnlocked: !!masterKey,
     login,
     logout,

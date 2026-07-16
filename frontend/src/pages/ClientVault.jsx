@@ -331,10 +331,10 @@ export default function ClientVault() {
 
   const handleUnlock = async (e) => {
     e.preventDefault();
-    const userWrappedKey = localStorage.getItem('user_wrapped_key');
-    const userSalt = localStorage.getItem('user_salt') || 'fullpassword-salt-super-seguro-123';
+    const userWrappedKey = user?.wrapped_key;
+    const userSalt = user?.crypto_salt;
 
-    if (!userWrappedKey) {
+    if (!userWrappedKey || !userSalt) {
       alert('Erro crítico: Chave envelopada do usuário não encontrada. Faça login novamente ou recadastre o usuário.');
       return;
     }

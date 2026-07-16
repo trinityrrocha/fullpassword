@@ -3,17 +3,16 @@ const db = require('../config/database');
 const { JWT_SECRET } = require('../config/security');
 
 const isRequiredPasswordChangeRoute = (req) => {
-  return req.method === 'PUT' && req.baseUrl === '/api/users' && req.path === '/profile';
+  return (req.method === 'PUT' && req.baseUrl === '/api/users' && req.path === '/profile') ||
+    (req.baseUrl === '/api/auth' && ['/me', '/logout'].includes(req.path));
 };
 
 const verifyToken = async (req, res, next) => {
   const authHeader = req.headers.authorization;
+  const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.split(' ')[1] : null;
+  const token = req.cookies?.fp_session || bearerToken;
 
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'Acesso negado. Token não fornecido ou em formato inválido.' });
-  }
-
-  const token = authHeader.split(' ')[1];
+  if (!token) return res.status(401).json({ error: 'Sessão não encontrada. Faça login novamente.' });
 
   try {
     const decoded = jwt.verify(token, JWT_SECRET);

@@ -64,12 +64,6 @@ export default function Login() {
       const result = await login(email, password);
       
       if (result.success) {
-        const userData = JSON.parse(localStorage.getItem('user') || '{}');
-        if (userData.wrapped_key) {
-          localStorage.setItem('user_wrapped_key', userData.wrapped_key);
-          localStorage.setItem('user_salt', userData.crypto_salt);
-        }
-
         navigate('/');
       } else {
         setError(result.error || 'Credenciais inválidas. Tente novamente.');

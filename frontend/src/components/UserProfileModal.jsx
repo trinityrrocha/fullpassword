@@ -68,8 +68,8 @@ export default function UserProfileModal({ isOpen, onClose, forcePasswordChange 
           throw new Error('A nova senha deve ter pelo menos 12 caracteres.');
         }
 
-        const currentWrappedKey = localStorage.getItem('user_wrapped_key');
-        const currentSalt = localStorage.getItem('user_salt');
+        const currentWrappedKey = user?.wrapped_key;
+        const currentSalt = user?.crypto_salt;
 
         if (!currentWrappedKey || !currentSalt) {
           throw new Error('Chaves criptográficas não encontradas. Faça login novamente.');
@@ -93,15 +93,6 @@ export default function UserProfileModal({ isOpen, onClose, forcePasswordChange 
 
       const response = await api.put('/users/profile', payload);
 
-      if (payload.wrapped_key) {
-        localStorage.setItem('user_wrapped_key', payload.wrapped_key);
-      }
-
-      if (response.data?.user) {
-        const currentStoredUser = JSON.parse(localStorage.getItem('user') || '{}');
-        localStorage.setItem('user', JSON.stringify({ ...currentStoredUser, ...response.data.user }));
-      }
-
       setSuccess(
         response.data?.session_invalidated
           ? 'Perfil atualizado. Faça login novamente com a nova senha.'
@@ -115,9 +106,9 @@ export default function UserProfileModal({ isOpen, onClose, forcePasswordChange 
         confirmNewPassword: ''
       }));
 
-      setTimeout(() => {
+      setTimeout(async () => {
         if (response.data?.session_invalidated) {
-          logout();
+          await logout();
           window.location.href = '/login';
           return;
         }

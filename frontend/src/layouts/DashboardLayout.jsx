@@ -13,8 +13,8 @@ export default function DashboardLayout() {
   const { user, logout } = useAuth();
   const mustChangePassword = user?.must_change_password === true;
 
-  const handleLogout = () => {
-    logout();
+  const handleLogout = async () => {
+    await logout();
     navigate('/login');
   };
 

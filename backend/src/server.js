@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
+const cookieParser = require('cookie-parser');
 require('dotenv').config();
 
 require('./config/security');
@@ -32,7 +33,8 @@ const authenticationLimiter = rateLimit({
 app.use(helmet()); // Proteção de headers HTTP
 const allowedOrigin = process.env.APP_ORIGIN;
 if (!allowedOrigin) throw new Error('Variável obrigatória ausente: APP_ORIGIN');
-app.use(cors({ origin: allowedOrigin, credentials: false }));
+app.use(cors({ origin: allowedOrigin, credentials: true }));
+app.use(cookieParser());
 app.use(express.json({ limit: '256kb' })); // Parse de JSON no body
 app.use('/api/auth/login', authenticationLimiter);
 app.use('/api/auth/bootstrap', authenticationLimiter);
