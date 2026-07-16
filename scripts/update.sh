@@ -29,6 +29,56 @@ compose() {
   fi
 }
 
+write_runtime_nginx_conf() {
+  runtime_conf_path="${NGINX_CONF_PATH:-./docker/nginx.runtime.conf}"
+  domain="$(printf '%s' "$APP_ORIGIN" | sed 's#^https://##;s#/$##')"
+
+  [ -n "$domain" ] || fail "Não foi possível derivar o domínio a partir de APP_ORIGIN"
+
+  log "Regenerando configuração runtime do Nginx para frontend estático em $runtime_conf_path"
+  mkdir -p "$(dirname "$runtime_conf_path")"
+
+  cat > "$runtime_conf_path" <<EOF
+server {
+    listen 80;
+    server_name $domain;
+    return 301 https://\$host\$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    server_name $domain;
+
+    ssl_certificate /etc/letsencrypt/live/$domain/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/$domain/privkey.pem;
+
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+    ssl_prefer_server_ciphers on;
+
+    # Frontend estático (React)
+    location / {
+        proxy_pass http://frontend:80;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+
+    # Backend API (Node.js)
+    location /api/ {
+        proxy_pass http://backend:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+}
+EOF
+}
+
 cd "$APP_DIR" || fail "Diretório do projeto não encontrado: $APP_DIR"
 
 [ -d .git ] || fail "Diretório Git não encontrado em $APP_DIR"
@@ -82,11 +132,13 @@ git fetch origin main
 git checkout main
 git pull --ff-only origin main
 
+write_runtime_nginx_conf
+
 log "Validando Docker Compose"
 compose config >/dev/null
 
 log "Reconstruindo e reiniciando containers"
-compose up -d --build
+compose up -d --build --remove-orphans
 sleep 5
 compose restart nginx
 compose ps
