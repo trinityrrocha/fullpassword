@@ -9,7 +9,8 @@ export default function Settings() {
   const { user } = useAuth();
   const [isUpdating, setIsUpdating] = useState(false);
   const [updateCountdown, setUpdateCountdown] = useState(0);
-  const [backupFormat, setBackupFormat] = useState('json');
+  const [backupConfirmation, setBackupConfirmation] = useState('');
+  const [backupPassphrase, setBackupPassphrase] = useState('');
   const [isDownloadingBackup, setIsDownloadingBackup] = useState(false);
   const [systemPermissions, setSystemPermissions] = useState(null);
   const [isLoadingPermissions, setIsLoadingPermissions] = useState(true);
@@ -80,19 +81,27 @@ export default function Settings() {
       return;
     }
 
-    if (!window.confirm('Deseja gerar e baixar um backup completo do sistema? O arquivo contém dados sensíveis e deve ser armazenado em local seguro.')) {
+    if (backupConfirmation !== 'EXPORTAR BACKUP') {
+      alert('Digite exatamente EXPORTAR BACKUP para confirmar.');
+      return;
+    }
+    if (backupPassphrase.length < 16) {
+      alert('A frase de criptografia deve ter ao menos 16 caracteres.');
       return;
     }
 
     setIsDownloadingBackup(true);
 
     try {
-      const response = await api.get(`/system/backup?format=${backupFormat}`, {
+      const response = await api.post('/system/backup', {
+        confirmation: backupConfirmation,
+        passphrase: backupPassphrase
+      }, {
         responseType: 'blob'
       });
 
       const disposition = response.headers['content-disposition'];
-      let filename = `fullpassword-backup.${backupFormat}`;
+      let filename = 'fullpassword-backup.fullpassword-backup.enc.json';
 
       if (disposition) {
         const match = disposition.match(/filename="(.+)"/);
@@ -113,10 +122,20 @@ export default function Settings() {
       link.click();
       window.URL.revokeObjectURL(url);
       document.body.removeChild(link);
+      setBackupConfirmation('');
+      setBackupPassphrase('');
 
     } catch (error) {
-      console.error('Erro ao baixar backup:', error);
-      alert(error.response?.data?.error || 'Erro ao gerar backup. Verifique se você está logado como Super Admin.');
+      let message = 'Erro ao gerar backup criptografado.';
+      if (error.response?.data instanceof Blob) {
+        try {
+          const parsed = JSON.parse(await error.response.data.text());
+          message = parsed.error || message;
+        } catch {
+          // Mantém mensagem genérica sem expor a frase enviada no objeto Axios.
+        }
+      }
+      alert(message);
     } finally {
       setIsDownloadingBackup(false);
     }
@@ -223,9 +242,8 @@ export default function Settings() {
           </div>
           <div className="p-6">
             <p className="text-sm text-slate-600 mb-4">
-              Gere um backup completo do FullPassword. O arquivo contém usuários, grupos, clientes,
-              hashes, chaves envelopadas, chaves privadas criptografadas, cofres criptografados e compartilhamentos.
-              As senhas dos cofres não são descriptografadas pelo servidor.
+              Gere um backup completo criptografado do FullPassword. O conteúdo sensível será protegido
+              antes do download e as senhas dos cofres não serão descriptografadas pelo servidor.
             </p>
 
             <div className="bg-red-50 border-l-4 border-red-400 p-4 mb-4">
@@ -235,7 +253,7 @@ export default function Settings() {
                 </div>
                 <div className="ml-3">
                   <p className="text-sm text-red-700">
-                    Este backup contém dados sensíveis. Armazene o arquivo em local seguro e com acesso restrito.
+                    Sem a frase de criptografia o backup não poderá ser aberto. Ela não é armazenada pelo sistema.
                   </p>
                 </div>
               </div>
@@ -246,16 +264,30 @@ export default function Settings() {
             ) : !canManageSystem ? (
               restrictedWarning('Apenas o Super Admin inicial pode gerar backup completo do sistema.')
             ) : (
-              <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
-                <select
-                  value={backupFormat}
-                  onChange={(e) => setBackupFormat(e.target.value)}
-                  className="border border-slate-300 rounded-md px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                >
-                  <option value="json">JSON</option>
-                  <option value="txt">TXT</option>
-                  <option value="csv">CSV</option>
-                </select>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Confirmação</label>
+                  <input
+                    type="text"
+                    value={backupConfirmation}
+                    onChange={(e) => setBackupConfirmation(e.target.value)}
+                    placeholder="Digite EXPORTAR BACKUP"
+                    autoComplete="off"
+                    className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Frase de criptografia</label>
+                  <input
+                    type="password"
+                    value={backupPassphrase}
+                    onChange={(e) => setBackupPassphrase(e.target.value)}
+                    minLength={16}
+                    autoComplete="new-password"
+                    className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  />
+                  <p className="mt-1 text-xs text-slate-500">Mínimo de 16 caracteres. Não salve esta frase junto ao arquivo.</p>
+                </div>
 
                 <button
                   onClick={handleDownloadBackup}
@@ -263,7 +295,7 @@ export default function Settings() {
                   className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
                 >
                   <Download className="w-4 h-4 mr-2" />
-                  {isDownloadingBackup ? 'Gerando backup...' : 'Baixar Backup Completo'}
+                  {isDownloadingBackup ? 'Criptografando backup...' : 'Baixar Backup Criptografado'}
                 </button>
               </div>
             )}

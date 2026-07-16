@@ -8,6 +8,7 @@ router.use(verifyToken);
 
 router.get('/permissions', systemController.getSystemPermissions);
 router.post('/update', systemController.updateSystem);
-router.get('/backup', systemController.downloadBackup);
+router.get('/backup', systemController.rejectLegacyBackupDownload);
+router.post('/backup', systemController.downloadBackup);
 
 module.exports = router;

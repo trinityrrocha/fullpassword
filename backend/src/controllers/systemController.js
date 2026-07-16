@@ -1,11 +1,13 @@
 const crypto = require('crypto');
 const fs = require('fs/promises');
 const path = require('path');
+const { promisify } = require('util');
 const db = require('../config/database');
 const { SUPER_ADMIN_EMAIL, normalizeRole, isSuperAdmin } = require('../config/security');
 const { recordAuditEvent } = require('../services/auditService');
 
 const UPDATER_REQUEST_DIR = process.env.UPDATER_REQUEST_DIR || '/var/lib/fullpassword-updater/requests';
+const scryptAsync = promisify(crypto.scrypt);
 
 const denyNonSuperAdmin = (res) => {
   return res.status(403).json({
@@ -24,12 +26,6 @@ const backupTables = [
   'vault_shares',
   'vault_access_audit'
 ];
-
-const escapeCsv = (value) => {
-  if (value === null || value === undefined) return '';
-  const stringValue = typeof value === 'object' ? JSON.stringify(value) : String(value);
-  return `"${stringValue.replace(/"/g, '""')}"`;
-};
 
 const buildBackupPayload = async (generatedBy) => {
   const data = {};
@@ -52,43 +48,36 @@ const buildBackupPayload = async (generatedBy) => {
   };
 };
 
-const renderBackupAsJson = (payload) => JSON.stringify(payload, null, 2);
+const encryptBackupPayload = async (payload, passphrase) => {
+  const salt = crypto.randomBytes(32);
+  const iv = crypto.randomBytes(12);
+  const params = { N: 32768, r: 8, p: 1, keyLength: 32 };
+  const key = await scryptAsync(passphrase, salt, params.keyLength, {
+    N: params.N,
+    r: params.r,
+    p: params.p,
+    maxmem: 64 * 1024 * 1024
+  });
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  const plaintext = Buffer.from(JSON.stringify(payload), 'utf8');
+  const ciphertext = Buffer.concat([cipher.update(plaintext), cipher.final()]);
 
-const renderBackupAsTxt = (payload) => {
-  const lines = [];
-  lines.push('FULLPASSWORD - BACKUP COMPLETO');
-  lines.push('================================');
-  lines.push(`Gerado em: ${payload.metadata.generated_at}`);
-  lines.push(`Gerado por: ${payload.metadata.generated_by}`);
-  lines.push(`Super Admin: ${payload.metadata.super_admin_email}`);
-  lines.push(`Tipo: ${payload.metadata.type}`);
-  lines.push(`Aviso: ${payload.metadata.warning}`);
-  lines.push('');
-
-  for (const table of backupTables) {
-    lines.push(`Tabela: ${table}`);
-    lines.push('-'.repeat(80));
-    lines.push(JSON.stringify(payload.data[table], null, 2));
-    lines.push('');
-  }
-
-  return lines.join('\n');
-};
-
-const renderBackupAsCsv = (payload) => {
-  const lines = ['table,row_index,payload_json'];
-
-  for (const table of backupTables) {
-    payload.data[table].forEach((row, index) => {
-      lines.push([
-        escapeCsv(table),
-        escapeCsv(index + 1),
-        escapeCsv(row)
-      ].join(','));
-    });
-  }
-
-  return lines.join('\n');
+  return {
+    format: 'fullpassword-encrypted-backup',
+    version: 1,
+    generated_at: payload.metadata.generated_at,
+    kdf: {
+      name: 'scrypt',
+      salt: salt.toString('base64'),
+      params
+    },
+    cipher: {
+      name: 'aes-256-gcm',
+      iv: iv.toString('base64'),
+      tag: cipher.getAuthTag().toString('base64')
+    },
+    ciphertext: ciphertext.toString('base64')
+  };
 };
 
 // GET /api/system/permissions - Informa permissões especiais do usuário autenticado
@@ -151,46 +140,65 @@ const updateSystem = async (req, res) => {
   }
 };
 
-// GET /api/system/backup?format=json|txt|csv - Exporta backup completo criptografado
+// POST /api/system/backup - Exporta backup completo em envelope criptografado
 const downloadBackup = async (req, res) => {
+  await recordAuditEvent({ user: req.user, action: 'backup_export_attempt', status: 'attempt', req });
+
   try {
     if (!isSuperAdmin(req.user)) {
+      await recordAuditEvent({ user: req.user, action: 'backup_export_denied', status: 'denied', req, metadata: { reason: 'not_super_admin' } });
       return denyNonSuperAdmin(res);
     }
 
-    const requestedFormat = String(req.query.format || 'json').toLowerCase();
-    const allowedFormats = ['json', 'txt', 'csv'];
-    const format = allowedFormats.includes(requestedFormat) ? requestedFormat : 'json';
-    const payload = await buildBackupPayload(req.user?.email);
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-
-    let content;
-    let contentType;
-
-    if (format === 'txt') {
-      content = renderBackupAsTxt(payload);
-      contentType = 'text/plain; charset=utf-8';
-    } else if (format === 'csv') {
-      content = renderBackupAsCsv(payload);
-      contentType = 'text/csv; charset=utf-8';
-    } else {
-      content = renderBackupAsJson(payload);
-      contentType = 'application/json; charset=utf-8';
+    const { confirmation, passphrase } = req.body || {};
+    if (confirmation !== 'EXPORTAR BACKUP') {
+      await recordAuditEvent({ user: req.user, action: 'backup_export_denied', status: 'denied', req, metadata: { reason: 'invalid_confirmation' } });
+      return res.status(400).json({ error: 'Digite exatamente EXPORTAR BACKUP para confirmar.' });
+    }
+    if (typeof passphrase !== 'string' || passphrase.length < 16) {
+      await recordAuditEvent({ user: req.user, action: 'backup_export_denied', status: 'denied', req, metadata: { reason: 'invalid_passphrase_length' } });
+      return res.status(400).json({ error: 'A frase de criptografia deve ter ao menos 16 caracteres.' });
     }
 
-    res.setHeader('Content-Type', contentType);
-    res.setHeader('Content-Disposition', `attachment; filename="fullpassword-backup-${timestamp}.${format}"`);
+    const payload = await buildBackupPayload(req.user?.email);
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const encryptedBackup = await encryptBackupPayload(payload, passphrase);
+    const content = JSON.stringify(encryptedBackup, null, 2);
+
+    await recordAuditEvent({
+      user: req.user,
+      action: 'backup_export_success',
+      status: 'success',
+      req,
+      metadata: { format: 'fullpassword-encrypted-backup', version: 1 }
+    });
+
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="fullpassword-${timestamp}.fullpassword-backup.enc.json"`);
     res.setHeader('Cache-Control', 'no-store');
     return res.status(200).send(content);
 
   } catch (error) {
     console.error('Erro ao gerar backup:', error);
-    return res.status(500).json({ error: 'Erro interno ao gerar backup completo' });
+    await recordAuditEvent({ user: req.user, action: 'backup_export_failed', status: 'failed', req });
+    return res.status(500).json({ error: 'Erro interno ao gerar backup criptografado' });
   }
+};
+
+const rejectLegacyBackupDownload = async (req, res) => {
+  await recordAuditEvent({
+    user: req.user,
+    action: 'backup_export_denied',
+    status: 'denied',
+    req,
+    metadata: { reason: 'legacy_get_method' }
+  });
+  return res.status(405).json({ error: 'Use POST /api/system/backup com confirmação e frase de criptografia.' });
 };
 
 module.exports = {
   getSystemPermissions,
   updateSystem,
-  downloadBackup
+  downloadBackup,
+  rejectLegacyBackupDownload
 };
