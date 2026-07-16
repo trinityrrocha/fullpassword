@@ -6,6 +6,7 @@ import { useAuth } from '../context/AuthContext';
 import SecurityCard from '../components/SecurityCard';
 
 const APP_COMMIT = typeof __APP_COMMIT__ !== 'undefined' ? __APP_COMMIT__ : 'unknown';
+const APP_COMMIT_LABEL = APP_COMMIT === 'unknown' ? 'commit não identificado' : `commit ${APP_COMMIT}`;
 
 const AUDIT_ACTION_OPTIONS = [
   ['', 'Todas as ações'],
@@ -245,7 +246,7 @@ export default function Settings() {
         </div>
         <div className="text-right">
           <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-slate-100 text-slate-800">
-            Versão Atual: v1.0.1 ({APP_COMMIT})
+            Versão Atual: v1.0.1 ({APP_COMMIT_LABEL})
           </span>
         </div>
       </div>

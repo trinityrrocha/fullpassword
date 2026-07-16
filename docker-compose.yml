@@ -72,6 +72,7 @@ services:
       dockerfile: Dockerfile
       args:
         VITE_API_URL: ${VITE_API_URL:-/api}
+        VITE_APP_COMMIT: ${VITE_APP_COMMIT:-unknown}
     container_name: fullpassword_frontend
     restart: always
     expose:

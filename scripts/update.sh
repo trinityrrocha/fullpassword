@@ -132,6 +132,12 @@ git fetch origin main
 git checkout main
 git pull --ff-only origin main
 
+APP_COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+export VITE_APP_COMMIT="$APP_COMMIT"
+export APP_COMMIT="$APP_COMMIT"
+export GIT_COMMIT="$APP_COMMIT"
+log "Preparando build do frontend para o commit $APP_COMMIT"
+
 write_runtime_nginx_conf
 
 log "Validando Docker Compose"
