@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Settings as SettingsIcon, RefreshCw, AlertTriangle, ShieldCheck, Download, Database } from 'lucide-react';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import SecurityCard from '../components/SecurityCard';
 
 const APP_COMMIT = typeof __APP_COMMIT__ !== 'undefined' ? __APP_COMMIT__ : 'unknown';
 
@@ -277,6 +278,10 @@ export default function Settings() {
             )}
           </div>
         </div>
+
+        {canManageSystem && (
+          <SecurityCard />
+        )}
 
         {canManageSystem && (
           <div className="bg-white shadow rounded-lg overflow-hidden border border-slate-200">
