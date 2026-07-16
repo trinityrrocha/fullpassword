@@ -192,6 +192,11 @@ export default function Settings() {
     }
   };
 
+  const viewSecurityAudit = (filters) => {
+    setAuditFilters((current) => ({ ...current, ...filters }));
+    document.getElementById('system-audit')?.scrollIntoView({ behavior: 'smooth' });
+  };
+
   const restrictedWarning = (message) => (
     <div className="bg-amber-50 border-l-4 border-amber-400 p-4">
       <div className="flex">
@@ -280,11 +285,11 @@ export default function Settings() {
         </div>
 
         {canManageSystem && (
-          <SecurityCard />
+          <SecurityCard onViewAudit={viewSecurityAudit} />
         )}
 
         {canManageSystem && (
-          <div className="bg-white shadow rounded-lg overflow-hidden border border-slate-200">
+          <div id="system-audit" className="bg-white shadow rounded-lg overflow-hidden border border-slate-200">
             <div className="px-6 py-5 border-b border-slate-200 bg-slate-50">
               <h3 className="text-lg leading-6 font-medium text-slate-900 flex items-center">
                 <ShieldCheck className="w-5 h-5 mr-2 text-indigo-500" /> Auditoria do Sistema
