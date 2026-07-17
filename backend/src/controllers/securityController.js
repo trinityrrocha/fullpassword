@@ -1,7 +1,7 @@
 const db = require('../config/database');
 const { isSuperAdmin } = require('../config/security');
 const { recordAuditEvent } = require('../services/auditService');
-const { normalizeIp, getLoginSecurityPolicy, hasActiveAllowRule } = require('../services/ipSecurityService');
+const { normalizeIp, normalizeIpOrCidr, isCidr, ruleTargetMatchesIp, getLoginSecurityPolicy, hasActiveAllowRule } = require('../services/ipSecurityService');
 
 const THRESHOLDS = new Set([5, 10, 15]);
 const WINDOWS = new Set([10, 15, 30, 60]);
@@ -68,44 +68,49 @@ const getLoginFailures = async (req, res) => {
             (ARRAY_AGG(COALESCE(events.metadata->>'email_attempted', events.user_email) ORDER BY events.created_at DESC))[1] AS latest_email_attempted,
             MIN(events.created_at) AS first_attempt_at, MAX(events.created_at) AS last_attempt_at,
             COUNT(*)::integer AS attempt_count,
-            CASE
-              WHEN EXISTS (SELECT 1 FROM ip_security_rules r WHERE r.ip_address = events.ip_address AND r.rule_type = 'allow' AND r.is_active) THEN 'whitelisted'
-              WHEN EXISTS (SELECT 1 FROM ip_security_rules r WHERE r.ip_address = events.ip_address AND r.rule_type = 'block' AND r.is_active) THEN 'permanently_blocked'
-              WHEN EXISTS (SELECT 1 FROM ip_security_rules r WHERE r.ip_address = events.ip_address AND r.rule_type = 'temporary_block' AND r.is_active AND r.expires_at > CURRENT_TIMESTAMP) THEN 'temporary_blocked'
-              ELSE 'normal' END AS status
+            'normal'::text AS status
      FROM system_audit_events events
      ${where.replaceAll('action', 'events.action').replaceAll('ip_address', 'events.ip_address').replaceAll('metadata', 'events.metadata').replaceAll('user_email', 'events.user_email').replaceAll('created_at', 'events.created_at')}
      GROUP BY events.ip_address ORDER BY MAX(events.created_at) DESC
      LIMIT $${values.length + 1} OFFSET $${values.length + 2}`,
     [...values, limit, (page - 1) * limit]
   );
+  const activeRules = await db.query(`SELECT * FROM ip_security_rules WHERE is_active = TRUE AND (rule_type IN ('allow', 'block') OR (rule_type = 'temporary_block' AND expires_at > CURRENT_TIMESTAMP))`);
+  const items = result.rows.map((item) => {
+    const matching = activeRules.rows.filter((rule) => ruleTargetMatchesIp(rule.ip_address, item.ip_address));
+    const status = matching.some((rule) => rule.rule_type === 'allow') ? 'whitelisted'
+      : matching.some((rule) => rule.rule_type === 'block') ? 'permanently_blocked'
+        : matching.some((rule) => rule.rule_type === 'temporary_block') ? 'temporary_blocked' : 'normal';
+    return { ...item, status };
+  });
   const total = count.rows[0]?.total || 0;
-  return res.json({ items: result.rows, pagination: { page, limit, total, total_pages: Math.ceil(total / limit) } });
+  return res.json({ items, pagination: { page, limit, total, total_pages: Math.ceil(total / limit) } });
 };
 
 const createRuleRecord = async ({ req, ipAddress, ruleType, reason, durationMinutes }) => {
-  if (ruleType !== 'allow' && normalizeIp(req.ip) === ipAddress) throw Object.assign(new Error('O IP atual do Super Admin não pode ser bloqueado.'), { status: 400 });
+  if (ruleType !== 'allow' && ruleTargetMatchesIp(ipAddress, req.ip)) throw Object.assign(new Error('O IP atual do Super Admin não pode ser bloqueado por esta regra.'), { status: 400 });
   if (ruleType !== 'allow' && await hasActiveAllowRule(ipAddress)) throw Object.assign(new Error('Whitelist ativa prevalece; remova-a antes de bloquear.'), { status: 409 });
   if (ruleType === 'temporary_block' && !DURATIONS.has(durationMinutes)) throw Object.assign(new Error('Duração inválida.'), { status: 400 });
   const expiresAt = ruleType === 'temporary_block' ? new Date(Date.now() + durationMinutes * 60000) : null;
   const result = await db.query(
-    `INSERT INTO ip_security_rules (ip_address, rule_type, reason, expires_at, created_by, created_by_email)
-     VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-    [ipAddress, ruleType, reason || null, expiresAt, req.user.id, req.user.email]
+    `INSERT INTO ip_security_rules (ip_address, rule_target_type, rule_type, reason, expires_at, created_by, created_by_email)
+     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+    [ipAddress, isCidr(ipAddress) ? 'cidr' : 'ip', ruleType, reason || null, expiresAt, req.user.id, req.user.email]
   );
-  await recordAuditEvent({ user: req.user, action: ruleType === 'allow' ? 'ip_whitelisted' : 'ip_blocked', status: 'success', req, metadata: { ip_address: ipAddress, rule_type: ruleType, rule_id: result.rows[0].id } });
+  await recordAuditEvent({ user: req.user, action: ruleType === 'allow' ? 'ip_whitelisted' : 'ip_blocked', status: 'success', req, metadata: { rule_target: ipAddress, rule_target_type: isCidr(ipAddress) ? 'cidr' : 'ip', rule_type: ruleType, reason: reason || null, rule_id: result.rows[0].id } });
   return result.rows[0];
 };
 
 const createIpRule = async (req, res) => {
   if (!requireSuperAdmin(req, res)) return;
-  const ipAddress = normalizeIp(req.body?.ip_address);
+  const ipAddress = normalizeIpOrCidr(req.body?.rule_target || req.body?.ip_address);
   const ruleType = String(req.body?.rule_type || '');
+  const reason = String(req.body?.reason || '').slice(0, 500);
   if (!ipAddress || !RULE_TYPES.has(ruleType)) return res.status(400).json({ error: 'IP ou tipo de regra inválido.' });
   try {
-    return res.status(201).json({ rule: await createRuleRecord({ req, ipAddress, ruleType, reason: String(req.body?.reason || '').slice(0, 500), durationMinutes: Number(req.body?.duration_minutes) }) });
+    return res.status(201).json({ rule: await createRuleRecord({ req, ipAddress, ruleType, reason, durationMinutes: Number(req.body?.duration_minutes) }) });
   } catch (error) {
-    await recordAuditEvent({ user: req.user, action: 'ip_block_denied', status: 'denied', req, metadata: { ip_address: ipAddress, rule_type: ruleType } });
+    await recordAuditEvent({ user: req.user, action: 'ip_block_denied', status: 'denied', req, metadata: { rule_target: ipAddress, rule_target_type: isCidr(ipAddress) ? 'cidr' : 'ip', rule_type: ruleType, reason: reason || null } });
     return res.status(error.status || 500).json({ error: error.status ? error.message : 'Não foi possível criar a regra.' });
   }
 };
@@ -130,7 +135,7 @@ const deactivateIpRule = async (req, res) => {
   const result = await db.query('UPDATE ip_security_rules SET is_active = FALSE, updated_at = CURRENT_TIMESTAMP WHERE id = $1 AND is_active = TRUE RETURNING *', [req.params.id]);
   if (!result.rows[0]) return res.status(404).json({ error: 'Regra ativa não encontrada.' });
   const rule = result.rows[0];
-  await recordAuditEvent({ user: req.user, action: rule.rule_type === 'allow' ? 'ip_whitelist_removed' : 'ip_unblocked', status: 'success', req, metadata: { ip_address: rule.ip_address, rule_type: rule.rule_type, rule_id: rule.id } });
+  await recordAuditEvent({ user: req.user, action: rule.rule_type === 'allow' ? 'ip_whitelist_removed' : 'ip_unblocked', status: 'success', req, metadata: { rule_target: rule.ip_address, rule_target_type: rule.rule_target_type || (rule.ip_address.includes('/') ? 'cidr' : 'ip'), rule_type: rule.rule_type, reason: rule.reason || null, rule_id: rule.id } });
   return res.json({ rule });
 };
 
@@ -139,11 +144,12 @@ const blockFromAudit = async (req, res) => {
   const event = await db.query('SELECT ip_address FROM system_audit_events WHERE id = $1', [req.body?.audit_event_id]);
   const ipAddress = normalizeIp(event.rows[0]?.ip_address);
   const ruleType = String(req.body?.rule_type || '');
+  const reason = String(req.body?.reason || '').slice(0, 500);
   if (!ipAddress || !new Set(['block', 'temporary_block']).has(ruleType)) return res.status(400).json({ error: 'Evento ou tipo de regra inválido.' });
   try {
-    return res.status(201).json({ rule: await createRuleRecord({ req, ipAddress, ruleType, reason: String(req.body?.reason || '').slice(0, 500), durationMinutes: Number(req.body?.duration_minutes) }) });
+    return res.status(201).json({ rule: await createRuleRecord({ req, ipAddress, ruleType, reason, durationMinutes: Number(req.body?.duration_minutes) }) });
   } catch (error) {
-    await recordAuditEvent({ user: req.user, action: 'ip_block_denied', status: 'denied', req, metadata: { ip_address: ipAddress, rule_type: ruleType } });
+    await recordAuditEvent({ user: req.user, action: 'ip_block_denied', status: 'denied', req, metadata: { rule_target: ipAddress, rule_target_type: 'ip', rule_type: ruleType, reason: reason || null } });
     return res.status(error.status || 500).json({ error: error.status ? error.message : 'Não foi possível criar a regra.' });
   }
 };

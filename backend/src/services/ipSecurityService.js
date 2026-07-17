@@ -1,11 +1,42 @@
-const net = require('net');
+const ipaddr = require('ipaddr.js');
 const db = require('../config/database');
 const { recordAuditEvent } = require('./auditService');
 
 const normalizeIp = (value) => {
+  try {
+    if (String(value || '').includes('/')) return null;
+    const address = ipaddr.parse(String(value || '').trim());
+    return address.kind() === 'ipv6' && address.isIPv4MappedAddress() ? address.toIPv4Address().toString() : address.toNormalizedString();
+  } catch {
+    return null;
+  }
+};
+
+const normalizeIpOrCidr = (value) => {
   const candidate = String(value || '').trim();
-  const normalized = candidate.startsWith('::ffff:') ? candidate.slice(7) : candidate;
-  return net.isIP(normalized) ? normalized.toLowerCase() : null;
+  if (!candidate.includes('/')) return normalizeIp(candidate);
+  try {
+    const [address, prefix] = ipaddr.parseCIDR(candidate);
+    return `${address.toNormalizedString()}/${prefix}`;
+  } catch {
+    return null;
+  }
+};
+
+const isCidr = (value) => Boolean(String(value || '').includes('/') && normalizeIpOrCidr(value));
+
+const ruleTargetMatchesIp = (ruleTarget, ipAddress) => {
+  const normalizedIp = normalizeIp(ipAddress);
+  const normalizedTarget = normalizeIpOrCidr(ruleTarget);
+  if (!normalizedIp || !normalizedTarget) return false;
+  if (!normalizedTarget.includes('/')) return normalizedTarget === normalizedIp;
+  try {
+    const address = ipaddr.parse(normalizedIp);
+    const [range, prefix] = ipaddr.parseCIDR(normalizedTarget);
+    return address.kind() === range.kind() && address.match(range, prefix);
+  } catch {
+    return false;
+  }
 };
 
 const getLoginSecurityPolicy = async () => {
@@ -15,13 +46,9 @@ const getLoginSecurityPolicy = async () => {
 
 const hasActiveAllowRule = async (ipAddress) => {
   const result = await db.query(
-    `SELECT EXISTS(
-       SELECT 1 FROM ip_security_rules
-       WHERE ip_address = $1 AND rule_type = 'allow' AND is_active = TRUE
-     ) AS allowed`,
-    [ipAddress]
+    `SELECT ip_address FROM ip_security_rules WHERE rule_type = 'allow' AND is_active = TRUE`
   );
-  return result.rows[0]?.allowed === true;
+  return result.rows.some((rule) => ruleTargetMatchesIp(rule.ip_address, ipAddress));
 };
 
 const applyAutomaticBlockForLoginFailure = async (req) => {
@@ -74,4 +101,4 @@ const applyAutomaticBlockForLoginFailure = async (req) => {
   }
 };
 
-module.exports = { normalizeIp, getLoginSecurityPolicy, hasActiveAllowRule, applyAutomaticBlockForLoginFailure };
+module.exports = { normalizeIp, normalizeIpOrCidr, isCidr, ruleTargetMatchesIp, getLoginSecurityPolicy, hasActiveAllowRule, applyAutomaticBlockForLoginFailure };

@@ -81,6 +81,10 @@ const ensureSecuritySchema = async () => {
         updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
       )
     `);
+    await client.query("ALTER TABLE ip_security_rules ADD COLUMN IF NOT EXISTS rule_target_type VARCHAR(10) NOT NULL DEFAULT 'ip'");
+    await client.query(`DO $$ BEGIN
+      ALTER TABLE ip_security_rules ADD CONSTRAINT chk_ip_security_rule_target_type CHECK (rule_target_type IN ('ip', 'cidr'));
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$`);
     await client.query('CREATE INDEX IF NOT EXISTS idx_ip_security_rules_ip ON ip_security_rules (ip_address)');
     await client.query('CREATE INDEX IF NOT EXISTS idx_ip_security_rules_type ON ip_security_rules (rule_type)');
     await client.query('CREATE INDEX IF NOT EXISTS idx_ip_security_rules_active ON ip_security_rules (is_active)');
