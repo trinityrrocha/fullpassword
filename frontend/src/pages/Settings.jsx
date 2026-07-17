@@ -4,6 +4,7 @@ import { Settings as SettingsIcon, RefreshCw, AlertTriangle, ShieldCheck, Downlo
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import SecurityCard from '../components/SecurityCard';
+import SettingsAccordionCard from '../components/SettingsAccordionCard';
 
 const APP_COMMIT = typeof __APP_COMMIT__ !== 'undefined' ? __APP_COMMIT__ : 'unknown';
 const APP_COMMIT_LABEL = /^[0-9a-f]{7,40}$/i.test(String(APP_COMMIT || '').trim()) ? APP_COMMIT : 'não identificado';
@@ -270,19 +271,7 @@ export default function Settings() {
       )}
 
       <div className="grid grid-cols-1 gap-6">
-        <div className="bg-white shadow rounded-lg overflow-hidden border border-slate-200">
-          <div className="px-6 py-5 border-b border-slate-200 bg-slate-50 flex justify-between items-center">
-            <h3 className="text-lg leading-6 font-medium text-slate-900 flex items-center">
-              <RefreshCw className="w-5 h-5 mr-2 text-indigo-500" />
-              WebUpdater (Atualização Automática)
-            </h3>
-            {canManageSystem && (
-              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                Super Admin
-              </span>
-            )}
-          </div>
-          <div className="p-6">
+        <SettingsAccordionCard title="WebUpdater (Atualização Automática)" icon={<RefreshCw className="w-5 h-5 mr-2 text-indigo-500" />} badge={canManageSystem && <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">Super Admin</span>}>
             <p className="text-sm text-slate-600 mb-4">
               O WebUpdater sincroniza o código fonte do repositório GitHub (branch main) e recria os containers Docker automaticamente.
               Esta ação é restrita ao Super Admin inicial.
@@ -302,22 +291,15 @@ export default function Settings() {
                 Buscar Atualizações e Reiniciar
               </button>
             )}
-          </div>
-        </div>
+        </SettingsAccordionCard>
 
         {canManageSystem && (
           <SecurityCard onViewAudit={viewSecurityAudit} />
         )}
 
         {canManageSystem && (
-          <div id="system-audit" className="bg-white shadow rounded-lg overflow-hidden border border-slate-200">
-            <div className="px-6 py-5 border-b border-slate-200 bg-slate-50">
-              <h3 className="text-lg leading-6 font-medium text-slate-900 flex items-center">
-                <ShieldCheck className="w-5 h-5 mr-2 text-indigo-500" /> Auditoria do Sistema
-              </h3>
-              <p className="mt-1 text-sm text-slate-500">Consulte eventos administrativos sensíveis, como WebUpdater, exportação de backup e acessos negados.</p>
-            </div>
-            <div className="p-6 space-y-5">
+          <SettingsAccordionCard id="system-audit" title="Auditoria do Sistema" icon={<ShieldCheck className="w-5 h-5 mr-2 text-indigo-500" />} description="Consulte eventos administrativos sensíveis, como WebUpdater, exportação de backup e acessos negados.">
+            <div className="space-y-5">
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-3">
                 <select value={auditFilters.action} onChange={(e) => setAuditFilters({ ...auditFilters, action: e.target.value })} aria-label="Ação" className="border border-slate-300 rounded-md px-3 py-2 text-sm bg-white">
                   {AUDIT_ACTION_OPTIONS.map(([value, label]) => <option key={value || 'all'} value={value}>{label}</option>)}
@@ -379,22 +361,10 @@ export default function Settings() {
                 <button type="button" onClick={() => loadAuditEvents(auditPagination.page + 1)} disabled={isLoadingAudit || auditPagination.page >= auditPagination.total_pages} className="px-3 py-2 border border-slate-300 rounded-md text-sm disabled:opacity-50">Próxima</button>
               </div>
             </div>
-          </div>
+          </SettingsAccordionCard>
         )}
 
-        <div className="bg-white shadow rounded-lg overflow-hidden border border-slate-200">
-          <div className="px-6 py-5 border-b border-slate-200 bg-slate-50 flex justify-between items-center">
-            <h3 className="text-lg leading-6 font-medium text-slate-900 flex items-center">
-              <Database className="w-5 h-5 mr-2 text-indigo-500" />
-              Web Backup (Backup Completo)
-            </h3>
-            {canManageSystem && (
-              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                Super Admin
-              </span>
-            )}
-          </div>
-          <div className="p-6">
+        <SettingsAccordionCard title="Web Backup (Backup Completo)" icon={<Database className="w-5 h-5 mr-2 text-indigo-500" />} badge={canManageSystem && <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">Super Admin</span>}>
             <p className="text-sm text-slate-600 mb-4">
               Gere um backup completo criptografado do FullPassword. O conteúdo sensível será protegido
               antes do download e as senhas dos cofres não serão descriptografadas pelo servidor.
@@ -453,8 +423,7 @@ export default function Settings() {
                 </button>
               </div>
             )}
-          </div>
-        </div>
+        </SettingsAccordionCard>
 
         <div className="bg-white shadow rounded-lg overflow-hidden border border-slate-200">
           <div className="px-6 py-5 border-b border-slate-200 bg-slate-50">

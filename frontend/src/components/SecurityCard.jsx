@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { AlertTriangle, RefreshCw, ShieldCheck } from 'lucide-react';
 import api from '../services/api';
+import SettingsAccordionCard from './SettingsAccordionCard';
 
 const selectClass = 'border border-slate-300 rounded-md px-3 py-2 text-sm bg-white';
 const defaultPolicy = { auto_block_enabled: true, failed_attempts_threshold: 5, observation_window_minutes: 15, block_duration_minutes: 30 };
@@ -89,12 +90,8 @@ export default function SecurityCard({ onViewAudit }) {
   };
 
   return (
-    <div id="security-card" className="bg-white shadow rounded-lg overflow-hidden border border-slate-200">
-      <div className="px-6 py-5 border-b border-slate-200 bg-slate-50 flex justify-between items-center">
-        <h3 className="text-lg leading-6 font-medium text-slate-900 flex items-center"><ShieldCheck className="w-5 h-5 mr-2 text-indigo-500" /> Segurança</h3>
-        <button type="button" onClick={refresh} disabled={isLoading} className="text-indigo-600 disabled:opacity-50" title="Atualizar segurança"><RefreshCw className={`w-5 h-5 ${isLoading ? 'animate-spin' : ''}`} /></button>
-      </div>
-      <div className="p-6 space-y-8">
+    <SettingsAccordionCard id="security-card" title="Segurança" icon={<ShieldCheck className="w-5 h-5 mr-2 text-indigo-500" />} defaultOpen headerAction={<button type="button" onClick={refresh} disabled={isLoading} className="text-indigo-600 disabled:opacity-50" title="Atualizar segurança"><RefreshCw className={`w-5 h-5 ${isLoading ? 'animate-spin' : ''}`} /></button>}>
+      <div className="space-y-8">
         <div className="space-y-2 text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-md p-4">
           <p className="flex items-center font-medium"><AlertTriangle className="w-4 h-4 mr-2" /> Cuidado: bloquear IP incorreto pode impedir acesso legítimo.</p><p>O IP atual do Super Admin não pode ser bloqueado.</p><p>Whitelist prevalece sobre bloqueios automáticos e permanentes.</p>
         </div>
@@ -117,6 +114,6 @@ export default function SecurityCard({ onViewAudit }) {
 
         <section className="space-y-3"><h4 className="font-semibold text-slate-900">Blacklist / Whitelist</h4><div className="flex flex-col sm:flex-row gap-3"><input value={ruleSearch} onChange={(e) => setRuleSearch(e.target.value)} placeholder="Pesquisar por IP" className="border border-slate-300 rounded-md px-3 py-2 text-sm flex-1" /><select value={ruleType} onChange={(e) => setRuleType(e.target.value)} className={selectClass}><option value="">Todos</option><option value="block">Blacklist</option><option value="temporary_block">Bloqueio temporário</option><option value="allow">Whitelist</option></select></div><div className="overflow-x-auto border border-slate-200 rounded-lg"><table className="min-w-full text-sm"><thead className="bg-slate-50"><tr>{['IP', 'Tipo', 'Motivo', 'Criado por', 'Criado em', 'Status', 'Ação'].map((l) => <th key={l} className="px-3 py-3 text-left">{l}</th>)}</tr></thead><tbody>{rules.length ? rules.map((rule) => <tr key={rule.id} className="border-t"><td className="px-3 py-3 font-mono">{rule.ip_address}</td><td className="px-3 py-3"><span className={`px-2 py-1 rounded-full text-xs ${ruleClass[rule.rule_type]}`}>{rule.rule_type}</span></td><td className="px-3 py-3">{rule.reason || '-'}</td><td className="px-3 py-3">{rule.created_by_email || '-'}</td><td className="px-3 py-3 whitespace-nowrap">{new Date(rule.created_at).toLocaleString('pt-BR')}</td><td className="px-3 py-3">{rule.is_active ? 'Ativa' : 'Inativa'}</td><td className="px-3 py-3"><button onClick={() => deactivateRule(rule.id)} className="text-red-600">Desativar</button></td></tr>) : <tr><td colSpan={7} className="px-3 py-6 text-center text-slate-500">Nenhuma regra encontrada.</td></tr>}</tbody></table></div></section>
       </div>
-    </div>
+    </SettingsAccordionCard>
   );
 }
