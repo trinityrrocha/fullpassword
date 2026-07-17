@@ -62,7 +62,7 @@ export default function SecurityCard({ onViewAudit }) {
   };
 
   return (
-    <SettingsAccordionCard id="security-card" title="Segurança" icon={<ShieldCheck className="w-5 h-5 mr-2 text-indigo-500" />} defaultOpen headerAction={<button type="button" onClick={refresh} disabled={isLoading} className="text-indigo-600 disabled:opacity-50" title="Atualizar segurança"><RefreshCw className={`w-5 h-5 ${isLoading ? 'animate-spin' : ''}`} /></button>}>
+    <SettingsAccordionCard id="security-card" title="Segurança" icon={<ShieldCheck className="w-5 h-5 mr-2 text-indigo-500" />} headerAction={<button type="button" onClick={refresh} disabled={isLoading} className="text-indigo-600 disabled:opacity-50" title="Atualizar segurança"><RefreshCw className={`w-5 h-5 ${isLoading ? 'animate-spin' : ''}`} /></button>}>
       <div className="space-y-8">
         <div className="space-y-2 text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-md p-4">
           <p className="flex items-center font-medium"><AlertTriangle className="w-4 h-4 mr-2" /> Cuidado: bloquear IP incorreto pode impedir acesso legítimo.</p><p>O IP atual do Super Admin não pode ser bloqueado.</p><p>Whitelist prevalece sobre bloqueios automáticos e permanentes.</p>
