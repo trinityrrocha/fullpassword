@@ -5,6 +5,7 @@ const db = require('../config/database');
 const { recordAuditEvent } = require('../services/auditService');
 const { applyAutomaticBlockForLoginFailure } = require('../services/ipSecurityService');
 const { getTrustedCountry } = require('../services/securityMetadataService');
+const { issueCsrfCookie, clearCsrfCookie } = require('../services/csrfService');
 const {
   JWT_SECRET,
   JWT_EXPIRES_IN,
@@ -248,6 +249,7 @@ const login = async (req, res) => {
       { expiresIn: JWT_EXPIRES_IN }
     );
     res.cookie(SESSION_COOKIE_NAME, token, sessionCookieOptions());
+    issueCsrfCookie(res);
     await recordAuditEvent({
       user,
       action: 'login_success',
@@ -281,6 +283,11 @@ const me = async (req, res) => {
   }
 };
 
+const csrf = async (_req, res) => {
+  issueCsrfCookie(res);
+  return res.status(200).json({ message: 'Token CSRF renovado.' });
+};
+
 const logout = async (_req, res) => {
   res.clearCookie(SESSION_COOKIE_NAME, {
     httpOnly: true,
@@ -288,7 +295,8 @@ const logout = async (_req, res) => {
     sameSite: 'strict',
     path: '/'
   });
+  clearCsrfCookie(res);
   return res.status(200).json({ message: 'Logout realizado com sucesso' });
 };
 
-module.exports = { login, logout, me, bootstrapStatus, bootstrapAdmin };
+module.exports = { login, logout, me, csrf, bootstrapStatus, bootstrapAdmin };

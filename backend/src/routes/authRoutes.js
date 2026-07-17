@@ -7,6 +7,7 @@ const { verifyToken } = require('../middleware/authMiddleware');
 router.post('/login', authController.login);
 router.post('/logout', authController.logout);
 router.get('/me', verifyToken, authController.me);
+router.get('/csrf', verifyToken, authController.csrf);
 router.get('/bootstrap/status', authController.bootstrapStatus);
 router.post('/bootstrap', authController.bootstrapAdmin);
 
