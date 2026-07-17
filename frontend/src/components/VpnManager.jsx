@@ -405,13 +405,13 @@ export default function VpnManager({ vpnForm, setVpnForm, handleSaveData, isSavi
           {filteredUsers.length === 0 ? (
             <p className="text-sm text-slate-500">{userSearch.trim() ? 'Nenhum usuário encontrado.' : 'Nenhum usuário VPN cadastrado.'}</p>
           ) : filteredUsers.map((user) => (
-            <div key={user.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white border border-slate-200 rounded-lg p-4">
-              <div className="space-y-1">
+            <div key={user.id} className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm">
                 <p className="font-medium text-slate-900">{user.personName || 'Pessoa não informada'}</p>
-                <p className="text-sm text-slate-500">Usuário VPN: {user.username || '-'}</p>
-                <p className="text-xs text-slate-500">Servidor: {getServerLabel(user.serverId)}</p>
+                <span className="text-slate-600">· Usuário VPN: {user.username || '-'}</span>
+                <span className="text-slate-600">· Servidor: {getServerLabel(user.serverId)}</span>
               </div>
-              <button type="button" onClick={() => { setEditingUser({ ...user }); setDeleteUserConfirmation(''); }} className="inline-flex items-center px-3 py-2 border border-slate-300 rounded-md text-sm text-slate-700 bg-white hover:bg-slate-50">
+              <button type="button" onClick={() => { setEditingUser({ ...user }); setDeleteUserConfirmation(''); }} className="inline-flex shrink-0 items-center self-start px-3 py-2 border border-slate-300 rounded-md text-sm text-slate-700 bg-white hover:bg-slate-50 sm:self-auto">
                 <Edit2 className="w-4 h-4 mr-2" /> Detalhes
               </button>
             </div>

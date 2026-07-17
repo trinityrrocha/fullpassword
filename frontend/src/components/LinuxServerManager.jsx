@@ -462,13 +462,15 @@ export default function LinuxServerManager({ serverForm, setServerForm, handleSa
           {filteredCredentials.length === 0 ? (
             <p className="text-sm text-slate-500">{userSearch.trim() ? 'Nenhuma credencial encontrada.' : 'Nenhuma credencial SSH cadastrada.'}</p>
           ) : filteredCredentials.map((credential) => (
-            <div key={credential.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white border border-slate-200 rounded-lg p-4">
-              <div className="space-y-1">
+            <div key={credential.id} className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm">
                 <p className="font-medium text-slate-900 flex items-center gap-2"><UserRound className="h-5 w-5 shrink-0 text-slate-500" />{credential.username || 'Usuário SSH sem nome'}</p>
-                <p className="text-sm text-slate-500">Porta SSH: {credential.sshPort || '22'} | Servidor: {getServerLabel(credential.serverId)}</p>
-                <p className="text-xs text-slate-500">Chave pública: {credential.publicKeyAttachment?.name || '-'} | Chave privada: {credential.privateKeyAttachment?.name || '-'}</p>
+                <span className="text-slate-600">· Porta SSH: {credential.sshPort || '22'}</span>
+                <span className="text-slate-600">· Servidor: {getServerLabel(credential.serverId)}</span>
+                <span className="text-slate-600">· Chave pública: {credential.publicKeyAttachment?.name || '-'}</span>
+                <span className="text-slate-600">· Chave privada: {credential.privateKeyAttachment?.name || '-'}</span>
               </div>
-              <button type="button" onClick={() => { setEditingUser(normalizeSshCredential(credential)); setDeleteUserConfirmation(''); }} className="inline-flex items-center px-3 py-2 border border-slate-300 rounded-md text-sm text-slate-700 bg-white hover:bg-slate-50">
+              <button type="button" onClick={() => { setEditingUser(normalizeSshCredential(credential)); setDeleteUserConfirmation(''); }} className="inline-flex shrink-0 items-center self-start px-3 py-2 border border-slate-300 rounded-md text-sm text-slate-700 bg-white hover:bg-slate-50 sm:self-auto">
                 <Edit2 className="w-4 h-4 mr-2" /> Detalhes
               </button>
             </div>
