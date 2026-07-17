@@ -39,6 +39,30 @@ const ensureSecuritySchema = async () => {
     await client.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version INTEGER NOT NULL DEFAULT 0');
     await client.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS is_super_admin BOOLEAN NOT NULL DEFAULT FALSE');
     await client.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT FALSE');
+    await client.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS mfa_required BOOLEAN NOT NULL DEFAULT FALSE');
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS user_mfa_settings (
+        user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+        totp_secret_encrypted TEXT NOT NULL,
+        enabled BOOLEAN NOT NULL DEFAULT FALSE,
+        confirmed_at TIMESTAMP WITH TIME ZONE,
+        recovery_codes_version INTEGER NOT NULL DEFAULT 1,
+        created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        last_used_at TIMESTAMP WITH TIME ZONE
+      )
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS user_mfa_recovery_codes (
+        id BIGSERIAL PRIMARY KEY,
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        code_hash TEXT NOT NULL,
+        used_at TIMESTAMP WITH TIME ZONE,
+        created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    await client.query('ALTER TABLE user_mfa_settings ADD COLUMN IF NOT EXISTS recovery_codes_version INTEGER NOT NULL DEFAULT 1');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_user_mfa_recovery_codes_user_unused ON user_mfa_recovery_codes (user_id, used_at)');
     await client.query(`
       CREATE TABLE IF NOT EXISTS system_audit_events (
         id BIGSERIAL PRIMARY KEY,

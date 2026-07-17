@@ -6,6 +6,7 @@ const { recordAuditEvent } = require('../services/auditService');
 const { applyAutomaticBlockForLoginFailure } = require('../services/ipSecurityService');
 const { getTrustedCountry } = require('../services/securityMetadataService');
 const { issueCsrfCookie, clearCsrfCookie } = require('../services/csrfService');
+const { getMfaSettings, ensureMfaSetup, createChallengeToken } = require('../services/mfaService');
 const {
   JWT_SECRET,
   JWT_EXPIRES_IN,
@@ -56,6 +57,8 @@ const serializeUser = (user, groups = []) => ({
   is_active: user.is_active,
   is_super_admin: user.is_super_admin === true,
   must_change_password: user.must_change_password === true,
+  mfa_required: user.mfa_required === true,
+  mfa_enabled: user.mfa_enabled === true,
   wrapped_key: user.wrapped_key,
   crypto_salt: user.crypto_salt,
   public_key: user.public_key,
@@ -198,7 +201,7 @@ const login = async (req, res) => {
 
     const result = await db.query(
       `SELECT id, name, email, hash_senha_login, role, wrapped_key, crypto_salt,
-              is_active, is_super_admin, must_change_password,
+              is_active, is_super_admin, must_change_password, mfa_required,
               public_key, encrypted_private_key, token_version
        FROM users WHERE email = $1`,
       [email]
@@ -224,8 +227,6 @@ const login = async (req, res) => {
       return res.status(401).json({ error: 'Credenciais inválidas' });
     }
 
-    const groupsResult = await db.query('SELECT group_id FROM user_groups WHERE user_id = $1', [user.id]);
-    const groups = groupsResult.rows.map((row) => row.group_id);
     let finalWrappedKey = user.wrapped_key;
     let finalCryptoSalt = user.crypto_salt;
 
@@ -243,24 +244,34 @@ const login = async (req, res) => {
       );
     }
 
-    const token = jwt.sign(
-      { id: user.id, token_version: user.token_version },
-      JWT_SECRET,
-      { expiresIn: JWT_EXPIRES_IN }
-    );
-    res.cookie(SESSION_COOKIE_NAME, token, sessionCookieOptions());
-    issueCsrfCookie(res);
-    await recordAuditEvent({
-      user,
-      action: 'login_success',
-      status: 'success',
-      req,
-      metadata: { email: user.email, method: 'password', country: getTrustedCountry(req) }
-    });
-    return res.status(200).json({
-      message: 'Login realizado com sucesso',
-      user: serializeUser({ ...user, wrapped_key: finalWrappedKey, crypto_salt: finalCryptoSalt }, groups)
-    });
+    const sessionUser = { ...user, wrapped_key: finalWrappedKey, crypto_salt: finalCryptoSalt };
+    const mfaSettings = await getMfaSettings(user.id);
+    if (mfaSettings?.enabled) {
+      await recordAuditEvent({
+        user, action: 'mfa_login_required', status: 'pending', req,
+        metadata: { country: getTrustedCountry(req) }
+      });
+      return res.status(200).json({
+        mfa_required: true,
+        mfa_setup_required: false,
+        challenge_token: createChallengeToken(sessionUser, 'login')
+      });
+    }
+    if (user.mfa_required === true) {
+      const setup = await ensureMfaSetup(sessionUser);
+      await recordAuditEvent({
+        user, action: 'mfa_setup_started', status: 'pending', req,
+        metadata: { country: getTrustedCountry(req) }
+      });
+      return res.status(200).json({
+        mfa_required: true,
+        mfa_setup_required: true,
+        setup_token: createChallengeToken(sessionUser, 'setup'),
+        otpauth_url: setup.otpauthUrl,
+        qr_code_data_url: setup.qrCodeDataUrl
+      });
+    }
+    return completeLoginSession(req, res, sessionUser);
   } catch (error) {
     console.error('Erro no login:', error);
     return res.status(500).json({ error: 'Erro interno no servidor durante a autenticação' });
@@ -270,8 +281,9 @@ const login = async (req, res) => {
 const me = async (req, res) => {
   try {
     const result = await db.query(
-      `SELECT id, name, email, role, is_active, is_super_admin, must_change_password,
-              wrapped_key, crypto_salt, public_key, encrypted_private_key
+      `SELECT id, name, email, role, is_active, is_super_admin, must_change_password, mfa_required,
+              wrapped_key, crypto_salt, public_key, encrypted_private_key,
+              EXISTS(SELECT 1 FROM user_mfa_settings m WHERE m.user_id = users.id AND m.enabled = TRUE) AS mfa_enabled
        FROM users WHERE id = $1 LIMIT 1`,
       [req.user.id]
     );
@@ -288,6 +300,19 @@ const csrf = async (_req, res) => {
   return res.status(200).json({ message: 'Token CSRF renovado.' });
 };
 
+const completeLoginSession = async (req, res, user, extraResponse = {}) => {
+  const groupsResult = await db.query('SELECT group_id FROM user_groups WHERE user_id = $1', [user.id]);
+  const groups = groupsResult.rows.map((row) => row.group_id);
+  const token = jwt.sign({ id: user.id, token_version: user.token_version }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
+  res.cookie(SESSION_COOKIE_NAME, token, sessionCookieOptions());
+  issueCsrfCookie(res);
+  await recordAuditEvent({
+    user, action: 'login_success', status: 'success', req,
+    metadata: { email: user.email, method: 'password', country: getTrustedCountry(req) }
+  });
+  return res.status(200).json({ message: 'Login realizado com sucesso', user: serializeUser(user, groups), ...extraResponse });
+};
+
 const logout = async (_req, res) => {
   res.clearCookie(SESSION_COOKIE_NAME, {
     httpOnly: true,
@@ -299,4 +324,4 @@ const logout = async (_req, res) => {
   return res.status(200).json({ message: 'Logout realizado com sucesso' });
 };
 
-module.exports = { login, logout, me, csrf, bootstrapStatus, bootstrapAdmin };
+module.exports = { login, completeLoginSession, logout, me, csrf, bootstrapStatus, bootstrapAdmin };

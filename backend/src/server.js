@@ -33,6 +33,14 @@ const authenticationLimiter = rateLimit({
   message: { error: 'Muitas tentativas. Aguarde 15 minutos e tente novamente.' }
 });
 
+const mfaLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000,
+  limit: 10,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { error: 'Muitas tentativas MFA. Aguarde alguns minutos e tente novamente.' }
+});
+
 // Middlewares globais de segurança e parse
 app.use(helmet()); // Proteção de headers HTTP
 const allowedOrigin = process.env.APP_ORIGIN;
@@ -42,6 +50,7 @@ app.use(cookieParser());
 app.use(express.json({ limit: '256kb' })); // Parse de JSON no body
 app.use('/api/auth/login', authenticationLimiter);
 app.use('/api/auth/bootstrap', authenticationLimiter);
+app.use('/api/auth/mfa', mfaLimiter);
 
 // Rota de verificação de saúde (Healthcheck)
 app.get('/api/health', (req, res) => {

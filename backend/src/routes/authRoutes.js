@@ -1,10 +1,13 @@
 const express = require('express');
 const router = express.Router();
 const authController = require('../controllers/authController');
+const mfaController = require('../controllers/mfaController');
 const { verifyToken } = require('../middleware/authMiddleware');
 
 // Rota POST /api/auth/login
 router.post('/login', authController.login);
+router.post('/mfa/verify-login', mfaController.verifyLogin);
+router.post('/mfa/setup/confirm', mfaController.confirmSetup);
 router.post('/logout', authController.logout);
 router.get('/me', verifyToken, authController.me);
 router.get('/csrf', verifyToken, authController.csrf);
