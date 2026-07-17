@@ -392,28 +392,30 @@ export default function Settings() {
               restrictedWarning('Apenas o Super Admin inicial pode gerar backup completo do sistema.')
             ) : (
               <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Confirmação</label>
-                  <input
-                    type="text"
-                    value={backupConfirmation}
-                    onChange={(e) => setBackupConfirmation(e.target.value)}
-                    placeholder="Digite EXPORTAR BACKUP"
-                    autoComplete="off"
-                    className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Frase de criptografia</label>
-                  <input
-                    type="password"
-                    value={backupPassphrase}
-                    onChange={(e) => setBackupPassphrase(e.target.value)}
-                    minLength={16}
-                    autoComplete="new-password"
-                    className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                  />
-                  <p className="mt-1 text-xs text-slate-500">Mínimo de 16 caracteres. Não salve esta frase junto ao arquivo.</p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Confirmação</label>
+                    <input
+                      type="text"
+                      value={backupConfirmation}
+                      onChange={(e) => setBackupConfirmation(e.target.value)}
+                      placeholder="Digite EXPORTAR BACKUP"
+                      autoComplete="off"
+                      className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Frase de criptografia</label>
+                    <input
+                      type="password"
+                      value={backupPassphrase}
+                      onChange={(e) => setBackupPassphrase(e.target.value)}
+                      minLength={16}
+                      autoComplete="new-password"
+                      className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    />
+                    <p className="mt-1 text-xs text-slate-500">Mínimo de 16 caracteres. Não salve esta frase junto ao arquivo.</p>
+                  </div>
                 </div>
 
                 <button
