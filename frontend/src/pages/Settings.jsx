@@ -5,6 +5,7 @@ import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import SecurityCard from '../components/SecurityCard';
 import SettingsAccordionCard from '../components/SettingsAccordionCard';
+import ManualIpRulesCard from '../components/ManualIpRulesCard';
 
 const APP_COMMIT = typeof __APP_COMMIT__ !== 'undefined' ? __APP_COMMIT__ : 'unknown';
 const APP_COMMIT_LABEL = /^[0-9a-f]{7,40}$/i.test(String(APP_COMMIT || '').trim()) ? APP_COMMIT : 'não identificado';
@@ -296,6 +297,8 @@ export default function Settings() {
         {canManageSystem && (
           <SecurityCard onViewAudit={viewSecurityAudit} />
         )}
+
+        {canManageSystem && <ManualIpRulesCard />}
 
         {canManageSystem && (
           <SettingsAccordionCard id="system-audit" title="Auditoria do Sistema" icon={<ShieldCheck className="w-5 h-5 mr-2 text-indigo-500" />} description="Consulte eventos administrativos sensíveis, como WebUpdater, exportação de backup e acessos negados.">
