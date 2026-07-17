@@ -15,6 +15,12 @@ export const AuthProvider = ({ children }) => {
   const [masterKey, setMasterKey] = useState(null);
   const [loading, setLoading] = useState(true);
 
+  const finishAuthentication = (data) => {
+    if (!data?.user) return { success: false, error: 'Resposta de autenticação inválida' };
+    setUser(data.user);
+    return { success: true, recoveryCodes: data.recovery_codes || [], recoveryCodeUsed: data.recovery_code_used === true };
+  };
+
   useEffect(() => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
@@ -30,15 +36,36 @@ export const AuthProvider = ({ children }) => {
   const login = async (email, password) => {
     try {
       const response = await api.post('/auth/login', { email, password });
-      const { user: userData } = response.data;
-      setUser(userData);
-      return { success: true };
+      if (response.data?.mfa_required) return { success: false, mfa: response.data };
+      return finishAuthentication(response.data);
     } catch (error) {
-      console.error('Erro no login:', error);
+      console.error('Falha na tentativa de login.');
       return { 
         success: false, 
         error: error.response?.data?.error || 'Erro ao conectar com o servidor' 
       };
+    }
+  };
+
+  const verifyMfaLogin = async (challengeToken, { code, recoveryCode }) => {
+    try {
+      const response = await api.post('/auth/mfa/verify-login', {
+        challenge_token: challengeToken,
+        code: code || undefined,
+        recovery_code: recoveryCode || undefined
+      });
+      return finishAuthentication(response.data);
+    } catch (error) {
+      return { success: false, error: error.response?.data?.error || 'Não foi possível validar o MFA' };
+    }
+  };
+
+  const confirmMfaSetup = async (setupToken, code) => {
+    try {
+      const response = await api.post('/auth/mfa/setup/confirm', { setup_token: setupToken, code });
+      return finishAuthentication(response.data);
+    } catch (error) {
+      return { success: false, error: error.response?.data?.error || 'Não foi possível confirmar o MFA' };
     }
   };
 
@@ -96,6 +123,8 @@ export const AuthProvider = ({ children }) => {
     isAuthenticated: !!user,
     isVaultUnlocked: !!masterKey,
     login,
+    verifyMfaLogin,
+    confirmMfaSetup,
     logout,
     unlockVault,
     loading

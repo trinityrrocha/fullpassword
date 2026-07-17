@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { User, Lock, Loader2, AlertTriangle } from 'lucide-react';
+import { User, Lock, Loader2, AlertTriangle, ShieldCheck } from 'lucide-react';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { deriveMasterKey, unwrapMasterKey, wrapMasterKey } from '../services/cryptoService';
@@ -10,6 +10,10 @@ export default function UserProfileModal({ isOpen, onClose, forcePasswordChange 
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [mfaStatus, setMfaStatus] = useState(null);
+  const [mfaSetup, setMfaSetup] = useState(null);
+  const [mfaCode, setMfaCode] = useState('');
+  const [recoveryCodes, setRecoveryCodes] = useState([]);
   
   const [formData, setFormData] = useState({
     name: '',
@@ -30,6 +34,12 @@ export default function UserProfileModal({ isOpen, onClose, forcePasswordChange 
       });
       setError('');
       setSuccess('');
+      setMfaSetup(null);
+      setMfaCode('');
+      setRecoveryCodes([]);
+      api.get('/users/profile/mfa')
+        .then(({ data }) => setMfaStatus(data))
+        .catch(() => setMfaStatus(null));
     }
   }, [isOpen, user]);
 
@@ -116,8 +126,54 @@ export default function UserProfileModal({ isOpen, onClose, forcePasswordChange 
       }, 1800);
 
     } catch (err) {
-      console.error('Erro ao atualizar perfil:', err);
+      console.error('Falha ao atualizar o perfil.');
       setError(err.message || err.response?.data?.error || 'Erro ao atualizar perfil.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const startMfaSetup = async () => {
+    setError('');
+    setIsSaving(true);
+    try {
+      const { data } = await api.post('/users/profile/mfa/setup/start');
+      setMfaSetup(data);
+      setRecoveryCodes([]);
+    } catch (err) {
+      setError(err.response?.data?.error || 'Não foi possível iniciar a configuração MFA.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const confirmMfaSetup = async () => {
+    setError('');
+    setIsSaving(true);
+    try {
+      const { data } = await api.post('/users/profile/mfa/setup/confirm', { code: mfaCode });
+      setRecoveryCodes(data.recovery_codes || []);
+      setMfaStatus((status) => ({ ...status, mfa_enabled: true, recovery_codes_remaining: data.recovery_codes?.length || 0 }));
+      setMfaSetup(null);
+      setMfaCode('');
+    } catch (err) {
+      setError(err.response?.data?.error || 'Código MFA inválido.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const regenerateRecoveryCodes = async () => {
+    setError('');
+    if (!mfaCode) return setError('Informe o código atual do autenticador.');
+    setIsSaving(true);
+    try {
+      const { data } = await api.post('/users/profile/mfa/recovery-codes/regenerate', { code: mfaCode });
+      setRecoveryCodes(data.recovery_codes || []);
+      setMfaCode('');
+      setMfaStatus((status) => ({ ...status, recovery_codes_remaining: data.recovery_codes?.length || 0 }));
+    } catch (err) {
+      setError(err.response?.data?.error || 'Não foi possível regenerar os códigos.');
     } finally {
       setIsSaving(false);
     }
@@ -244,6 +300,39 @@ export default function UserProfileModal({ isOpen, onClose, forcePasswordChange 
                         </div>
                       </div>
                     </div>
+
+                    {!forcePasswordChange && (
+                      <div className="pt-4 border-t border-slate-200 space-y-3">
+                        <h4 className="text-sm font-medium text-slate-900 flex items-center"><ShieldCheck className="w-4 h-4 mr-1" />Autenticação em dois fatores</h4>
+                        <p className="text-sm text-slate-600">
+                          Status: <span className="font-medium">{mfaStatus?.mfa_enabled ? 'Habilitada' : 'Não configurada'}</span>
+                          {mfaStatus?.mfa_required ? ' — obrigatória pela política' : ''}
+                        </p>
+                        {!mfaStatus?.mfa_enabled && !mfaSetup && (
+                          <button type="button" onClick={startMfaSetup} className="text-sm font-medium text-indigo-600 hover:text-indigo-800">Configurar aplicativo autenticador</button>
+                        )}
+                        {mfaSetup && (
+                          <div className="space-y-3 rounded-md bg-slate-50 p-3">
+                            <img src={mfaSetup.qr_code_data_url} alt="QR Code MFA" className="mx-auto h-44 w-44" />
+                            <input type="text" autoComplete="one-time-code" value={mfaCode} onChange={(e) => setMfaCode(e.target.value)} placeholder="Código de 6 dígitos" className="block w-full border border-slate-300 rounded-md py-2 px-3 text-sm" />
+                            <button type="button" onClick={confirmMfaSetup} className="text-sm font-medium text-indigo-600 hover:text-indigo-800">Confirmar e habilitar MFA</button>
+                          </div>
+                        )}
+                        {mfaStatus?.mfa_enabled && (
+                          <div className="space-y-2">
+                            <p className="text-xs text-slate-500">Códigos de recuperação disponíveis: {mfaStatus.recovery_codes_remaining ?? 0}</p>
+                            <input type="text" autoComplete="one-time-code" value={mfaCode} onChange={(e) => setMfaCode(e.target.value)} placeholder="Código atual do autenticador" className="block w-full border border-slate-300 rounded-md py-2 px-3 text-sm" />
+                            <button type="button" onClick={regenerateRecoveryCodes} className="text-sm font-medium text-indigo-600 hover:text-indigo-800">Regenerar códigos de recuperação</button>
+                          </div>
+                        )}
+                        {recoveryCodes.length > 0 && (
+                          <div className="rounded-md border border-amber-200 bg-amber-50 p-3">
+                            <p className="text-sm font-medium text-amber-900">Guarde agora; estes códigos não serão exibidos novamente.</p>
+                            <div className="mt-2 grid grid-cols-2 gap-1 font-mono text-xs">{recoveryCodes.map((code) => <span key={code}>{code}</span>)}</div>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </form>
                 </div>
               </div>

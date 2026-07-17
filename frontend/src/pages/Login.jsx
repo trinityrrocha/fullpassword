@@ -13,8 +13,12 @@ export default function Login() {
   const [bootstrapRequired, setBootstrapRequired] = useState(false);
   const [superAdminEmail, setSuperAdminEmail] = useState('');
   const [bootstrap, setBootstrap] = useState({ name: '', email: '', password: '', confirm: '', token: '' });
+  const [mfaFlow, setMfaFlow] = useState(null);
+  const [mfaCode, setMfaCode] = useState('');
+  const [useRecoveryCode, setUseRecoveryCode] = useState(false);
+  const [recoveryCodes, setRecoveryCodes] = useState([]);
   const navigate = useNavigate();
-  const { login } = useAuth();
+  const { login, verifyMfaLogin, confirmMfaSetup } = useAuth();
 
   useEffect(() => {
     api.get('/auth/bootstrap/status')
@@ -65,11 +69,33 @@ export default function Login() {
       
       if (result.success) {
         navigate('/');
+      } else if (result.mfa) {
+        setMfaFlow(result.mfa);
+        setMfaCode('');
       } else {
         setError(result.error || 'Credenciais inválidas. Tente novamente.');
       }
     } catch {
       setError('Erro ao conectar com o servidor.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleMfa = async (e) => {
+    e.preventDefault();
+    setError('');
+    setIsLoading(true);
+    try {
+      const result = mfaFlow.mfa_setup_required
+        ? await confirmMfaSetup(mfaFlow.setup_token, mfaCode)
+        : await verifyMfaLogin(mfaFlow.challenge_token, useRecoveryCode ? { recoveryCode: mfaCode } : { code: mfaCode });
+      if (!result.success) return setError(result.error);
+      if (result.recoveryCodes?.length) {
+        setRecoveryCodes(result.recoveryCodes);
+      } else {
+        navigate('/');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -93,7 +119,7 @@ export default function Login() {
 
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
         <div className="bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10 border border-slate-200">
-          <form className="space-y-6" onSubmit={bootstrapRequired ? handleBootstrap : handleLogin}>
+          <form className="space-y-6" onSubmit={mfaFlow ? handleMfa : bootstrapRequired ? handleBootstrap : handleLogin}>
             {error && (
               <div className="bg-red-50 border-l-4 border-red-400 p-4">
                 <div className="flex">
@@ -104,7 +130,47 @@ export default function Login() {
               </div>
             )}
 
-            {bootstrapRequired && (
+            {mfaFlow && recoveryCodes.length === 0 && (
+              <div className="bg-indigo-50 border-l-4 border-indigo-400 p-4 text-sm text-indigo-800">
+                {mfaFlow.mfa_setup_required
+                  ? 'Escaneie o QR Code no aplicativo autenticador e confirme o primeiro código.'
+                  : 'Digite o código do seu aplicativo autenticador para concluir o login.'}
+              </div>
+            )}
+
+            {recoveryCodes.length > 0 && (
+              <div className="space-y-3">
+                <div className="bg-amber-50 border border-amber-200 rounded-md p-4">
+                  <p className="font-medium text-amber-900">Guarde estes códigos de recuperação agora</p>
+                  <p className="text-xs text-amber-700 mt-1">Eles não serão exibidos novamente. Cada código pode ser usado apenas uma vez.</p>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 font-mono text-sm">
+                  {recoveryCodes.map((code) => <div key={code} className="rounded bg-slate-100 px-3 py-2">{code}</div>)}
+                </div>
+              </div>
+            )}
+
+            {mfaFlow?.mfa_setup_required && recoveryCodes.length === 0 && (
+              <img src={mfaFlow.qr_code_data_url} alt="QR Code para configurar aplicativo autenticador" className="mx-auto w-52 h-52" />
+            )}
+
+            {mfaFlow && recoveryCodes.length === 0 && (
+              <div>
+                <label htmlFor="mfa-code" className="block text-sm font-medium text-slate-700">
+                  {useRecoveryCode ? 'Código de recuperação' : 'Código do autenticador'}
+                </label>
+                <input id="mfa-code" type="text" autoComplete="one-time-code" required autoFocus value={mfaCode}
+                  onChange={(e) => setMfaCode(e.target.value)}
+                  className="mt-1 appearance-none block w-full px-3 py-2 border border-slate-300 rounded-md shadow-sm" />
+                {!mfaFlow.mfa_setup_required && (
+                  <button type="button" onClick={() => { setUseRecoveryCode((value) => !value); setMfaCode(''); }} className="mt-2 text-sm text-indigo-600 hover:text-indigo-800">
+                    {useRecoveryCode ? 'Usar código do autenticador' : 'Usar código de recuperação'}
+                  </button>
+                )}
+              </div>
+            )}
+
+            {!mfaFlow && bootstrapRequired && (
               <div className="bg-amber-50 border-l-4 border-amber-400 p-4">
                 <p className="text-sm text-amber-700">
                   Configuração inicial: o primeiro administrador será o Super Admin do sistema.
@@ -115,7 +181,7 @@ export default function Login() {
               </div>
             )}
 
-            {bootstrapRequired && (
+            {!mfaFlow && bootstrapRequired && (
               <div>
                 <label htmlFor="name" className="block text-sm font-medium text-slate-700">Nome do administrador</label>
                 <input id="name" type="text" required value={bootstrap.name}
@@ -124,7 +190,7 @@ export default function Login() {
               </div>
             )}
 
-            <div>
+            {!mfaFlow && <div>
               <label htmlFor="email" className="block text-sm font-medium text-slate-700">
                 E-mail
               </label>
@@ -143,9 +209,9 @@ export default function Login() {
                   placeholder={bootstrapRequired ? superAdminEmail : 'mail@exemplo.com'}
                 />
               </div>
-            </div>
+            </div>}
 
-            <div>
+            {!mfaFlow && <div>
               <SecurePasswordInput
                 name="password"
                 label={bootstrapRequired ? 'Nova senha Master' : 'Senha Master'}
@@ -157,9 +223,9 @@ export default function Login() {
                 enableGenerator={bootstrapRequired}
                 placeholder="Sua senha mestre"
               />
-            </div>
+            </div>}
 
-            {bootstrapRequired && <>
+            {!mfaFlow && bootstrapRequired && <>
               <div>
                 <SecurePasswordInput name="confirm" label="Confirmar senha" value={bootstrap.confirm}
                   onChange={(e) => setBootstrap((value) => ({ ...value, confirm: e.target.value }))}
@@ -173,7 +239,7 @@ export default function Login() {
               </div>
             </>}
 
-            {!bootstrapRequired && <div className="flex items-center justify-between">
+            {!mfaFlow && !bootstrapRequired && <div className="flex items-center justify-between">
               <div className="flex items-center">
                 <input
                   id="remember-me"
@@ -195,7 +261,8 @@ export default function Login() {
 
             <div>
               <button
-                type="submit"
+                type={recoveryCodes.length ? 'button' : 'submit'}
+                onClick={recoveryCodes.length ? () => navigate('/') : undefined}
                 disabled={isLoading}
                 className={`w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 ${isLoading ? 'opacity-70 cursor-not-allowed' : ''}`}
               >
@@ -205,12 +272,12 @@ export default function Login() {
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                     </svg>
-                    {bootstrapRequired ? 'Configurando...' : 'Autenticando...'}
+                    {mfaFlow ? 'Validando...' : bootstrapRequired ? 'Configurando...' : 'Autenticando...'}
                   </span>
                 ) : (
                   <span className="flex items-center">
                     <Lock className="w-4 h-4 mr-2" />
-                    {bootstrapRequired ? 'Cadastrar Super Admin' : 'Acessar Cofre'}
+                    {recoveryCodes.length ? 'Já guardei os códigos' : mfaFlow ? 'Confirmar MFA' : bootstrapRequired ? 'Cadastrar Super Admin' : 'Acessar Cofre'}
                   </span>
                 )}
               </button>

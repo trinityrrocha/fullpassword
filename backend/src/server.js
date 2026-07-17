@@ -51,6 +51,7 @@ app.use(express.json({ limit: '256kb' })); // Parse de JSON no body
 app.use('/api/auth/login', authenticationLimiter);
 app.use('/api/auth/bootstrap', authenticationLimiter);
 app.use('/api/auth/mfa', mfaLimiter);
+app.use('/api/users/profile/mfa', mfaLimiter);
 
 // Rota de verificação de saúde (Healthcheck)
 app.get('/api/health', (req, res) => {
