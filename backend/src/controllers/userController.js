@@ -3,6 +3,7 @@ const argon2 = require('argon2');
 const crypto = require('crypto');
 const { ensureSharingSchema } = require('../services/accessControlService');
 const { isSuperAdmin } = require('../config/security');
+const { recordAuditEvent } = require('../services/auditService');
 const VALID_ROLES = new Set(['admin', 'user']);
 const isStrongPassword = (password) => typeof password === 'string' && password.length >= 12;
 
@@ -62,8 +63,9 @@ const getUsers = async (req, res) => {
     await ensureSharingSchema();
 
     const result = await db.query(
-      `SELECT id, name, email, role, is_active, is_super_admin, must_change_password,
-              public_key, created_at
+      `SELECT id, name, email, role, is_active, is_super_admin, must_change_password, mfa_required,
+              public_key, created_at,
+              EXISTS(SELECT 1 FROM user_mfa_settings m WHERE m.user_id = users.id AND m.enabled = TRUE) AS mfa_enabled
        FROM users
        ORDER BY name ASC`
     );
@@ -92,7 +94,7 @@ const createUser = async (req, res) => {
       return res.status(403).json({ error: 'Apenas administradores podem criar usuários' });
     }
 
-    const { name, email, password, role, groupIds } = req.body;
+    const { name, email, password, role, groupIds, mfa_required } = req.body;
 
     if (!name || !email || !password) {
       return res.status(400).json({ error: 'Nome, email e senha são obrigatórios' });
@@ -102,6 +104,10 @@ const createUser = async (req, res) => {
     }
     if (role !== undefined && !VALID_ROLES.has(role)) {
       return res.status(400).json({ error: 'Nível de acesso inválido' });
+    }
+
+    if (mfa_required !== undefined && (!isSuperAdmin(req.user) || typeof mfa_required !== 'boolean')) {
+      return res.status(403).json({ error: 'Apenas o Super Admin pode definir a exigência de MFA' });
     }
 
     const existingUser = await client.query('SELECT id FROM users WHERE email = $1', [email]);
@@ -125,9 +131,9 @@ const createUser = async (req, res) => {
     await client.query('BEGIN');
 
     const result = await client.query(
-      `INSERT INTO users (name, email, hash_senha_login, role, wrapped_key, crypto_salt) 
-       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, name, email, role, is_active, created_at`,
-      [name, email, hashSenhaLogin, role || 'user', wrappedKey, cryptoSalt]
+      `INSERT INTO users (name, email, hash_senha_login, role, wrapped_key, crypto_salt, mfa_required)
+       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, name, email, role, is_active, mfa_required, created_at`,
+      [name, email, hashSenhaLogin, role || 'user', wrappedKey, cryptoSalt, mfa_required === true]
     );
 
     const newUser = result.rows[0];
@@ -141,6 +147,13 @@ const createUser = async (req, res) => {
     }
 
     await client.query('COMMIT');
+
+    if (mfa_required !== undefined) {
+      await recordAuditEvent({
+        user: req.user, action: 'mfa_required_updated', status: 'success', req,
+        metadata: { target_user_id: newUser.id, mfa_required: newUser.mfa_required }
+      });
+    }
 
     res.status(201).json(newUser);
   } catch (error) {
@@ -249,7 +262,7 @@ const updateUser = async (req, res) => {
     }
 
     const { id } = req.params;
-    const { name, email, role, is_active, password } = req.body;
+    const { name, email, role, is_active, password, mfa_required } = req.body;
     const groupIdsProvided = Object.prototype.hasOwnProperty.call(req.body, 'groupIds') ||
       Object.prototype.hasOwnProperty.call(req.body, 'group_ids');
     const groupIds = Object.prototype.hasOwnProperty.call(req.body, 'groupIds')
@@ -264,6 +277,10 @@ const updateUser = async (req, res) => {
     }
     if (password && !isStrongPassword(password)) {
       return res.status(400).json({ error: 'A senha deve ter ao menos 12 caracteres' });
+    }
+
+    if (mfa_required !== undefined && (!isSuperAdmin(req.user) || typeof mfa_required !== 'boolean')) {
+      return res.status(403).json({ error: 'Apenas o Super Admin pode definir a exigência de MFA' });
     }
 
     const existingUser = await client.query(
@@ -321,6 +338,11 @@ const updateUser = async (req, res) => {
       values.push(is_active);
     }
 
+    if (mfa_required !== undefined) {
+      updates.push(`mfa_required = $${paramIndex++}`);
+      values.push(mfa_required);
+    }
+
     if (password && password.trim() !== '') {
       const hashSenhaLogin = await argon2.hash(password);
       updates.push(`hash_senha_login = $${paramIndex++}`);
@@ -361,12 +383,12 @@ const updateUser = async (req, res) => {
     let updatedUser = null;
     if (updates.length > 0) {
       values.push(id);
-      const query = `UPDATE users SET ${updates.join(', ')} WHERE id = $${paramIndex} RETURNING id, name, email, role, is_active, is_super_admin, must_change_password`;
+      const query = `UPDATE users SET ${updates.join(', ')} WHERE id = $${paramIndex} RETURNING id, name, email, role, is_active, is_super_admin, must_change_password, mfa_required`;
       const result = await client.query(query, values);
       updatedUser = result.rows[0];
     } else {
       const result = await client.query(
-        'SELECT id, name, email, role, is_active, is_super_admin, must_change_password FROM users WHERE id = $1',
+        'SELECT id, name, email, role, is_active, is_super_admin, must_change_password, mfa_required FROM users WHERE id = $1',
         [id]
       );
       updatedUser = result.rows[0];
@@ -390,6 +412,13 @@ const updateUser = async (req, res) => {
 
     await client.query('COMMIT');
 
+    if (mfa_required !== undefined) {
+      await recordAuditEvent({
+        user: req.user, action: 'mfa_required_updated', status: 'success', req,
+        metadata: { target_user_id: id, mfa_required }
+      });
+    }
+
     res.status(200).json({
       message: 'Usuário atualizado com sucesso',
       user: updatedUser
@@ -404,6 +433,54 @@ const updateUser = async (req, res) => {
 };
 
 // PUT /api/users/keys - Salva as chaves RSA do usuário autenticado
+const updateMfaPolicy = async (req, res) => {
+  try {
+    if (!isSuperAdmin(req.user)) return res.status(403).json({ error: 'Apenas o Super Admin pode alterar a política MFA' });
+    if (typeof req.body?.mfa_required !== 'boolean') return res.status(400).json({ error: 'mfa_required deve ser booleano' });
+    const result = await db.query(
+      `UPDATE users SET mfa_required = $1, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $2 RETURNING id, email, mfa_required`,
+      [req.body.mfa_required, req.params.id]
+    );
+    if (!result.rows[0]) return res.status(404).json({ error: 'Usuário não encontrado' });
+    await recordAuditEvent({
+      user: req.user, action: 'mfa_required_updated', status: 'success', req,
+      metadata: { target_user_id: result.rows[0].id, mfa_required: result.rows[0].mfa_required }
+    });
+    return res.status(200).json({ message: 'Política MFA atualizada', user: result.rows[0] });
+  } catch (error) {
+    console.error('Erro ao atualizar política MFA:', error);
+    return res.status(500).json({ error: 'Erro ao atualizar política MFA' });
+  }
+};
+
+const resetMfa = async (req, res) => {
+  const client = await db.pool.connect();
+  try {
+    if (!isSuperAdmin(req.user)) return res.status(403).json({ error: 'Apenas o Super Admin pode resetar MFA' });
+    await client.query('BEGIN');
+    const target = await client.query('SELECT id FROM users WHERE id = $1 FOR UPDATE', [req.params.id]);
+    if (!target.rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Usuário não encontrado' });
+    }
+    await client.query('DELETE FROM user_mfa_settings WHERE user_id = $1', [req.params.id]);
+    await client.query('UPDATE users SET token_version = token_version + 1, updated_at = CURRENT_TIMESTAMP WHERE id = $1', [req.params.id]);
+    await client.query('COMMIT');
+    await recordAuditEvent({
+      user: req.user, action: 'mfa_reset_by_admin', status: 'success', req,
+      metadata: { target_user_id: target.rows[0].id }
+    });
+    return res.status(200).json({ message: 'MFA resetado e sessões do usuário revogadas' });
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('Erro ao resetar MFA:', error);
+    return res.status(500).json({ error: 'Erro ao resetar MFA' });
+  } finally {
+    client.release();
+  }
+};
+
 const updateKeys = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -430,5 +507,7 @@ module.exports = {
   createUser,
   updateProfile,
   updateUser,
-  updateKeys
+  updateKeys,
+  updateMfaPolicy,
+  resetMfa
 };

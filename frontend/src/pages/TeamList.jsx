@@ -3,13 +3,15 @@ import { Users, Plus, Shield, Mail, X, Loader2, FolderKey } from 'lucide-react';
 import SecurePasswordInput from '../components/SecurePasswordInput';
 import GroupModal from '../components/GroupModal';
 import api from '../services/api';
+import { useAuth } from '../context/AuthContext';
 
 const defaultNewUser = {
   name: '',
   email: '',
   password: '',
   role: 'user',
-  groupIds: []
+  groupIds: [],
+  mfa_required: false
 };
 
 const defaultEditUser = {
@@ -19,7 +21,9 @@ const defaultEditUser = {
   role: 'user',
   is_active: true,
   password: '',
-  groupIds: []
+  groupIds: [],
+  mfa_required: false,
+  mfa_enabled: false
 };
 
 const permissionLabels = [
@@ -79,6 +83,7 @@ function GroupMembershipSelector({ groups, selectedIds, onChange, disabled = fal
 }
 
 export default function TeamList() {
+  const { user } = useAuth();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -132,7 +137,8 @@ export default function TeamList() {
     e.preventDefault();
     setIsSaving(true);
     try {
-      await api.post('/users', newUser);
+      const payload = user?.is_super_admin ? newUser : { ...newUser, mfa_required: undefined };
+      await api.post('/users', payload);
       alert('Usuário criado com sucesso!');
       setIsModalOpen(false);
       setNewUser(defaultNewUser);
@@ -160,6 +166,7 @@ export default function TeamList() {
       if (editUser.password && editUser.password.trim() !== '') {
         payload.password = editUser.password;
       }
+      if (user?.is_super_admin) payload.mfa_required = editUser.mfa_required;
 
       await api.put(`/users/${editUser.id}`, payload);
       alert('Usuário atualizado com sucesso!' + (payload.password ? ' A nova senha foi aplicada e as chaves criptográficas foram redefinidas.' : ''));
@@ -186,6 +193,21 @@ export default function TeamList() {
     }
   };
 
+  const handleResetMfa = async () => {
+    if (!window.confirm('Resetar o MFA deste usuário e revogar todas as sessões atuais?')) return;
+    setIsSaving(true);
+    try {
+      await api.post(`/users/${editUser.id}/mfa-reset`);
+      alert('MFA resetado. O usuário deverá configurá-lo novamente se a política continuar obrigatória.');
+      setEditUser((current) => ({ ...current, mfa_enabled: false }));
+      await loadUsers();
+    } catch (error) {
+      alert(error.response?.data?.error || 'Erro ao resetar MFA.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const openEditModal = (member) => {
     setEditUser({
       id: member.id,
@@ -194,7 +216,9 @@ export default function TeamList() {
       role: member.role,
       is_active: member.is_active !== undefined ? member.is_active : true,
       password: '',
-      groupIds: Array.isArray(member.groups) ? member.groups.map((group) => group.id) : []
+      groupIds: Array.isArray(member.groups) ? member.groups.map((group) => group.id) : [],
+      mfa_required: member.mfa_required === true,
+      mfa_enabled: member.mfa_enabled === true
     });
     setIsEditModalOpen(true);
   };
@@ -419,6 +443,15 @@ export default function TeamList() {
                     </select>
                   </div>
                   <GroupMembershipSelector groups={groups} selectedIds={editUser.groupIds} onChange={(groupIds) => setEditUser({ ...editUser, groupIds })} />
+                  {user?.is_super_admin && (
+                    <div className="p-3 bg-indigo-50 rounded-md space-y-2">
+                      <label className="flex items-start gap-3 cursor-pointer">
+                        <input type="checkbox" className="mt-1 h-4 w-4 text-indigo-600 rounded border-slate-300" checked={editUser.mfa_required} onChange={(e) => setEditUser({ ...editUser, mfa_required: e.target.checked })} />
+                        <span><span className="block text-sm font-medium text-slate-700">Exigir MFA/2FA no próximo login</span><span className="block text-xs text-slate-500">Recomendado para administradores.</span></span>
+                      </label>
+                      {editUser.mfa_enabled && <button type="button" onClick={handleResetMfa} className="text-sm font-medium text-red-600 hover:text-red-800">Resetar MFA e revogar sessões</button>}
+                    </div>
+                  )}
                   <div className="flex items-center justify-between p-3 bg-slate-50 rounded-md">
                     <div>
                       <p className="text-sm font-medium text-slate-700">Status da Conta</p>
@@ -468,6 +501,12 @@ export default function TeamList() {
                     </select>
                   </div>
                   <GroupMembershipSelector groups={groups} selectedIds={newUser.groupIds} onChange={(groupIds) => setNewUser({ ...newUser, groupIds })} />
+                  {user?.is_super_admin && (
+                    <label className="flex items-start gap-3 p-3 bg-indigo-50 rounded-md cursor-pointer">
+                      <input type="checkbox" className="mt-1 h-4 w-4 text-indigo-600 rounded border-slate-300" checked={newUser.mfa_required} onChange={(e) => setNewUser({ ...newUser, mfa_required: e.target.checked })} />
+                      <span><span className="block text-sm font-medium text-slate-700">Exigir MFA/2FA no próximo login</span><span className="block text-xs text-slate-500">Recomendado para administradores.</span></span>
+                    </label>
+                  )}
                 </form>
               </div>
               <ModalFooter isSaving={isSaving} formId="newUserForm" submitLabel="Salvar Usuário" onCancel={() => setIsModalOpen(false)} />
