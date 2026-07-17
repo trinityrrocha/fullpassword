@@ -6,7 +6,7 @@ import { useAuth } from '../context/AuthContext';
 import SecurityCard from '../components/SecurityCard';
 
 const APP_COMMIT = typeof __APP_COMMIT__ !== 'undefined' ? __APP_COMMIT__ : 'unknown';
-const APP_COMMIT_LABEL = APP_COMMIT === 'unknown' ? 'commit não identificado' : `commit ${APP_COMMIT}`;
+const APP_COMMIT_LABEL = /^[0-9a-f]{7,40}$/i.test(String(APP_COMMIT || '').trim()) ? APP_COMMIT : 'não identificado';
 
 const AUDIT_ACTION_OPTIONS = [
   ['', 'Todas as ações'],
