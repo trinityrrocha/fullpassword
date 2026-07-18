@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
 const db = require('../config/database');
 const { JWT_SECRET } = require('../config/security');
+const { validateUserSession } = require('../services/sessionService');
 
 const isRequiredPasswordChangeRoute = (req) => {
   return (req.method === 'PUT' && req.baseUrl === '/api/users' && req.path === '/profile') ||
@@ -15,9 +16,12 @@ const verifyToken = async (req, res, next) => {
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
 
-    if (!decoded.id || !Number.isInteger(decoded.token_version)) {
+    if (!decoded.id || !decoded.session_id || !Number.isInteger(decoded.token_version)) {
       return res.status(401).json({ error: 'Sessão inválida. Faça login novamente.' });
     }
+
+    const session = await validateUserSession(req, token, decoded);
+    if (!session) return res.status(401).json({ error: 'Sessão encerrada ou expirada. Faça login novamente.' });
 
     const userResult = await db.query(
       `SELECT id, email, role, is_active, is_super_admin, must_change_password, token_version
@@ -44,6 +48,7 @@ const verifyToken = async (req, res, next) => {
       is_super_admin: user.is_super_admin === true,
       must_change_password: user.must_change_password === true,
       token_version: user.token_version,
+      session_id: session.id,
       groups: groupsResult.rows.map((row) => row.group_id)
     };
 

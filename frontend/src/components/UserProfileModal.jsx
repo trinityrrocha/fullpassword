@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { deriveMasterKey, unwrapMasterKey, wrapMasterKey } from '../services/cryptoService';
 import SecurePasswordInput from './SecurePasswordInput';
 import RecoveryCodesPanel from './RecoveryCodesPanel';
+import ActiveSessionsCard from './ActiveSessionsCard';
 
 export default function UserProfileModal({ isOpen, onClose, forcePasswordChange = false }) {
   const { user, logout } = useAuth();
@@ -327,6 +328,12 @@ export default function UserProfileModal({ isOpen, onClose, forcePasswordChange 
                           </div>
                         )}
                         <RecoveryCodesPanel codes={recoveryCodes} userEmail={user?.email} />
+                      </div>
+                    )}
+                    {!forcePasswordChange && (
+                      <div className="pt-4 border-t border-slate-200 space-y-3">
+                        <h4 className="text-sm font-medium text-slate-900">Sessões Ativas</h4>
+                        <ActiveSessionsCard />
                       </div>
                     )}
                   </form>

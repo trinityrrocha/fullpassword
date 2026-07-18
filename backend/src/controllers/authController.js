@@ -1,4 +1,3 @@
-const jwt = require('jsonwebtoken');
 const argon2 = require('argon2');
 const crypto = require('crypto');
 const db = require('../config/database');
@@ -7,9 +6,8 @@ const { applyAutomaticBlockForLoginFailure } = require('../services/ipSecuritySe
 const { getTrustedCountry } = require('../services/securityMetadataService');
 const { issueCsrfCookie, clearCsrfCookie } = require('../services/csrfService');
 const { getMfaSettings, ensureMfaSetup, createChallengeToken } = require('../services/mfaService');
+const { ABSOLUTE_SESSION_MS, createUserSession, revokeTokenSession } = require('../services/sessionService');
 const {
-  JWT_SECRET,
-  JWT_EXPIRES_IN,
   ADMIN_BOOTSTRAP_TOKEN,
   SUPER_ADMIN_EMAIL,
   normalizeEmail,
@@ -34,19 +32,12 @@ const auditLoginFailure = async (req, emailAttempted, reason, user = null) => {
   await applyAutomaticBlockForLoginFailure(req);
 };
 
-const parseDurationMs = (duration) => {
-  const match = String(duration || '').trim().match(/^(\d+)([smhd])$/i);
-  if (!match) return 8 * 60 * 60 * 1000;
-  const units = { s: 1000, m: 60000, h: 3600000, d: 86400000 };
-  return Number(match[1]) * units[match[2].toLowerCase()];
-};
-
 const sessionCookieOptions = () => ({
   httpOnly: true,
   secure: process.env.NODE_ENV === 'production',
   sameSite: 'strict',
   path: '/',
-  maxAge: parseDurationMs(JWT_EXPIRES_IN)
+  maxAge: ABSOLUTE_SESSION_MS
 });
 
 const serializeUser = (user, groups = []) => ({
@@ -303,7 +294,7 @@ const csrf = async (_req, res) => {
 const completeLoginSession = async (req, res, user, extraResponse = {}) => {
   const groupsResult = await db.query('SELECT group_id FROM user_groups WHERE user_id = $1', [user.id]);
   const groups = groupsResult.rows.map((row) => row.group_id);
-  const token = jwt.sign({ id: user.id, token_version: user.token_version }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
+  const { token } = await createUserSession(req, user);
   res.cookie(SESSION_COOKIE_NAME, token, sessionCookieOptions());
   issueCsrfCookie(res);
   await recordAuditEvent({
@@ -313,7 +304,18 @@ const completeLoginSession = async (req, res, user, extraResponse = {}) => {
   return res.status(200).json({ message: 'Login realizado com sucesso', user: serializeUser(user, groups), ...extraResponse });
 };
 
-const logout = async (_req, res) => {
+const logout = async (req, res) => {
+  try {
+    const revoked = await revokeTokenSession(req.cookies?.[SESSION_COOKIE_NAME]);
+    if (revoked) {
+      await recordAuditEvent({
+        user: { id: revoked.user_id }, action: 'session_revoked', status: 'success', req,
+        metadata: { reason: 'logout' }
+      });
+    }
+  } catch (error) {
+    console.error('Falha ao revogar sessão durante logout:', error.message);
+  }
   res.clearCookie(SESSION_COOKIE_NAME, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',

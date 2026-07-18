@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const authController = require('../controllers/authController');
 const mfaController = require('../controllers/mfaController');
+const sessionController = require('../controllers/sessionController');
 const { verifyToken } = require('../middleware/authMiddleware');
 
 // Rota POST /api/auth/login
@@ -11,6 +12,9 @@ router.post('/mfa/setup/confirm', mfaController.confirmSetup);
 router.post('/logout', authController.logout);
 router.get('/me', verifyToken, authController.me);
 router.get('/csrf', verifyToken, authController.csrf);
+router.get('/sessions', verifyToken, sessionController.listOwnSessions);
+router.delete('/sessions/:id', verifyToken, sessionController.revokeOwnSession);
+router.delete('/sessions', verifyToken, sessionController.revokeOtherSessions);
 router.get('/bootstrap/status', authController.bootstrapStatus);
 router.post('/bootstrap', authController.bootstrapAdmin);
 

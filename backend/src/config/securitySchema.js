@@ -41,6 +41,28 @@ const ensureSecuritySchema = async () => {
     await client.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT FALSE');
     await client.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS mfa_required BOOLEAN NOT NULL DEFAULT FALSE');
     await client.query(`
+      CREATE TABLE IF NOT EXISTS user_sessions (
+        id UUID PRIMARY KEY,
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        token_version INTEGER NOT NULL,
+        session_hash TEXT NOT NULL,
+        ip_address TEXT,
+        user_agent TEXT,
+        browser TEXT,
+        os TEXT,
+        device TEXT,
+        created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        last_seen_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+        idle_expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+        revoked_at TIMESTAMP WITH TIME ZONE,
+        revoked_by UUID REFERENCES users(id) ON DELETE SET NULL,
+        revoke_reason TEXT
+      )
+    `);
+    await client.query('CREATE INDEX IF NOT EXISTS idx_user_sessions_user_active ON user_sessions (user_id, revoked_at, expires_at)');
+    await client.query('CREATE UNIQUE INDEX IF NOT EXISTS idx_user_sessions_hash ON user_sessions (session_hash)');
+    await client.query(`
       CREATE TABLE IF NOT EXISTS user_mfa_settings (
         user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
         totp_secret_encrypted TEXT NOT NULL,
