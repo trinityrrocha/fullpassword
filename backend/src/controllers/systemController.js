@@ -24,7 +24,13 @@ const backupTables = [
   'client_key_shares',
   'vault_items',
   'vault_shares',
-  'vault_access_audit'
+  'vault_access_audit',
+  'user_mfa_settings',
+  'user_mfa_recovery_codes',
+  'password_policy_settings',
+  'login_security_policy',
+  'ip_security_rules',
+  'system_audit_events'
 ];
 
 const buildBackupPayload = async (generatedBy) => {
@@ -39,6 +45,7 @@ const buildBackupPayload = async (generatedBy) => {
     metadata: {
       project: 'FullPassword',
       type: 'full-encrypted-backup',
+      version: 1,
       generated_at: new Date().toISOString(),
       generated_by: generatedBy || SUPER_ADMIN_EMAIL,
       super_admin_email: SUPER_ADMIN_EMAIL,
@@ -299,5 +306,8 @@ module.exports = {
   updateSystem,
   downloadBackup,
   rejectLegacyBackupDownload,
-  getAuditEvents
+  getAuditEvents,
+  backupTables,
+  buildBackupPayload,
+  encryptBackupPayload
 };

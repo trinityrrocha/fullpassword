@@ -42,11 +42,13 @@ services:
       - ADMIN_BOOTSTRAP_TOKEN=${ADMIN_BOOTSTRAP_TOKEN:?ADMIN_BOOTSTRAP_TOKEN obrigatório}
       - SUPER_ADMIN_EMAIL=${SUPER_ADMIN_EMAIL:?SUPER_ADMIN_EMAIL obrigatório}
       - APP_ORIGIN=${APP_ORIGIN:?APP_ORIGIN obrigatória}
+      - BACKUP_ARCHIVE_DIR=/var/lib/fullpassword-backups
     depends_on:
       db:
         condition: service_healthy
     volumes:
       - updater_requests:/var/lib/fullpassword-updater
+      - backup_archives:/var/lib/fullpassword-backups
     networks:
       - fullpassword_network
 
@@ -99,6 +101,7 @@ services:
 volumes:
   pgdata:
   updater_requests:
+  backup_archives:
 
 networks:
   fullpassword_network:
