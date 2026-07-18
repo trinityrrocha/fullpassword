@@ -451,9 +451,9 @@ export default function Settings() {
           </SettingsAccordionCard>
         )}
 
-        <div className="bg-white shadow rounded-lg overflow-hidden border border-slate-200">
-          <div className="px-6 py-5 border-b border-slate-200 bg-slate-50">
-            <h3 className="text-lg leading-6 font-medium text-slate-900 flex items-center">
+        <div className="w-full max-w-[781px] mx-auto bg-white shadow rounded-lg overflow-hidden border border-slate-200">
+          <div className="h-11 px-4 border-b border-slate-200 bg-slate-50 flex items-center">
+            <h3 className="text-base font-medium text-slate-900 flex items-center">
               <ShieldCheck className="w-5 h-5 mr-2 text-emerald-500" />
               Status de Segurança
             </h3>
