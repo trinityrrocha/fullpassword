@@ -4,6 +4,7 @@ import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { deriveMasterKey, unwrapMasterKey, wrapMasterKey } from '../services/cryptoService';
 import SecurePasswordInput from './SecurePasswordInput';
+import RecoveryCodesPanel from './RecoveryCodesPanel';
 
 export default function UserProfileModal({ isOpen, onClose, forcePasswordChange = false }) {
   const { user, logout } = useAuth();
@@ -325,12 +326,7 @@ export default function UserProfileModal({ isOpen, onClose, forcePasswordChange 
                             <button type="button" onClick={regenerateRecoveryCodes} className="text-sm font-medium text-indigo-600 hover:text-indigo-800">Regenerar códigos de recuperação</button>
                           </div>
                         )}
-                        {recoveryCodes.length > 0 && (
-                          <div className="rounded-md border border-amber-200 bg-amber-50 p-3">
-                            <p className="text-sm font-medium text-amber-900">Guarde agora; estes códigos não serão exibidos novamente.</p>
-                            <div className="mt-2 grid grid-cols-2 gap-1 font-mono text-xs">{recoveryCodes.map((code) => <span key={code}>{code}</span>)}</div>
-                          </div>
-                        )}
+                        <RecoveryCodesPanel codes={recoveryCodes} userEmail={user?.email} />
                       </div>
                     )}
                   </form>
