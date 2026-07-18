@@ -7,6 +7,7 @@ const { getTrustedCountry } = require('../services/securityMetadataService');
 const { issueCsrfCookie, clearCsrfCookie } = require('../services/csrfService');
 const { getMfaSettings, ensureMfaSetup, createChallengeToken } = require('../services/mfaService');
 const { ABSOLUTE_SESSION_MS, createUserSession, revokeTokenSession } = require('../services/sessionService');
+const { rejectWeakPassword } = require('../services/passwordPolicyService');
 const {
   ADMIN_BOOTSTRAP_TOKEN,
   SUPER_ADMIN_EMAIL,
@@ -17,8 +18,15 @@ const {
 const LEGACY_ADMIN_EMAIL = SUPER_ADMIN_EMAIL;
 const LEGACY_ADMIN_HASH = '$argon2id$v=19$m=65536,t=3,p=4$PLACEHOLDER_HASH_FOR_@dmin123';
 
-const isStrongPassword = (password) => typeof password === 'string' && password.length >= 12;
 const SESSION_COOKIE_NAME = 'fp_session';
+
+const isPasswordChangeRecommended = (user) => {
+  const months = Number(user.password_change_notice_months);
+  if (!months || !user.password_changed_at) return false;
+  const dueAt = new Date(user.password_changed_at);
+  dueAt.setMonth(dueAt.getMonth() + months);
+  return dueAt <= new Date();
+};
 
 const auditLoginFailure = async (req, emailAttempted, reason, user = null) => {
   await recordAuditEvent({
@@ -50,6 +58,7 @@ const serializeUser = (user, groups = []) => ({
   must_change_password: user.must_change_password === true,
   mfa_required: user.mfa_required === true,
   mfa_enabled: user.mfa_enabled === true,
+  password_change_recommended: isPasswordChangeRecommended(user),
   wrapped_key: user.wrapped_key,
   crypto_salt: user.crypto_salt,
   public_key: user.public_key,
@@ -96,9 +105,10 @@ const bootstrapAdmin = async (req, res) => {
     if (!timingSafeEqualText(bootstrapToken, ADMIN_BOOTSTRAP_TOKEN)) {
       return res.status(403).json({ error: 'Token de configuração inicial inválido' });
     }
-    if (!String(name || '').trim() || !adminEmail || !isStrongPassword(password)) {
+    if (!String(name || '').trim() || !adminEmail || !password) {
       return res.status(400).json({ error: 'Nome, e-mail e senha com ao menos 12 caracteres são obrigatórios' });
     }
+    if (await rejectWeakPassword({ req, res, password, context: 'bootstrap' })) return;
     if (adminEmail !== SUPER_ADMIN_EMAIL) {
       return res.status(400).json({
         error: `O primeiro administrador deve usar o e-mail inicial configurado: ${SUPER_ADMIN_EMAIL}`
@@ -193,8 +203,9 @@ const login = async (req, res) => {
     const result = await db.query(
       `SELECT id, name, email, hash_senha_login, role, wrapped_key, crypto_salt,
               is_active, is_super_admin, must_change_password, mfa_required,
-              public_key, encrypted_private_key, token_version
-       FROM users WHERE email = $1`,
+              public_key, encrypted_private_key, token_version, password_changed_at,
+              (SELECT password_change_notice_months FROM password_policy_settings WHERE id = 1) AS password_change_notice_months
+       FROM users WHERE LOWER(email) = $1`,
       [email]
     );
     const user = result.rows[0];
@@ -273,7 +284,8 @@ const me = async (req, res) => {
   try {
     const result = await db.query(
       `SELECT id, name, email, role, is_active, is_super_admin, must_change_password, mfa_required,
-              wrapped_key, crypto_salt, public_key, encrypted_private_key,
+              wrapped_key, crypto_salt, public_key, encrypted_private_key, password_changed_at,
+              (SELECT password_change_notice_months FROM password_policy_settings WHERE id = 1) AS password_change_notice_months,
               EXISTS(SELECT 1 FROM user_mfa_settings m WHERE m.user_id = users.id AND m.enabled = TRUE) AS mfa_enabled
        FROM users WHERE id = $1 LIMIT 1`,
       [req.user.id]

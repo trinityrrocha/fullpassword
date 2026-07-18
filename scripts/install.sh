@@ -70,7 +70,8 @@ apt-get install -y curl git ufw fail2ban certbot python3-certbot-nginx apt-trans
 DB_PASSWORD=$(openssl rand -base64 48 | tr -dc 'a-zA-Z0-9' | head -c 40)
 JWT_SECRET=$(openssl rand -hex 64)
 ADMIN_BOOTSTRAP_TOKEN=$(openssl rand -hex 32)
-INITIAL_SUPER_ADMIN_PASSWORD=$(openssl rand -base64 48 | tr -dc 'a-zA-Z0-9' | head -c 32)
+INITIAL_PASSWORD_RANDOM=$(openssl rand -base64 48 | tr -dc 'a-zA-Z0-9' | head -c 28)
+INITIAL_SUPER_ADMIN_PASSWORD="${INITIAL_PASSWORD_RANDOM}Aa1!"
 
 # ==========================================
 # 3. SEGURANÇA DA INFRAESTRUTURA (UFW E FAIL2BAN)

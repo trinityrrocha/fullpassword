@@ -146,6 +146,11 @@ export default function DashboardLayout() {
             </div>
           </div>
         )}
+        {user?.password_change_recommended && !mustChangePassword && (
+          <button type="button" onClick={() => setIsProfileModalOpen(true)} className="shrink-0 border-b border-amber-200 bg-amber-50 px-4 py-2 text-left text-sm text-amber-900 md:px-8">
+            Sua senha está antiga. Recomendamos atualizá-la. Clique aqui para abrir seu perfil.
+          </button>
+        )}
         <div className="flex-1 overflow-y-auto p-4 md:p-8">
           <Outlet />
         </div>

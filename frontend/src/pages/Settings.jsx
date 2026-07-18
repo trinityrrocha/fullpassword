@@ -6,6 +6,7 @@ import { useAuth } from '../context/AuthContext';
 import SecurityCard from '../components/SecurityCard';
 import SettingsAccordionCard from '../components/SettingsAccordionCard';
 import ActiveSessionsCard from '../components/ActiveSessionsCard';
+import PasswordPolicyCard from '../components/PasswordPolicyCard';
 import ManualIpRulesCard from '../components/ManualIpRulesCard';
 
 const APP_COMMIT = typeof __APP_COMMIT__ !== 'undefined' ? __APP_COMMIT__ : 'unknown';
@@ -371,6 +372,12 @@ export default function Settings() {
         {canManageSystem && (
           <SettingsAccordionCard title="Sessões Ativas" icon={<ShieldCheck className="w-5 h-5 mr-2 text-indigo-500" />} description="Visualize e encerre sessões ativas de todos os usuários.">
             <ActiveSessionsCard allUsers />
+          </SettingsAccordionCard>
+        )}
+
+        {canManageSystem && (
+          <SettingsAccordionCard title="Política Global de Senha" icon={<ShieldCheck className="w-5 h-5 mr-2 text-indigo-500" />} description="Requisitos obrigatórios e aviso periódico de troca de senha.">
+            <PasswordPolicyCard />
           </SettingsAccordionCard>
         )}
 

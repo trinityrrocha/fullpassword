@@ -3,6 +3,7 @@ const router = express.Router();
 const systemController = require('../controllers/systemController');
 const securityController = require('../controllers/securityController');
 const sessionController = require('../controllers/sessionController');
+const passwordPolicyController = require('../controllers/passwordPolicyController');
 const { verifyToken } = require('../middleware/authMiddleware');
 const asyncRoute = (handler) => (req, res, next) => Promise.resolve(handler(req, res, next)).catch(next);
 
@@ -12,6 +13,8 @@ router.use(verifyToken);
 router.get('/permissions', systemController.getSystemPermissions);
 router.get('/sessions', sessionController.listAllSessions);
 router.delete('/sessions/:id', sessionController.revokeSessionByAdmin);
+router.get('/password-policy', passwordPolicyController.getPolicy);
+router.put('/password-policy', passwordPolicyController.updatePolicy);
 router.get('/audit-events', systemController.getAuditEvents);
 router.get('/login-security-policy', asyncRoute(securityController.getPolicy));
 router.put('/login-security-policy', asyncRoute(securityController.updatePolicy));

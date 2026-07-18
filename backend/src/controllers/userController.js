@@ -2,10 +2,10 @@ const db = require('../config/database');
 const argon2 = require('argon2');
 const crypto = require('crypto');
 const { ensureSharingSchema } = require('../services/accessControlService');
-const { isSuperAdmin } = require('../config/security');
+const { isSuperAdmin, normalizeEmail } = require('../config/security');
 const { recordAuditEvent } = require('../services/auditService');
+const { rejectWeakPassword } = require('../services/passwordPolicyService');
 const VALID_ROLES = new Set(['admin', 'user']);
-const isStrongPassword = (password) => typeof password === 'string' && password.length >= 12;
 
 const getValidGroupIds = async (groupIds = []) => {
   const uniqueIds = [...new Set((Array.isArray(groupIds) ? groupIds : []).filter(Boolean))];
@@ -95,13 +95,12 @@ const createUser = async (req, res) => {
     }
 
     const { name, email, password, role, groupIds, mfa_required } = req.body;
+    const normalizedEmail = normalizeEmail(email);
 
-    if (!name || !email || !password) {
+    if (!name || !normalizedEmail || !password) {
       return res.status(400).json({ error: 'Nome, email e senha são obrigatórios' });
     }
-    if (!isStrongPassword(password)) {
-      return res.status(400).json({ error: 'A senha deve ter ao menos 12 caracteres' });
-    }
+    if (await rejectWeakPassword({ req, res, password, context: 'user_creation' })) return;
     if (role !== undefined && !VALID_ROLES.has(role)) {
       return res.status(400).json({ error: 'Nível de acesso inválido' });
     }
@@ -110,7 +109,7 @@ const createUser = async (req, res) => {
       return res.status(403).json({ error: 'Apenas o Super Admin pode definir a exigência de MFA' });
     }
 
-    const existingUser = await client.query('SELECT id FROM users WHERE email = $1', [email]);
+    const existingUser = await client.query('SELECT id FROM users WHERE LOWER(email) = $1', [normalizedEmail]);
     if (existingUser.rows.length > 0) {
       return res.status(400).json({ error: 'E-mail já cadastrado' });
     }
@@ -133,7 +132,7 @@ const createUser = async (req, res) => {
     const result = await client.query(
       `INSERT INTO users (name, email, hash_senha_login, role, wrapped_key, crypto_salt, mfa_required)
        VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, name, email, role, is_active, mfa_required, created_at`,
-      [name, email, hashSenhaLogin, role || 'user', wrappedKey, cryptoSalt, mfa_required === true]
+      [name, normalizedEmail, hashSenhaLogin, role || 'user', wrappedKey, cryptoSalt, mfa_required === true]
     );
 
     const newUser = result.rows[0];
@@ -171,8 +170,9 @@ const updateProfile = async (req, res) => {
   try {
     const userId = req.user.id;
     const { name, email, current_password, new_password, wrapped_key } = req.body;
+    const normalizedEmail = normalizeEmail(email);
 
-    if (!name || !email) {
+    if (!name || !normalizedEmail) {
       return res.status(400).json({ error: 'Nome e email são obrigatórios' });
     }
     if (req.user.must_change_password && (!new_password || !wrapped_key)) {
@@ -196,7 +196,7 @@ const updateProfile = async (req, res) => {
       return res.status(404).json({ error: 'Usuário não encontrado' });
     }
 
-    const sensitiveChange = new_password || String(email).trim().toLowerCase() !== currentUser.email;
+    const sensitiveChange = new_password || normalizedEmail !== normalizeEmail(currentUser.email);
     if (sensitiveChange) {
       if (!current_password || !(await argon2.verify(currentUser.hash_senha_login, current_password))) {
         await client.query('ROLLBACK');
@@ -205,9 +205,9 @@ const updateProfile = async (req, res) => {
     }
 
     if (new_password && wrapped_key) {
-      if (!isStrongPassword(new_password)) {
+      if (await rejectWeakPassword({ req, res, password: new_password, context: 'profile_password_change', client })) {
         await client.query('ROLLBACK');
-        return res.status(400).json({ error: 'A nova senha deve ter ao menos 12 caracteres' });
+        return;
       }
       const hashSenhaLogin = await argon2.hash(new_password);
       
@@ -215,18 +215,22 @@ const updateProfile = async (req, res) => {
         `UPDATE users SET name = $1, email = $2, hash_senha_login = $3, wrapped_key = $4,
                           token_version = token_version + 1, updated_at = CURRENT_TIMESTAMP
          WHERE id = $5`,
-        [name, String(email).trim().toLowerCase(), hashSenhaLogin, wrapped_key, userId]
+        [name, normalizedEmail, hashSenhaLogin, wrapped_key, userId]
       );
     } else {
       await client.query(
         `UPDATE users SET name = $1, email = $2,
                           token_version = token_version + CASE WHEN email <> $2 THEN 1 ELSE 0 END,
                           updated_at = CURRENT_TIMESTAMP WHERE id = $3`,
-        [name, String(email).trim().toLowerCase(), userId]
+        [name, normalizedEmail, userId]
       );
     }
 
     await client.query('COMMIT');
+
+    if (new_password) {
+      await recordAuditEvent({ user: req.user, action: 'password_changed', status: 'success', req, metadata: {} });
+    }
 
     const result = await client.query(
       'SELECT id, name, email, role, wrapped_key, crypto_salt FROM users WHERE id = $1',
@@ -263,6 +267,7 @@ const updateUser = async (req, res) => {
 
     const { id } = req.params;
     const { name, email, role, is_active, password, mfa_required } = req.body;
+    const normalizedEmail = email === undefined ? undefined : normalizeEmail(email);
     const groupIdsProvided = Object.prototype.hasOwnProperty.call(req.body, 'groupIds') ||
       Object.prototype.hasOwnProperty.call(req.body, 'group_ids');
     const groupIds = Object.prototype.hasOwnProperty.call(req.body, 'groupIds')
@@ -275,9 +280,7 @@ const updateUser = async (req, res) => {
     if (role !== undefined && !VALID_ROLES.has(role)) {
       return res.status(400).json({ error: 'Nível de acesso inválido' });
     }
-    if (password && !isStrongPassword(password)) {
-      return res.status(400).json({ error: 'A senha deve ter ao menos 12 caracteres' });
-    }
+    if (password && await rejectWeakPassword({ req, res, password, context: 'admin_password_reset' })) return;
 
     if (mfa_required !== undefined && (!isSuperAdmin(req.user) || typeof mfa_required !== 'boolean')) {
       return res.status(403).json({ error: 'Apenas o Super Admin pode definir a exigência de MFA' });
@@ -291,7 +294,7 @@ const updateUser = async (req, res) => {
       return res.status(404).json({ error: 'Usuário não encontrado' });
     }
 
-    const targetEmail = existingUser.rows[0].email;
+    const targetEmail = normalizeEmail(existingUser.rows[0].email);
     const targetIsSuperAdmin = isSuperAdmin(existingUser.rows[0]);
 
     if (targetIsSuperAdmin) {
@@ -307,8 +310,8 @@ const updateUser = async (req, res) => {
       }
     }
 
-    if (email && email !== targetEmail) {
-      const emailCheck = await client.query('SELECT id FROM users WHERE email = $1 AND id != $2', [email, id]);
+    if (normalizedEmail && normalizedEmail !== targetEmail) {
+      const emailCheck = await client.query('SELECT id FROM users WHERE LOWER(email) = $1 AND id != $2', [normalizedEmail, id]);
       if (emailCheck.rows.length > 0) {
         return res.status(400).json({ error: 'Este e-mail já está em uso por outro usuário' });
       }
@@ -323,9 +326,9 @@ const updateUser = async (req, res) => {
       values.push(name);
     }
 
-    if (email !== undefined) {
+    if (normalizedEmail !== undefined) {
       updates.push(`email = $${paramIndex++}`);
-      values.push(email);
+      values.push(normalizedEmail);
     }
     
     if (role !== undefined) {
@@ -416,6 +419,13 @@ const updateUser = async (req, res) => {
       await recordAuditEvent({
         user: req.user, action: 'mfa_required_updated', status: 'success', req,
         metadata: { target_user_id: id, mfa_required }
+      });
+    }
+
+    if (password) {
+      await recordAuditEvent({
+        user: req.user, action: 'password_reset_by_admin', status: 'success', req,
+        metadata: { target_user_id: id }
       });
     }
 

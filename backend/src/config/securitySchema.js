@@ -40,6 +40,24 @@ const ensureSecuritySchema = async () => {
     await client.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS is_super_admin BOOLEAN NOT NULL DEFAULT FALSE');
     await client.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT FALSE');
     await client.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS mfa_required BOOLEAN NOT NULL DEFAULT FALSE');
+    await client.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS password_changed_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP');
+    await client.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS password_change_notice_dismissed_at TIMESTAMP WITH TIME ZONE');
+    await client.query('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_lower_unique ON users (LOWER(email))');
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS password_policy_settings (
+        id INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+        min_length INTEGER NOT NULL DEFAULT 12 CHECK (min_length >= 12),
+        require_uppercase BOOLEAN NOT NULL DEFAULT TRUE,
+        require_lowercase BOOLEAN NOT NULL DEFAULT TRUE,
+        require_number BOOLEAN NOT NULL DEFAULT TRUE,
+        require_special BOOLEAN NOT NULL DEFAULT TRUE,
+        block_common_passwords BOOLEAN NOT NULL DEFAULT TRUE,
+        password_change_notice_months INTEGER CHECK (password_change_notice_months IS NULL OR password_change_notice_months BETWEEN 1 AND 120),
+        updated_by UUID REFERENCES users(id) ON DELETE SET NULL,
+        updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    await client.query('INSERT INTO password_policy_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING');
     await client.query(`
       CREATE TABLE IF NOT EXISTS user_sessions (
         id UUID PRIMARY KEY,
@@ -164,6 +182,8 @@ const ensureSecuritySchema = async () => {
       BEGIN
         IF OLD.hash_senha_login IS DISTINCT FROM NEW.hash_senha_login THEN
           NEW.must_change_password = FALSE;
+          NEW.password_changed_at = CURRENT_TIMESTAMP;
+          NEW.password_change_notice_dismissed_at = NULL;
         END IF;
         RETURN NEW;
       END;

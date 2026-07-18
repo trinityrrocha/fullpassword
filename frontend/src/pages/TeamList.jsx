@@ -428,7 +428,7 @@ export default function TeamList() {
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">E-mail</label>
-                    <input type="email" required className="w-full border-slate-300 rounded-md shadow-sm p-2 border" value={editUser.email} onChange={e => setEditUser({...editUser, email: e.target.value})} />
+                    <input type="email" required className="w-full border-slate-300 rounded-md shadow-sm p-2 border" value={editUser.email} onChange={e => setEditUser({...editUser, email: e.target.value.toLowerCase()})} />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">Nova Senha <span className="text-slate-400 font-normal">(deixe em branco para não alterar)</span></label>
@@ -487,7 +487,7 @@ export default function TeamList() {
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">E-mail</label>
-                    <input type="email" required className="w-full border-slate-300 rounded-md shadow-sm p-2 border" value={newUser.email} onChange={e => setNewUser({...newUser, email: e.target.value})} placeholder="joao@empresa.com.br" />
+                    <input type="email" required className="w-full border-slate-300 rounded-md shadow-sm p-2 border" value={newUser.email} onChange={e => setNewUser({...newUser, email: e.target.value.toLowerCase()})} placeholder="joao@empresa.com.br" />
                   </div>
                   <div>
                     <SecurePasswordInput name="user_password" label="Senha de Acesso" value={newUser.password} onChange={e => setNewUser({...newUser, password: e.target.value})} required />

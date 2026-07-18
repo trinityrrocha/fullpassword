@@ -222,6 +222,12 @@ export default function UserProfileModal({ isOpen, onClose, forcePasswordChange 
                     </div>
                   )}
 
+                  {user?.password_change_recommended && !forcePasswordChange && (
+                    <div className="mb-4 bg-amber-50 border-l-4 border-amber-400 p-4">
+                      <p className="text-sm text-amber-800">Sua senha está antiga. Recomendamos atualizá-la; o acesso não será bloqueado.</p>
+                    </div>
+                  )}
+
                   {error && (
                     <div className="mb-4 bg-red-50 border-l-4 border-red-400 p-4">
                       <p className="text-sm text-red-700">{error}</p>
@@ -253,7 +259,7 @@ export default function UserProfileModal({ isOpen, onClose, forcePasswordChange 
                         type="email"
                         name="email"
                         value={formData.email}
-                        onChange={handleChange}
+                        onChange={(event) => setFormData((previous) => ({ ...previous, email: event.target.value.toLowerCase() }))}
                         required
                         className="mt-1 block w-full border border-slate-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                       />
