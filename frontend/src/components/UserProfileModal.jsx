@@ -245,7 +245,7 @@ export default function UserProfileModal({ isOpen, onClose, forcePasswordChange 
                         value={formData.name}
                         onChange={handleChange}
                         required
-                        className="mt-1 block w-full border border-slate-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                        className="mt-1 block h-8 w-full rounded-md border border-slate-300 px-3 text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-indigo-500"
                       />
                     </div>
                     
@@ -257,7 +257,7 @@ export default function UserProfileModal({ isOpen, onClose, forcePasswordChange 
                         value={formData.email}
                         onChange={(event) => setFormData((previous) => ({ ...previous, email: event.target.value.toLowerCase() }))}
                         required
-                        className="mt-1 block w-full border border-slate-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                        className="mt-1 block h-8 w-full rounded-md border border-slate-300 px-3 text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-indigo-500"
                       />
                     </div>
 
@@ -333,7 +333,7 @@ export default function UserProfileModal({ isOpen, onClose, forcePasswordChange 
                       </div>
                     )}
                     {!forcePasswordChange && (
-                      <div className="pt-4 border-t border-slate-200 space-y-3">
+                      <div className="space-y-2 border-t border-slate-200 pt-3">
                         <h4 className="text-sm font-medium text-slate-900">Sessões Ativas</h4>
                         <ActiveSessionsCard compactProfile />
                       </div>
@@ -348,7 +348,7 @@ export default function UserProfileModal({ isOpen, onClose, forcePasswordChange 
               type="submit"
               form="profileForm"
               disabled={isSaving}
-              className={`w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-indigo-600 text-base font-medium text-white hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:ml-3 sm:w-auto sm:text-sm ${isSaving ? 'opacity-70 cursor-not-allowed' : ''}`}
+              className={`inline-flex h-8 w-full items-center justify-center rounded-md border border-transparent bg-indigo-600 px-3 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 sm:ml-3 sm:w-auto ${isSaving ? 'opacity-70 cursor-not-allowed' : ''}`}
             >
               {isSaving ? (
                 <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Salvando...</>
@@ -359,7 +359,7 @@ export default function UserProfileModal({ isOpen, onClose, forcePasswordChange 
                 type="button"
                 onClick={onClose}
                 disabled={isSaving}
-                className="mt-3 w-full inline-flex justify-center rounded-md border border-slate-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
+                className="mt-3 inline-flex h-8 w-full items-center justify-center rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 sm:ml-3 sm:mt-0 sm:w-auto"
               >
                 Cancelar
               </button>
