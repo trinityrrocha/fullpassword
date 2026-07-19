@@ -196,16 +196,16 @@ export default function UserProfileModal({ isOpen, onClose, forcePasswordChange 
 
         <div className="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
           <div className="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
-            <div className="sm:flex sm:items-start">
-              <div className="mx-auto flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-indigo-100 sm:mx-0 sm:h-10 sm:w-10">
-                <User className="h-6 w-6 text-indigo-600" />
+            <div className="w-full">
+              <div className="mx-auto flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-indigo-100">
+                <User className="h-5 w-5 text-indigo-600" />
               </div>
-              <div className="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left w-full">
+              <div className="mt-2 w-full text-center">
                 <h3 className="text-lg leading-6 font-medium text-slate-900" id="modal-title">
                   {forcePasswordChange ? 'Troca obrigatória de senha' : 'Meu Perfil'}
                 </h3>
-                <div className="mt-2">
-                  <p className="text-sm text-slate-500 mb-4">
+                <div className="mt-2 text-left">
+                  <p className="mb-4 text-center text-sm text-slate-500">
                     {forcePasswordChange
                       ? 'Você está usando uma senha temporária gerada na instalação. Defina uma nova senha antes de continuar.'
                       : 'Atualize suas informações pessoais e senha de acesso.'}
@@ -339,7 +339,7 @@ export default function UserProfileModal({ isOpen, onClose, forcePasswordChange 
                     {!forcePasswordChange && (
                       <div className="pt-4 border-t border-slate-200 space-y-3">
                         <h4 className="text-sm font-medium text-slate-900">Sessões Ativas</h4>
-                        <ActiveSessionsCard />
+                        <ActiveSessionsCard compactProfile />
                       </div>
                     )}
                   </form>
