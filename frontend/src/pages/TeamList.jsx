@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Users, Plus, Shield, Mail, X, Loader2, FolderKey } from 'lucide-react';
+import { Users, Plus, Shield, Star, UserRound, X, Loader2, FolderKey } from 'lucide-react';
 import SecurePasswordInput from '../components/SecurePasswordInput';
 import GroupModal from '../components/GroupModal';
 import api from '../services/api';
@@ -286,11 +286,11 @@ export default function TeamList() {
             <table className="min-w-full divide-y divide-slate-200">
               <thead className="bg-slate-50">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Usuário</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Nível</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Grupos</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Status</th>
-                  <th className="relative px-6 py-3"><span className="sr-only">Ações</span></th>
+                  <th className="h-10 px-3 py-1 text-left text-xs font-medium uppercase tracking-wider text-slate-500">Usuário</th>
+                  <th className="h-10 w-16 px-3 py-1 text-center text-xs font-medium uppercase tracking-wider text-slate-500">Nível</th>
+                  <th className="h-10 px-3 py-1 text-left text-xs font-medium uppercase tracking-wider text-slate-500">Grupos</th>
+                  <th className="h-10 px-3 py-1 text-left text-xs font-medium uppercase tracking-wider text-slate-500">Status</th>
+                  <th className="relative h-10 px-3 py-1"><span className="sr-only">Ações</span></th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-slate-200">
@@ -305,41 +305,44 @@ export default function TeamList() {
                     <td colSpan="5" className="px-6 py-4 text-center text-sm text-slate-500">Nenhum usuário encontrado.</td>
                   </tr>
                 ) : teamMembers.map((member) => (
-                  <tr key={member.id} className="hover:bg-slate-50">
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center">
-                        <div className="flex-shrink-0 h-10 w-10 rounded-full bg-indigo-100 flex items-center justify-center">
-                          <Users className="h-5 w-5 text-indigo-600" />
+                  <tr key={member.id} className="h-10 hover:bg-slate-50">
+                    <td className="whitespace-nowrap px-3 py-1">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-indigo-100">
+                          <Users className="h-4 w-4 text-indigo-600" />
                         </div>
-                        <div className="ml-4">
-                          <div className="text-sm font-medium text-slate-900">{member.name}</div>
-                          <div className="text-sm text-slate-500 flex items-center"><Mail className="w-3 h-3 mr-1" />{member.email}</div>
+                        <div className="min-w-0 leading-tight">
+                          <div className="truncate text-sm font-medium leading-tight text-slate-900">{member.name}</div>
+                          <div className="truncate text-xs leading-tight text-slate-500">{member.email}</div>
                         </div>
                       </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center">
-                        <Shield className={`w-4 h-4 mr-1.5 ${member.role === 'admin' ? 'text-amber-500' : 'text-slate-400'}`} />
-                        <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${member.role === 'admin' ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-800'}`}>
-                          {member.is_super_admin ? 'Super Admin' : member.role === 'admin' ? 'Administrador' : 'Usuário Padrão'}
-                        </span>
+                    <td className="w-16 whitespace-nowrap px-3 py-1 text-center">
+                      <div className="flex justify-center">
+                        {member.is_super_admin ? (
+                          <span title="Super Admin" aria-label="Super Admin" role="img"><Star className="h-4 w-4 text-red-600" /></span>
+                        ) : member.role === 'admin' ? (
+                          <span title="Admin" aria-label="Admin" role="img"><Shield className="h-4 w-4 text-amber-500" /></span>
+                        ) : (
+                          <span title="Usuário Padrão" aria-label="Usuário Padrão" role="img"><UserRound className="h-4 w-4 text-indigo-500" /></span>
+                        )}
                       </div>
                     </td>
-                    <td className="px-6 py-4">
+                    <td className="px-3 py-1">
                       <div className="flex flex-wrap gap-1">
                         {member.groups?.length ? member.groups.map((group) => (
-                          <span key={group.id} className="px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-50 text-indigo-700">{group.name}</span>
+                          <span key={group.id} className="truncate rounded-full bg-indigo-50 px-1.5 py-0.5 text-xs font-medium leading-none text-indigo-700">{group.name}</span>
                         )) : <span className="text-xs text-slate-400">Sem grupo</span>}
                       </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${member.is_active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                    <td className="whitespace-nowrap px-3 py-1">
+                      <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold leading-none ${member.is_active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
                         {member.is_active ? 'Ativo' : 'Inativo'}
                       </span>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                    <td className="whitespace-nowrap px-3 py-1 text-right text-xs font-medium">
                       {!member.is_super_admin ? (
-                        <div className="flex justify-end space-x-3">
+                        <div className="flex justify-end gap-2">
                           <button onClick={() => openEditModal(member)} className="text-indigo-600 hover:text-indigo-900">Editar</button>
                           <button onClick={() => handleToggleStatus(member.id, member.is_active)} className={`${member.is_active ? 'text-red-600 hover:text-red-900' : 'text-green-600 hover:text-green-900'}`}>
                             {member.is_active ? 'Inativar' : 'Ativar'}
