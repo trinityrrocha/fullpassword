@@ -9,6 +9,7 @@ import ActiveSessionsCard from '../components/ActiveSessionsCard';
 import PasswordPolicyCard from '../components/PasswordPolicyCard';
 import BackupRestoreCard from '../components/BackupRestoreCard';
 import ManualIpRulesCard from '../components/ManualIpRulesCard';
+import { formatDateTimeShort } from '../utils/formatDateTimeShort';
 
 const APP_COMMIT = typeof __APP_COMMIT__ !== 'undefined' ? __APP_COMMIT__ : 'unknown';
 const APP_COMMIT_LABEL = /^[0-9a-f]{7,40}$/i.test(String(APP_COMMIT || '').trim()) ? APP_COMMIT : 'não identificado';
@@ -337,7 +338,7 @@ export default function Settings() {
                       <tr><td colSpan={6} className="px-3 py-6 text-center text-slate-500">{isLoadingAudit ? 'Carregando eventos...' : 'Nenhum evento carregado.'}</td></tr>
                     ) : auditEvents.map((event) => (
                       <tr key={event.id}>
-                        <td className="px-3 py-3 whitespace-nowrap">{new Date(event.created_at).toLocaleString('pt-BR')}</td>
+                        <td className="px-3 py-3 whitespace-nowrap">{formatDateTimeShort(event.created_at)}</td>
                         <td className="px-3 py-3 max-w-56 break-words">{event.user_email || '-'}</td>
                         <td className="px-3 py-3" title={event.action}>
                           <div className="text-sm">{AUDIT_ACTION_LABELS[event.action] || event.action}</div>

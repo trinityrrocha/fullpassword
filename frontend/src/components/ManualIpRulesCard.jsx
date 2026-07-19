@@ -76,7 +76,7 @@ export default function ManualIpRulesCard() {
         <div className="flex flex-col gap-3 sm:flex-row"><input value={filters.ip_address} onChange={(e) => setFilters({ ...filters, ip_address: e.target.value })} placeholder="Pesquisar por IP/CIDR" className={`${fieldClass} flex-1`} /><select value={filters.rule_type} onChange={(e) => setFilters({ ...filters, rule_type: e.target.value })} className={`${fieldClass} bg-white sm:w-64`}><option value="">Todos</option><option value="allow">Whitelist</option><option value="block">Blacklist permanente</option><option value="temporary_block">Blacklist temporária</option></select></div>
         <div className="overflow-x-auto rounded-lg border border-slate-200">
           <table className="min-w-full text-sm">
-            <thead className="bg-slate-50"><tr>{['IP/CIDR', 'Tipo', 'Motivo', 'Criado por', 'Criado em', 'Status', 'Ação'].map((label) => <th key={label} className="px-2 py-2 text-left">{label}</th>)}</tr></thead>
+            <thead className="bg-slate-50"><tr>{['IP/CIDR', 'Tipo', 'Motivo', 'Criado por', 'Criado em', 'Ação'].map((label) => <th key={label} className="px-2 py-2 text-left">{label}</th>)}</tr></thead>
             <tbody>{rules.length ? rules.map((rule) => {
               const isAllowed = rule.rule_type === 'allow';
               return (
@@ -86,11 +86,10 @@ export default function ManualIpRulesCard() {
                   <td className="px-2 py-[7px]"><button type="button" onClick={() => setSelectedRule(rule)} title="Ver motivo" aria-label={`Ver motivo da regra ${rule.ip_address}`} className="rounded p-1 text-indigo-600 hover:bg-indigo-50"><Eye className="h-4 w-4" /></button></td>
                   <td className="px-2 py-[7px]">{rule.created_by_email || '-'}</td>
                   <td className="whitespace-nowrap px-2 py-[7px]">{formatDateTimeShort(rule.created_at)}</td>
-                  <td className="px-2 py-[7px]"><span className="inline-flex items-center gap-1 text-xs"><span className={`h-2 w-2 rounded-full ${rule.is_active ? 'bg-green-500' : 'bg-slate-400'}`} />{rule.is_active ? 'Ativa' : 'Inativa'}</span></td>
                   <td className="px-2 py-[7px]"><button type="button" onClick={() => deactivateRule(rule.id)} className="rounded px-2 py-1 text-xs text-red-600 hover:bg-red-50">Desativar regra</button></td>
                 </tr>
               );
-            }) : <tr><td colSpan={7} className="px-2 py-4 text-center text-slate-500">{isLoading ? 'Carregando regras...' : 'Nenhuma regra encontrada.'}</td></tr>}</tbody>
+            }) : <tr><td colSpan={6} className="px-2 py-4 text-center text-slate-500">{isLoading ? 'Carregando regras...' : 'Nenhuma regra encontrada.'}</td></tr>}</tbody>
           </table>
         </div>
       </div>
