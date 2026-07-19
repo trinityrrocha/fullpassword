@@ -205,11 +205,7 @@ export default function UserProfileModal({ isOpen, onClose, forcePasswordChange 
                   {forcePasswordChange ? 'Troca obrigatória de senha' : 'Meu Perfil'}
                 </h3>
                 <div className="mt-2 text-left">
-                  <p className="mb-4 text-center text-sm text-slate-500">
-                    {forcePasswordChange
-                      ? 'Você está usando uma senha temporária gerada na instalação. Defina uma nova senha antes de continuar.'
-                      : 'Atualize suas informações pessoais e senha de acesso.'}
-                  </p>
+                  {forcePasswordChange && <p className="mb-4 text-center text-sm text-slate-500">Você está usando uma senha temporária gerada na instalação. Defina uma nova senha antes de continuar.</p>}
 
                   {forcePasswordChange && (
                     <div className="mb-4 bg-amber-50 border-l-4 border-amber-400 p-4">
@@ -280,6 +276,7 @@ export default function UserProfileModal({ isOpen, onClose, forcePasswordChange 
                           placeholder={forcePasswordChange ? 'Senha temporária da instalação' : 'Necessária apenas se for alterar a senha'}
                           enableGenerator={false}
                           required={forcePasswordChange}
+                          className="[&_input]:h-8 [&_input]:py-1"
                         />
 
                         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -290,6 +287,7 @@ export default function UserProfileModal({ isOpen, onClose, forcePasswordChange 
                             onChange={handleChange}
                             placeholder="Mínimo de 12 caracteres"
                             required={forcePasswordChange}
+                            className="[&_input]:h-8 [&_input]:py-1"
                           />
                           <SecurePasswordInput
                             name="confirmNewPassword"
@@ -299,6 +297,7 @@ export default function UserProfileModal({ isOpen, onClose, forcePasswordChange 
                             placeholder="Repita a nova senha"
                             enableGenerator={false}
                             required={forcePasswordChange}
+                            className="[&_input]:h-8 [&_input]:py-1"
                           />
                         </div>
                       </div>
@@ -307,13 +306,15 @@ export default function UserProfileModal({ isOpen, onClose, forcePasswordChange 
                     {!forcePasswordChange && (
                       <div className="pt-4 border-t border-slate-200 space-y-3">
                         <h4 className="text-sm font-medium text-slate-900 flex items-center"><ShieldCheck className="w-4 h-4 mr-1" />Autenticação em dois fatores</h4>
-                        <p className="text-sm text-slate-600">
-                          Status: <span className="font-medium">{mfaStatus?.mfa_enabled ? 'Habilitada' : 'Não configurada'}</span>
-                          {mfaStatus?.mfa_required ? ' — obrigatória pela política' : ''}
-                        </p>
-                        {!mfaStatus?.mfa_enabled && !mfaSetup && (
-                          <button type="button" onClick={startMfaSetup} className="text-sm font-medium text-indigo-600 hover:text-indigo-800">Configurar aplicativo autenticador</button>
-                        )}
+                        <div className="flex flex-wrap items-center gap-3">
+                          <p className="text-sm text-slate-600">
+                            Status: <span className="font-medium">{mfaStatus?.mfa_enabled ? 'Habilitada' : 'Não configurada'}</span>
+                            {mfaStatus?.mfa_required ? ' — obrigatória pela política' : ''}
+                          </p>
+                          {!mfaStatus?.mfa_enabled && !mfaSetup && (
+                            <button type="button" onClick={startMfaSetup} className="text-sm font-medium text-indigo-600 hover:text-indigo-800">Configurar aplicativo autenticador</button>
+                          )}
+                        </div>
                         {mfaSetup && (
                           <div className="space-y-3 rounded-md bg-slate-50 p-3">
                             <img src={mfaSetup.qr_code_data_url} alt="QR Code MFA" className="mx-auto h-44 w-44" />
