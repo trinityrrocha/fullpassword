@@ -342,7 +342,6 @@ export default function Settings() {
                         <td className="px-3 py-3 max-w-56 break-words">{event.user_email || '-'}</td>
                         <td className="px-3 py-3" title={event.action}>
                           <div className="text-sm">{AUDIT_ACTION_LABELS[event.action] || event.action}</div>
-                          {AUDIT_ACTION_LABELS[event.action] && <div className="font-mono text-xs text-slate-500">{event.action}</div>}
                         </td>
                         <td className="px-3 py-3">{event.status}</td>
                         <td className="px-3 py-3 font-mono text-xs">{event.ip_address || '-'}</td>
