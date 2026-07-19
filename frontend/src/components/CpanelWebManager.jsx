@@ -320,12 +320,12 @@ export default function CpanelWebManager({ cpanelForm, setCpanelForm, handleSave
           {normalizedForm.cpanels.length === 0 ? (
             <p className="text-sm text-slate-500">Nenhum cPanel / domínio cadastrado.</p>
           ) : normalizedForm.cpanels.map((cpanel) => (
-            <div key={cpanel.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white border border-slate-200 rounded-lg p-4">
-              <div className="space-y-1">
-                <p className="font-medium text-slate-900">{cpanel.domain || 'Domínio sem nome'}</p>
-                <p className="text-sm text-slate-500">URL: {cpanel.url || '-'} | Usuário: {cpanel.username || '-'}</p>
+            <div key={cpanel.id} className="flex min-h-10 flex-col justify-between gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 sm:flex-row sm:items-center">
+              <div className="min-w-0">
+                <p className="truncate font-medium text-slate-900">{cpanel.domain || 'Domínio sem nome'}</p>
+                <p className="truncate text-sm text-slate-500">URL: {cpanel.url || '-'} | Usuário: {cpanel.username || '-'}</p>
               </div>
-              <button type="button" onClick={() => { setEditingCpanel({ ...cpanel }); setDeleteCpanelConfirmation(''); }} className="inline-flex items-center px-3 py-2 border border-slate-300 rounded-md text-sm text-slate-700 bg-white hover:bg-slate-50">
+              <button type="button" onClick={() => { setEditingCpanel({ ...cpanel }); setDeleteCpanelConfirmation(''); }} className="inline-flex shrink-0 items-center self-start px-3 py-2 border border-slate-300 rounded-md text-sm text-slate-700 bg-white hover:bg-slate-50 sm:self-auto">
                 <Edit2 className="w-4 h-4 mr-2" /> Detalhes
               </button>
             </div>
