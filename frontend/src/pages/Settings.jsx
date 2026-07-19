@@ -44,7 +44,7 @@ export default function Settings() {
   const [systemPermissions, setSystemPermissions] = useState(null);
   const [isLoadingPermissions, setIsLoadingPermissions] = useState(true);
   const [auditEvents, setAuditEvents] = useState([]);
-  const [auditPagination, setAuditPagination] = useState({ page: 1, limit: 50, total: 0, total_pages: 0 });
+  const [auditPagination, setAuditPagination] = useState({ page: 1, limit: 10, total: 0, total_pages: 0 });
   const [auditFilters, setAuditFilters] = useState({ action: '', status: '', user_email: '', date_from: '', date_to: '' });
   const [isLoadingAudit, setIsLoadingAudit] = useState(false);
   const [auditError, setAuditError] = useState('');
@@ -175,19 +175,20 @@ export default function Settings() {
     }
   };
 
-  const loadAuditEvents = async (page = 1, filterOverride = null) => {
+  const loadAuditEvents = async (page = 1, filterOverride = null, limitOverride = null) => {
     if (!canManageSystem) return;
 
     setIsLoadingAudit(true);
     setAuditError('');
     try {
-      const params = { page, limit: auditPagination.limit };
+      const limit = limitOverride ?? auditPagination.limit;
+      const params = { page, limit };
       Object.entries(filterOverride || auditFilters).forEach(([key, value]) => {
         if (value) params[key] = value;
       });
       const response = await api.get('/system/audit-events', { params });
       setAuditEvents(response.data.events || []);
-      setAuditPagination(response.data.pagination || { page, limit: 50, total: 0, total_pages: 0 });
+      setAuditPagination(response.data.pagination || { page, limit, total: 0, total_pages: 0 });
     } catch (error) {
       setAuditEvents([]);
       setAuditError(
@@ -217,11 +218,6 @@ export default function Settings() {
   // Query strings are intentionally applied once after Super Admin permission is known.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canManageSystem, searchParams]);
-
-  const viewSecurityAudit = (filters) => {
-    setAuditFilters((current) => ({ ...current, ...filters }));
-    document.getElementById('system-audit')?.scrollIntoView({ behavior: 'smooth' });
-  };
 
   const restrictedWarning = (message) => (
     <div className="bg-amber-50 border-l-4 border-amber-400 p-4">
@@ -298,7 +294,7 @@ export default function Settings() {
         </SettingsAccordionCard>
 
         {canManageSystem && (
-          <SecurityCard onViewAudit={viewSecurityAudit} />
+          <SecurityCard />
         )}
 
         {canManageSystem && <ManualIpRulesCard />}
@@ -361,9 +357,14 @@ export default function Settings() {
                 </table>
               </div>
 
-              <div className="flex items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
                 <button type="button" onClick={() => loadAuditEvents(auditPagination.page - 1)} disabled={isLoadingAudit || auditPagination.page <= 1} className="px-3 py-2 border border-slate-300 rounded-md text-sm disabled:opacity-50">Anterior</button>
-                <span className="text-sm text-slate-600">Página {auditPagination.page} de {Math.max(1, auditPagination.total_pages)}</span>
+                <div className="flex items-center gap-3">
+                  <span className="text-sm text-slate-600">Página {auditPagination.page} de {Math.max(1, auditPagination.total_pages)}</span>
+                  <label className="flex items-center gap-1 text-xs text-slate-600">Por página
+                    <select value={auditPagination.limit} onChange={(e) => { const limit = Number(e.target.value); setAuditPagination((current) => ({ ...current, page: 1, limit })); loadAuditEvents(1, null, limit); }} className="rounded border border-slate-300 bg-white px-2 py-1 text-xs"><option value={10}>10</option><option value={30}>30</option></select>
+                  </label>
+                </div>
                 <button type="button" onClick={() => loadAuditEvents(auditPagination.page + 1)} disabled={isLoadingAudit || auditPagination.page >= auditPagination.total_pages} className="px-3 py-2 border border-slate-300 rounded-md text-sm disabled:opacity-50">Próxima</button>
               </div>
             </div>
