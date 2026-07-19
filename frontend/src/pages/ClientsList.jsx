@@ -103,22 +103,22 @@ export default function ClientsList() {
                 to={`/client/${client.id}`}
                 className="block hover:bg-slate-50 transition-colors"
               >
-                <div className="px-4 py-4 sm:px-6 flex items-center justify-between">
-                  <div className="flex items-center">
-                    <div className="flex-shrink-0 h-10 w-10 rounded-md bg-indigo-100 flex items-center justify-center">
-                      <Building2 className="h-6 w-6 text-indigo-600" />
+                <div className="flex h-10 items-center justify-between gap-3 px-4 py-1 sm:px-6">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md bg-indigo-100">
+                      <Building2 className="h-4 w-4 text-indigo-600" />
                     </div>
-                    <div className="ml-4">
-                      <div className="text-sm font-medium text-indigo-600 truncate">{client.name}</div>
-                      <div className="text-sm text-slate-500 truncate">{client.address}</div>
+                    <div className="min-w-0 leading-tight">
+                      <div className="truncate text-sm font-medium leading-tight text-indigo-600">{client.name}</div>
+                      <div className="truncate text-xs leading-tight text-slate-500">{client.address}</div>
                     </div>
                   </div>
-                  <div className="flex items-center gap-4">
-                    <div className="hidden sm:flex items-center text-sm text-slate-500">
-                      <Lock className="flex-shrink-0 mr-1.5 h-4 w-4 text-slate-400" />
+                  <div className="flex flex-shrink-0 items-center gap-2">
+                    <div className="hidden items-center text-xs text-slate-500 sm:flex">
+                      <Lock className="mr-1 h-4 w-4 flex-shrink-0 text-slate-400" />
                       {client.itemsCount} itens no cofre
                     </div>
-                    <ChevronRight className="h-5 w-5 text-slate-400" />
+                    <ChevronRight className="h-4 w-4 text-slate-400" />
                   </div>
                 </div>
               </Link>
