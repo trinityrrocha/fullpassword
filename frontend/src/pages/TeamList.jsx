@@ -364,11 +364,11 @@ export default function TeamList() {
             <table className="min-w-full divide-y divide-slate-200">
               <thead className="bg-slate-50">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Nome do Grupo</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Descrição</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Permissões</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Membros</th>
-                  <th className="relative px-6 py-3"><span className="sr-only">Ações</span></th>
+                  <th className="h-10 px-3 py-1 text-left text-xs font-medium uppercase tracking-wider text-slate-500">Nome do Grupo</th>
+                  <th className="h-10 px-3 py-1 text-left text-xs font-medium uppercase tracking-wider text-slate-500">Descrição</th>
+                  <th className="h-10 px-3 py-1 text-left text-xs font-medium uppercase tracking-wider text-slate-500">Permissões</th>
+                  <th className="h-10 px-3 py-1 text-left text-xs font-medium uppercase tracking-wider text-slate-500">Membros</th>
+                  <th className="relative h-10 px-3 py-1"><span className="sr-only">Ações</span></th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-slate-200">
@@ -381,22 +381,22 @@ export default function TeamList() {
                 ) : groups.length === 0 ? (
                   <tr><td colSpan="5" className="px-6 py-4 text-center text-sm text-slate-500">Nenhum grupo encontrado.</td></tr>
                 ) : groups.map((group) => (
-                  <tr key={group.id} className="hover:bg-slate-50">
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center">
-                        <div className="flex-shrink-0 h-10 w-10 rounded-lg bg-indigo-50 flex items-center justify-center">
-                          <FolderKey className="h-5 w-5 text-indigo-600" />
+                  <tr key={group.id} className="h-10 hover:bg-slate-50">
+                    <td className="whitespace-nowrap px-3 py-1">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-indigo-50">
+                          <FolderKey className="h-4 w-4 text-indigo-600" />
                         </div>
-                        <div className="ml-4"><div className="text-sm font-medium text-slate-900">{group.name}</div></div>
+                        <div className="min-w-0"><div className="truncate text-sm font-medium leading-tight text-slate-900">{group.name}</div></div>
                       </div>
                     </td>
-                    <td className="px-6 py-4"><div className="text-sm text-slate-500">{group.description || '-'}</div></td>
-                    <td className="px-6 py-4"><div className="text-sm text-slate-500">{getPermissionSummary(group)}</div></td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-800">{group.users?.length || 0} membros</span>
+                    <td className="max-w-xs px-3 py-1"><div className="truncate text-xs leading-tight text-slate-500" title={group.description || '-'}>{group.description || '-'}</div></td>
+                    <td className="max-w-xs px-3 py-1"><div className="truncate text-xs leading-tight text-slate-500" title={getPermissionSummary(group)}>{getPermissionSummary(group)}</div></td>
+                    <td className="whitespace-nowrap px-3 py-1">
+                      <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-xs font-medium leading-none text-slate-800">{group.users?.length || 0} membros</span>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      <div className="flex justify-end space-x-3">
+                    <td className="whitespace-nowrap px-3 py-1 text-right text-xs font-medium">
+                      <div className="flex justify-end gap-2">
                         <button onClick={() => openGroupModal(group)} className="text-indigo-600 hover:text-indigo-900">Editar</button>
                         {group.name !== 'Administradores' && (
                           <button onClick={() => handleDeleteGroup(group.id, group.name)} className="text-red-600 hover:text-red-900">Excluir</button>
