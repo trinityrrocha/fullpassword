@@ -272,33 +272,28 @@ export default function UserProfileModal({ isOpen, onClose, forcePasswordChange 
                       </h4>
                       
                       <div className="space-y-4">
-                        <div>
-                          <label className="block text-sm font-medium text-slate-700">Senha Atual</label>
-                          <SecurePasswordInput
-                            name="currentPassword"
-                            value={formData.currentPassword}
-                            onChange={handleChange}
-                            placeholder={forcePasswordChange ? 'Senha temporária da instalação' : 'Necessária apenas se for alterar a senha'}
-                            enableGenerator={false}
-                            required={forcePasswordChange}
-                          />
-                        </div>
-                        
-                        <div>
-                          <label className="block text-sm font-medium text-slate-700">Nova Senha</label>
+                        <SecurePasswordInput
+                          name="currentPassword"
+                          label="Senha Atual"
+                          value={formData.currentPassword}
+                          onChange={handleChange}
+                          placeholder={forcePasswordChange ? 'Senha temporária da instalação' : 'Necessária apenas se for alterar a senha'}
+                          enableGenerator={false}
+                          required={forcePasswordChange}
+                        />
+
+                        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                           <SecurePasswordInput
                             name="newPassword"
+                            label="Nova Senha"
                             value={formData.newPassword}
                             onChange={handleChange}
                             placeholder="Mínimo de 12 caracteres"
                             required={forcePasswordChange}
                           />
-                        </div>
-                        
-                        <div>
-                          <label className="block text-sm font-medium text-slate-700">Confirmar Nova Senha</label>
                           <SecurePasswordInput
                             name="confirmNewPassword"
+                            label="Confirmar"
                             value={formData.confirmNewPassword}
                             onChange={handleChange}
                             placeholder="Repita a nova senha"
