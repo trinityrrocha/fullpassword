@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Laptop, Loader2, RefreshCw } from 'lucide-react';
 import api from '../services/api';
-
-const formatDate = (value) => value ? new Date(value).toLocaleString() : '—';
+import { formatDateTimeShort } from '../utils/formatDateTimeShort';
 
 export default function ActiveSessionsCard({ allUsers = false }) {
   const [sessions, setSessions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [selectedSession, setSelectedSession] = useState(null);
 
   const loadSessions = useCallback(async () => {
     setLoading(true);
@@ -70,17 +70,32 @@ export default function ActiveSessionsCard({ allUsers = false }) {
             <tbody className="divide-y divide-slate-100 bg-white">
               {sessions.length === 0 ? <tr><td colSpan={allUsers ? 7 : 6} className="px-3 py-5 text-center text-slate-500">Nenhuma sessão encontrada.</td></tr> : sessions.map((session) => (
                 <tr key={session.id}>
-                  {allUsers && <td className="px-3 py-2"><span className="block font-medium">{session.name}</span><span className="text-xs text-slate-500">{session.email}</span></td>}
-                  <td className="px-3 py-2"><span className="flex items-center font-medium"><Laptop className="mr-1 h-4 w-4" />{session.browser}</span><span className="text-xs text-slate-500">{session.os} · {session.device}</span></td>
+                  {allUsers && <td className="px-3 py-2 font-medium">{session.name || session.email || '—'}</td>}
+                  <td className="w-20 px-3 py-2"><button type="button" onClick={() => setSelectedSession(session)} title="Ver dispositivo" aria-label="Ver informações do dispositivo" className="rounded p-1 text-indigo-600 hover:bg-indigo-50 hover:text-indigo-800"><Laptop className="h-4 w-4" /></button></td>
                   <td className="px-3 py-2 whitespace-nowrap">{session.ip_address || '—'}</td>
-                  <td className="px-3 py-2 whitespace-nowrap">{formatDate(session.created_at)}</td>
-                  <td className="px-3 py-2 whitespace-nowrap">{formatDate(session.last_seen_at)}</td>
+                  <td className="px-3 py-2 whitespace-nowrap">{formatDateTimeShort(session.created_at)}</td>
+                  <td className="px-3 py-2 whitespace-nowrap">{formatDateTimeShort(session.last_seen_at)}</td>
                   <td className="px-3 py-2"><span className={`rounded-full px-2 py-1 text-xs font-medium ${session.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-slate-100 text-slate-600'}`}>{session.is_current ? 'Atual' : session.status === 'active' ? 'Ativa' : session.status === 'expired' ? 'Expirada' : 'Encerrada'}</span></td>
                   <td className="px-3 py-2 text-right">{session.status === 'active' && <button type="button" onClick={() => revokeSession(session)} className="font-medium text-red-600 hover:text-red-800">Encerrar</button>}</td>
                 </tr>
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+      {selectedSession && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4" role="dialog" aria-modal="true" aria-labelledby="device-info-title" onClick={() => setSelectedSession(null)}>
+          <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl" onClick={(event) => event.stopPropagation()}>
+            <h3 id="device-info-title" className="text-lg font-semibold text-slate-900">Informações do dispositivo</h3>
+            <dl className="mt-4 space-y-3 text-sm">
+              <div><dt className="font-medium text-slate-500">Navegador</dt><dd className="mt-1 text-slate-900">{selectedSession.browser || '—'}</dd></div>
+              <div><dt className="font-medium text-slate-500">Sistema operacional</dt><dd className="mt-1 text-slate-900">{selectedSession.os || '—'}</dd></div>
+              <div><dt className="font-medium text-slate-500">Dispositivo</dt><dd className="mt-1 text-slate-900">{selectedSession.device || '—'}</dd></div>
+              <div><dt className="font-medium text-slate-500">IP</dt><dd className="mt-1 font-mono text-slate-900">{selectedSession.ip_address || '—'}</dd></div>
+              <div><dt className="font-medium text-slate-500">Usuário</dt><dd className="mt-1 text-slate-900">{selectedSession.name || selectedSession.email || '—'}</dd></div>
+            </dl>
+            <div className="mt-6 flex justify-end"><button type="button" onClick={() => setSelectedSession(null)} className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">Fechar</button></div>
+          </div>
         </div>
       )}
     </div>
