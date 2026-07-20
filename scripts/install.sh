@@ -237,6 +237,7 @@ server {
 
     # Backend API (Node.js)
     location /api/ {
+        client_max_body_size 12m;
         proxy_pass http://backend:3000;
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;

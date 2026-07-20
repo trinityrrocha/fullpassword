@@ -1,6 +1,11 @@
 import { useMemo, useState } from 'react';
-import { Plus, Edit2, Trash2, X, Download } from 'lucide-react';
+import { Plus, Edit2, Trash2, X } from 'lucide-react';
 import SecurePasswordInput from './SecurePasswordInput';
+import VaultAttachmentsField from './VaultAttachmentsField';
+import { normalizeVaultAttachments } from '../utils/vaultAttachments';
+
+const VPN_SERVER_FILE_EXTENSIONS = ['.txt', '.ovpn', '.conf', '.crt', '.cer', '.key', '.pem', '.zip', '.rar'];
+const VPN_USER_FILE_EXTENSIONS = ['.zip', '.rar', '.txt'];
 
 const serverModes = [
   'Peer to Peer (SSL/TLS)',
@@ -44,14 +49,11 @@ const emptyVpnUser = (serverId = '') => ({
   personName: '',
   username: '',
   password: '',
-  notes: ''
+  notes: '',
+  attachments: []
 });
 
-const normalizeAttachments = (server = {}) => {
-  if (Array.isArray(server.attachments)) return server.attachments.filter(Boolean);
-  if (server.attachment) return [server.attachment];
-  return [];
-};
+const normalizeAttachments = normalizeVaultAttachments;
 
 const normalizeVpnForm = (data = {}) => {
   if (Array.isArray(data.servers) || Array.isArray(data.users)) {
@@ -77,7 +79,8 @@ const normalizeVpnForm = (data = {}) => {
             personName: user.personName || user.name || '',
             username: user.username || user.login || '',
             password: user.password || '',
-            notes: user.notes || user.observations || ''
+            notes: user.notes || user.observations || '',
+            attachments: normalizeAttachments(user)
           }))
         : []
     };
@@ -106,7 +109,8 @@ const normalizeVpnForm = (data = {}) => {
         personName: data.personName || '',
         username: data.username || '',
         password: data.password || '',
-        notes: ''
+        notes: '',
+        attachments: []
       }]
     : [];
 
@@ -114,54 +118,6 @@ const normalizeVpnForm = (data = {}) => {
     servers: legacyServer,
     users: legacyUser
   };
-};
-
-const readFileAsAttachment = (file) => new Promise((resolve, reject) => {
-  if (!file) {
-    resolve(null);
-    return;
-  }
-
-  const reader = new FileReader();
-  reader.onload = () => {
-    const result = String(reader.result || '');
-    const data = result.includes(',') ? result.split(',')[1] : result;
-    resolve({
-      id: makeId(),
-      name: file.name,
-      type: file.type || 'application/octet-stream',
-      size: file.size,
-      data
-    });
-  };
-  reader.onerror = reject;
-  reader.readAsDataURL(file);
-});
-
-const readFilesAsAttachments = async (files) => {
-  const selectedFiles = Array.from(files || []);
-  const attachments = await Promise.all(selectedFiles.map((file) => readFileAsAttachment(file)));
-  return attachments.filter(Boolean);
-};
-
-const downloadAttachment = (attachment) => {
-  if (!attachment?.data) return;
-
-  const binary = atob(attachment.data);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i += 1) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-
-  const blob = new Blob([bytes], { type: attachment.type || 'application/octet-stream' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = attachment.name || 'vpn-anexo';
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
 };
 
 export default function VpnManager({ vpnForm, setVpnForm, handleSaveData, isSaving }) {
@@ -477,16 +433,6 @@ export default function VpnManager({ vpnForm, setVpnForm, handleSaveData, isSavi
 }
 
 function VpnServerModal({ title, server, setServer, isSaving, onCancel, onSave, onDelete, deleteConfirmation, setDeleteConfirmation }) {
-  const handleFiles = async (files) => {
-    const attachments = await readFilesAsAttachments(files);
-    if (!attachments.length) return;
-
-    setServer({
-      ...server,
-      attachments: [...normalizeAttachments(server), ...attachments]
-    });
-  };
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900 bg-opacity-60 p-4">
       <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -532,32 +478,13 @@ function VpnServerModal({ title, server, setServer, isSaving, onCancel, onSave, 
               <label className="block text-sm font-medium text-slate-700 mb-1">Observação</label>
               <textarea rows={3} className="w-full border-slate-300 rounded-md shadow-sm p-2 border" value={server.notes} onChange={(e) => setServer({ ...server, notes: e.target.value })} placeholder="Observações do servidor VPN"></textarea>
             </div>
-            <div className="sm:col-span-2">
-              <label className="block text-sm font-medium text-slate-700 mb-1">Anexos VPN</label>
-              <input
-                type="file"
-                multiple
-                className="w-full border-slate-300 rounded-md shadow-sm p-2 border bg-white"
-                accept=".txt,.ovpn,.conf,.crt,.cer,.key,.pem"
-                onChange={async (e) => {
-                  await handleFiles(e.target.files);
-                  e.target.value = '';
-                }}
-              />
-              <p className="mt-1 text-xs text-slate-500">Permite anexar um ou vários arquivos de texto e certificados da VPN.</p>
-              <div className="mt-3 space-y-2">
-                {normalizeAttachments(server).length === 0 ? (
-                  <p className="text-xs text-slate-500">Nenhum anexo adicionado.</p>
-                ) : normalizeAttachments(server).map((attachment, index) => (
-                  <div key={attachment.id || `${attachment.name}-${index}`} className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
-                    <span className="text-sm text-slate-700 truncate">{attachment.name}</span>
-                    <button type="button" onClick={() => downloadAttachment(attachment)} className="inline-flex items-center justify-center px-3 py-1.5 border border-slate-300 rounded-md text-sm text-slate-700 bg-white hover:bg-slate-50">
-                      <Download className="w-4 h-4 mr-2" /> Download
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
+            <VaultAttachmentsField
+              title="Arquivos da VPN"
+              helpText="Arquivos de texto, configuração, certificados, ZIP e RAR."
+              attachments={server.attachments}
+              allowedExtensions={VPN_SERVER_FILE_EXTENSIONS}
+              onChange={(attachments) => setServer({ ...server, attachments })}
+            />
           </div>
 
           {onDelete && (
@@ -613,6 +540,13 @@ function VpnUserModal({ title, user, setUser, servers, getServerLabel, isSaving,
               <label className="block text-sm font-medium text-slate-700 mb-1">Observações</label>
               <textarea rows={2} className="w-full border-slate-300 rounded-md shadow-sm p-2 border" value={user.notes} onChange={(e) => setUser({ ...user, notes: e.target.value })} placeholder="Pequenas observações do usuário VPN"></textarea>
             </div>
+            <VaultAttachmentsField
+              title="Arquivos do usuário VPN"
+              helpText="Arquivos TXT, ZIP e RAR vinculados somente a este usuário."
+              attachments={user.attachments}
+              allowedExtensions={VPN_USER_FILE_EXTENSIONS}
+              onChange={(attachments) => setUser({ ...user, attachments })}
+            />
           </div>
 
           {onDelete && (

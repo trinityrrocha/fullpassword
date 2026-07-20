@@ -47,7 +47,7 @@ const allowedOrigin = process.env.APP_ORIGIN;
 if (!allowedOrigin) throw new Error('Variável obrigatória ausente: APP_ORIGIN');
 app.use(cors({ origin: allowedOrigin, credentials: true }));
 app.use(cookieParser());
-app.use(express.json({ limit: '256kb' })); // Parse de JSON no body
+app.use(express.json({ limit: '12mb' })); // Inclui anexos criptografados de cofres (máximo de 5 MB antes da criptografia)
 app.use('/api/auth/login', authenticationLimiter);
 app.use('/api/auth/bootstrap', authenticationLimiter);
 app.use('/api/auth/mfa', mfaLimiter);

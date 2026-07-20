@@ -1,6 +1,10 @@
 import { useMemo, useState } from 'react';
 import { Plus, Edit2, Trash2, X } from 'lucide-react';
 import SecurePasswordInput from './SecurePasswordInput';
+import VaultAttachmentsField from './VaultAttachmentsField';
+import { normalizeVaultAttachments } from '../utils/vaultAttachments';
+
+const WINDOWS_SERVER_FILE_EXTENSIONS = ['.txt', '.conf', '.json', '.xml', '.log', '.zip', '.rar'];
 
 const permissionOptions = [
   { value: 'admin', label: 'Admin' },
@@ -39,7 +43,8 @@ const emptyServer = () => ({
   notes: '',
   connections: [],
   portRules: [],
-  tsRules: []
+  tsRules: [],
+  attachments: []
 });
 
 const emptyUser = (serverId = '') => ({
@@ -119,7 +124,8 @@ const normalizeServer = (server = {}) => ({
   notes: server.notes || server.observations || '',
   connections: normalizeConnections(server),
   portRules: normalizePortRules(server),
-  tsRules: normalizeTsRules(server)
+  tsRules: normalizeTsRules(server),
+  attachments: normalizeVaultAttachments(server)
 });
 
 const normalizeWindowsForm = (data = {}) => {
@@ -671,6 +677,14 @@ function WindowsServerModal({ title, server, setServer, isSaving, onCancel, onSa
               ))}
             </div>
           </div>
+
+          <VaultAttachmentsField
+            title="Arquivos do Servidor Windows"
+            helpText="Arquivos de texto, configuração, ZIP e RAR."
+            attachments={server.attachments}
+            allowedExtensions={WINDOWS_SERVER_FILE_EXTENSIONS}
+            onChange={(attachments) => setServer({ ...server, attachments })}
+          />
 
           {onDelete && (
             <div className="border-t border-slate-200 pt-4">
