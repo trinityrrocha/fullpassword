@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Server, Globe, Shield, HardDrive, Plus, Save, Share, KeyRound, Edit2, Trash2, X } from 'lucide-react';
+import { ArrowLeft, Server, Globe, Shield, HardDrive, Plus, Save, Share, KeyRound, Edit2, X } from 'lucide-react';
 import SecurePasswordInput from '../components/SecurePasswordInput';
+import DeleteConfirmationControl from '../components/DeleteConfirmationControl';
 import VaultSharingManager from '../components/VaultSharingManager';
 import VaultReadOnlyGuard from '../components/VaultReadOnlyGuard';
 import { useAuth } from '../context/AuthContext';
@@ -1016,26 +1017,9 @@ export default function ClientVault() {
                   />
                 </div>
               </div>
-              <div className="border-t border-slate-200 pt-4">
-                <label className="block text-sm font-medium text-red-700 mb-1">Para excluir este usuário, escreva EXCLUIR</label>
-                <input
-                  type="text"
-                  className="w-full border-red-200 rounded-md shadow-sm p-2 border"
-                  value={deleteUserConfirmation}
-                  onChange={(e) => setDeleteUserConfirmation(e.target.value)}
-                  placeholder="EXCLUIR"
-                />
-              </div>
             </div>
-            <div className="flex flex-col sm:flex-row justify-between gap-3 px-6 py-4 border-t border-slate-200 bg-slate-50">
-              <button
-                type="button"
-                disabled={isSaving}
-                onClick={deleteEditedUser}
-                className="inline-flex items-center justify-center px-4 py-2 border border-red-200 rounded-md text-sm font-medium text-red-600 bg-white hover:bg-red-50 disabled:opacity-50"
-              >
-                <Trash2 className="w-4 h-4 mr-2" /> Excluir
-              </button>
+            <div className="flex flex-col gap-3 border-t border-slate-200 bg-slate-50 px-6 py-4 sm:flex-row sm:items-end sm:justify-between">
+              <DeleteConfirmationControl value={deleteUserConfirmation} onChange={(e) => setDeleteUserConfirmation(e.target.value)} onDelete={deleteEditedUser} disabled={isSaving} />
               <div className="flex gap-3 justify-end">
                 <button type="button" onClick={() => setEditingUser(null)} className="px-4 py-2 border border-slate-300 rounded-md text-sm font-medium text-slate-700 bg-white hover:bg-slate-50">Cancelar</button>
                 <button
@@ -1085,15 +1069,9 @@ export default function ClientVault() {
                 </div>
               </div>
 
-              <div className="border-t border-slate-200 pt-4">
-                <label className="block text-sm font-medium text-red-700 mb-1">Para excluir este servidor, escreva EXCLUIR</label>
-                <input type="text" className="w-full border-red-200 rounded-md shadow-sm p-2 border" value={deleteConfirmation} onChange={(e) => setDeleteConfirmation(e.target.value)} placeholder="EXCLUIR" />
-              </div>
             </div>
-            <div className="flex flex-col sm:flex-row justify-between gap-3 px-6 py-4 border-t border-slate-200 bg-slate-50">
-              <button type="button" onClick={deleteEditedServer} className="inline-flex items-center justify-center px-4 py-2 border border-red-200 rounded-md text-sm font-medium text-red-600 bg-white hover:bg-red-50">
-                <Trash2 className="w-4 h-4 mr-2" /> Excluir
-              </button>
+            <div className="flex flex-col gap-3 border-t border-slate-200 bg-slate-50 px-6 py-4 sm:flex-row sm:items-end sm:justify-between">
+              <DeleteConfirmationControl value={deleteConfirmation} onChange={(e) => setDeleteConfirmation(e.target.value)} onDelete={deleteEditedServer} />
               <div className="flex gap-3 justify-end">
                 <button type="button" onClick={() => setEditingServer(null)} className="px-4 py-2 border border-slate-300 rounded-md text-sm font-medium text-slate-700 bg-white hover:bg-slate-50">Cancelar</button>
                 <button type="button" onClick={saveEditedServer} className="px-4 py-2 border border-transparent rounded-md text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700">Salvar alterações</button>

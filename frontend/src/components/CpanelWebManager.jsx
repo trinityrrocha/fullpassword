@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
-import { Plus, Edit2, Trash2, X } from 'lucide-react';
+import { Plus, Edit2, X } from 'lucide-react';
 import SecurePasswordInput from './SecurePasswordInput';
+import DeleteConfirmationControl from './DeleteConfirmationControl';
 
 const departmentOptions = [
   'Comercial',
@@ -481,13 +482,9 @@ export default function CpanelWebManager({ cpanelForm, setCpanelForm, handleSave
                   <textarea rows={3} className="w-full border-slate-300 rounded-md shadow-sm p-2 border" value={editingCpanel.notes} onChange={(e) => setEditingCpanel({ ...editingCpanel, notes: e.target.value })}></textarea>
                 </div>
               </div>
-              <div className="border-t border-slate-200 pt-4">
-                <label className="block text-sm font-medium text-red-700 mb-1">Para excluir este cPanel / domínio, escreva EXCLUIR</label>
-                <input type="text" className="w-full border-red-200 rounded-md shadow-sm p-2 border" value={deleteCpanelConfirmation} onChange={(e) => setDeleteCpanelConfirmation(e.target.value)} placeholder="EXCLUIR" />
-              </div>
             </div>
-            <div className="flex flex-col sm:flex-row justify-between gap-3 px-6 py-4 border-t border-slate-200 bg-slate-50">
-              <button type="button" disabled={isSaving} onClick={deleteEditedCpanel} className="inline-flex items-center justify-center px-4 py-2 border border-red-200 rounded-md text-sm font-medium text-red-600 bg-white hover:bg-red-50 disabled:opacity-50"><Trash2 className="w-4 h-4 mr-2" /> Excluir</button>
+            <div className="flex flex-col gap-3 border-t border-slate-200 bg-slate-50 px-6 py-4 sm:flex-row sm:items-end sm:justify-between">
+              <DeleteConfirmationControl value={deleteCpanelConfirmation} onChange={(e) => setDeleteCpanelConfirmation(e.target.value)} onDelete={deleteEditedCpanel} disabled={isSaving} />
               <div className="flex gap-3 justify-end">
                 <button type="button" onClick={() => setEditingCpanel(null)} className="px-4 py-2 border border-slate-300 rounded-md text-sm font-medium text-slate-700 bg-white hover:bg-slate-50">Cancelar</button>
                 <button type="button" disabled={isSaving} onClick={saveEditedCpanel} className="px-4 py-2 border border-transparent rounded-md text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50">{isSaving ? 'Salvando...' : 'Salvar alterações'}</button>
@@ -531,13 +528,9 @@ export default function CpanelWebManager({ cpanelForm, setCpanelForm, handleSave
                   <SecurePasswordInput name={`edit_cpanel_user_password_${editingUser.id}`} label="Senha" value={editingUser.password} onChange={(e) => setEditingUser({ ...editingUser, password: e.target.value })} />
                 </div>
               </div>
-              <div className="border-t border-slate-200 pt-4">
-                <label className="block text-sm font-medium text-red-700 mb-1">Para excluir este usuário, escreva EXCLUIR</label>
-                <input type="text" className="w-full border-red-200 rounded-md shadow-sm p-2 border" value={deleteUserConfirmation} onChange={(e) => setDeleteUserConfirmation(e.target.value)} placeholder="EXCLUIR" />
-              </div>
             </div>
-            <div className="flex flex-col sm:flex-row justify-between gap-3 px-6 py-4 border-t border-slate-200 bg-slate-50">
-              <button type="button" disabled={isSaving} onClick={deleteEditedUser} className="inline-flex items-center justify-center px-4 py-2 border border-red-200 rounded-md text-sm font-medium text-red-600 bg-white hover:bg-red-50 disabled:opacity-50"><Trash2 className="w-4 h-4 mr-2" /> Excluir</button>
+            <div className="flex flex-col gap-3 border-t border-slate-200 bg-slate-50 px-6 py-4 sm:flex-row sm:items-end sm:justify-between">
+              <DeleteConfirmationControl value={deleteUserConfirmation} onChange={(e) => setDeleteUserConfirmation(e.target.value)} onDelete={deleteEditedUser} disabled={isSaving} />
               <div className="flex gap-3 justify-end">
                 <button type="button" onClick={() => setEditingUser(null)} className="px-4 py-2 border border-slate-300 rounded-md text-sm font-medium text-slate-700 bg-white hover:bg-slate-50">Cancelar</button>
                 <button type="button" disabled={isSaving} onClick={saveEditedUser} className="px-4 py-2 border border-transparent rounded-md text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50">{isSaving ? 'Salvando...' : 'Salvar alterações'}</button>

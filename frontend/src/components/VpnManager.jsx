@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
-import { Plus, Edit2, Trash2, X } from 'lucide-react';
+import { Plus, Edit2, X } from 'lucide-react';
 import SecurePasswordInput from './SecurePasswordInput';
+import DeleteConfirmationControl from './DeleteConfirmationControl';
 import VaultAttachmentsField from './VaultAttachmentsField';
 import { normalizeVaultAttachments } from '../utils/vaultAttachments';
 
@@ -487,16 +488,10 @@ function VpnServerModal({ title, server, setServer, isSaving, onCancel, onSave, 
             />
           </div>
 
-          {onDelete && (
-            <div className="border-t border-slate-200 pt-4">
-              <label className="block text-sm font-medium text-red-700 mb-1">Para excluir este servidor VPN, escreva EXCLUIR</label>
-              <input type="text" className="w-full border-red-200 rounded-md shadow-sm p-2 border" value={deleteConfirmation} onChange={(e) => setDeleteConfirmation(e.target.value)} placeholder="EXCLUIR" />
-            </div>
-          )}
         </div>
-        <div className={`flex flex-col sm:flex-row ${onDelete ? 'justify-between' : 'justify-end'} gap-3 px-6 py-4 border-t border-slate-200 bg-slate-50`}>
+        <div className={`flex flex-col gap-3 border-t border-slate-200 bg-slate-50 px-6 py-4 sm:flex-row sm:items-end ${onDelete ? 'sm:justify-between' : 'sm:justify-end'}`}>
           {onDelete && (
-            <button type="button" disabled={isSaving} onClick={onDelete} className="inline-flex items-center justify-center px-4 py-2 border border-red-200 rounded-md text-sm font-medium text-red-600 bg-white hover:bg-red-50 disabled:opacity-50"><Trash2 className="w-4 h-4 mr-2" /> Excluir</button>
+            <DeleteConfirmationControl value={deleteConfirmation} onChange={(e) => setDeleteConfirmation(e.target.value)} onDelete={onDelete} disabled={isSaving} />
           )}
           <div className="flex gap-3 justify-end">
             <button type="button" onClick={onCancel} className="px-4 py-2 border border-slate-300 rounded-md text-sm font-medium text-slate-700 bg-white hover:bg-slate-50">Cancelar</button>
@@ -549,16 +544,10 @@ function VpnUserModal({ title, user, setUser, servers, getServerLabel, isSaving,
             />
           </div>
 
-          {onDelete && (
-            <div className="border-t border-slate-200 pt-4">
-              <label className="block text-sm font-medium text-red-700 mb-1">Para excluir este usuário VPN, escreva EXCLUIR</label>
-              <input type="text" className="w-full border-red-200 rounded-md shadow-sm p-2 border" value={deleteConfirmation} onChange={(e) => setDeleteConfirmation(e.target.value)} placeholder="EXCLUIR" />
-            </div>
-          )}
         </div>
-        <div className={`flex flex-col sm:flex-row ${onDelete ? 'justify-between' : 'justify-end'} gap-3 px-6 py-4 border-t border-slate-200 bg-slate-50`}>
+        <div className={`flex flex-col gap-3 border-t border-slate-200 bg-slate-50 px-6 py-4 sm:flex-row sm:items-end ${onDelete ? 'sm:justify-between' : 'sm:justify-end'}`}>
           {onDelete && (
-            <button type="button" disabled={isSaving} onClick={onDelete} className="inline-flex items-center justify-center px-4 py-2 border border-red-200 rounded-md text-sm font-medium text-red-600 bg-white hover:bg-red-50 disabled:opacity-50"><Trash2 className="w-4 h-4 mr-2" /> Excluir</button>
+            <DeleteConfirmationControl value={deleteConfirmation} onChange={(e) => setDeleteConfirmation(e.target.value)} onDelete={onDelete} disabled={isSaving} />
           )}
           <div className="flex gap-3 justify-end">
             <button type="button" onClick={onCancel} className="px-4 py-2 border border-slate-300 rounded-md text-sm font-medium text-slate-700 bg-white hover:bg-slate-50">Cancelar</button>
