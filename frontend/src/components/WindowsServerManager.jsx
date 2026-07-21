@@ -34,6 +34,13 @@ const protocolOptions = ['TCP', 'UDP', 'TCP/UDP', 'HTTPS', 'HTTP', 'ICMP', 'SMB'
 const directionOptions = ['Entrada', 'Saída', 'Entrada/Saída'];
 const tsProtocolOptions = ['TCP', 'UDP', 'TCP/UDP'];
 
+const sanitizePortInput = (value = '') => String(value).replace(/\D/g, '');
+const sanitizeIpv4MaskInput = (value = '') => {
+  const cleaned = String(value).replace(/[^0-9./]/g, '');
+  const [address, ...maskParts] = cleaned.split('/');
+  return maskParts.length ? `${address}/${maskParts.join('').replace(/\D/g, '')}` : address;
+};
+
 const makeId = () => {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -64,12 +71,12 @@ const normalizeConnections = (server = {}) => {
     return server.connections.map((connection) => ({
       id: connection.id || makeId(),
       type: connection.type || 'Eth1',
-      ipv4: connection.ipv4 || connection.ip || ''
+      ipv4: sanitizeIpv4MaskInput(connection.ipv4 || connection.ip || '')
     }));
   }
 
   if (server.ip) {
-    return [{ id: makeId(), type: 'Eth1', ipv4: server.ip }];
+    return [{ id: makeId(), type: 'Eth1', ipv4: sanitizeIpv4MaskInput(server.ip) }];
   }
 
   return [];
@@ -80,7 +87,7 @@ const normalizePortRules = (server = {}) => {
     return server.portRules.map((rule) => ({
       id: rule.id || makeId(),
       name: rule.name || '',
-      portNumber: rule.portNumber || rule.port || '',
+      portNumber: sanitizePortInput(rule.portNumber || rule.port || ''),
       direction: rule.direction || 'Entrada',
       protocol: rule.protocol || 'TCP'
     }));
@@ -91,7 +98,7 @@ const normalizePortRules = (server = {}) => {
     migratedRules.push({
       id: makeId(),
       name: 'Porta interna',
-      portNumber: server.internalPort || server.port || '',
+      portNumber: sanitizePortInput(server.internalPort || server.port || ''),
       direction: 'Entrada',
       protocol: 'RPD'
     });
@@ -100,7 +107,7 @@ const normalizePortRules = (server = {}) => {
     migratedRules.push({
       id: makeId(),
       name: 'Porta externa',
-      portNumber: server.externalPort,
+      portNumber: sanitizePortInput(server.externalPort),
       direction: 'Entrada',
       protocol: 'RPD'
     });
@@ -116,7 +123,7 @@ const normalizeTsRules = (server = {}) => {
     id: rule.id || makeId(),
     name: rule.name || '',
     host: rule.host || rule.ip || '',
-    port: rule.port || '',
+    port: sanitizePortInput(rule.port || ''),
     direction: directionOptions.includes(rule.direction) ? rule.direction : 'Entrada',
     protocol: tsProtocolOptions.includes(rule.protocol) ? rule.protocol : 'TCP'
   }));
@@ -508,7 +515,7 @@ function WindowsServerModal({ title, server, setServer, isSaving, onCancel, onSa
   const updateConnection = (connectionId, ipv4) => {
     setServer({
       ...server,
-      connections: connections.map((connection) => connection.id === connectionId ? { ...connection, ipv4 } : connection)
+      connections: connections.map((connection) => connection.id === connectionId ? { ...connection, ipv4: sanitizeIpv4MaskInput(ipv4) } : connection)
     });
   };
 
@@ -537,7 +544,7 @@ function WindowsServerModal({ title, server, setServer, isSaving, onCancel, onSa
   const updatePortRule = (ruleId, field, value) => {
     setServer({
       ...server,
-      portRules: portRules.map((rule) => rule.id === ruleId ? { ...rule, [field]: value } : rule)
+      portRules: portRules.map((rule) => rule.id === ruleId ? { ...rule, [field]: field === 'portNumber' ? sanitizePortInput(value) : value } : rule)
     });
   };
 
@@ -551,7 +558,7 @@ function WindowsServerModal({ title, server, setServer, isSaving, onCancel, onSa
   const updateTsRule = (ruleId, field, value) => {
     setServer({
       ...server,
-      tsRules: tsRules.map((rule) => rule.id === ruleId ? { ...rule, [field]: value } : rule)
+      tsRules: tsRules.map((rule) => rule.id === ruleId ? { ...rule, [field]: field === 'port' ? sanitizePortInput(value) : value } : rule)
     });
   };
 
