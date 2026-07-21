@@ -249,8 +249,8 @@ export default function VaultSharingManager({ clientId, clientVaultKey, compact 
                 </p>
                 <p className="text-xs text-slate-500 mt-1">Permissões herdadas do grupo: {getPermissionSummary(group)}</p>
               </div>
-              <button type="button" onClick={() => removeShare(share.group_id)} className="inline-flex items-center justify-center px-3 py-2 border border-red-200 rounded-md text-sm text-red-600 bg-white hover:bg-red-50">
-                <Trash2 className="w-4 h-4 mr-2" /> Remover
+              <button type="button" title="Remover" aria-label="Remover" onClick={() => removeShare(share.group_id)} className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-red-300 text-red-600 hover:bg-red-50">
+                <Trash2 className="h-4 w-4" />
               </button>
             </div>
           );

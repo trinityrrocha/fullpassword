@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Plus, Edit2, X, Server, ShieldCheck, EthernetPort, Download, UserRound } from 'lucide-react';
+import { Plus, Edit2, Trash2, X, Server, ShieldCheck, EthernetPort, Download, UserRound } from 'lucide-react';
 import SecurePasswordInput from './SecurePasswordInput';
 import DeleteConfirmationControl from './DeleteConfirmationControl';
 
@@ -17,7 +17,7 @@ const systemOptions = [
 const connectionOptions = ['Eth1', 'Eth2', 'Eth3', 'Eth4', 'Eth5', 'VPN'];
 const connectionVpnOptions = ['OpenVPN', 'WireGuard', 'ZeroTier', 'Tailscale', 'Outro'];
 const protocolOptions = ['TCP', 'UDP', 'TCP/UDP', 'HTTPS', 'HTTP', 'ICMP', 'SMB', 'FTP', 'SSH', 'SMTP', 'RPD', 'ANY'];
-const directionOptions = ['Entrada', 'Saída'];
+const directionOptions = ['Entrada', 'Saída', 'Entrada/Saída'];
 
 const sanitizePortInput = (value = '') => String(value).replace(/\D/g, '');
 const sanitizeIpv4MaskInput = (value = '') => {
@@ -240,8 +240,8 @@ function AttachmentRow({ attachment, label, onRemove }) {
           <Download className="w-4 h-4 mr-2" /> Download
         </button>
         {onRemove && (
-          <button type="button" onClick={onRemove} className="inline-flex items-center justify-center px-3 py-1.5 border border-red-200 rounded-md text-sm text-red-600 bg-white hover:bg-red-50">
-            Remover
+          <button type="button" title="Remover" aria-label="Remover" onClick={onRemove} className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-red-300 text-red-600 hover:bg-red-50">
+            <Trash2 className="h-4 w-4" />
           </button>
         )}
       </div>
@@ -720,8 +720,8 @@ function LinuxServerModal({ title, server, setServer, isSaving, onCancel, onSave
                     </select>
                   )}
                   <input type="text" inputMode="decimal" className="flex-1 min-w-0 border-slate-300 rounded-md shadow-sm p-2 border" value={connection.ipv4} onChange={(e) => updateConnection(connection.id, 'ipv4', e.target.value)} placeholder="Ex: 192.168.1.10 ou 192.168.1.0/24" />
-                  <button type="button" onClick={() => removeConnection(connection.id)} className="shrink-0 inline-flex items-center justify-center px-3 py-2 border border-red-200 rounded-md text-sm text-red-600 bg-white hover:bg-red-50">
-                    Remover
+                  <button type="button" title="Remover" aria-label="Remover" onClick={() => removeConnection(connection.id)} className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-red-300 text-red-600 hover:bg-red-50">
+                    <Trash2 className="h-4 w-4" />
                   </button>
                 </div>
               ))}
@@ -743,29 +743,21 @@ function LinuxServerModal({ title, server, setServer, isSaving, onCancel, onSave
               {portRules.length === 0 ? (
                 <p className="text-sm text-slate-500">Nenhuma porta adicionada.</p>
               ) : portRules.map((rule) => (
-                <div key={rule.id} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-[1.2fr_120px_130px_130px_auto] gap-3 items-end rounded-md border border-slate-200 bg-slate-50 p-3">
+                <div key={rule.id} className="grid grid-cols-1 items-center gap-3 rounded-md border border-slate-200 bg-slate-50 p-3 sm:grid-cols-2 lg:grid-cols-[1.2fr_120px_130px_130px_auto]">
+                  <input type="text" aria-label="Nome" className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm shadow-sm" value={rule.name} onChange={(e) => updatePortRule(rule.id, 'name', e.target.value)} placeholder="Nome" />
+                  <input type="text" inputMode="numeric" aria-label="Porta" className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm shadow-sm" value={rule.portNumber} onChange={(e) => updatePortRule(rule.id, 'portNumber', e.target.value)} placeholder="Porta" />
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Nome</label>
-                    <input type="text" className="w-full border-slate-300 rounded-md shadow-sm p-2 border" value={rule.name} onChange={(e) => updatePortRule(rule.id, 'name', e.target.value)} placeholder="Ex: SSH" />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Porta</label>
-                    <input type="text" inputMode="numeric" className="w-full border-slate-300 rounded-md shadow-sm p-2 border" value={rule.portNumber} onChange={(e) => updatePortRule(rule.id, 'portNumber', e.target.value)} placeholder="22" />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Entrada/Saída</label>
-                    <select className="w-full border-slate-300 rounded-md shadow-sm p-2 border bg-white" value={rule.direction} onChange={(e) => updatePortRule(rule.id, 'direction', e.target.value)}>
+                    <select aria-label="Entrada/Saída" className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm shadow-sm" value={rule.direction} onChange={(e) => updatePortRule(rule.id, 'direction', e.target.value)}>
                       {directionOptions.map((option) => <option key={option} value={option}>{option}</option>)}
                     </select>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Protocolo</label>
-                    <select className="w-full border-slate-300 rounded-md shadow-sm p-2 border bg-white" value={rule.protocol} onChange={(e) => updatePortRule(rule.id, 'protocol', e.target.value)}>
+                    <select aria-label="Protocolo" className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm shadow-sm" value={rule.protocol} onChange={(e) => updatePortRule(rule.id, 'protocol', e.target.value)}>
                       {protocolOptions.map((option) => <option key={option} value={option}>{option}</option>)}
                     </select>
                   </div>
-                  <button type="button" onClick={() => removePortRule(rule.id)} className="inline-flex items-center justify-center px-3 py-2 border border-red-200 rounded-md text-sm text-red-600 bg-white hover:bg-red-50">
-                    Remover
+                  <button type="button" title="Remover" aria-label="Remover" onClick={() => removePortRule(rule.id)} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-red-300 text-red-600 hover:bg-red-50">
+                    <Trash2 className="h-4 w-4" />
                   </button>
                 </div>
               ))}

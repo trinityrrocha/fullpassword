@@ -459,22 +459,10 @@ function VpnServerModal({ title, server, setServer, isSaving, onCancel, onSave, 
                 {serverModes.map((option) => <option key={option} value={option}>{option}</option>)}
               </select>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">IPV4 local</label>
-              <input type="text" className="w-full border-slate-300 rounded-md shadow-sm p-2 border" value={server.ipv4Local} onChange={(e) => setServer({ ...server, ipv4Local: e.target.value })} placeholder="Ex: 192.168.1.1" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">IPV4 Tunel</label>
-              <input type="text" className="w-full border-slate-300 rounded-md shadow-sm p-2 border" value={server.ipv4Tunnel} onChange={(e) => setServer({ ...server, ipv4Tunnel: e.target.value })} placeholder="Ex: 10.8.0.1" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">VLAN</label>
-              <input type="text" className="w-full border-slate-300 rounded-md shadow-sm p-2 border" value={server.vlan} onChange={(e) => setServer({ ...server, vlan: e.target.value })} placeholder="Ex: 10.8.0.0/24" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Porta</label>
-              <input type="text" className="w-full border-slate-300 rounded-md shadow-sm p-2 border" value={server.port} onChange={(e) => setServer({ ...server, port: e.target.value })} placeholder="Ex: 1194" />
-            </div>
+            <input type="text" aria-label="IPV4 Local" className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm shadow-sm" value={server.ipv4Local} onChange={(e) => setServer({ ...server, ipv4Local: e.target.value })} placeholder="IPV4 Local" />
+            <input type="text" aria-label="IPV4 Túnel" className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm shadow-sm" value={server.ipv4Tunnel} onChange={(e) => setServer({ ...server, ipv4Tunnel: e.target.value })} placeholder="IPV4 Túnel" />
+            <input type="text" aria-label="VLAN" className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm shadow-sm" value={server.vlan} onChange={(e) => setServer({ ...server, vlan: e.target.value })} placeholder="VLAN" />
+            <input type="text" aria-label="Porta" className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm shadow-sm" value={server.port} onChange={(e) => setServer({ ...server, port: e.target.value })} placeholder="Porta" />
             <div className="sm:col-span-2">
               <label className="block text-sm font-medium text-slate-700 mb-1">Observação</label>
               <textarea rows={3} className="w-full border-slate-300 rounded-md shadow-sm p-2 border" value={server.notes} onChange={(e) => setServer({ ...server, notes: e.target.value })} placeholder="Observações do servidor VPN"></textarea>
