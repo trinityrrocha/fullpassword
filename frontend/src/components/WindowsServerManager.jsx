@@ -30,6 +30,7 @@ const departmentOptions = [
 ];
 
 const connectionOptions = ['Eth1', 'Eth2', 'Eth3', 'Eth4', 'Eth5', 'VPN'];
+const connectionVpnOptions = ['OpenVPN', 'WireGuard', 'ZeroTier', 'Tailscale', 'Outro'];
 const directionOptions = ['Entrada', 'Saída', 'Entrada/Saída'];
 const tsProtocolOptions = ['TCP', 'UDP', 'TCP/UDP'];
 
@@ -110,12 +111,13 @@ const normalizeConnections = (server = {}) => {
     return server.connections.map((connection) => ({
       id: connection.id || makeId(),
       type: connection.type || 'Eth1',
+      vpn: connection.type === 'VPN' ? (connection.vpn || connection.vpnType || 'OpenVPN') : '',
       ipv4: sanitizeIpv4MaskInput(connection.ipv4 || connection.ip || '')
     }));
   }
 
   if (server.ip) {
-    return [{ id: makeId(), type: 'Eth1', ipv4: sanitizeIpv4MaskInput(server.ip) }];
+    return [{ id: makeId(), type: 'Eth1', vpn: '', ipv4: sanitizeIpv4MaskInput(server.ip) }];
   }
 
   return [];
@@ -594,14 +596,14 @@ function WindowsServerModal({ title, server, setServer, isSaving, onCancel, onSa
 
     setServer({
       ...server,
-      connections: [...connections, { id: makeId(), type, ipv4: '' }]
+      connections: [...connections, { id: makeId(), type, vpn: type === 'VPN' ? 'OpenVPN' : '', ipv4: '' }]
     });
   };
 
-  const updateConnection = (connectionId, ipv4) => {
+  const updateConnection = (connectionId, field, value) => {
     setServer({
       ...server,
-      connections: connections.map((connection) => connection.id === connectionId ? { ...connection, ipv4: sanitizeIpv4MaskInput(ipv4) } : connection)
+      connections: connections.map((connection) => connection.id === connectionId ? { ...connection, [field]: field === 'ipv4' ? sanitizeIpv4MaskInput(value) : value } : connection)
     });
   };
 
@@ -690,16 +692,15 @@ function WindowsServerModal({ title, server, setServer, isSaving, onCancel, onSa
               {connections.length === 0 ? (
                 <p className="text-sm text-slate-500">Nenhuma conexão adicionada.</p>
               ) : connections.map((connection) => (
-                <div key={connection.id} className="grid grid-cols-1 sm:grid-cols-[160px_1fr_auto] gap-3 items-end rounded-md border border-slate-200 bg-slate-50 p-3">
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Conexão</label>
-                    <div className="flex items-center gap-2 rounded-md border border-slate-200 bg-white p-2 text-sm text-slate-700"><ConnectionIcon type={connection.type} />{getConnectionLabel(connection, connections)}</div>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">IPv4</label>
-                    <input type="text" className="w-full border-slate-300 rounded-md shadow-sm p-2 border" value={connection.ipv4} onChange={(e) => updateConnection(connection.id, e.target.value)} placeholder="Ex: 192.168.1.10" />
-                  </div>
-                  <button type="button" title="Remover" aria-label="Remover" onClick={() => removeConnection(connection.id)} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-red-300 text-red-600 hover:bg-red-50">
+                <div key={connection.id} className={`flex items-center gap-3 rounded-md border border-slate-200 bg-slate-50 p-3 ${connection.type === 'VPN' ? 'flex-nowrap' : 'flex-wrap'}`}>
+                  <div className="flex w-40 shrink-0 items-center gap-2 rounded-md border border-slate-200 bg-white p-2 text-sm text-slate-700"><ConnectionIcon type={connection.type} />{getConnectionLabel(connection, connections)}</div>
+                  {connection.type === 'VPN' && (
+                    <select aria-label="Tipo de VPN" className="w-48 shrink-0 rounded-md border border-slate-300 bg-white p-2 shadow-sm" value={connection.vpn || 'OpenVPN'} onChange={(e) => updateConnection(connection.id, 'vpn', e.target.value)}>
+                      {connectionVpnOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+                    </select>
+                  )}
+                  <input type="text" inputMode="decimal" aria-label="IPv4" className="min-w-0 flex-1 rounded-md border border-slate-300 p-2 shadow-sm" value={connection.ipv4} onChange={(e) => updateConnection(connection.id, 'ipv4', e.target.value)} placeholder="Ex: 192.168.1.10 ou 192.168.1.0/24" />
+                  <button type="button" title="Remover" aria-label="Remover" onClick={() => removeConnection(connection.id)} className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-red-300 text-red-600 hover:bg-red-50">
                     <Trash2 className="h-4 w-4" />
                   </button>
                 </div>
