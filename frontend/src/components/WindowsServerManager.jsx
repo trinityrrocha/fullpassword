@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Plus, Edit2, Trash2, X, Server, UserRound, UserStar, TriangleAlert, ShieldCheck, EthernetPort } from 'lucide-react';
+import { Plus, Edit2, Trash2, X, Server, UserRound, UserStar, TriangleAlert, ShieldCheck, EthernetPort, Copy } from 'lucide-react';
 import SecurePasswordInput from './SecurePasswordInput';
 import DeleteConfirmationControl from './DeleteConfirmationControl';
 import VaultAttachmentsField from './VaultAttachmentsField';
@@ -33,7 +33,11 @@ const connectionOptions = ['Eth1', 'Eth2', 'Eth3', 'Eth4', 'Eth5', 'VPN'];
 const directionOptions = ['Entrada', 'Saída', 'Entrada/Saída'];
 const tsProtocolOptions = ['TCP', 'UDP', 'TCP/UDP'];
 
-const sanitizePortInput = (value = '') => String(value).replace(/\D/g, '');
+const sanitizePortInput = (value = '') => String(value).replace(/\D/g, '').slice(0, 5);
+const isValidPort = (value) => {
+  const port = Number(value);
+  return String(value).trim() !== '' && Number.isInteger(port) && port >= 1 && port <= 65535;
+};
 const sanitizeIpv4MaskInput = (value = '') => {
   const cleaned = String(value).replace(/[^0-9./]/g, '');
   const [address, ...maskParts] = cleaned.split('/');
@@ -177,6 +181,48 @@ const normalizeServer = (server = {}) => ({
   attachments: normalizeVaultAttachments(server)
 });
 
+const findInvalidWindowsPort = (server = {}) => {
+  const ports = [
+    ...normalizePortRules(server).map((rule) => ({ name: rule.name || 'Porta', value: rule.portNumber })),
+    ...normalizeTsRules(server).map((rule) => ({ name: rule.name || 'TS', value: rule.port }))
+  ];
+
+  return ports.find((item) => !isValidPort(item.value));
+};
+
+const validateWindowsServerPorts = (server) => {
+  const invalidPort = findInvalidWindowsPort(server);
+  if (!invalidPort) return true;
+
+  const displayedValue = invalidPort.value || 'vazia';
+  alert(`A porta "${displayedValue}" em "${invalidPort.name}" é inválida. Informe uma porta entre 1 e 65535.`);
+  return false;
+};
+
+const copyTextToClipboard = async (text) => {
+  if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  if (typeof document === 'undefined') throw new Error('Clipboard indisponível');
+
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.setAttribute('readonly', '');
+  textarea.style.position = 'fixed';
+  textarea.style.opacity = '0';
+  document.body.appendChild(textarea);
+  let copied;
+  try {
+    textarea.select();
+    copied = document.execCommand('copy');
+  } finally {
+    document.body.removeChild(textarea);
+  }
+  if (!copied) throw new Error('Clipboard indisponível');
+};
+
 const normalizeWindowsForm = (data = {}) => {
   if (Array.isArray(data.servers) || Array.isArray(data.users)) {
     return {
@@ -273,6 +319,7 @@ export default function WindowsServerManager({ tsForm, setTsForm, handleSaveData
       alert('Informe o nome do servidor.');
       return;
     }
+    if (!validateWindowsServerPorts(serverDraft)) return;
 
     const newServer = { ...serverDraft, id: makeId() };
     const nextForm = {
@@ -293,6 +340,7 @@ export default function WindowsServerManager({ tsForm, setTsForm, handleSaveData
       alert('Informe o nome do servidor.');
       return;
     }
+    if (!validateWindowsServerPorts(editingServer)) return;
 
     const nextForm = {
       ...normalizedForm,
@@ -696,7 +744,7 @@ function WindowsServerModal({ title, server, setServer, isSaving, onCancel, onSa
                 ))}
 
                 {tsRules.map((rule) => (
-                  <div key={rule.id} className="grid w-full grid-cols-[180px_minmax(220px,1fr)_120px_128px_96px_36px] items-center gap-2 rounded-md border border-slate-200 bg-slate-50 p-2">
+                  <div key={rule.id} className="grid w-full grid-cols-[180px_minmax(220px,1fr)_120px_128px_96px_36px] items-center gap-2 rounded-md border border-sky-200 bg-sky-50 p-2">
                     <CompactInlineInput label="Nome" widthClass="w-[180px]" value={rule.name} onChange={(e) => updateTsRule(rule.id, 'name', e.target.value)} placeholder="Ex: Acesso TS" />
                     <CompactInlineInput label="IP/HOST" widthClass="w-full" value={rule.host} onChange={(e) => updateTsRule(rule.id, 'host', e.target.value)} placeholder="Ex: ts.empresa.com.br" />
                     <CompactInlineInput label="Porta" widthClass="w-[120px]" inputMode="numeric" value={rule.port} onChange={(e) => updateTsRule(rule.id, 'port', e.target.value)} placeholder="Ex: 3389" />
@@ -735,6 +783,19 @@ function WindowsServerModal({ title, server, setServer, isSaving, onCancel, onSa
 }
 
 function WindowsUserModal({ title, user, setUser, servers, getServerLabel, isSaving, onCancel, onSave, onDelete, deleteConfirmation, setDeleteConfirmation }) {
+  const selectedServer = servers.find((server) => server.id === user.serverId);
+  const tsAddresses = selectedServer
+    ? normalizeTsRules(selectedServer).filter((rule) => rule.host.trim() && rule.port)
+    : [];
+
+  const copyTsAddress = async (rule) => {
+    try {
+      await copyTextToClipboard(`${rule.host}:${rule.port}`);
+    } catch {
+      alert('Não foi possível copiar o endereço TS.');
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900 bg-opacity-60 p-4">
       <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -774,6 +835,35 @@ function WindowsUserModal({ title, user, setUser, servers, getServerLabel, isSav
             </div>
             <div className="sm:col-span-2 max-w-md">
               <SecurePasswordInput name={`windows_user_password_${user.id}`} label="Senha" value={user.password} onChange={(e) => setUser({ ...user, password: e.target.value })} />
+            </div>
+            <div className="sm:col-span-2 rounded-md border border-slate-200 bg-slate-50 p-3">
+              <h4 className="mb-2 text-sm font-semibold text-slate-900">Endereços TS do servidor</h4>
+              {!user.serverId ? (
+                <p className="text-xs text-slate-500">Selecione um servidor para visualizar os endereços TS.</p>
+              ) : tsAddresses.length === 0 ? (
+                <p className="text-xs text-slate-500">Nenhum endereço TS cadastrado para este servidor.</p>
+              ) : (
+                <div className="space-y-2">
+                  {tsAddresses.map((rule) => {
+                    const address = `${rule.host}:${rule.port}`;
+                    return (
+                      <div key={rule.id} className="flex items-center gap-2 rounded-md border border-sky-200 bg-white px-3 py-2 text-sm">
+                        <span className="min-w-[120px] font-medium text-slate-700">{rule.name || 'TS'}</span>
+                        <span className="min-w-0 flex-1 truncate font-mono text-slate-700" title={address}>{address}</span>
+                        <button
+                          type="button"
+                          title="Copiar endereço TS"
+                          aria-label="Copiar endereço TS"
+                          onClick={() => copyTsAddress(rule)}
+                          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-slate-300 text-slate-600 hover:bg-slate-50"
+                        >
+                          <Copy className="h-4 w-4" />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
 
