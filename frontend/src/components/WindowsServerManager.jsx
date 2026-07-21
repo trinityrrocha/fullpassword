@@ -679,30 +679,30 @@ function WindowsServerModal({ title, server, setServer, isSaving, onCancel, onSa
                 ) : null}
 
                 {portRules.map((rule) => (
-                  <div key={rule.id} className="flex min-w-max items-center gap-2 rounded-md border border-slate-200 bg-slate-50 p-2">
-                    <CompactInlineInput label="Nome" widthClass="w-[150px]" value={rule.name} onChange={(e) => updatePortRule(rule.id, 'name', e.target.value)} placeholder="Ex: ERP Web" />
-                    <CompactInlineInput label="IP/HOST" widthClass="w-[220px]" value={rule.host} onChange={(e) => updatePortRule(rule.id, 'host', e.target.value)} placeholder="Ex: srv.exemplo.com.br" />
-                    <CompactInlineInput label="Porta" widthClass="w-[95px]" inputMode="numeric" value={rule.portNumber} onChange={(e) => updatePortRule(rule.id, 'portNumber', e.target.value)} placeholder="Ex: 443" />
+                  <div key={rule.id} className="grid w-full grid-cols-[180px_minmax(220px,1fr)_120px_128px_96px_36px] items-center gap-2 rounded-md border border-slate-200 bg-slate-50 p-2">
+                    <CompactInlineInput label="Nome" widthClass="w-[180px]" value={rule.name} onChange={(e) => updatePortRule(rule.id, 'name', e.target.value)} placeholder="Ex: ERP Web" />
+                    <CompactInlineInput label="IP/HOST" widthClass="w-full" value={rule.host} onChange={(e) => updatePortRule(rule.id, 'host', e.target.value)} placeholder="Ex: srv.exemplo.com.br" />
+                    <CompactInlineInput label="Porta" widthClass="w-[120px]" inputMode="numeric" value={rule.portNumber} onChange={(e) => updatePortRule(rule.id, 'portNumber', e.target.value)} placeholder="Ex: 443" />
                     <select aria-label="Entrada/Saída" className="h-10 w-[128px] shrink-0 rounded-md border border-slate-300 bg-white px-2 text-sm shadow-sm" value={rule.direction} onChange={(e) => updatePortRule(rule.id, 'direction', e.target.value)}>
                       {directionOptions.map((option) => <option key={option} value={option}>{option}</option>)}
                     </select>
                     <select aria-label="Protocolo" className="h-10 w-[96px] shrink-0 rounded-md border border-slate-300 bg-white px-2 text-sm shadow-sm" value={rule.protocol} onChange={(e) => updatePortRule(rule.id, 'protocol', e.target.value)}>
                       {(tsProtocolOptions.includes(rule.protocol) ? tsProtocolOptions : [rule.protocol, ...tsProtocolOptions]).map((option) => <option key={option} value={option}>{option}</option>)}
                     </select>
-                    <button type="button" title="Remover" aria-label="Remover" onClick={() => removePortRule(rule.id)} className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-red-300 text-red-600 hover:bg-red-50">
+                    <button type="button" title="Remover" aria-label="Remover" onClick={() => removePortRule(rule.id)} className="inline-flex h-9 w-9 shrink-0 items-center justify-center justify-self-end rounded-md border border-red-300 text-red-600 hover:bg-red-50">
                       <Trash2 className="h-4 w-4" />
                     </button>
                   </div>
                 ))}
 
                 {tsRules.map((rule) => (
-                  <div key={rule.id} className="flex min-w-max items-center gap-2 rounded-md border border-slate-200 bg-slate-50 p-2">
-                    <CompactInlineInput label="Nome" widthClass="w-[150px]" value={rule.name} onChange={(e) => updateTsRule(rule.id, 'name', e.target.value)} placeholder="Ex: Acesso TS" />
-                    <CompactInlineInput label="IP/HOST" widthClass="w-[220px]" value={rule.host} onChange={(e) => updateTsRule(rule.id, 'host', e.target.value)} placeholder="Ex: ts.empresa.com.br" />
-                    <CompactInlineInput label="Porta" widthClass="w-[95px]" inputMode="numeric" value={rule.port} onChange={(e) => updateTsRule(rule.id, 'port', e.target.value)} placeholder="Ex: 3389" />
+                  <div key={rule.id} className="grid w-full grid-cols-[180px_minmax(220px,1fr)_120px_128px_96px_36px] items-center gap-2 rounded-md border border-slate-200 bg-slate-50 p-2">
+                    <CompactInlineInput label="Nome" widthClass="w-[180px]" value={rule.name} onChange={(e) => updateTsRule(rule.id, 'name', e.target.value)} placeholder="Ex: Acesso TS" />
+                    <CompactInlineInput label="IP/HOST" widthClass="w-full" value={rule.host} onChange={(e) => updateTsRule(rule.id, 'host', e.target.value)} placeholder="Ex: ts.empresa.com.br" />
+                    <CompactInlineInput label="Porta" widthClass="w-[120px]" inputMode="numeric" value={rule.port} onChange={(e) => updateTsRule(rule.id, 'port', e.target.value)} placeholder="Ex: 3389" />
                     <select aria-label="Entrada/Saída" className="h-10 w-[128px] shrink-0 rounded-md border border-slate-300 bg-white px-2 text-sm shadow-sm" value={rule.direction} onChange={(e) => updateTsRule(rule.id, 'direction', e.target.value)}>{directionOptions.map((option) => <option key={option} value={option}>{option}</option>)}</select>
                     <select aria-label="Protocolo" className="h-10 w-[96px] shrink-0 rounded-md border border-slate-300 bg-white px-2 text-sm shadow-sm" value={rule.protocol} onChange={(e) => updateTsRule(rule.id, 'protocol', e.target.value)}>{tsProtocolOptions.map((option) => <option key={option} value={option}>{option}</option>)}</select>
-                    <button type="button" title="Remover" aria-label="Remover" onClick={() => removeTsRule(rule.id)} className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-red-300 text-red-600 hover:bg-red-50">
+                    <button type="button" title="Remover" aria-label="Remover" onClick={() => removeTsRule(rule.id)} className="inline-flex h-9 w-9 shrink-0 items-center justify-center justify-self-end rounded-md border border-red-300 text-red-600 hover:bg-red-50">
                       <Trash2 className="h-4 w-4" />
                     </button>
                   </div>
