@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { Plus, Edit2, Trash2, X, Server, ShieldCheck, EthernetPort, Download, UserRound } from 'lucide-react';
 import SecurePasswordInput from './SecurePasswordInput';
 import DeleteConfirmationControl from './DeleteConfirmationControl';
+import InlineField from './InlineField';
 
 const systemOptions = [
   'Ubuntu',
@@ -743,20 +744,20 @@ function LinuxServerModal({ title, server, setServer, isSaving, onCancel, onSave
               {portRules.length === 0 ? (
                 <p className="text-sm text-slate-500">Nenhuma porta adicionada.</p>
               ) : portRules.map((rule) => (
-                <div key={rule.id} className="grid grid-cols-1 items-center gap-3 rounded-md border border-slate-200 bg-slate-50 p-3 sm:grid-cols-2 lg:grid-cols-[1.2fr_120px_130px_130px_auto]">
-                  <input type="text" aria-label="Nome" className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm shadow-sm" value={rule.name} onChange={(e) => updatePortRule(rule.id, 'name', e.target.value)} placeholder="Nome" />
-                  <input type="text" inputMode="numeric" aria-label="Porta" className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm shadow-sm" value={rule.portNumber} onChange={(e) => updatePortRule(rule.id, 'portNumber', e.target.value)} placeholder="Porta" />
-                  <div>
+                <div key={rule.id} className="grid grid-cols-1 items-center gap-3 rounded-md border border-slate-200 bg-slate-50 p-3 lg:grid-cols-2">
+                  <InlineField label="Nome"><input type="text" aria-label="Nome" className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm shadow-sm" value={rule.name} onChange={(e) => updatePortRule(rule.id, 'name', e.target.value)} placeholder="Ex: SSH" /></InlineField>
+                  <InlineField label="Porta"><input type="text" inputMode="numeric" aria-label="Porta" className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm shadow-sm" value={rule.portNumber} onChange={(e) => updatePortRule(rule.id, 'portNumber', e.target.value)} placeholder="Ex: 22" /></InlineField>
+                  <InlineField label="Entrada/Saída">
                     <select aria-label="Entrada/Saída" className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm shadow-sm" value={rule.direction} onChange={(e) => updatePortRule(rule.id, 'direction', e.target.value)}>
                       {directionOptions.map((option) => <option key={option} value={option}>{option}</option>)}
                     </select>
-                  </div>
-                  <div>
+                  </InlineField>
+                  <InlineField label="Protocolo">
                     <select aria-label="Protocolo" className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm shadow-sm" value={rule.protocol} onChange={(e) => updatePortRule(rule.id, 'protocol', e.target.value)}>
                       {protocolOptions.map((option) => <option key={option} value={option}>{option}</option>)}
                     </select>
-                  </div>
-                  <button type="button" title="Remover" aria-label="Remover" onClick={() => removePortRule(rule.id)} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-red-300 text-red-600 hover:bg-red-50">
+                  </InlineField>
+                  <button type="button" title="Remover" aria-label="Remover" onClick={() => removePortRule(rule.id)} className="inline-flex h-9 w-9 items-center justify-center justify-self-end rounded-md border border-red-300 text-red-600 hover:bg-red-50 lg:col-span-2">
                     <Trash2 className="h-4 w-4" />
                   </button>
                 </div>

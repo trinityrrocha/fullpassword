@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { Plus, Edit2, X } from 'lucide-react';
 import SecurePasswordInput from './SecurePasswordInput';
 import DeleteConfirmationControl from './DeleteConfirmationControl';
+import InlineField from './InlineField';
 import VaultAttachmentsField from './VaultAttachmentsField';
 import { normalizeVaultAttachments } from '../utils/vaultAttachments';
 
@@ -25,6 +26,13 @@ const vpnOptions = [
 
 const defaultServerMode = 'Remote Access SSL/TLS+(User Auth)';
 const defaultVpn = 'OpenVPN';
+
+const sanitizePortInput = (value = '') => String(value).replace(/\D/g, '');
+const sanitizeIpv4MaskInput = (value = '') => {
+  const cleaned = String(value).replace(/[^0-9./]/g, '');
+  const [address, ...maskParts] = cleaned.split('/');
+  return maskParts.length ? `${address}/${maskParts.join('').replace(/\D/g, '')}` : address;
+};
 
 const makeId = () => {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
@@ -65,10 +73,10 @@ const normalizeVpnForm = (data = {}) => {
             name: server.name || server.serverName || '',
             type: server.type || server.mode || defaultServerMode,
             vpn: server.vpn || server.vpnType || defaultVpn,
-            ipv4Local: server.ipv4Local || server.localIpv4 || '',
-            ipv4Tunnel: server.ipv4Tunnel || server.tunnelIpv4 || '',
-            vlan: server.vlan || '',
-            port: server.port || '',
+            ipv4Local: sanitizeIpv4MaskInput(server.ipv4Local || server.localIpv4 || ''),
+            ipv4Tunnel: sanitizeIpv4MaskInput(server.ipv4Tunnel || server.tunnelIpv4 || ''),
+            vlan: sanitizeIpv4MaskInput(server.vlan || ''),
+            port: sanitizePortInput(server.port || ''),
             notes: server.notes || server.observations || '',
             attachments: normalizeAttachments(server)
           }))
@@ -94,10 +102,10 @@ const normalizeVpnForm = (data = {}) => {
         name: data.name || 'Servidor VPN principal',
         type: data.type || defaultServerMode,
         vpn: data.vpn || defaultVpn,
-        ipv4Local: data.ipv4Local || '',
-        ipv4Tunnel: data.ipv4Tunnel || '',
-        vlan: data.vlan || '',
-        port: data.port || '',
+        ipv4Local: sanitizeIpv4MaskInput(data.ipv4Local || ''),
+        ipv4Tunnel: sanitizeIpv4MaskInput(data.ipv4Tunnel || ''),
+        vlan: sanitizeIpv4MaskInput(data.vlan || ''),
+        port: sanitizePortInput(data.port || ''),
         notes: data.notes || '',
         attachments: []
       }]
@@ -459,10 +467,10 @@ function VpnServerModal({ title, server, setServer, isSaving, onCancel, onSave, 
                 {serverModes.map((option) => <option key={option} value={option}>{option}</option>)}
               </select>
             </div>
-            <input type="text" aria-label="IPV4 Local" className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm shadow-sm" value={server.ipv4Local} onChange={(e) => setServer({ ...server, ipv4Local: e.target.value })} placeholder="IPV4 Local" />
-            <input type="text" aria-label="IPV4 Túnel" className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm shadow-sm" value={server.ipv4Tunnel} onChange={(e) => setServer({ ...server, ipv4Tunnel: e.target.value })} placeholder="IPV4 Túnel" />
-            <input type="text" aria-label="VLAN" className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm shadow-sm" value={server.vlan} onChange={(e) => setServer({ ...server, vlan: e.target.value })} placeholder="VLAN" />
-            <input type="text" aria-label="Porta" className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm shadow-sm" value={server.port} onChange={(e) => setServer({ ...server, port: e.target.value })} placeholder="Porta" />
+            <InlineField label="IPV4 Local" className="sm:col-span-2"><input type="text" aria-label="IPV4 Local" className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm shadow-sm" value={server.ipv4Local} onChange={(e) => setServer({ ...server, ipv4Local: sanitizeIpv4MaskInput(e.target.value) })} placeholder="Ex: 192.168.1.1" /></InlineField>
+            <InlineField label="IPV4 Túnel" className="sm:col-span-2"><input type="text" aria-label="IPV4 Túnel" className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm shadow-sm" value={server.ipv4Tunnel} onChange={(e) => setServer({ ...server, ipv4Tunnel: sanitizeIpv4MaskInput(e.target.value) })} placeholder="Ex: 10.8.0.1" /></InlineField>
+            <InlineField label="VLAN" className="sm:col-span-2"><input type="text" aria-label="VLAN" className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm shadow-sm" value={server.vlan} onChange={(e) => setServer({ ...server, vlan: sanitizeIpv4MaskInput(e.target.value) })} placeholder="Ex: 10.8.0.0/24" /></InlineField>
+            <InlineField label="Porta" className="sm:col-span-2"><input type="text" aria-label="Porta" className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm shadow-sm" value={server.port} onChange={(e) => setServer({ ...server, port: sanitizePortInput(e.target.value) })} placeholder="Ex: 1194" /></InlineField>
             <div className="sm:col-span-2">
               <label className="block text-sm font-medium text-slate-700 mb-1">Observação</label>
               <textarea rows={3} className="w-full border-slate-300 rounded-md shadow-sm p-2 border" value={server.notes} onChange={(e) => setServer({ ...server, notes: e.target.value })} placeholder="Observações do servidor VPN"></textarea>
