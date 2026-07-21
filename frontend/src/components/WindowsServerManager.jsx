@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Plus, Edit2, Trash2, X } from 'lucide-react';
+import { Plus, Edit2, Trash2, X, Server, UserRound, UserStar, TriangleAlert, ShieldCheck, EthernetPort } from 'lucide-react';
 import SecurePasswordInput from './SecurePasswordInput';
 import DeleteConfirmationControl from './DeleteConfirmationControl';
 import VaultAttachmentsField from './VaultAttachmentsField';
@@ -40,6 +40,23 @@ const sanitizeIpv4MaskInput = (value = '') => {
   const [address, ...maskParts] = cleaned.split('/');
   return maskParts.length ? `${address}/${maskParts.join('').replace(/\D/g, '')}` : address;
 };
+
+function PermissionIcon({ permission }) {
+  const normalizedPermission = String(permission || '').toLowerCase();
+  if (normalizedPermission === 'sistema') {
+    return <TriangleAlert className="h-5 w-5 shrink-0 text-amber-500" aria-label="Sistema" />;
+  }
+  if (normalizedPermission.includes('admin')) {
+    return <UserStar className="h-5 w-5 shrink-0 text-red-400" aria-label="Admin" />;
+  }
+  return <UserRound className="h-5 w-5 shrink-0 text-slate-500" aria-label="Usuário padrão" />;
+}
+
+function ConnectionIcon({ type }) {
+  const isVpn = String(type || '').toUpperCase() === 'VPN';
+  const Icon = isVpn ? ShieldCheck : EthernetPort;
+  return <Icon className={isVpn ? 'h-5 w-5 shrink-0 text-indigo-500' : 'h-5 w-5 shrink-0 text-slate-500'} aria-label={isVpn ? 'VPN' : 'Rede'} />;
+}
 
 const makeId = () => {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
@@ -381,7 +398,7 @@ export default function WindowsServerManager({ tsForm, setTsForm, handleSaveData
           ) : normalizedForm.servers.map((server) => (
             <div key={server.id} className="flex min-h-10 flex-col justify-between gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 sm:flex-row sm:items-center">
               <div className="min-w-0">
-                <p className="truncate font-medium text-slate-900">{server.name || 'Servidor sem nome'}</p>
+                <p className="flex items-center gap-2 truncate font-medium text-slate-900"><Server className="h-5 w-5 shrink-0 text-slate-500" />{server.name || 'Servidor sem nome'}</p>
                 <p className="truncate text-sm text-slate-500">Conexões: {server.connections?.length || 0} | Portas: {server.portRules?.length || 0} | TS: {server.tsRules?.length || 0}</p>
               </div>
               <button type="button" onClick={() => { setEditingServer({ ...server }); setDeleteServerConfirmation(''); }} className="inline-flex shrink-0 items-center self-start px-3 py-2 border border-slate-300 rounded-md text-sm text-slate-700 bg-white hover:bg-slate-50 sm:self-auto">
@@ -417,7 +434,7 @@ export default function WindowsServerManager({ tsForm, setTsForm, handleSaveData
           ) : filteredUsers.map((user) => (
             <div key={user.id} className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm">
-                <p className="font-medium text-slate-900">{user.name || 'Usuário sem nome'}</p>
+                <p className="flex items-center gap-2 font-medium text-slate-900"><PermissionIcon permission={user.permission} />{user.name || 'Usuário sem nome'}</p>
                 <span className="text-slate-600">· Usuário: {user.username || '-'}</span>
                 <span className="text-slate-600">· Permissão: {user.permission || '-'}</span>
                 {user.department && <span className="text-slate-600">· Depto: {user.department}</span>}
@@ -607,7 +624,7 @@ function WindowsServerModal({ title, server, setServer, isSaving, onCancel, onSa
                 <div key={connection.id} className="grid grid-cols-1 sm:grid-cols-[160px_1fr_auto] gap-3 items-end rounded-md border border-slate-200 bg-slate-50 p-3">
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">Conexão</label>
-                    <div className="rounded-md border border-slate-200 bg-white p-2 text-sm text-slate-700">{getConnectionLabel(connection, connections)}</div>
+                    <div className="flex items-center gap-2 rounded-md border border-slate-200 bg-white p-2 text-sm text-slate-700"><ConnectionIcon type={connection.type} />{getConnectionLabel(connection, connections)}</div>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">IPv4</label>
