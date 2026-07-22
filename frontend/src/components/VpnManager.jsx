@@ -156,6 +156,11 @@ export default function VpnManager({ vpnForm, setVpnForm, handleSaveData, isSavi
     return detail ? `${name}${vpn} - ${detail}` : `${name}${vpn}`;
   };
 
+  const getServerAccessSummary = (serverId) => {
+    const server = getServerById(serverId);
+    return `${server?.ipv4Local || 'não informado'} - ${server?.vpn || 'VPN'}`;
+  };
+
   const persistVpnForm = async (nextForm, successMessage) => {
     const saved = await handleSaveData('VPN', nextForm, { successMessage });
     if (saved) setVpnForm(nextForm);
@@ -375,8 +380,15 @@ export default function VpnManager({ vpnForm, setVpnForm, handleSaveData, isSavi
             <div key={user.id} className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm">
                 <p className="font-medium text-slate-900">{user.personName || 'Pessoa não informada'}</p>
-                <span className="text-slate-600">· Usuário VPN: {user.username || '-'}</span>
-                <span className="text-slate-600">· Servidor: {getServerLabel(user.serverId)}</span>
+                <span className="inline-flex items-center gap-1 text-slate-600">
+                  <span>· Login VPN: {user.username || '-'}</span>
+                  <button type="button" title="Copiar login VPN" aria-label="Copiar login VPN" onClick={() => copyToClipboardSilently(user.username)} className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-300 text-slate-600 hover:bg-slate-50"><Copy className="h-3.5 w-3.5" /></button>
+                </span>
+                <span className="inline-flex items-center gap-1 text-slate-600">
+                  <span>· Senha: ****</span>
+                  <button type="button" title="Copiar senha VPN" aria-label="Copiar senha VPN" onClick={() => copyToClipboardSilently(user.password)} className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-300 text-slate-600 hover:bg-slate-50"><Copy className="h-3.5 w-3.5" /></button>
+                </span>
+                <span className="text-slate-600">· IPv4 Local: {getServerAccessSummary(user.serverId)}</span>
               </div>
               <div className="flex shrink-0 gap-2 self-start sm:self-auto"><button type="button" title="Visualizar" aria-label="Visualizar" onClick={() => setViewingUser(user)} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"><Eye className="h-4 w-4" /></button><button type="button" title="Detalhes" aria-label="Detalhes" onClick={() => { setEditingUser({ ...user }); setDeleteUserConfirmation(''); }} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"><Edit2 className="h-4 w-4" /></button></div>
             </div>
