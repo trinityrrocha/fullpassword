@@ -91,7 +91,16 @@ const getClientPermissions = async (clientId, user = {}) => {
   await ensureSharingSchema();
 
   if (!user.id) return emptyPermissions();
-  if (isSuperAdmin(user)) return fullPermissions('admin');
+
+  // O criador usa a própria Master Key como chave do cofre. A propriedade deve
+  // prevalecer até para o Super Admin; tratá-lo primeiro como admin exigiria uma
+  // key share que não existe nem é necessária para o dono.
+  if (isSuperAdmin(user)) {
+    const ownerResult = await db.query('SELECT created_by FROM clients WHERE id = $1 LIMIT 1', [clientId]);
+    if (ownerResult.rows.length === 0) return emptyPermissions();
+    if (ownerResult.rows[0].created_by === user.id) return fullPermissions('owner');
+    return fullPermissions('admin');
+  }
 
   const userGroups = getUserGroups(user);
   const result = await db.query(

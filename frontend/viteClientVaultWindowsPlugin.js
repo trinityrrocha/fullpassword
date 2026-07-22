@@ -195,8 +195,8 @@ export default function clientVaultWindowsPlugin() {
       }
 
       next = next.replace(
-        /[ ]{10}\{activeTab === 'ts' && \(\r?\n[\s\S]*?\r?\n[ ]{10}\)\}\r?\n\r?\n[ ]{10}\{activeTab === 'servers' && \(/,
-        `          {activeTab === 'ts' && (
+        /[ ]{10}\{activeModuleId === 'windowsServer' && \(\r?\n[\s\S]*?\r?\n[ ]{10}\)\}\r?\n\r?\n[ ]{10}\{activeModuleId === 'linuxServer' && \(/,
+        `          {activeModuleId === 'windowsServer' && (
             <WindowsServerManager
               tsForm={tsForm}
               setTsForm={setTsForm}
@@ -206,7 +206,7 @@ export default function clientVaultWindowsPlugin() {
             />
           )}
 
-          {activeTab === 'servers' && (`
+          {activeModuleId === 'linuxServer' && (`
       )
 
       return next === code ? null : { code: next, map: null }

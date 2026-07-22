@@ -41,8 +41,8 @@ export default function clientVaultLinuxPlugin() {
       )
 
       next = next.replace(
-        /[ ]{10}\{activeTab === 'servers' && \(\r?\n[\s\S]*?\r?\n[ ]{10}\)\}\r?\n[ ]{8}<\/div>/,
-        `          {activeTab === 'servers' && (
+        /[ ]{10}\{activeModuleId === 'linuxServer' && \(\r?\n[\s\S]*?\r?\n[ ]{10}\)\}\r?\n[ ]{8}<\/div>/,
+        `          {activeModuleId === 'linuxServer' && (
             <LinuxServerManager
               serverForm={serverForm}
               setServerForm={setServerForm}

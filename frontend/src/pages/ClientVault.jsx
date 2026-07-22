@@ -25,10 +25,10 @@ const normalizeVaultPermissions = (permissions) => {
 };
 
 const COMPANY_MODULES = [
-  { id: 'cpanelWeb', tabId: 'cpanel', name: 'cPanel / Web', icon: Globe },
-  { id: 'vpn', tabId: 'vpn', name: 'VPN', icon: Shield },
-  { id: 'windowsServer', tabId: 'ts', name: 'Servidor Windows', icon: Server },
-  { id: 'linuxServer', tabId: 'servers', name: 'Servidor Linux', icon: HardDrive }
+  { id: 'cpanelWeb', name: 'cPanel / Web', icon: Globe },
+  { id: 'vpn', name: 'VPN', icon: Shield },
+  { id: 'windowsServer', name: 'Servidor Windows', icon: Server },
+  { id: 'linuxServer', name: 'Servidor Linux', icon: HardDrive }
 ];
 
 const COMPANY_MODULE_IDS = COMPANY_MODULES.map((module) => module.id);
@@ -117,7 +117,7 @@ const normalizeTsForm = (data = {}) => {
 
 export default function ClientVault() {
   const { id } = useParams();
-  const [activeTab, setActiveTab] = useState(null);
+  const [activeModuleId, setActiveModuleId] = useState(null);
   const [enabledModules, setEnabledModules] = useState([]);
   const [modulesLoaded, setModulesLoaded] = useState(false);
   const [isAddModuleOpen, setIsAddModuleOpen] = useState(false);
@@ -233,7 +233,7 @@ export default function ClientVault() {
       const resolvedModules = configuredModules ?? COMPANY_MODULE_IDS;
       setSavedItems(decryptedItems);
       setEnabledModules(resolvedModules);
-      setActiveTab(COMPANY_MODULES.find((module) => resolvedModules.includes(module.id))?.tabId || null);
+      setActiveModuleId(COMPANY_MODULES.find((module) => resolvedModules.includes(module.id))?.id || null);
     } catch (error) {
       console.error('Erro ao carregar itens do cofre:', error);
     } finally {
@@ -356,9 +356,9 @@ export default function ClientVault() {
     try {
       await api.put(`/clients/${id}/modules`, { enabledModules: normalizedModules });
       setEnabledModules(normalizedModules);
-      const activeModuleIsVisible = COMPANY_MODULES.some((module) => module.tabId === activeTab && normalizedModules.includes(module.id));
+      const activeModuleIsVisible = normalizedModules.includes(activeModuleId);
       if (!activeModuleIsVisible) {
-        setActiveTab(COMPANY_MODULES.find((module) => normalizedModules.includes(module.id))?.tabId || null);
+        setActiveModuleId(COMPANY_MODULES.find((module) => normalizedModules.includes(module.id))?.id || null);
       }
       if (normalizedModules.length === 0) setIsSharingModalOpen(false);
       setIsAddModuleOpen(false);
@@ -377,7 +377,7 @@ export default function ClientVault() {
   // Referenciado pelos transforms dos gerenciadores no build do Vite.
   // eslint-disable-next-line no-unused-vars
   const hideActiveModule = async () => {
-    const activeModule = COMPANY_MODULES.find((module) => module.tabId === activeTab);
+    const activeModule = COMPANY_MODULES.find((module) => module.id === activeModuleId);
     if (!activeModule || !canManageModules) return;
     const confirmed = window.confirm('Deseja ocultar esta aba da empresa? Os dados cadastrados serão mantidos e poderão ser exibidos novamente ao adicionar a aba.');
     if (!confirmed) return;
@@ -685,10 +685,10 @@ export default function ClientVault() {
             {tabs.map((tab) => (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`flex-1 min-w-0 py-4 px-4 text-center text-sm font-medium border-b-2 whitespace-nowrap flex items-center justify-center gap-2 ${activeTab === tab.id ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'}`}
+                onClick={() => setActiveModuleId(tab.id)}
+                className={`flex-1 min-w-0 py-4 px-4 text-center text-sm font-medium border-b-2 whitespace-nowrap flex items-center justify-center gap-2 ${activeModuleId === tab.id ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'}`}
               >
-                <tab.icon className={`w-5 h-5 ${activeTab === tab.id ? 'text-indigo-500' : 'text-slate-400'}`} />
+                <tab.icon className={`w-5 h-5 ${activeModuleId === tab.id ? 'text-indigo-500' : 'text-slate-400'}`} />
                 {tab.name}
               </button>
             ))}
@@ -696,7 +696,7 @@ export default function ClientVault() {
         </div>
 
         <div className="p-6">
-          {activeTab === 'cpanel' && (
+          {activeModuleId === 'cpanelWeb' && (
             <div className="space-y-6 animate-fadeIn">
               <h3 className="text-lg font-medium leading-6 text-slate-900 border-b pb-2">Acesso ao cPanel / Hospedagem</h3>
               <div className="grid grid-cols-1 gap-y-6 gap-x-4 sm:grid-cols-2">
@@ -745,7 +745,7 @@ export default function ClientVault() {
             </div>
           )}
 
-          {activeTab === 'vpn' && (
+          {activeModuleId === 'vpn' && (
             <div className="space-y-6 animate-fadeIn">
               <h3 className="text-lg font-medium leading-6 text-slate-900 border-b pb-2">Configuração de VPN</h3>
               <div className="grid grid-cols-1 gap-y-6 gap-x-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -787,7 +787,7 @@ export default function ClientVault() {
             </div>
           )}
 
-          {activeTab === 'ts' && (
+          {activeModuleId === 'windowsServer' && (
             <div className="space-y-6 animate-fadeIn">
               <div className="bg-slate-50 border border-slate-200 rounded-lg p-5">
                 <h3 className="text-lg font-medium text-slate-900 mb-4">Cadastro de Servidores</h3>
@@ -955,7 +955,7 @@ export default function ClientVault() {
             </div>
           )}
 
-          {activeTab === 'servers' && (
+          {activeModuleId === 'linuxServer' && (
             <div className="space-y-6 animate-fadeIn">
               <h3 className="text-lg font-medium leading-6 text-slate-900 border-b pb-2">Servidores Diversos / Anotações</h3>
               <div className="grid grid-cols-1 gap-y-6 gap-x-4">

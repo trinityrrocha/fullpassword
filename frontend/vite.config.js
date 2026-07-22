@@ -71,8 +71,8 @@ function clientVaultUiPlugin() {
       }
 
       next = next.replace(
-        /[ ]{10}\{activeTab === 'cpanel' && \(\r?\n[\s\S]*?\r?\n[ ]{10}\)\}\r?\n\r?\n[ ]{10}\{activeTab === 'vpn' && \(/,
-        `          {activeTab === 'cpanel' && (
+        /[ ]{10}\{activeModuleId === 'cpanelWeb' && \(\r?\n[\s\S]*?\r?\n[ ]{10}\)\}\r?\n\r?\n[ ]{10}\{activeModuleId === 'vpn' && \(/,
+        `          {activeModuleId === 'cpanelWeb' && (
             <CpanelWebManager
               cpanelForm={cpanelForm}
               setCpanelForm={setCpanelForm}
@@ -82,7 +82,7 @@ function clientVaultUiPlugin() {
             />
           )}
 
-          {activeTab === 'vpn' && (`
+          {activeModuleId === 'vpn' && (`
       )
 
       next = next.replace(

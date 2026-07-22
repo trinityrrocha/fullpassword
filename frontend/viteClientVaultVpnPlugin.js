@@ -86,8 +86,8 @@ export default function clientVaultVpnPlugin() {
       }
 
       next = next.replace(
-        /[ ]{10}\{activeTab === 'vpn' && \(\r?\n[\s\S]*?\r?\n[ ]{10}\)\}\r?\n\r?\n[ ]{10}\{activeTab === 'ts' && \(/,
-        `          {activeTab === 'vpn' && (
+        /[ ]{10}\{activeModuleId === 'vpn' && \(\r?\n[\s\S]*?\r?\n[ ]{10}\)\}\r?\n\r?\n[ ]{10}\{activeModuleId === 'windowsServer' && \(/,
+        `          {activeModuleId === 'vpn' && (
             <VpnManager
               vpnForm={vpnForm}
               setVpnForm={setVpnForm}
@@ -97,7 +97,7 @@ export default function clientVaultVpnPlugin() {
             />
           )}
 
-          {activeTab === 'ts' && (`
+          {activeModuleId === 'windowsServer' && (`
       )
 
       return next === code ? null : { code: next, map: null }
