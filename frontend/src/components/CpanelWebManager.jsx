@@ -499,9 +499,9 @@ export default function CpanelWebManager({ cpanelForm, setCpanelForm, handleSave
                 </div>
               </div>
             </div>
-            <div className="flex flex-col gap-3 border-t border-slate-200 bg-slate-50 px-6 py-4 sm:flex-row sm:items-end sm:justify-between">
+            <div className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-200 bg-slate-50 px-6 py-4">
               <DeleteConfirmationControl value={deleteCpanelConfirmation} onChange={(e) => setDeleteCpanelConfirmation(e.target.value)} onDelete={deleteEditedCpanel} disabled={isSaving} />
-              <div className="flex gap-3 justify-end">
+              <div className="flex gap-2 justify-end">
                 <button type="button" onClick={() => setEditingCpanel(null)} className="px-4 py-2 border border-slate-300 rounded-md text-sm font-medium text-slate-700 bg-white hover:bg-slate-50">Cancelar</button>
                 <button type="button" disabled={isSaving} onClick={saveEditedCpanel} className="px-4 py-2 border border-transparent rounded-md text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50">{isSaving ? 'Salvando...' : 'Salvar alterações'}</button>
               </div>
@@ -545,9 +545,9 @@ export default function CpanelWebManager({ cpanelForm, setCpanelForm, handleSave
                 </div>
               </div>
             </div>
-            <div className="flex flex-col gap-3 border-t border-slate-200 bg-slate-50 px-6 py-4 sm:flex-row sm:items-end sm:justify-between">
+            <div className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-200 bg-slate-50 px-6 py-4">
               <DeleteConfirmationControl value={deleteUserConfirmation} onChange={(e) => setDeleteUserConfirmation(e.target.value)} onDelete={deleteEditedUser} disabled={isSaving} />
-              <div className="flex gap-3 justify-end">
+              <div className="flex gap-2 justify-end">
                 <button type="button" onClick={() => setEditingUser(null)} className="px-4 py-2 border border-slate-300 rounded-md text-sm font-medium text-slate-700 bg-white hover:bg-slate-50">Cancelar</button>
                 <button type="button" disabled={isSaving} onClick={saveEditedUser} className="px-4 py-2 border border-transparent rounded-md text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50">{isSaving ? 'Salvando...' : 'Salvar alterações'}</button>
               </div>
