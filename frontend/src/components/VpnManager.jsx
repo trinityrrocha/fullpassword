@@ -339,8 +339,8 @@ export default function VpnManager({ vpnForm, setVpnForm, handleSaveData, isSavi
                 <p className="text-sm text-slate-500">Modo: {server.type || '-'} | IPv4 túnel: {server.ipv4Tunnel || '-'}</p>
                 <p className="text-xs text-slate-500">IPv4 local: {server.ipv4Local || '-'} | VLAN: {server.vlan || '-'} | Porta: {server.port || '-'} | Anexos: {normalizeAttachments(server).length}</p>
               </div>
-              <button type="button" onClick={() => { setEditingServer({ ...server, attachments: normalizeAttachments(server) }); setDeleteServerConfirmation(''); }} className="inline-flex items-center px-3 py-2 border border-slate-300 rounded-md text-sm text-slate-700 bg-white hover:bg-slate-50">
-                <Edit2 className="w-4 h-4 mr-2" /> Detalhes
+              <button type="button" title="Detalhes" aria-label="Detalhes" onClick={() => { setEditingServer({ ...server, attachments: normalizeAttachments(server) }); setDeleteServerConfirmation(''); }} className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50">
+                <Edit2 className="h-4 w-4" />
               </button>
             </div>
           ))}
@@ -376,8 +376,8 @@ export default function VpnManager({ vpnForm, setVpnForm, handleSaveData, isSavi
                 <span className="text-slate-600">· Usuário VPN: {user.username || '-'}</span>
                 <span className="text-slate-600">· Servidor: {getServerLabel(user.serverId)}</span>
               </div>
-              <button type="button" onClick={() => { setEditingUser({ ...user }); setDeleteUserConfirmation(''); }} className="inline-flex shrink-0 items-center self-start px-3 py-2 border border-slate-300 rounded-md text-sm text-slate-700 bg-white hover:bg-slate-50 sm:self-auto">
-                <Edit2 className="w-4 h-4 mr-2" /> Detalhes
+              <button type="button" title="Detalhes" aria-label="Detalhes" onClick={() => { setEditingUser({ ...user }); setDeleteUserConfirmation(''); }} className="inline-flex h-9 w-9 shrink-0 items-center justify-center self-start rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 sm:self-auto">
+                <Edit2 className="h-4 w-4" />
               </button>
             </div>
           ))}

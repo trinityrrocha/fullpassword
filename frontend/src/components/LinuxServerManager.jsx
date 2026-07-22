@@ -433,8 +433,8 @@ export default function LinuxServerManager({ serverForm, setServerForm, handleSa
                 <p className="flex items-center gap-2 truncate font-medium text-slate-900"><Server className="h-5 w-5 shrink-0 text-slate-500" />{server.name || 'Servidor sem nome'}</p>
                 <p className="truncate text-sm text-slate-500">Sistema: {server.systemType || '-'} | Conexões: {server.connections?.length || 0} | Portas: {server.portRules?.length || 0}</p>
               </div>
-              <button type="button" onClick={() => { setEditingServer(normalizeLinuxServer(server)); setDeleteConfirmation(''); }} className="inline-flex shrink-0 items-center self-start px-3 py-2 border border-slate-300 rounded-md text-sm text-slate-700 bg-white hover:bg-slate-50 sm:self-auto">
-                <Edit2 className="w-4 h-4 mr-2" /> Detalhes
+              <button type="button" title="Detalhes" aria-label="Detalhes" onClick={() => { setEditingServer(normalizeLinuxServer(server)); setDeleteConfirmation(''); }} className="inline-flex h-9 w-9 shrink-0 items-center justify-center self-start rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 sm:self-auto">
+                <Edit2 className="h-4 w-4" />
               </button>
             </div>
           ))}
@@ -472,8 +472,8 @@ export default function LinuxServerManager({ serverForm, setServerForm, handleSa
                 <span className="text-slate-600">· Chave pública: {credential.publicKeyAttachment?.name || '-'}</span>
                 <span className="text-slate-600">· Chave privada: {credential.privateKeyAttachment?.name || '-'}</span>
               </div>
-              <button type="button" onClick={() => { setEditingUser(normalizeSshCredential(credential)); setDeleteUserConfirmation(''); }} className="inline-flex shrink-0 items-center self-start px-3 py-2 border border-slate-300 rounded-md text-sm text-slate-700 bg-white hover:bg-slate-50 sm:self-auto">
-                <Edit2 className="w-4 h-4 mr-2" /> Detalhes
+              <button type="button" title="Detalhes" aria-label="Detalhes" onClick={() => { setEditingUser(normalizeSshCredential(credential)); setDeleteUserConfirmation(''); }} className="inline-flex h-9 w-9 shrink-0 items-center justify-center self-start rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 sm:self-auto">
+                <Edit2 className="h-4 w-4" />
               </button>
             </div>
           ))}

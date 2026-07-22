@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Plus, Edit2, Trash2, X, Server, UserRound, UserStar, TriangleAlert, ShieldCheck, EthernetPort, Copy } from 'lucide-react';
+import { Plus, Edit2, Trash2, X, Server, UserRound, UserStar, TriangleAlert, ShieldCheck, EthernetPort, Copy, Eye } from 'lucide-react';
 import SecurePasswordInput from './SecurePasswordInput';
 import DeleteConfirmationControl from './DeleteConfirmationControl';
 import VaultAttachmentsField from './VaultAttachmentsField';
@@ -225,6 +225,20 @@ const copyTextToClipboard = async (text) => {
   if (!copied) throw new Error('Clipboard indisponível');
 };
 
+const copyAvailableValue = async (value, label) => {
+  if (!value) {
+    alert(`${label} não disponível.`);
+    return;
+  }
+
+  try {
+    await copyTextToClipboard(value);
+    alert(`${label}: cópia concluída.`);
+  } catch {
+    alert(`Não foi possível copiar ${label.toLowerCase()}.`);
+  }
+};
+
 const normalizeWindowsForm = (data = {}) => {
   if (Array.isArray(data.servers) || Array.isArray(data.users)) {
     return {
@@ -285,6 +299,8 @@ export default function WindowsServerManager({ tsForm, setTsForm, handleSaveData
   const [userDraft, setUserDraft] = useState(emptyUser());
   const [editingServer, setEditingServer] = useState(null);
   const [editingUser, setEditingUser] = useState(null);
+  const [viewingServer, setViewingServer] = useState(null);
+  const [viewingUser, setViewingUser] = useState(null);
   const [deleteServerConfirmation, setDeleteServerConfirmation] = useState('');
   const [deleteUserConfirmation, setDeleteUserConfirmation] = useState('');
   const [showServerCreateModal, setShowServerCreateModal] = useState(false);
@@ -299,6 +315,8 @@ export default function WindowsServerManager({ tsForm, setTsForm, handleSaveData
     const firstConnection = server.connections?.[0];
     return firstConnection?.ipv4 ? `${server.name || 'Servidor sem nome'} - ${firstConnection.ipv4}` : server.name || 'Servidor sem nome';
   };
+
+  const getServerName = (serverId) => getServerById(serverId)?.name || 'Servidor não informado';
 
   const persistWindowsForm = async (nextForm, successMessage) => {
     const saved = await handleSaveData('Servidor TS', nextForm, { successMessage });
@@ -472,9 +490,14 @@ export default function WindowsServerManager({ tsForm, setTsForm, handleSaveData
                 <p className="flex items-center gap-2 truncate font-medium text-slate-900"><Server className="h-5 w-5 shrink-0 text-slate-500" />{server.name || 'Servidor sem nome'}</p>
                 <p className="truncate text-sm text-slate-500">Conexões: {server.connections?.length || 0} | Portas: {server.portRules?.length || 0} | TS: {server.tsRules?.length || 0}</p>
               </div>
-              <button type="button" onClick={() => { setEditingServer({ ...server }); setDeleteServerConfirmation(''); }} className="inline-flex shrink-0 items-center self-start px-3 py-2 border border-slate-300 rounded-md text-sm text-slate-700 bg-white hover:bg-slate-50 sm:self-auto">
-                <Edit2 className="w-4 h-4 mr-2" /> Detalhes
-              </button>
+              <div className="flex shrink-0 gap-2 self-start sm:self-auto">
+                <button type="button" title="Visualizar" aria-label="Visualizar" onClick={() => setViewingServer(server)} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50">
+                  <Eye className="h-4 w-4" />
+                </button>
+                <button type="button" title="Detalhes" aria-label="Detalhes" onClick={() => { setEditingServer({ ...server }); setDeleteServerConfirmation(''); }} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50">
+                  <Edit2 className="h-4 w-4" />
+                </button>
+              </div>
             </div>
           ))}
         </div>
@@ -506,14 +529,26 @@ export default function WindowsServerManager({ tsForm, setTsForm, handleSaveData
             <div key={user.id} className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm">
                 <p className="flex items-center gap-2 font-medium text-slate-900"><PermissionIcon permission={user.permission} />{user.name || 'Usuário sem nome'}</p>
-                <span className="text-slate-600">· Usuário: {user.username || '-'}</span>
+                <span className="text-slate-600">· U: {user.username || '-'}</span>
+                <button type="button" title="Copiar usuário" aria-label="Copiar usuário" onClick={() => copyAvailableValue(user.username, 'Usuário')} className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-300 text-slate-600 hover:bg-slate-50">
+                  <Copy className="h-3.5 w-3.5" />
+                </button>
+                <span className="text-slate-600">· S: ****</span>
+                <button type="button" title="Copiar senha" aria-label="Copiar senha" onClick={() => copyAvailableValue(user.password, 'Senha')} className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-300 text-slate-600 hover:bg-slate-50">
+                  <Copy className="h-3.5 w-3.5" />
+                </button>
                 <span className="text-slate-600">· Permissão: {user.permission || '-'}</span>
                 {user.department && <span className="text-slate-600">· Depto: {user.department}</span>}
-                <span className="text-slate-600">· Servidor: {getServerLabel(user.serverId)}</span>
+                <span className="text-slate-600">· Servidor: {getServerName(user.serverId)}</span>
               </div>
-              <button type="button" onClick={() => { setEditingUser({ ...user }); setDeleteUserConfirmation(''); }} className="inline-flex shrink-0 items-center self-start px-3 py-2 border border-slate-300 rounded-md text-sm text-slate-700 bg-white hover:bg-slate-50 sm:self-auto">
-                <Edit2 className="w-4 h-4 mr-2" /> Detalhes
-              </button>
+              <div className="flex shrink-0 gap-2 self-start sm:self-auto">
+                <button type="button" title="Visualizar" aria-label="Visualizar" onClick={() => setViewingUser(user)} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50">
+                  <Eye className="h-4 w-4" />
+                </button>
+                <button type="button" title="Detalhes" aria-label="Detalhes" onClick={() => { setEditingUser({ ...user }); setDeleteUserConfirmation(''); }} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50">
+                  <Edit2 className="h-4 w-4" />
+                </button>
+              </div>
             </div>
           ))}
         </div>
@@ -541,6 +576,14 @@ export default function WindowsServerManager({ tsForm, setTsForm, handleSaveData
           onCancel={() => setShowUserCreateModal(false)}
           onSave={addUser}
         />
+      )}
+
+      {viewingServer && (
+        <WindowsServerReadOnlyModal server={viewingServer} onClose={() => setViewingServer(null)} />
+      )}
+
+      {viewingUser && (
+        <WindowsUserReadOnlyModal user={viewingUser} servers={normalizedForm.servers} onClose={() => setViewingUser(null)} />
       )}
 
       {editingServer && (
@@ -573,6 +616,119 @@ export default function WindowsServerManager({ tsForm, setTsForm, handleSaveData
         />
       )}
     </div>
+  );
+}
+
+function ReadOnlyModal({ title, onClose, children }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900 bg-opacity-60 p-4">
+      <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-lg bg-white shadow-xl">
+        <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+          <h3 className="text-lg font-semibold text-slate-900">{title}</h3>
+          <button type="button" title="Fechar" aria-label="Fechar" onClick={onClose} className="text-slate-400 hover:text-slate-600"><X className="h-5 w-5" /></button>
+        </div>
+        <div className="space-y-5 p-6">{children}</div>
+        <div className="flex justify-end border-t border-slate-200 bg-slate-50 px-6 py-4">
+          <button type="button" onClick={onClose} className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Fechar</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function WindowsServerReadOnlyModal({ server, onClose }) {
+  const connections = normalizeConnections(server);
+  const portRules = normalizePortRules(server);
+  const tsRules = normalizeTsRules(server);
+  const attachments = normalizeVaultAttachments(server);
+
+  return (
+    <ReadOnlyModal title="Visualizar servidor" onClose={onClose}>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div><p className="text-xs font-medium uppercase tracking-wide text-slate-500">Servidor</p><p className="mt-1 text-sm text-slate-900">{server.name || 'Servidor sem nome'}</p></div>
+        <div><p className="text-xs font-medium uppercase tracking-wide text-slate-500">Observações</p><p className="mt-1 whitespace-pre-wrap text-sm text-slate-900">{server.notes || '-'}</p></div>
+      </div>
+
+      <section>
+        <h4 className="mb-2 text-sm font-semibold text-slate-900">Conexões</h4>
+        {connections.length === 0 ? <p className="text-sm text-slate-500">Nenhuma conexão cadastrada.</p> : (
+          <div className="space-y-2">
+            {connections.map((connection) => (
+              <div key={connection.id} className="flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
+                <ConnectionIcon type={connection.type} />
+                <span className="font-medium text-slate-700">{getConnectionLabel(connection, connections)}{connection.type === 'VPN' ? ` / ${connection.vpn || 'OpenVPN'}` : ''}</span>
+                <span className="text-slate-500">{connection.ipv4 || '-'}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section>
+        <h4 className="mb-2 text-sm font-semibold text-slate-900">Portas e TS</h4>
+        {portRules.length === 0 && tsRules.length === 0 ? <p className="text-sm text-slate-500">Nenhuma porta ou TS cadastrado.</p> : (
+          <div className="space-y-2">
+            {portRules.map((rule) => (
+              <div key={`port-${rule.id}`} className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                <span className="font-medium">{rule.name || 'Porta'}</span> · {[rule.host, rule.portNumber].filter(Boolean).join(':') || '-'} · {rule.direction} · {rule.protocol}
+              </div>
+            ))}
+            {tsRules.map((rule) => (
+              <div key={`ts-${rule.id}`} className="rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-slate-700">
+                <span className="font-medium">{rule.name || 'TS'}</span> · {[rule.host, rule.port].filter(Boolean).join(':') || '-'} · {rule.direction} · {rule.protocol}
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section>
+        <h4 className="mb-2 text-sm font-semibold text-slate-900">Arquivos</h4>
+        {attachments.length === 0 ? <p className="text-sm text-slate-500">Nenhum arquivo anexado.</p> : (
+          <ul className="list-disc space-y-1 pl-5 text-sm text-slate-700">
+            {attachments.map((attachment, index) => <li key={attachment.id || `${attachment.name || attachment.fileName || 'arquivo'}-${index}`}>{attachment.name || attachment.fileName || attachment.filename || 'Arquivo'}</li>)}
+          </ul>
+        )}
+      </section>
+    </ReadOnlyModal>
+  );
+}
+
+function WindowsUserReadOnlyModal({ user, servers, onClose }) {
+  const selectedServer = servers.find((server) => server.id === user.serverId);
+  const tsAddresses = selectedServer
+    ? normalizeTsRules(selectedServer).filter((rule) => rule.host.trim() && rule.port)
+    : [];
+
+  return (
+    <ReadOnlyModal title="Visualizar usuário" onClose={onClose}>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div><p className="text-xs font-medium uppercase tracking-wide text-slate-500">Nome</p><p className="mt-1 text-sm text-slate-900">{user.name || '-'}</p></div>
+        <div><p className="text-xs font-medium uppercase tracking-wide text-slate-500">Usuário</p><div className="mt-1 flex items-center gap-2"><span className="text-sm text-slate-900">{user.username || '-'}</span><button type="button" title="Copiar usuário" aria-label="Copiar usuário" onClick={() => copyAvailableValue(user.username, 'Usuário')} className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-300 text-slate-600 hover:bg-slate-50"><Copy className="h-3.5 w-3.5" /></button></div></div>
+        <div><p className="text-xs font-medium uppercase tracking-wide text-slate-500">Senha</p><div className="mt-1 flex items-center gap-2"><span className="text-sm text-slate-900">****</span><button type="button" title="Copiar senha" aria-label="Copiar senha" onClick={() => copyAvailableValue(user.password, 'Senha')} className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-300 text-slate-600 hover:bg-slate-50"><Copy className="h-3.5 w-3.5" /></button></div></div>
+        <div><p className="text-xs font-medium uppercase tracking-wide text-slate-500">Permissão</p><p className="mt-1 text-sm text-slate-900">{user.permission || '-'}</p></div>
+        <div><p className="text-xs font-medium uppercase tracking-wide text-slate-500">Departamento</p><p className="mt-1 text-sm text-slate-900">{user.department || '-'}</p></div>
+        <div><p className="text-xs font-medium uppercase tracking-wide text-slate-500">Servidor</p><p className="mt-1 text-sm text-slate-900">{selectedServer?.name || 'Servidor não informado'}</p></div>
+      </div>
+
+      <section>
+        <h4 className="mb-2 text-sm font-semibold text-slate-900">Endereços TS</h4>
+        {tsAddresses.length === 0 ? <p className="text-sm text-slate-500">Nenhum endereço TS cadastrado para este servidor.</p> : (
+          <div className="space-y-2">
+            {tsAddresses.map((rule) => {
+              const address = `${rule.host}:${rule.port}`;
+              return (
+                <div key={rule.id} className="flex items-center gap-2 rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm">
+                  <span className="min-w-[120px] font-medium text-slate-700">{rule.name || 'TS'}</span>
+                  <span className="min-w-0 flex-1 truncate font-mono text-slate-700" title={address}>{address}</span>
+                  <button type="button" title="Copiar endereço TS" aria-label="Copiar endereço TS" onClick={() => copyAvailableValue(address, 'Endereço TS')} className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"><Copy className="h-4 w-4" /></button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+    </ReadOnlyModal>
   );
 }
 

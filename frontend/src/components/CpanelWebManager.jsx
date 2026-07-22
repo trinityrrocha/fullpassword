@@ -326,8 +326,8 @@ export default function CpanelWebManager({ cpanelForm, setCpanelForm, handleSave
                 <p className="truncate font-medium text-slate-900">{cpanel.domain || 'Domínio sem nome'}</p>
                 <p className="truncate text-sm text-slate-500">URL: {cpanel.url || '-'} | Usuário: {cpanel.username || '-'}</p>
               </div>
-              <button type="button" onClick={() => { setEditingCpanel({ ...cpanel }); setDeleteCpanelConfirmation(''); }} className="inline-flex shrink-0 items-center self-start px-3 py-2 border border-slate-300 rounded-md text-sm text-slate-700 bg-white hover:bg-slate-50 sm:self-auto">
-                <Edit2 className="w-4 h-4 mr-2" /> Detalhes
+              <button type="button" title="Detalhes" aria-label="Detalhes" onClick={() => { setEditingCpanel({ ...cpanel }); setDeleteCpanelConfirmation(''); }} className="inline-flex h-9 w-9 shrink-0 items-center justify-center self-start rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 sm:self-auto">
+                <Edit2 className="h-4 w-4" />
               </button>
             </div>
           ))}
@@ -364,8 +364,8 @@ export default function CpanelWebManager({ cpanelForm, setCpanelForm, handleSave
                 <span className="text-slate-600">· Departamento: {user.department || '-'}</span>
                 <span className="text-slate-600">· cPanel / domínio: {getCpanelAccessLabel(user.cpanelId)}</span>
               </div>
-              <button type="button" onClick={() => { setEditingUser({ ...user }); setDeleteUserConfirmation(''); }} className="inline-flex shrink-0 items-center self-start px-3 py-2 border border-slate-300 rounded-md text-sm text-slate-700 bg-white hover:bg-slate-50 sm:self-auto">
-                <Edit2 className="w-4 h-4 mr-2" /> Detalhes
+              <button type="button" title="Detalhes" aria-label="Detalhes" onClick={() => { setEditingUser({ ...user }); setDeleteUserConfirmation(''); }} className="inline-flex h-9 w-9 shrink-0 items-center justify-center self-start rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 sm:self-auto">
+                <Edit2 className="h-4 w-4" />
               </button>
             </div>
           ))}
