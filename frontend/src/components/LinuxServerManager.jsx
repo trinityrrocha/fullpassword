@@ -274,6 +274,12 @@ export default function LinuxServerManager({ serverForm, setServerForm, handleSa
     return server.name ? `${server.name} - ${server.systemType || 'Linux'}` : server.systemType || 'Servidor sem nome';
   };
 
+  const getServerEth1Address = (serverId) => {
+    const server = getServerById(serverId);
+    const eth1 = server ? normalizeLinuxServer(server).connections.find((connection) => connection.type === 'Eth1') : null;
+    return eth1?.ipv4 || 'não informado';
+  };
+
   const persistLinuxForm = async (nextForm, successMessage) => {
     const normalizedNextForm = normalizeLinuxForm(nextForm);
     const saved = await handleSaveData('Servidor Linux', normalizedNextForm, { successMessage });
@@ -468,11 +474,18 @@ export default function LinuxServerManager({ serverForm, setServerForm, handleSa
           ) : filteredCredentials.map((credential) => (
             <div key={credential.id} className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm">
-                <p className="font-medium text-slate-900 flex items-center gap-2"><UserRound className="h-5 w-5 shrink-0 text-slate-500" />{credential.username || 'Usuário SSH sem nome'}</p>
+                <p className="inline-flex items-center gap-1 font-medium text-slate-900">
+                  <UserRound className="mr-1 h-5 w-5 shrink-0 text-slate-500" />
+                  <span>{credential.username || 'Usuário SSH sem nome'}</span>
+                  <button type="button" title="Copiar usuário" aria-label="Copiar usuário" onClick={() => copyToClipboardSilently(credential.username)} className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-300 text-slate-600 hover:bg-slate-50"><Copy className="h-3.5 w-3.5" /></button>
+                </p>
+                <span className="inline-flex items-center gap-1 text-slate-600">
+                  <span>· Senha: ****</span>
+                  <button type="button" title="Copiar senha" aria-label="Copiar senha" onClick={() => copyToClipboardSilently(credential.password)} className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-300 text-slate-600 hover:bg-slate-50"><Copy className="h-3.5 w-3.5" /></button>
+                </span>
+                <span className="text-slate-600">· Eth1: {getServerEth1Address(credential.serverId)}</span>
                 <span className="text-slate-600">· Porta SSH: {credential.sshPort || '22'}</span>
                 <span className="text-slate-600">· Servidor: {getServerLabel(credential.serverId)}</span>
-                <span className="text-slate-600">· Chave pública: {credential.publicKeyAttachment?.name || '-'}</span>
-                <span className="text-slate-600">· Chave privada: {credential.privateKeyAttachment?.name || '-'}</span>
               </div>
               <div className="flex shrink-0 gap-2 self-start sm:self-auto"><button type="button" title="Visualizar" aria-label="Visualizar" onClick={() => setViewingUser(credential)} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"><Eye className="h-4 w-4" /></button><button type="button" title="Detalhes" aria-label="Detalhes" onClick={() => { setEditingUser(normalizeSshCredential(credential)); setDeleteUserConfirmation(''); }} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"><Edit2 className="h-4 w-4" /></button></div>
             </div>
