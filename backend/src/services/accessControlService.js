@@ -109,7 +109,7 @@ const getClientPermissions = async (clientId, user = {}) => {
        COALESCE(bool_or(g.can_view), false) AS can_view,
        COALESCE(bool_or(g.can_edit), false) AS can_edit,
        COALESCE(bool_or(g.can_add), false) AS can_add,
-       COALESCE(bool_or(g.can_delete), false) AS can_delete
+       COALESCE(bool_or(cga.can_delete), false) AS can_delete
      FROM clients c
      LEFT JOIN client_group_access cga
        ON c.id = cga.client_id

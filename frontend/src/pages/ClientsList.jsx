@@ -316,17 +316,15 @@ export default function ClientsList() {
                 <div><label className="mb-1 block text-sm font-medium text-slate-700">Telefone</label><input value={editClient.phone} onChange={(event) => setEditClient({ ...editClient, phone: event.target.value })} className="w-full rounded-md border border-slate-300 p-2" /></div>
                 <div><label className="mb-1 block text-sm font-medium text-slate-700">E-mail de contato</label><input type="email" value={editClient.email} onChange={(event) => setEditClient({ ...editClient, email: event.target.value })} className="w-full rounded-md border border-slate-300 p-2" /></div>
               </div>
-              {(editClient.is_owner || editClient.is_admin || editClient.can_delete) && (
-                <div className="rounded-md border border-red-200 bg-red-50 p-3">
-                  <p className="mb-2 text-sm text-red-800">Digite EXCLUIR para confirmar a exclusão da empresa e todas as suas informações.</p>
-                  <div className="flex items-center gap-2">
-                    <button type="button" title="Excluir empresa" aria-label="Excluir empresa" disabled={deleteConfirmation.trim() !== 'EXCLUIR' || isSaving} onClick={deleteClient} className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-red-300 text-red-600 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"><Trash2 className="h-4 w-4" /></button>
-                    <input value={deleteConfirmation} onChange={(event) => setDeleteConfirmation(event.target.value)} placeholder="Digite EXCLUIR para confirmar" autoComplete="off" className="min-w-0 flex-1 rounded-md border border-red-300 bg-white p-2 text-sm" />
-                  </div>
-                </div>
-              )}
             </form>
-            <div className="flex justify-end gap-3 border-t border-slate-200 bg-slate-50 px-6 py-3">
+            <div className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-200 bg-slate-50 px-6 py-3">
+              {(editClient.is_owner || editClient.is_admin || editClient.can_delete) && (
+                <>
+                  <button type="button" title="Excluir empresa" aria-label="Excluir empresa" disabled={deleteConfirmation.trim() !== 'EXCLUIR' || isSaving} onClick={deleteClient} className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-red-300 text-red-600 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"><Trash2 className="h-4 w-4" /></button>
+                  <label htmlFor="deleteClientConfirmation" className="sr-only">Digite EXCLUIR para confirmar a exclusão da empresa</label>
+                  <input id="deleteClientConfirmation" value={deleteConfirmation} onChange={(event) => setDeleteConfirmation(event.target.value)} placeholder="EXCLUIR" title="Digite EXCLUIR para confirmar a exclusão da empresa" autoComplete="off" className="h-9 w-28 rounded-md border border-red-300 bg-white px-2 text-sm" />
+                </>
+              )}
               <button type="button" onClick={() => setEditClient(null)} className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Cancelar</button>
               <button type="submit" form="editClientForm" disabled={isSaving} className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50">{isSaving ? 'Salvando...' : 'Salvar'}</button>
             </div>

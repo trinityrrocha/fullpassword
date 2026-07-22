@@ -33,7 +33,7 @@ const getClients = async (req, res) => {
                COALESCE(bool_or(g.can_view), false) OR c.created_by = $1 AS can_view,
                COALESCE(bool_or(g.can_edit), false) OR c.created_by = $1 AS can_edit,
                COALESCE(bool_or(g.can_add), false) OR c.created_by = $1 AS can_add,
-               COALESCE(bool_or(g.can_delete), false) OR c.created_by = $1 AS can_delete,
+               COALESCE(bool_or(cga.can_delete), false) OR c.created_by = $1 AS can_delete,
                FALSE AS is_admin,
                c.created_by = $1 AS is_owner
         FROM clients c
