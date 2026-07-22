@@ -24,6 +24,18 @@ const normalizeVaultPermissions = (permissions) => {
   };
 };
 
+const COMPANY_MODULES = [
+  { id: 'cpanelWeb', tabId: 'cpanel', name: 'cPanel / Web', icon: Globe },
+  { id: 'vpn', tabId: 'vpn', name: 'VPN', icon: Shield },
+  { id: 'windowsServer', tabId: 'ts', name: 'Servidor Windows', icon: Server },
+  { id: 'linuxServer', tabId: 'servers', name: 'Servidor Linux', icon: HardDrive }
+];
+
+const COMPANY_MODULE_IDS = COMPANY_MODULES.map((module) => module.id);
+const normalizeEnabledModules = (modules) => Array.isArray(modules)
+  ? COMPANY_MODULE_IDS.filter((moduleId) => modules.includes(moduleId))
+  : null;
+
 const makeId = () => {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -105,17 +117,17 @@ const normalizeTsForm = (data = {}) => {
 
 export default function ClientVault() {
   const { id } = useParams();
-  const [activeTab, setActiveTab] = useState('cpanel');
+  const [activeTab, setActiveTab] = useState(null);
+  const [enabledModules, setEnabledModules] = useState([]);
+  const [modulesLoaded, setModulesLoaded] = useState(false);
+  const [isAddModuleOpen, setIsAddModuleOpen] = useState(false);
+  const [isSavingModules, setIsSavingModules] = useState(false);
 
   // Mock do cliente atual
   const client = { id, name: 'Acme Corp', address: 'Av. Paulista, 1000 - SP' };
 
-  const tabs = [
-    { id: 'cpanel', name: 'cPanel / Web', icon: Globe },
-    { id: 'vpn', name: 'VPN', icon: Shield },
-    { id: 'ts', name: 'Servidor TS', icon: Server },
-    { id: 'servers', name: 'Servidores Diversos', icon: HardDrive },
-  ];
+  const tabs = COMPANY_MODULES.filter((module) => enabledModules.includes(module.id));
+  const availableModules = COMPANY_MODULES.filter((module) => !enabledModules.includes(module.id));
 
   const [cpanelForm, setCpanelForm] = useState({
     url: '',
@@ -162,6 +174,8 @@ export default function ClientVault() {
   const effectiveVaultPermissions = vaultPermissions
     ? normalizeVaultPermissions(vaultPermissions)
     : null;
+  const canManageModules = Boolean(effectiveVaultPermissions && (effectiveVaultPermissions.is_owner || effectiveVaultPermissions.is_admin || effectiveVaultPermissions.can_edit));
+  const hasEnabledModules = enabledModules.length > 0;
   const failedVaultItems = savedItems.filter((item) => item.decryptError);
   const allVaultItemsFailed = savedItems.length > 0 && failedVaultItems.length === savedItems.length;
 
@@ -175,9 +189,13 @@ export default function ClientVault() {
     if (!vaultDataKey) return;
 
     setIsLoading(true);
+    setModulesLoaded(false);
     try {
-      const response = await api.get(`/vault-items/${id}`);
-      const items = response.data || [];
+      const [itemsResponse, modulesResponse] = await Promise.all([
+        api.get(`/vault-items/${id}`),
+        api.get(`/clients/${id}/modules`)
+      ]);
+      const items = itemsResponse.data || [];
       const decryptedItems = [];
       const loadedCategories = new Set();
       const decryptionFailures = [];
@@ -211,11 +229,16 @@ export default function ClientVault() {
         });
       }
 
+      const configuredModules = normalizeEnabledModules(modulesResponse.data?.enabledModules);
+      const resolvedModules = configuredModules ?? COMPANY_MODULE_IDS;
       setSavedItems(decryptedItems);
+      setEnabledModules(resolvedModules);
+      setActiveTab(COMPANY_MODULES.find((module) => resolvedModules.includes(module.id))?.tabId || null);
     } catch (error) {
       console.error('Erro ao carregar itens do cofre:', error);
     } finally {
       setIsLoading(false);
+      setModulesLoaded(true);
     }
   };
 
@@ -324,6 +347,39 @@ export default function ClientVault() {
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const persistEnabledModules = async (nextModules) => {
+    if (!canManageModules || isSavingModules) return false;
+    const normalizedModules = normalizeEnabledModules(nextModules) || [];
+    setIsSavingModules(true);
+    try {
+      await api.put(`/clients/${id}/modules`, { enabledModules: normalizedModules });
+      setEnabledModules(normalizedModules);
+      const activeModuleIsVisible = COMPANY_MODULES.some((module) => module.tabId === activeTab && normalizedModules.includes(module.id));
+      if (!activeModuleIsVisible) {
+        setActiveTab(COMPANY_MODULES.find((module) => normalizedModules.includes(module.id))?.tabId || null);
+      }
+      if (normalizedModules.length === 0) setIsSharingModalOpen(false);
+      setIsAddModuleOpen(false);
+      return true;
+    } catch (error) {
+      console.error('Erro ao salvar módulos da empresa:', error);
+      alert(error.response?.data?.error || 'Não foi possível atualizar as abas da empresa.');
+      return false;
+    } finally {
+      setIsSavingModules(false);
+    }
+  };
+
+  const addModule = (moduleId) => persistEnabledModules([...enabledModules, moduleId]);
+
+  const hideActiveModule = async () => {
+    const activeModule = COMPANY_MODULES.find((module) => module.tabId === activeTab);
+    if (!activeModule || !canManageModules) return;
+    const confirmed = window.confirm('Deseja ocultar esta aba da empresa? Os dados cadastrados serão mantidos e poderão ser exibidos novamente ao adicionar a aba.');
+    if (!confirmed) return;
+    await persistEnabledModules(enabledModules.filter((moduleId) => moduleId !== activeModule.id));
   };
 
   const persistTsForm = async (nextForm, successMessage) => {
@@ -574,11 +630,25 @@ export default function ClientVault() {
             <p className="text-sm text-slate-500">Cofre de Senhas e Credenciais</p>
           </div>
         </div>
-        {(effectiveVaultPermissions.is_owner || effectiveVaultPermissions.is_admin) && (
-          <button type="button" onClick={() => setIsSharingModalOpen(true)} className="inline-flex items-center justify-center px-4 py-2 border border-indigo-200 rounded-md shadow-sm text-sm font-medium text-indigo-700 bg-white hover:bg-indigo-50">
-            <Share className="w-4 h-4 mr-2" /> Compartilhar
+        <div className="relative flex items-center gap-2">
+          <button type="button" disabled={!canManageModules || isSavingModules} onClick={() => setIsAddModuleOpen((open) => !open)} className="inline-flex items-center justify-center rounded-md border border-indigo-200 bg-white px-4 py-2 text-sm font-medium text-indigo-700 shadow-sm hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-50">
+            <Plus className="mr-2 h-4 w-4" /> Adicionar
           </button>
-        )}
+          {hasEnabledModules && (effectiveVaultPermissions.is_owner || effectiveVaultPermissions.is_admin) && (
+            <button type="button" onClick={() => setIsSharingModalOpen(true)} className="inline-flex items-center justify-center px-4 py-2 border border-indigo-200 rounded-md shadow-sm text-sm font-medium text-indigo-700 bg-white hover:bg-indigo-50">
+              <Share className="w-4 h-4 mr-2" /> Compartilhar
+            </button>
+          )}
+          {isAddModuleOpen && canManageModules && (
+            <div className="absolute right-0 top-full z-30 mt-2 w-64 rounded-md border border-slate-200 bg-white p-2 shadow-lg">
+              {availableModules.length === 0 ? <p className="px-3 py-2 text-sm text-slate-500">Todas as abas já foram adicionadas.</p> : availableModules.map((module) => (
+                <button key={module.id} type="button" disabled={isSavingModules} onClick={() => addModule(module.id)} className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50">
+                  <module.icon className="h-4 w-4 text-slate-500" /> {module.name}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       {allVaultItemsFailed && !effectiveVaultPermissions.is_owner && (
@@ -599,6 +669,14 @@ export default function ClientVault() {
         </div>
       )}
 
+      {!modulesLoaded ? (
+        <div className="rounded-lg border border-slate-200 bg-white p-6 text-sm text-slate-500 shadow">Carregando abas da empresa...</div>
+      ) : tabs.length === 0 ? (
+        <div className="rounded-lg border border-dashed border-slate-300 bg-white p-8 text-center shadow-sm">
+          <h2 className="font-medium text-slate-800">Nenhuma aba adicionada.</h2>
+          <p className="mt-1 text-sm text-slate-500">Clique em &quot;Adicionar&quot; para incluir cPanel / Web, VPN, Servidor Windows ou Servidor Linux nesta empresa.</p>
+        </div>
+      ) : (
       <div className="bg-white shadow rounded-lg border border-slate-200 overflow-hidden">
         <div className="border-b border-slate-200">
           <nav className="flex -mb-px overflow-x-auto" aria-label="Tabs">
@@ -616,6 +694,7 @@ export default function ClientVault() {
         </div>
 
         <div className="p-6">
+          {canManageModules && <div className="mb-4 flex justify-end"><button type="button" disabled={isSavingModules} onClick={hideActiveModule} className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50">Ocultar aba</button></div>}
           {activeTab === 'cpanel' && (
             <div className="space-y-6 animate-fadeIn">
               <h3 className="text-lg font-medium leading-6 text-slate-900 border-b pb-2">Acesso ao cPanel / Hospedagem</h3>
@@ -915,8 +994,9 @@ export default function ClientVault() {
           )}
         </div>
       </div>
+      )}
 
-      {isSharingModalOpen && (effectiveVaultPermissions.is_owner || effectiveVaultPermissions.is_admin) && (
+      {isSharingModalOpen && hasEnabledModules && (effectiveVaultPermissions.is_owner || effectiveVaultPermissions.is_admin) && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900 bg-opacity-60 p-4">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">

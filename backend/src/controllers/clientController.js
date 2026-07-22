@@ -1,5 +1,5 @@
 const db = require('../config/database');
-const { ensureSharingSchema } = require('../services/accessControlService');
+const { ensureSharingSchema, requireClientPermission } = require('../services/accessControlService');
 const { isSuperAdmin } = require('../config/security');
 
 // GET /api/clients - Lista apenas cofres próprios ou compartilhados com grupos que podem visualizar
@@ -67,8 +67,8 @@ const createClient = async (req, res) => {
     await db.query('BEGIN');
 
     const clientResult = await db.query(
-      'INSERT INTO clients (name, address, phone, email, created_by) VALUES ($1, $2, $3, $4, $5) RETURNING *',
-      [name, address || null, phone || null, email || null, req.user.id]
+      'INSERT INTO clients (name, address, phone, email, created_by, enabled_modules) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
+      [name, address || null, phone || null, email || null, req.user.id, []]
     );
     
     const newClient = clientResult.rows[0];
@@ -96,7 +96,40 @@ const createClient = async (req, res) => {
   }
 };
 
+const allowedModules = ['cpanelWeb', 'vpn', 'windowsServer', 'linuxServer'];
+
+const getClientModules = async (req, res) => {
+  try {
+    await ensureSharingSchema();
+    await requireClientPermission(req.params.clientId, req.user, 'view');
+    const result = await db.query('SELECT enabled_modules FROM clients WHERE id = $1', [req.params.clientId]);
+    res.status(200).json({ enabledModules: result.rows[0]?.enabled_modules ?? null });
+  } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ error: error.statusCode === 404 ? 'Cofre não encontrado' : 'Acesso negado' });
+    console.error('Erro ao buscar módulos da empresa:', error);
+    res.status(500).json({ error: 'Erro ao buscar módulos da empresa' });
+  }
+};
+
+const updateClientModules = async (req, res) => {
+  try {
+    await ensureSharingSchema();
+    await requireClientPermission(req.params.clientId, req.user, 'edit');
+    const requestedModules = req.body?.enabledModules;
+    if (!Array.isArray(requestedModules)) return res.status(400).json({ error: 'Lista de módulos inválida' });
+    const enabledModules = allowedModules.filter((moduleId) => requestedModules.includes(moduleId));
+    await db.query('UPDATE clients SET enabled_modules = $1 WHERE id = $2', [enabledModules, req.params.clientId]);
+    res.status(200).json({ enabledModules });
+  } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ error: error.statusCode === 404 ? 'Cofre não encontrado' : 'Acesso negado' });
+    console.error('Erro ao atualizar módulos da empresa:', error);
+    res.status(500).json({ error: 'Erro ao atualizar módulos da empresa' });
+  }
+};
+
 module.exports = {
   getClients,
-  createClient
+  createClient,
+  getClientModules,
+  updateClientModules
 };

@@ -46,6 +46,7 @@ const ensureSharingSchema = async () => {
   try {
     await db.query('CREATE EXTENSION IF NOT EXISTS "uuid-ossp"');
     await db.query('ALTER TABLE clients ADD COLUMN IF NOT EXISTS created_by UUID REFERENCES users(id) ON DELETE SET NULL');
+    await db.query('ALTER TABLE clients ADD COLUMN IF NOT EXISTS enabled_modules TEXT[]');
     await db.query('ALTER TABLE groups ADD COLUMN IF NOT EXISTS can_view BOOLEAN NOT NULL DEFAULT TRUE');
     await db.query('ALTER TABLE groups ADD COLUMN IF NOT EXISTS can_edit BOOLEAN NOT NULL DEFAULT FALSE');
     await db.query('ALTER TABLE groups ADD COLUMN IF NOT EXISTS can_add BOOLEAN NOT NULL DEFAULT FALSE');

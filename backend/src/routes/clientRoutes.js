@@ -11,5 +11,7 @@ router.get('/', clientController.getClients);
 
 // POST /api/clients
 router.post('/', clientController.createClient);
+router.get('/:clientId/modules', clientController.getClientModules);
+router.put('/:clientId/modules', clientController.updateClientModules);
 
 module.exports = router;
