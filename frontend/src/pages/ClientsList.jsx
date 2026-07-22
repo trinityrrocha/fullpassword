@@ -1,14 +1,58 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Building2, Search, Plus, ChevronRight, Lock, X, Loader2 } from 'lucide-react';
+import { Building2, Search, Plus, Pencil, Eye, Trash2, X, Loader2 } from 'lucide-react';
 import api from '../services/api';
+import { useAuth } from '../context/AuthContext';
+import { decryptData } from '../services/cryptoService';
+import { decryptVaultKeyShare } from '../services/clientVaultKeyService';
+
+const formatDate = (value) => {
+  if (!value) return 'Não informado';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? 'Não informado' : new Intl.DateTimeFormat('pt-BR').format(date);
+};
+
+const countList = (value) => Array.isArray(value) ? value.length : 0;
+
+const summarizeModule = (moduleId, data = {}) => {
+  if (moduleId === 'cpanelWeb') {
+    const domains = Array.isArray(data.cpanels) ? data.cpanels.length : (data.url || data.username || data.email ? 1 : 0);
+    const users = Array.isArray(data.users) ? data.users.length : (data.email ? 1 : 0);
+    return domains || users ? `cPanel / Web possui ${domains} domínio(s) e ${users} usuário(s)` : 'cPanel / Web não possui domínio cadastrado';
+  }
+  if (moduleId === 'vpn') {
+    const servers = Array.isArray(data.servers) ? data.servers.length : (data.type || data.port || data.vlan ? 1 : 0);
+    const users = Array.isArray(data.users) ? data.users.length : (data.username || data.personName || data.password ? 1 : 0);
+    return servers || users ? `VPN possui ${servers} servidor(es) e ${users} usuário(s)` : 'VPN não possui servidor cadastrado';
+  }
+  if (moduleId === 'windowsServer') {
+    const servers = Array.isArray(data.servers) ? data.servers.length : (data.ip || data.port || data.domain ? 1 : 0);
+    const users = countList(data.users);
+    return servers || users ? `Servidor Windows possui ${servers} servidor(es) e ${users} usuário(s)` : 'Servidor Windows não possui servidor cadastrado';
+  }
+  const servers = Array.isArray(data.servers) ? data.servers.length : (data.port || data.notes || data.annotations || data.hasAttachment ? 1 : 0);
+  const users = Array.isArray(data.sshCredentials) ? data.sshCredentials.length : countList(data.users);
+  return servers || users ? `Servidor Linux possui ${servers} servidor(es) e ${users} usuário(s)` : 'Servidor Linux não tem servidor';
+};
+
+const SUMMARY_MODULES = [
+  { id: 'cpanelWeb', label: 'cPanel / Web', categories: ['cPanel'] },
+  { id: 'vpn', label: 'VPN', categories: ['VPN'] },
+  { id: 'windowsServer', label: 'Servidor Windows', categories: ['Servidor TS'] },
+  { id: 'linuxServer', label: 'Servidor Linux', categories: ['Servidor Linux', 'Servidores Diversos'] }
+];
 
 export default function ClientsList() {
+  const { user, masterKey } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [clients, setClients] = useState([]);
+  const [viewClient, setViewClient] = useState(null);
+  const [viewSummary, setViewSummary] = useState({ loading: false, lines: [], error: '' });
+  const [editClient, setEditClient] = useState(null);
+  const [deleteConfirmation, setDeleteConfirmation] = useState('');
   const [newClient, setNewClient] = useState({
     name: '',
     address: '',
@@ -20,8 +64,7 @@ export default function ClientsList() {
     setIsLoading(true);
     try {
       const response = await api.get('/clients');
-      // Adicionando itemsCount provisório, em produção isso viria do backend
-      setClients(response.data.map(c => ({ ...c, itemsCount: 0 })));
+      setClients(response.data || []);
     } catch (error) {
       console.error('Erro ao carregar clientes:', error);
       alert('Não foi possível carregar a lista de clientes.');
@@ -31,7 +74,19 @@ export default function ClientsList() {
   };
 
   useEffect(() => {
-    loadClients();
+    let cancelled = false;
+    api.get('/clients')
+      .then((response) => {
+        if (!cancelled) setClients(response.data || []);
+      })
+      .catch((error) => {
+        console.error('Erro ao carregar clientes:', error);
+        if (!cancelled) alert('Não foi possível carregar a lista de clientes.');
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoading(false);
+      });
+    return () => { cancelled = true; };
   }, []);
 
   const filteredClients = clients.filter(client => 
@@ -50,6 +105,105 @@ export default function ClientsList() {
     } catch (error) {
       console.error('Erro ao criar cliente:', error);
       alert(error.response?.data?.error || 'Erro ao criar cliente.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const loadClientSummary = async (client) => {
+    setViewSummary({ loading: true, lines: [], error: '' });
+    if (!masterKey || !user) {
+      setViewSummary({ loading: false, lines: [], error: 'Resumo indisponível. Abra o cofre para carregar as informações.' });
+      return;
+    }
+
+    try {
+      const [permissionsResponse, keyResponse] = await Promise.all([
+        api.get(`/vault-items/${client.id}/permissions`),
+        api.get(`/vault-items/${client.id}/key-share`)
+      ]);
+      const permissions = permissionsResponse.data || {};
+      let vaultKey = null;
+
+      if (keyResponse.data?.encrypted_client_key) {
+        if (!user.encrypted_private_key) throw new Error('Chave privada indisponível');
+        vaultKey = await decryptVaultKeyShare(keyResponse.data.encrypted_client_key, user.encrypted_private_key, masterKey);
+      } else if (permissions.is_owner === true || permissions.isOwner === true) {
+        vaultKey = masterKey;
+      }
+
+      if (!vaultKey) throw new Error('Chave do cofre indisponível');
+
+      const itemsResponse = await api.get(`/vault-items/${client.id}`);
+      const items = itemsResponse.data || [];
+      const lines = [];
+
+      for (const module of SUMMARY_MODULES) {
+        const item = items.find((candidate) => module.categories.includes(candidate.category));
+        if (!item) {
+          lines.push(summarizeModule(module.id));
+          continue;
+        }
+        try {
+          const decrypted = await decryptData(item.encrypted_data, vaultKey);
+          lines.push(summarizeModule(module.id, decrypted));
+        } catch (error) {
+          console.warn('Não foi possível carregar o resumo criptografado do módulo.', {
+            clientId: client.id,
+            moduleId: module.id,
+            itemId: item.id,
+            errorName: error?.name || 'Error'
+          });
+          lines.push(`${module.label}: Não foi possível carregar o resumo deste módulo.`);
+        }
+      }
+      setViewSummary({ loading: false, lines, error: '' });
+    } catch (error) {
+      console.warn('Resumo seguro do cofre indisponível.', { clientId: client.id, errorName: error?.name || 'Error' });
+      setViewSummary({ loading: false, lines: [], error: 'Resumo indisponível. Abra o cofre para carregar as informações.' });
+    }
+  };
+
+  const openViewClient = (client) => {
+    setViewClient(client);
+    loadClientSummary(client);
+  };
+
+  const openEditClient = (client) => {
+    setDeleteConfirmation('');
+    setEditClient({ ...client, name: client.name || '', address: client.address || '', phone: client.phone || '', email: client.email || '' });
+  };
+
+  const saveClient = async (event) => {
+    event.preventDefault();
+    if (!editClient) return;
+    setIsSaving(true);
+    try {
+      const response = await api.put(`/clients/${editClient.id}`, {
+        name: editClient.name,
+        address: editClient.address,
+        phone: editClient.phone,
+        email: editClient.email
+      });
+      setClients((current) => current.map((client) => client.id === editClient.id ? { ...client, ...response.data } : client));
+      setEditClient(null);
+    } catch (error) {
+      alert(error.response?.data?.error || 'Não foi possível atualizar o cliente.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const deleteClient = async () => {
+    if (!editClient || deleteConfirmation.trim() !== 'EXCLUIR') return;
+    setIsSaving(true);
+    try {
+      await api.delete(`/clients/${editClient.id}`, { data: { confirmation: deleteConfirmation.trim() } });
+      setClients((current) => current.filter((client) => client.id !== editClient.id));
+      setEditClient(null);
+      setDeleteConfirmation('');
+    } catch (error) {
+      alert(error.response?.data?.error || 'Não foi possível excluir o cliente.');
     } finally {
       setIsSaving(false);
     }
@@ -97,36 +251,88 @@ export default function ClientsList() {
             <li className="px-4 py-8 text-center text-slate-500">
               Nenhum cliente encontrado.
             </li>
-          ) : filteredClients.map((client) => (
-            <li key={client.id}>
-              <Link 
-                to={`/client/${client.id}`}
-                className="block hover:bg-slate-50 transition-colors"
-              >
-                <div className="flex h-10 items-center justify-between gap-3 px-4 py-1 sm:px-6">
-                  <div className="flex min-w-0 items-center gap-2">
-                    <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md bg-indigo-100">
-                      <Building2 className="h-4 w-4 text-indigo-600" />
-                    </div>
-                    <div className="min-w-0 leading-tight">
-                      <div className="truncate text-sm font-medium leading-tight text-indigo-600">{client.name}</div>
-                      <div className="truncate text-xs leading-tight text-slate-500">{client.address}</div>
-                    </div>
+          ) : filteredClients.map((client) => {
+            const canEdit = client.is_owner || client.is_admin || client.can_edit;
+            return (
+              <li key={client.id} className="flex h-11 items-center gap-2 px-4 hover:bg-slate-50 sm:px-6">
+                <Link to={`/client/${client.id}`} className="flex min-w-0 flex-1 items-center gap-2 py-1">
+                  <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md bg-indigo-100">
+                    <Building2 className="h-4 w-4 text-indigo-600" />
                   </div>
-                  <div className="flex flex-shrink-0 items-center gap-2">
-                    <div className="hidden items-center text-xs text-slate-500 sm:flex">
-                      <Lock className="mr-1 h-4 w-4 flex-shrink-0 text-slate-400" />
-                      {client.itemsCount} itens no cofre
-                    </div>
-                    <ChevronRight className="h-4 w-4 text-slate-400" />
+                  <div className="min-w-0 leading-tight">
+                    <div className="truncate text-sm font-medium leading-tight text-indigo-600">{client.name}</div>
+                    <div className="truncate text-xs leading-tight text-slate-500">{client.address || 'Endereço não informado'}</div>
                   </div>
+                </Link>
+                <div className="flex shrink-0 items-center gap-2">
+                  {canEdit && <button type="button" title="Alterar cliente" aria-label="Alterar cliente" onClick={() => openEditClient(client)} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"><Pencil className="h-4 w-4" /></button>}
+                  <button type="button" title="Visualizar cliente" aria-label="Visualizar cliente" onClick={() => openViewClient(client)} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"><Eye className="h-4 w-4" /></button>
                 </div>
-              </Link>
-            </li>
-          ))}
+              </li>
+            );
+          })}
 
         </ul>
       </div>
+
+      {viewClient && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4" role="dialog" aria-modal="true" aria-labelledby="view-client-title" onClick={() => setViewClient(null)}>
+          <div className="w-full max-w-2xl overflow-hidden rounded-lg bg-white shadow-xl" onClick={(event) => event.stopPropagation()}>
+            <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+              <h2 id="view-client-title" className="text-lg font-semibold text-slate-900">Visualizar cliente</h2>
+              <button type="button" title="Fechar" aria-label="Fechar" onClick={() => setViewClient(null)} className="text-slate-400 hover:text-slate-600"><X className="h-5 w-5" /></button>
+            </div>
+            <div className="max-h-[75vh] space-y-6 overflow-y-auto p-6">
+              <dl className="grid gap-4 sm:grid-cols-2">
+                <div><dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Nome da empresa</dt><dd className="mt-1 text-sm text-slate-900">{viewClient.name || 'Não informado'}</dd></div>
+                <div><dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Endereço</dt><dd className="mt-1 text-sm text-slate-900">{viewClient.address || 'Não informado'}</dd></div>
+                <div><dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Contato</dt><dd className="mt-1 text-sm text-slate-900">{[viewClient.phone, viewClient.email].filter(Boolean).join(' · ') || 'Não informado'}</dd></div>
+                <div><dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Data do cadastro</dt><dd className="mt-1 text-sm text-slate-900">{formatDate(viewClient.created_at)}</dd></div>
+                <div><dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Cadastrado por</dt><dd className="mt-1 text-sm text-slate-900">{viewClient.created_by_name || 'Não informado'}</dd></div>
+              </dl>
+              <section>
+                <h3 className="text-sm font-semibold text-slate-900">Resumo do cofre</h3>
+                {viewSummary.loading ? <p className="mt-3 text-sm text-slate-500">Carregando resumo seguro...</p> : viewSummary.error ? <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">{viewSummary.error}</p> : (
+                  <ul className="mt-3 space-y-2">{viewSummary.lines.map((line) => <li key={line} className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">{line}</li>)}</ul>
+                )}
+              </section>
+            </div>
+            <div className="flex justify-end border-t border-slate-200 bg-slate-50 px-6 py-3"><button type="button" onClick={() => setViewClient(null)} className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Fechar</button></div>
+          </div>
+        </div>
+      )}
+
+      {editClient && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4" role="dialog" aria-modal="true" aria-labelledby="edit-client-title" onClick={() => setEditClient(null)}>
+          <div className="w-full max-w-2xl overflow-hidden rounded-lg bg-white shadow-xl" onClick={(event) => event.stopPropagation()}>
+            <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+              <h2 id="edit-client-title" className="text-lg font-semibold text-slate-900">Alterar cliente</h2>
+              <button type="button" title="Fechar" aria-label="Fechar" onClick={() => setEditClient(null)} className="text-slate-400 hover:text-slate-600"><X className="h-5 w-5" /></button>
+            </div>
+            <form id="editClientForm" onSubmit={saveClient} className="max-h-[75vh] space-y-4 overflow-y-auto p-6">
+              <div><label className="mb-1 block text-sm font-medium text-slate-700">Nome da empresa</label><input required value={editClient.name} onChange={(event) => setEditClient({ ...editClient, name: event.target.value })} className="w-full rounded-md border border-slate-300 p-2" /></div>
+              <div><label className="mb-1 block text-sm font-medium text-slate-700">Endereço</label><input value={editClient.address} onChange={(event) => setEditClient({ ...editClient, address: event.target.value })} className="w-full rounded-md border border-slate-300 p-2" /></div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div><label className="mb-1 block text-sm font-medium text-slate-700">Telefone</label><input value={editClient.phone} onChange={(event) => setEditClient({ ...editClient, phone: event.target.value })} className="w-full rounded-md border border-slate-300 p-2" /></div>
+                <div><label className="mb-1 block text-sm font-medium text-slate-700">E-mail de contato</label><input type="email" value={editClient.email} onChange={(event) => setEditClient({ ...editClient, email: event.target.value })} className="w-full rounded-md border border-slate-300 p-2" /></div>
+              </div>
+              {(editClient.is_owner || editClient.is_admin || editClient.can_delete) && (
+                <div className="rounded-md border border-red-200 bg-red-50 p-3">
+                  <p className="mb-2 text-sm text-red-800">Digite EXCLUIR para confirmar a exclusão da empresa e todas as suas informações.</p>
+                  <div className="flex items-center gap-2">
+                    <button type="button" title="Excluir empresa" aria-label="Excluir empresa" disabled={deleteConfirmation.trim() !== 'EXCLUIR' || isSaving} onClick={deleteClient} className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-red-300 text-red-600 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"><Trash2 className="h-4 w-4" /></button>
+                    <input value={deleteConfirmation} onChange={(event) => setDeleteConfirmation(event.target.value)} placeholder="Digite EXCLUIR para confirmar" autoComplete="off" className="min-w-0 flex-1 rounded-md border border-red-300 bg-white p-2 text-sm" />
+                  </div>
+                </div>
+              )}
+            </form>
+            <div className="flex justify-end gap-3 border-t border-slate-200 bg-slate-50 px-6 py-3">
+              <button type="button" onClick={() => setEditClient(null)} className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Cancelar</button>
+              <button type="submit" form="editClientForm" disabled={isSaving} className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50">{isSaving ? 'Salvando...' : 'Salvar'}</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal Novo Cliente */}
       {isModalOpen && (

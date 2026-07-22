@@ -14,6 +14,7 @@ const getClients = async (req, res) => {
     if (isSuperAdmin(req.user)) {
       query = `
         SELECT c.*,
+               creator.name AS created_by_name,
                TRUE AS can_view,
                TRUE AS can_edit,
                TRUE AS can_add,
@@ -21,12 +22,14 @@ const getClients = async (req, res) => {
                TRUE AS is_admin,
                (c.created_by = $1) AS is_owner
         FROM clients c
+        LEFT JOIN users creator ON creator.id = c.created_by
         ORDER BY c.name ASC
       `;
       params = [req.user.id];
     } else {
       query = `
         SELECT DISTINCT c.*,
+               creator.name AS created_by_name,
                COALESCE(bool_or(g.can_view), false) OR c.created_by = $1 AS can_view,
                COALESCE(bool_or(g.can_edit), false) OR c.created_by = $1 AS can_edit,
                COALESCE(bool_or(g.can_add), false) OR c.created_by = $1 AS can_add,
@@ -34,12 +37,13 @@ const getClients = async (req, res) => {
                FALSE AS is_admin,
                c.created_by = $1 AS is_owner
         FROM clients c
+        LEFT JOIN users creator ON creator.id = c.created_by
         LEFT JOIN client_group_access cga
           ON c.id = cga.client_id
          AND cga.group_id = ANY($2::uuid[])
         LEFT JOIN groups g ON g.id = cga.group_id
         WHERE c.created_by = $1 OR g.can_view = TRUE
-        GROUP BY c.id
+        GROUP BY c.id, creator.name
         ORDER BY c.name ASC
       `;
       params = [req.user.id, userGroups];
@@ -127,9 +131,55 @@ const updateClientModules = async (req, res) => {
   }
 };
 
+const updateClient = async (req, res) => {
+  try {
+    await ensureSharingSchema();
+    await requireClientPermission(req.params.clientId, req.user, 'edit');
+    const name = String(req.body?.name || '').trim();
+    const address = String(req.body?.address || '').trim();
+    const phone = String(req.body?.phone || '').trim();
+    const email = String(req.body?.email || '').trim();
+
+    if (!name) return res.status(400).json({ error: 'Nome do cliente é obrigatório' });
+
+    const result = await db.query(
+      `UPDATE clients
+       SET name = $1, address = $2, phone = $3, email = $4, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $5
+       RETURNING id, name, address, phone, email, created_by, created_at, updated_at, enabled_modules`,
+      [name, address || null, phone || null, email || null, req.params.clientId]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Cliente não encontrado' });
+    res.status(200).json(result.rows[0]);
+  } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ error: error.statusCode === 404 ? 'Cliente não encontrado' : 'Acesso negado' });
+    console.error('Erro ao atualizar cliente:', error);
+    res.status(500).json({ error: 'Erro ao atualizar cliente' });
+  }
+};
+
+const deleteClient = async (req, res) => {
+  try {
+    await ensureSharingSchema();
+    await requireClientPermission(req.params.clientId, req.user, 'delete');
+    if (req.body?.confirmation !== 'EXCLUIR') {
+      return res.status(400).json({ error: 'Confirmação de exclusão inválida' });
+    }
+    const result = await db.query('DELETE FROM clients WHERE id = $1 RETURNING id', [req.params.clientId]);
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Cliente não encontrado' });
+    res.status(200).json({ deleted: true, id: result.rows[0].id });
+  } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ error: error.statusCode === 404 ? 'Cliente não encontrado' : 'Acesso negado' });
+    console.error('Erro ao excluir cliente:', error);
+    res.status(500).json({ error: 'Erro ao excluir cliente' });
+  }
+};
+
 module.exports = {
   getClients,
   createClient,
+  updateClient,
+  deleteClient,
   getClientModules,
   updateClientModules
 };
