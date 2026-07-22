@@ -2,7 +2,6 @@ import { useMemo, useState } from 'react';
 import { Plus, Edit2, Trash2, X, Server, ShieldCheck, EthernetPort, Download, UserRound, Eye, Copy } from 'lucide-react';
 import SecurePasswordInput from './SecurePasswordInput';
 import DeleteConfirmationControl from './DeleteConfirmationControl';
-import InlineField from './InlineField';
 import ReadOnlyDetailsModal, { ReadOnlyField, ReadOnlySection } from './ReadOnlyDetailsModal';
 import { copyToClipboardSilently } from '../utils/clipboard';
 
@@ -184,6 +183,15 @@ function ConnectionIcon({ type }) {
   const isVpn = String(type || '').toUpperCase() === 'VPN';
   const Icon = isVpn ? ShieldCheck : EthernetPort;
   return <Icon className={isVpn ? 'h-5 w-5 shrink-0 text-indigo-500' : 'h-5 w-5 shrink-0 text-slate-500'} />;
+}
+
+function CompactInlineInput({ label, value, onChange, placeholder, inputMode = 'text' }) {
+  return (
+    <div className="flex h-10 min-w-0 items-center overflow-hidden rounded-md border border-slate-300 bg-white shadow-sm">
+      <div className="flex h-full shrink-0 items-center border-r border-slate-200 bg-slate-50 px-2 text-xs font-medium text-slate-600">{label}</div>
+      <input type="text" inputMode={inputMode} aria-label={label} className="h-full min-w-0 flex-1 border-0 px-2 text-sm outline-none focus:ring-0" value={value} onChange={onChange} placeholder={placeholder} />
+    </div>
+  );
 }
 
 const readFileAsAttachment = (file) => new Promise((resolve, reject) => {
@@ -773,24 +781,20 @@ function LinuxServerModal({ title, server, setServer, isSaving, onCancel, onSave
               </button>
             </div>
 
-            <div className="space-y-3">
+            <div className="space-y-2">
               {portRules.length === 0 ? (
                 <p className="text-sm text-slate-500">Nenhuma porta adicionada.</p>
               ) : portRules.map((rule) => (
-                <div key={rule.id} className="grid grid-cols-1 items-center gap-3 rounded-md border border-slate-200 bg-slate-50 p-3 lg:grid-cols-2">
-                  <InlineField label="Nome"><input type="text" aria-label="Nome" className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm shadow-sm" value={rule.name} onChange={(e) => updatePortRule(rule.id, 'name', e.target.value)} placeholder="Ex: SSH" /></InlineField>
-                  <InlineField label="Porta"><input type="text" inputMode="numeric" aria-label="Porta" className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm shadow-sm" value={rule.portNumber} onChange={(e) => updatePortRule(rule.id, 'portNumber', e.target.value)} placeholder="Ex: 22" /></InlineField>
-                  <InlineField label="Entrada/Saída">
-                    <select aria-label="Entrada/Saída" className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm shadow-sm" value={rule.direction} onChange={(e) => updatePortRule(rule.id, 'direction', e.target.value)}>
-                      {directionOptions.map((option) => <option key={option} value={option}>{option}</option>)}
-                    </select>
-                  </InlineField>
-                  <InlineField label="Protocolo">
-                    <select aria-label="Protocolo" className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm shadow-sm" value={rule.protocol} onChange={(e) => updatePortRule(rule.id, 'protocol', e.target.value)}>
-                      {protocolOptions.map((option) => <option key={option} value={option}>{option}</option>)}
-                    </select>
-                  </InlineField>
-                  <button type="button" title="Remover" aria-label="Remover" onClick={() => removePortRule(rule.id)} className="inline-flex h-9 w-9 items-center justify-center justify-self-end rounded-md border border-red-300 text-red-600 hover:bg-red-50 lg:col-span-2">
+                <div key={rule.id} className="grid w-full grid-cols-1 items-center gap-2 rounded-md border border-slate-200 bg-slate-50 p-2 sm:grid-cols-2 lg:grid-cols-[minmax(180px,1fr)_120px_128px_96px_36px]">
+                  <CompactInlineInput label="Nome" value={rule.name} onChange={(e) => updatePortRule(rule.id, 'name', e.target.value)} placeholder="Ex: SSH" />
+                  <CompactInlineInput label="Porta" inputMode="numeric" value={rule.portNumber} onChange={(e) => updatePortRule(rule.id, 'portNumber', e.target.value)} placeholder="Ex: 22" />
+                  <select aria-label="Entrada/Saída" className="h-10 w-full rounded-md border border-slate-300 bg-white px-2 text-sm shadow-sm" value={rule.direction} onChange={(e) => updatePortRule(rule.id, 'direction', e.target.value)}>
+                    {directionOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+                  </select>
+                  <select aria-label="Protocolo" className="h-10 w-full rounded-md border border-slate-300 bg-white px-2 text-sm shadow-sm" value={rule.protocol} onChange={(e) => updatePortRule(rule.id, 'protocol', e.target.value)}>
+                    {protocolOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+                  </select>
+                  <button type="button" title="Remover" aria-label="Remover" onClick={() => removePortRule(rule.id)} className="inline-flex h-9 w-9 shrink-0 items-center justify-center justify-self-end rounded-md border border-red-300 text-red-600 hover:bg-red-50 sm:col-span-2 lg:col-span-1">
                     <Trash2 className="h-4 w-4" />
                   </button>
                 </div>
