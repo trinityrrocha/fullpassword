@@ -2,8 +2,9 @@ import { useMemo, useState } from 'react';
 import { Plus, Edit2, X, Eye, Copy } from 'lucide-react';
 import SecurePasswordInput from './SecurePasswordInput';
 import DeleteConfirmationControl from './DeleteConfirmationControl';
-import ReadOnlyDetailsModal, { ReadOnlyField } from './ReadOnlyDetailsModal';
+import ReadOnlyDetailsModal, { ReadOnlyAttachments, ReadOnlyField } from './ReadOnlyDetailsModal';
 import { copyToClipboardSilently } from '../utils/clipboard';
+import { normalizeVaultAttachments } from '../utils/vaultAttachments';
 
 const departmentOptions = [
   'Comercial',
@@ -558,9 +559,9 @@ function CopyValueButton({ value, label }) {
 }
 
 function CpanelReadOnlyModal({ cpanel, onClose }) {
-  return <ReadOnlyDetailsModal title="Visualizar cPanel / domínio" onClose={onClose}><div className="grid gap-4 sm:grid-cols-2"><ReadOnlyField label="Domínio">{cpanel.domain || '-'}<CopyValueButton value={cpanel.domain} label="domínio" /></ReadOnlyField><ReadOnlyField label="URL">{cpanel.url || '-'}<CopyValueButton value={cpanel.url} label="URL" /></ReadOnlyField><ReadOnlyField label="Usuário">{cpanel.username || '-'}<CopyValueButton value={cpanel.username} label="usuário" /></ReadOnlyField><ReadOnlyField label="Senha">****<CopyValueButton value={cpanel.password} label="senha" /></ReadOnlyField><ReadOnlyField label="Observações" value={cpanel.notes} /></div></ReadOnlyDetailsModal>;
+  return <ReadOnlyDetailsModal title="Visualizar cPanel / domínio" onClose={onClose}><div className="grid gap-4 sm:grid-cols-2"><ReadOnlyField label="Domínio">{cpanel.domain || '-'}<CopyValueButton value={cpanel.domain} label="domínio" /></ReadOnlyField><ReadOnlyField label="URL">{cpanel.url || '-'}<CopyValueButton value={cpanel.url} label="URL" /></ReadOnlyField><ReadOnlyField label="Usuário">{cpanel.username || '-'}<CopyValueButton value={cpanel.username} label="usuário" /></ReadOnlyField><ReadOnlyField label="Senha">****<CopyValueButton value={cpanel.password} label="senha" /></ReadOnlyField><ReadOnlyField label="Observações" value={cpanel.notes} /></div><ReadOnlyAttachments files={normalizeVaultAttachments(cpanel)} /></ReadOnlyDetailsModal>;
 }
 
 function CpanelUserReadOnlyModal({ user, cpanel, login, onClose }) {
-  return <ReadOnlyDetailsModal title="Visualizar usuário cPanel / Web" onClose={onClose}><div className="grid gap-4 sm:grid-cols-2"><ReadOnlyField label="Nome" value={user.name} /><ReadOnlyField label="Login">{login}<CopyValueButton value={login === '-' ? '' : login} label="login" /></ReadOnlyField><ReadOnlyField label="Senha">****<CopyValueButton value={user.password} label="senha" /></ReadOnlyField><ReadOnlyField label="Departamento" value={user.department} /><ReadOnlyField label="cPanel / domínio" value={cpanel?.domain || cpanel?.url || 'Não informado'} /></div></ReadOnlyDetailsModal>;
+  return <ReadOnlyDetailsModal title="Visualizar usuário cPanel / Web" onClose={onClose}><div className="grid gap-4 sm:grid-cols-2"><ReadOnlyField label="Nome" value={user.name} /><ReadOnlyField label="Login">{login}<CopyValueButton value={login === '-' ? '' : login} label="login" /></ReadOnlyField><ReadOnlyField label="Senha">****<CopyValueButton value={user.password} label="senha" /></ReadOnlyField><ReadOnlyField label="Departamento" value={user.department} /><ReadOnlyField label="cPanel / domínio" value={cpanel?.domain || cpanel?.url || 'Não informado'} /></div><ReadOnlyAttachments files={normalizeVaultAttachments(user)} /></ReadOnlyDetailsModal>;
 }

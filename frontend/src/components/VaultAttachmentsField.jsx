@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { Download, Upload } from 'lucide-react';
 import { normalizeVaultAttachments } from '../utils/vaultAttachments';
+import { downloadAttachment } from '../utils/attachments';
 
 const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
 
@@ -33,21 +34,6 @@ const readFileAsAttachment = (file, allowedExtensions) => new Promise((resolve, 
   reader.onerror = () => reject(new Error('Não foi possível ler o arquivo selecionado.'));
   reader.readAsDataURL(file);
 });
-
-const downloadAttachment = (attachment) => {
-  if (!attachment?.data) return;
-  const binary = atob(attachment.data);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
-  const url = URL.createObjectURL(new Blob([bytes], { type: attachment.type || 'application/octet-stream' }));
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = attachment.name || 'anexo';
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
-};
 
 const formatSize = (size = 0) => size < 1024 ? `${size} B` : size < 1024 * 1024 ? `${(size / 1024).toFixed(1)} KB` : `${(size / (1024 * 1024)).toFixed(1)} MB`;
 const formatDate = (value) => {

@@ -4,7 +4,7 @@ import SecurePasswordInput from './SecurePasswordInput';
 import DeleteConfirmationControl from './DeleteConfirmationControl';
 import InlineField from './InlineField';
 import VaultAttachmentsField from './VaultAttachmentsField';
-import ReadOnlyDetailsModal, { ReadOnlyField, ReadOnlySection } from './ReadOnlyDetailsModal';
+import ReadOnlyDetailsModal, { ReadOnlyAttachments, ReadOnlyField } from './ReadOnlyDetailsModal';
 import { normalizeVaultAttachments } from '../utils/vaultAttachments';
 import { copyToClipboardSilently } from '../utils/clipboard';
 
@@ -456,17 +456,12 @@ export default function VpnManager({ vpnForm, setVpnForm, handleSaveData, isSavi
   );
 }
 
-function AttachmentNames({ source }) {
-  const attachments = normalizeAttachments(source);
-  return attachments.length ? <ul className="list-disc pl-5 text-sm text-slate-700">{attachments.map((file, index) => <li key={file.id || `${file.name}-${index}`}>{file.name || file.fileName || 'Arquivo'}</li>)}</ul> : <p className="text-sm text-slate-500">Nenhum arquivo anexado.</p>;
-}
-
 function VpnServerReadOnlyModal({ server, onClose }) {
-  return <ReadOnlyDetailsModal title="Visualizar servidor VPN" onClose={onClose}><div className="grid gap-4 sm:grid-cols-2"><ReadOnlyField label="Nome" value={server.name} /><ReadOnlyField label="VPN" value={server.vpn} /><ReadOnlyField label="Tipo" value={server.type} /><ReadOnlyField label="IPv4 local" value={server.ipv4Local} /><ReadOnlyField label="VLAN" value={server.vlan} /><ReadOnlyField label="IPv4 túnel" value={server.ipv4Tunnel} /><ReadOnlyField label="Porta" value={server.port} /><ReadOnlyField label="Observações" value={server.notes} /></div><ReadOnlySection title="Arquivos"><AttachmentNames source={server} /></ReadOnlySection></ReadOnlyDetailsModal>;
+  return <ReadOnlyDetailsModal title="Visualizar servidor VPN" onClose={onClose}><div className="grid gap-4 sm:grid-cols-2"><ReadOnlyField label="Nome" value={server.name} /><ReadOnlyField label="VPN" value={server.vpn} /><ReadOnlyField label="Tipo" value={server.type} /><ReadOnlyField label="IPv4 local" value={server.ipv4Local} /><ReadOnlyField label="VLAN" value={server.vlan} /><ReadOnlyField label="IPv4 túnel" value={server.ipv4Tunnel} /><ReadOnlyField label="Porta" value={server.port} /><ReadOnlyField label="Observações" value={server.notes} /></div><ReadOnlyAttachments files={normalizeAttachments(server)} /></ReadOnlyDetailsModal>;
 }
 
 function VpnUserReadOnlyModal({ user, server, onClose }) {
-  return <ReadOnlyDetailsModal title="Visualizar usuário VPN" onClose={onClose}><div className="grid gap-4 sm:grid-cols-2"><ReadOnlyField label="Nome" value={user.personName} /><ReadOnlyField label="Usuário">{user.username || '-'} <button type="button" title="Copiar usuário" aria-label="Copiar usuário" onClick={() => copyToClipboardSilently(user.username)} className="ml-2 inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-300"><Copy className="h-3.5 w-3.5" /></button></ReadOnlyField><ReadOnlyField label="Senha">**** <button type="button" title="Copiar senha" aria-label="Copiar senha" onClick={() => copyToClipboardSilently(user.password)} className="ml-2 inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-300"><Copy className="h-3.5 w-3.5" /></button></ReadOnlyField><ReadOnlyField label="Servidor" value={server?.name || 'Servidor VPN não informado'} /><ReadOnlyField label="Observações" value={user.notes} /></div><ReadOnlySection title="Arquivos"><AttachmentNames source={user} /></ReadOnlySection></ReadOnlyDetailsModal>;
+  return <ReadOnlyDetailsModal title="Visualizar usuário VPN" onClose={onClose}><div className="grid gap-4 sm:grid-cols-2"><ReadOnlyField label="Nome" value={user.personName} /><ReadOnlyField label="Usuário">{user.username || '-'} <button type="button" title="Copiar usuário" aria-label="Copiar usuário" onClick={() => copyToClipboardSilently(user.username)} className="ml-2 inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-300"><Copy className="h-3.5 w-3.5" /></button></ReadOnlyField><ReadOnlyField label="Senha">**** <button type="button" title="Copiar senha" aria-label="Copiar senha" onClick={() => copyToClipboardSilently(user.password)} className="ml-2 inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-300"><Copy className="h-3.5 w-3.5" /></button></ReadOnlyField><ReadOnlyField label="Servidor" value={server?.name || 'Servidor VPN não informado'} /><ReadOnlyField label="Observações" value={user.notes} /></div><ReadOnlyAttachments files={normalizeAttachments(user)} /></ReadOnlyDetailsModal>;
 }
 
 function VpnServerModal({ title, server, setServer, isSaving, onCancel, onSave, onDelete, deleteConfirmation, setDeleteConfirmation }) {

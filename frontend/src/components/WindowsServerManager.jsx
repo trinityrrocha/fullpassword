@@ -3,7 +3,7 @@ import { Plus, Edit2, Trash2, X, Server, UserRound, UserStar, TriangleAlert, Shi
 import SecurePasswordInput from './SecurePasswordInput';
 import DeleteConfirmationControl from './DeleteConfirmationControl';
 import VaultAttachmentsField from './VaultAttachmentsField';
-import ReadOnlyDetailsModal from './ReadOnlyDetailsModal';
+import ReadOnlyDetailsModal, { ReadOnlyAttachments } from './ReadOnlyDetailsModal';
 import { normalizeVaultAttachments } from '../utils/vaultAttachments';
 import { copyToClipboardSilently } from '../utils/clipboard';
 
@@ -491,21 +491,19 @@ export default function WindowsServerManager({ tsForm, setTsForm, handleSaveData
         <div className="space-y-3">
           {filteredUsers.length === 0 ? (
             <p className="text-sm text-slate-500">{userSearch.trim() ? 'Nenhum usuário encontrado.' : 'Nenhum usuário cadastrado.'}</p>
-          ) : filteredUsers.map((user) => (
+          ) : filteredUsers.map((user) => {
+            const selectedServer = getServerById(user.serverId);
+            const tsAddresses = selectedServer ? normalizeTsRules(selectedServer).filter((rule) => rule.host.trim() && rule.port) : [];
+            return (
             <div key={user.id} className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm">
                 <p className="flex items-center gap-2 font-medium text-slate-900"><PermissionIcon permission={user.permission} />{user.name || 'Usuário sem nome'}</p>
-                <span className="text-slate-600">· U: {user.username || '-'}</span>
-                <button type="button" title="Copiar usuário" aria-label="Copiar usuário" onClick={() => copyAvailableValue(user.username, 'Usuário')} className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-300 text-slate-600 hover:bg-slate-50">
-                  <Copy className="h-3.5 w-3.5" />
-                </button>
-                <span className="text-slate-600">· S: ****</span>
-                <button type="button" title="Copiar senha" aria-label="Copiar senha" onClick={() => copyAvailableValue(user.password, 'Senha')} className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-300 text-slate-600 hover:bg-slate-50">
-                  <Copy className="h-3.5 w-3.5" />
-                </button>
-                <span className="text-slate-600">· Permissão: {user.permission || '-'}</span>
-                {user.department && <span className="text-slate-600">· Depto: {user.department}</span>}
-                <span className="text-slate-600">· Servidor: {getServerName(user.serverId)}</span>
+                <span className="inline-flex items-center gap-1 text-slate-600"><span>· Login: {user.username || '-'}</span><button type="button" title="Copiar login" aria-label="Copiar login" onClick={() => copyAvailableValue(user.username)} className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-300 text-slate-600 hover:bg-slate-50"><Copy className="h-3.5 w-3.5" /></button></span>
+                <span className="inline-flex items-center gap-1 text-slate-600"><span>· Senha: ****</span><button type="button" title="Copiar senha" aria-label="Copiar senha" onClick={() => copyAvailableValue(user.password)} className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-300 text-slate-600 hover:bg-slate-50"><Copy className="h-3.5 w-3.5" /></button></span>
+                <span className="text-slate-600">· {user.permission || '-'}</span>
+                {user.department && <span className="text-slate-600">· {user.department}</span>}
+                <span className="text-slate-600">· SRV: {getServerName(user.serverId)}</span>
+                {tsAddresses.map((rule, index) => <span key={rule.id} className="inline-flex items-center gap-1 text-slate-600"><span>· TS{index + 1}</span><button type="button" title="Copiar endereço TS" aria-label="Copiar endereço TS" onClick={() => copyAvailableValue(`${rule.host}:${rule.port}`)} className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-300 text-slate-600 hover:bg-slate-50"><Copy className="h-3.5 w-3.5" /></button></span>)}
               </div>
               <div className="flex shrink-0 gap-2 self-start sm:self-auto">
                 <button type="button" title="Visualizar" aria-label="Visualizar" onClick={() => setViewingUser(user)} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50">
@@ -516,7 +514,8 @@ export default function WindowsServerManager({ tsForm, setTsForm, handleSaveData
                 </button>
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 
@@ -631,14 +630,7 @@ function WindowsServerReadOnlyModal({ server, onClose }) {
         )}
       </section>
 
-      <section>
-        <h4 className="mb-2 text-sm font-semibold text-slate-900">Arquivos</h4>
-        {attachments.length === 0 ? <p className="text-sm text-slate-500">Nenhum arquivo anexado.</p> : (
-          <ul className="list-disc space-y-1 pl-5 text-sm text-slate-700">
-            {attachments.map((attachment, index) => <li key={attachment.id || `${attachment.name || attachment.fileName || 'arquivo'}-${index}`}>{attachment.name || attachment.fileName || attachment.filename || 'Arquivo'}</li>)}
-          </ul>
-        )}
-      </section>
+      <ReadOnlyAttachments files={attachments} />
     </ReadOnlyDetailsModal>
   );
 }
@@ -677,6 +669,7 @@ function WindowsUserReadOnlyModal({ user, servers, onClose }) {
           </div>
         )}
       </section>
+      <ReadOnlyAttachments files={normalizeVaultAttachments(user)} />
     </ReadOnlyDetailsModal>
   );
 }

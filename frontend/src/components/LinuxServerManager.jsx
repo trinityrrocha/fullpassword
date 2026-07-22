@@ -2,8 +2,9 @@ import { useMemo, useState } from 'react';
 import { Plus, Edit2, Trash2, X, Server, ShieldCheck, EthernetPort, Download, UserRound, Eye, Copy } from 'lucide-react';
 import SecurePasswordInput from './SecurePasswordInput';
 import DeleteConfirmationControl from './DeleteConfirmationControl';
-import ReadOnlyDetailsModal, { ReadOnlyField, ReadOnlySection } from './ReadOnlyDetailsModal';
+import ReadOnlyDetailsModal, { ReadOnlyAttachments, ReadOnlyField, ReadOnlySection } from './ReadOnlyDetailsModal';
 import { copyToClipboardSilently } from '../utils/clipboard';
+import { downloadAttachment } from '../utils/attachments';
 
 const systemOptions = [
   'Ubuntu',
@@ -226,24 +227,6 @@ const readFilesAsAttachments = async (files) => {
   const selectedFiles = Array.from(files || []);
   const attachments = await Promise.all(selectedFiles.map((file) => readFileAsAttachment(file)));
   return attachments.filter(Boolean);
-};
-
-const downloadAttachment = (attachment) => {
-  if (!attachment?.data) return;
-
-  const binary = atob(attachment.data);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
-
-  const blob = new Blob([bytes], { type: attachment.type || 'application/octet-stream' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = attachment.name || 'anexo';
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
 };
 
 function AttachmentRow({ attachment, label, onRemove }) {
@@ -585,7 +568,7 @@ function LinuxServerReadOnlyModal({ server, onClose }) {
     {isProxmoxServer(normalized) && <ReadOnlySection title="Acesso Proxmox"><div className="grid gap-4 sm:grid-cols-2"><ReadOnlyField label="URL">{normalized.proxmoxApi.url || 'não informada'} <SilentCopyButton value={normalized.proxmoxApi.url} label="URL" /></ReadOnlyField><ReadOnlyField label="Login">{normalized.proxmoxApi.username || 'não informado'} <SilentCopyButton value={normalized.proxmoxApi.username} label="login" /></ReadOnlyField><ReadOnlyField label="Senha">**** <SilentCopyButton value={normalized.proxmoxApi.tokenApi} label="senha" /></ReadOnlyField></div></ReadOnlySection>}
     <ReadOnlySection title="Conexões">{normalized.connections.length ? <div className="space-y-2">{normalized.connections.map((connection) => <div key={connection.id} className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">{getConnectionLabel(connection, normalized.connections)}{connection.type === 'VPN' ? ` / ${connection.vpn}` : ''} · {connection.ipv4 || '-'}</div>)}</div> : <p className="text-sm text-slate-500">Nenhuma conexão cadastrada.</p>}</ReadOnlySection>
     <ReadOnlySection title="Portas">{normalized.portRules.length ? <div className="space-y-2">{normalized.portRules.map((rule) => <div key={rule.id} className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">{rule.name || 'Porta'} · {rule.portNumber || '-'} · {rule.direction} · {rule.protocol}</div>)}</div> : <p className="text-sm text-slate-500">Nenhuma porta cadastrada.</p>}</ReadOnlySection>
-    <ReadOnlySection title="Arquivos">{normalized.proxmoxApi.attachments.length ? <ul className="list-disc pl-5 text-sm text-slate-700">{normalized.proxmoxApi.attachments.map((file) => <li key={file.id}>{file.name}</li>)}</ul> : <p className="text-sm text-slate-500">Nenhum arquivo anexado.</p>}</ReadOnlySection>
+    <ReadOnlyAttachments files={normalized.proxmoxApi.attachments} />
   </ReadOnlyDetailsModal>;
 }
 
@@ -593,6 +576,7 @@ function SshCredentialReadOnlyModal({ credential, server, onClose }) {
   const normalized = normalizeSshCredential(credential);
   return <ReadOnlyDetailsModal title="Visualizar credencial SSH" onClose={onClose}>
     <div className="grid gap-4 sm:grid-cols-2"><ReadOnlyField label="Usuário">{normalized.username || '-'} <button type="button" title="Copiar usuário" aria-label="Copiar usuário" onClick={() => copyToClipboardSilently(normalized.username)} className="ml-2 inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-300"><Copy className="h-3.5 w-3.5" /></button></ReadOnlyField><ReadOnlyField label="Senha">**** <button type="button" title="Copiar senha" aria-label="Copiar senha" onClick={() => copyToClipboardSilently(normalized.password)} className="ml-2 inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-300"><Copy className="h-3.5 w-3.5" /></button></ReadOnlyField><ReadOnlyField label="Porta SSH" value={normalized.sshPort} /><ReadOnlyField label="Servidor" value={server?.name || 'Servidor não informado'} /><ReadOnlyField label="Chave pública" value={normalized.publicKeyAttachment?.name} /><ReadOnlyField label="Chave privada" value={normalized.privateKeyAttachment?.name} /></div>
+    <ReadOnlyAttachments files={[normalized.publicKeyAttachment, normalized.privateKeyAttachment]} />
   </ReadOnlyDetailsModal>;
 }
 

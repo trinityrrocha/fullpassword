@@ -1,4 +1,5 @@
-import { X } from 'lucide-react';
+import { Download, X } from 'lucide-react';
+import { downloadAttachment } from '../utils/attachments';
 
 export default function ReadOnlyDetailsModal({ title, onClose, children }) {
   return (
@@ -28,4 +29,22 @@ export function ReadOnlyField({ label, value, children }) {
 
 export function ReadOnlySection({ title, children }) {
   return <section><h4 className="mb-2 text-sm font-semibold text-slate-900">{title}</h4>{children}</section>;
+}
+
+export function ReadOnlyAttachments({ files = [] }) {
+  const attachments = files.filter(Boolean);
+  return (
+    <ReadOnlySection title="Anexos">
+      {attachments.length === 0 ? <p className="text-sm text-slate-500">Nenhum anexo cadastrado.</p> : (
+        <div className="space-y-2">
+          {attachments.map((file, index) => (
+            <div key={file.id || `${file.name || file.fileName || 'anexo'}-${index}`} className="flex items-center justify-between gap-3 rounded-md border border-slate-200 bg-white px-3 py-2">
+              <span className="min-w-0 truncate text-sm text-slate-700">{file.name || file.fileName || file.filename || 'Anexo'}</span>
+              <button type="button" title="Baixar anexo" aria-label="Baixar anexo" onClick={() => downloadAttachment(file)} disabled={!file.data} className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-slate-300 text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"><Download className="h-4 w-4" /></button>
+            </div>
+          ))}
+        </div>
+      )}
+    </ReadOnlySection>
+  );
 }
