@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
-import { Eye, EyeOff, Copy, Check, KeyRound } from 'lucide-react';
+import { Eye, EyeOff, Copy, KeyRound } from 'lucide-react';
+import { copyToClipboardSilently } from '../utils/clipboard';
 
 // ---------------------------------------------------------------------------
 // Geração de senha segura
@@ -70,7 +71,6 @@ export default function SecurePasswordInput({
   enableGenerator = true,
 }) {
   const [showPassword, setShowPassword]     = useState(false);
-  const [copied, setCopied]                 = useState(false);
   const [previousValue, setPreviousValue]   = useState(null);
   const [showUndo, setShowUndo]             = useState(false);
   const undoTimerRef                        = useRef(null);
@@ -82,14 +82,7 @@ export default function SecurePasswordInput({
   // Copiar senha
   // -------------------------------------------------------------------------
   const copyToClipboard = async () => {
-    if (!value) return;
-    try {
-      await navigator.clipboard.writeText(value);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch (err) {
-      console.error('Falha ao copiar senha', err);
-    }
+    await copyToClipboardSilently(value);
   };
 
   // -------------------------------------------------------------------------
@@ -193,7 +186,7 @@ export default function SecurePasswordInput({
             className="p-1 text-slate-400 hover:text-indigo-600 focus:outline-none transition-colors"
             title="Copiar senha"
           >
-            {copied ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
+            <Copy className="h-4 w-4" />
           </button>
 
           {/* Mostrar / ocultar senha */}

@@ -1,10 +1,12 @@
 import { useMemo, useState } from 'react';
-import { Plus, Edit2, X } from 'lucide-react';
+import { Plus, Edit2, X, Eye, Copy } from 'lucide-react';
 import SecurePasswordInput from './SecurePasswordInput';
 import DeleteConfirmationControl from './DeleteConfirmationControl';
 import InlineField from './InlineField';
 import VaultAttachmentsField from './VaultAttachmentsField';
+import ReadOnlyDetailsModal, { ReadOnlyField, ReadOnlySection } from './ReadOnlyDetailsModal';
 import { normalizeVaultAttachments } from '../utils/vaultAttachments';
+import { copyToClipboardSilently } from '../utils/clipboard';
 
 const VPN_SERVER_FILE_EXTENSIONS = ['.txt', '.ovpn', '.conf', '.crt', '.cer', '.key', '.pem', '.zip', '.rar'];
 const VPN_USER_FILE_EXTENSIONS = ['.zip', '.rar', '.txt'];
@@ -135,6 +137,8 @@ export default function VpnManager({ vpnForm, setVpnForm, handleSaveData, isSavi
   const [userDraft, setUserDraft] = useState(emptyVpnUser());
   const [editingServer, setEditingServer] = useState(null);
   const [editingUser, setEditingUser] = useState(null);
+  const [viewingServer, setViewingServer] = useState(null);
+  const [viewingUser, setViewingUser] = useState(null);
   const [deleteServerConfirmation, setDeleteServerConfirmation] = useState('');
   const [deleteUserConfirmation, setDeleteUserConfirmation] = useState('');
   const [showServerCreateModal, setShowServerCreateModal] = useState(false);
@@ -339,9 +343,7 @@ export default function VpnManager({ vpnForm, setVpnForm, handleSaveData, isSavi
                 <p className="text-sm text-slate-500">Modo: {server.type || '-'} | IPv4 túnel: {server.ipv4Tunnel || '-'}</p>
                 <p className="text-xs text-slate-500">IPv4 local: {server.ipv4Local || '-'} | VLAN: {server.vlan || '-'} | Porta: {server.port || '-'} | Anexos: {normalizeAttachments(server).length}</p>
               </div>
-              <button type="button" title="Detalhes" aria-label="Detalhes" onClick={() => { setEditingServer({ ...server, attachments: normalizeAttachments(server) }); setDeleteServerConfirmation(''); }} className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50">
-                <Edit2 className="h-4 w-4" />
-              </button>
+              <div className="flex shrink-0 gap-2"><button type="button" title="Visualizar" aria-label="Visualizar" onClick={() => setViewingServer(server)} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"><Eye className="h-4 w-4" /></button><button type="button" title="Detalhes" aria-label="Detalhes" onClick={() => { setEditingServer({ ...server, attachments: normalizeAttachments(server) }); setDeleteServerConfirmation(''); }} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"><Edit2 className="h-4 w-4" /></button></div>
             </div>
           ))}
         </div>
@@ -376,9 +378,7 @@ export default function VpnManager({ vpnForm, setVpnForm, handleSaveData, isSavi
                 <span className="text-slate-600">· Usuário VPN: {user.username || '-'}</span>
                 <span className="text-slate-600">· Servidor: {getServerLabel(user.serverId)}</span>
               </div>
-              <button type="button" title="Detalhes" aria-label="Detalhes" onClick={() => { setEditingUser({ ...user }); setDeleteUserConfirmation(''); }} className="inline-flex h-9 w-9 shrink-0 items-center justify-center self-start rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 sm:self-auto">
-                <Edit2 className="h-4 w-4" />
-              </button>
+              <div className="flex shrink-0 gap-2 self-start sm:self-auto"><button type="button" title="Visualizar" aria-label="Visualizar" onClick={() => setViewingUser(user)} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"><Eye className="h-4 w-4" /></button><button type="button" title="Detalhes" aria-label="Detalhes" onClick={() => { setEditingUser({ ...user }); setDeleteUserConfirmation(''); }} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"><Edit2 className="h-4 w-4" /></button></div>
             </div>
           ))}
         </div>
@@ -407,6 +407,9 @@ export default function VpnManager({ vpnForm, setVpnForm, handleSaveData, isSavi
           onSave={addVpnUser}
         />
       )}
+
+      {viewingServer && <VpnServerReadOnlyModal server={viewingServer} onClose={() => setViewingServer(null)} />}
+      {viewingUser && <VpnUserReadOnlyModal user={viewingUser} server={getServerById(viewingUser.serverId)} onClose={() => setViewingUser(null)} />}
 
       {editingServer && (
         <VpnServerModal
@@ -439,6 +442,19 @@ export default function VpnManager({ vpnForm, setVpnForm, handleSaveData, isSavi
       )}
     </div>
   );
+}
+
+function AttachmentNames({ source }) {
+  const attachments = normalizeAttachments(source);
+  return attachments.length ? <ul className="list-disc pl-5 text-sm text-slate-700">{attachments.map((file, index) => <li key={file.id || `${file.name}-${index}`}>{file.name || file.fileName || 'Arquivo'}</li>)}</ul> : <p className="text-sm text-slate-500">Nenhum arquivo anexado.</p>;
+}
+
+function VpnServerReadOnlyModal({ server, onClose }) {
+  return <ReadOnlyDetailsModal title="Visualizar servidor VPN" onClose={onClose}><div className="grid gap-4 sm:grid-cols-2"><ReadOnlyField label="Nome" value={server.name} /><ReadOnlyField label="VPN" value={server.vpn} /><ReadOnlyField label="Tipo" value={server.type} /><ReadOnlyField label="IPv4 local" value={server.ipv4Local} /><ReadOnlyField label="VLAN" value={server.vlan} /><ReadOnlyField label="IPv4 túnel" value={server.ipv4Tunnel} /><ReadOnlyField label="Porta" value={server.port} /><ReadOnlyField label="Observações" value={server.notes} /></div><ReadOnlySection title="Arquivos"><AttachmentNames source={server} /></ReadOnlySection></ReadOnlyDetailsModal>;
+}
+
+function VpnUserReadOnlyModal({ user, server, onClose }) {
+  return <ReadOnlyDetailsModal title="Visualizar usuário VPN" onClose={onClose}><div className="grid gap-4 sm:grid-cols-2"><ReadOnlyField label="Nome" value={user.personName} /><ReadOnlyField label="Usuário">{user.username || '-'} <button type="button" title="Copiar usuário" aria-label="Copiar usuário" onClick={() => copyToClipboardSilently(user.username)} className="ml-2 inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-300"><Copy className="h-3.5 w-3.5" /></button></ReadOnlyField><ReadOnlyField label="Senha">**** <button type="button" title="Copiar senha" aria-label="Copiar senha" onClick={() => copyToClipboardSilently(user.password)} className="ml-2 inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-300"><Copy className="h-3.5 w-3.5" /></button></ReadOnlyField><ReadOnlyField label="Servidor" value={server?.name || 'Servidor VPN não informado'} /><ReadOnlyField label="Observações" value={user.notes} /></div><ReadOnlySection title="Arquivos"><AttachmentNames source={user} /></ReadOnlySection></ReadOnlyDetailsModal>;
 }
 
 function VpnServerModal({ title, server, setServer, isSaving, onCancel, onSave, onDelete, deleteConfirmation, setDeleteConfirmation }) {

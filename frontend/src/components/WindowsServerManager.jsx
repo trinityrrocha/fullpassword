@@ -3,7 +3,9 @@ import { Plus, Edit2, Trash2, X, Server, UserRound, UserStar, TriangleAlert, Shi
 import SecurePasswordInput from './SecurePasswordInput';
 import DeleteConfirmationControl from './DeleteConfirmationControl';
 import VaultAttachmentsField from './VaultAttachmentsField';
+import ReadOnlyDetailsModal from './ReadOnlyDetailsModal';
 import { normalizeVaultAttachments } from '../utils/vaultAttachments';
+import { copyToClipboardSilently } from '../utils/clipboard';
 
 const WINDOWS_SERVER_FILE_EXTENSIONS = ['.txt', '.conf', '.json', '.xml', '.log', '.zip', '.rar'];
 
@@ -201,43 +203,7 @@ const validateWindowsServerPorts = (server) => {
   return false;
 };
 
-const copyTextToClipboard = async (text) => {
-  if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(text);
-    return;
-  }
-
-  if (typeof document === 'undefined') throw new Error('Clipboard indisponível');
-
-  const textarea = document.createElement('textarea');
-  textarea.value = text;
-  textarea.setAttribute('readonly', '');
-  textarea.style.position = 'fixed';
-  textarea.style.opacity = '0';
-  document.body.appendChild(textarea);
-  let copied;
-  try {
-    textarea.select();
-    copied = document.execCommand('copy');
-  } finally {
-    document.body.removeChild(textarea);
-  }
-  if (!copied) throw new Error('Clipboard indisponível');
-};
-
-const copyAvailableValue = async (value, label) => {
-  if (!value) {
-    alert(`${label} não disponível.`);
-    return;
-  }
-
-  try {
-    await copyTextToClipboard(value);
-    alert(`${label}: cópia concluída.`);
-  } catch {
-    alert(`Não foi possível copiar ${label.toLowerCase()}.`);
-  }
-};
+const copyAvailableValue = (value) => copyToClipboardSilently(value);
 
 const normalizeWindowsForm = (data = {}) => {
   if (Array.isArray(data.servers) || Array.isArray(data.users)) {
@@ -619,23 +585,6 @@ export default function WindowsServerManager({ tsForm, setTsForm, handleSaveData
   );
 }
 
-function ReadOnlyModal({ title, onClose, children }) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900 bg-opacity-60 p-4">
-      <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-lg bg-white shadow-xl">
-        <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
-          <h3 className="text-lg font-semibold text-slate-900">{title}</h3>
-          <button type="button" title="Fechar" aria-label="Fechar" onClick={onClose} className="text-slate-400 hover:text-slate-600"><X className="h-5 w-5" /></button>
-        </div>
-        <div className="space-y-5 p-6">{children}</div>
-        <div className="flex justify-end border-t border-slate-200 bg-slate-50 px-6 py-4">
-          <button type="button" onClick={onClose} className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Fechar</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function WindowsServerReadOnlyModal({ server, onClose }) {
   const connections = normalizeConnections(server);
   const portRules = normalizePortRules(server);
@@ -643,7 +592,7 @@ function WindowsServerReadOnlyModal({ server, onClose }) {
   const attachments = normalizeVaultAttachments(server);
 
   return (
-    <ReadOnlyModal title="Visualizar servidor" onClose={onClose}>
+    <ReadOnlyDetailsModal title="Visualizar servidor" onClose={onClose}>
       <div className="grid gap-4 sm:grid-cols-2">
         <div><p className="text-xs font-medium uppercase tracking-wide text-slate-500">Servidor</p><p className="mt-1 text-sm text-slate-900">{server.name || 'Servidor sem nome'}</p></div>
         <div><p className="text-xs font-medium uppercase tracking-wide text-slate-500">Observações</p><p className="mt-1 whitespace-pre-wrap text-sm text-slate-900">{server.notes || '-'}</p></div>
@@ -690,7 +639,7 @@ function WindowsServerReadOnlyModal({ server, onClose }) {
           </ul>
         )}
       </section>
-    </ReadOnlyModal>
+    </ReadOnlyDetailsModal>
   );
 }
 
@@ -701,7 +650,7 @@ function WindowsUserReadOnlyModal({ user, servers, onClose }) {
     : [];
 
   return (
-    <ReadOnlyModal title="Visualizar usuário" onClose={onClose}>
+    <ReadOnlyDetailsModal title="Visualizar usuário" onClose={onClose}>
       <div className="grid gap-4 sm:grid-cols-2">
         <div><p className="text-xs font-medium uppercase tracking-wide text-slate-500">Nome</p><p className="mt-1 text-sm text-slate-900">{user.name || '-'}</p></div>
         <div><p className="text-xs font-medium uppercase tracking-wide text-slate-500">Usuário</p><div className="mt-1 flex items-center gap-2"><span className="text-sm text-slate-900">{user.username || '-'}</span><button type="button" title="Copiar usuário" aria-label="Copiar usuário" onClick={() => copyAvailableValue(user.username, 'Usuário')} className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-300 text-slate-600 hover:bg-slate-50"><Copy className="h-3.5 w-3.5" /></button></div></div>
@@ -728,7 +677,7 @@ function WindowsUserReadOnlyModal({ user, servers, onClose }) {
           </div>
         )}
       </section>
-    </ReadOnlyModal>
+    </ReadOnlyDetailsModal>
   );
 }
 
@@ -945,13 +894,7 @@ function WindowsUserModal({ title, user, setUser, servers, getServerLabel, isSav
     ? normalizeTsRules(selectedServer).filter((rule) => rule.host.trim() && rule.port)
     : [];
 
-  const copyTsAddress = async (rule) => {
-    try {
-      await copyTextToClipboard(`${rule.host}:${rule.port}`);
-    } catch {
-      alert('Não foi possível copiar o endereço TS.');
-    }
-  };
+  const copyTsAddress = (rule) => copyAvailableValue(`${rule.host}:${rule.port}`);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900 bg-opacity-60 p-4">

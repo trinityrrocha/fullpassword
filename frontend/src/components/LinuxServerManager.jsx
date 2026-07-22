@@ -1,8 +1,10 @@
 import { useMemo, useState } from 'react';
-import { Plus, Edit2, Trash2, X, Server, ShieldCheck, EthernetPort, Download, UserRound } from 'lucide-react';
+import { Plus, Edit2, Trash2, X, Server, ShieldCheck, EthernetPort, Download, UserRound, Eye, Copy } from 'lucide-react';
 import SecurePasswordInput from './SecurePasswordInput';
 import DeleteConfirmationControl from './DeleteConfirmationControl';
 import InlineField from './InlineField';
+import ReadOnlyDetailsModal, { ReadOnlyField, ReadOnlySection } from './ReadOnlyDetailsModal';
+import { copyToClipboardSilently } from '../utils/clipboard';
 
 const systemOptions = [
   'Ubuntu',
@@ -256,6 +258,8 @@ export default function LinuxServerManager({ serverForm, setServerForm, handleSa
   const [userDraft, setUserDraft] = useState(emptySshCredential());
   const [editingServer, setEditingServer] = useState(null);
   const [editingUser, setEditingUser] = useState(null);
+  const [viewingServer, setViewingServer] = useState(null);
+  const [viewingUser, setViewingUser] = useState(null);
   const [deleteConfirmation, setDeleteConfirmation] = useState('');
   const [deleteUserConfirmation, setDeleteUserConfirmation] = useState('');
   const [showServerCreateModal, setShowServerCreateModal] = useState(false);
@@ -433,9 +437,7 @@ export default function LinuxServerManager({ serverForm, setServerForm, handleSa
                 <p className="flex items-center gap-2 truncate font-medium text-slate-900"><Server className="h-5 w-5 shrink-0 text-slate-500" />{server.name || 'Servidor sem nome'}</p>
                 <p className="truncate text-sm text-slate-500">Sistema: {server.systemType || '-'} | Conexões: {server.connections?.length || 0} | Portas: {server.portRules?.length || 0}</p>
               </div>
-              <button type="button" title="Detalhes" aria-label="Detalhes" onClick={() => { setEditingServer(normalizeLinuxServer(server)); setDeleteConfirmation(''); }} className="inline-flex h-9 w-9 shrink-0 items-center justify-center self-start rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 sm:self-auto">
-                <Edit2 className="h-4 w-4" />
-              </button>
+              <div className="flex shrink-0 gap-2 self-start sm:self-auto"><button type="button" title="Visualizar" aria-label="Visualizar" onClick={() => setViewingServer(server)} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"><Eye className="h-4 w-4" /></button><button type="button" title="Detalhes" aria-label="Detalhes" onClick={() => { setEditingServer(normalizeLinuxServer(server)); setDeleteConfirmation(''); }} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"><Edit2 className="h-4 w-4" /></button></div>
             </div>
           ))}
         </div>
@@ -472,9 +474,7 @@ export default function LinuxServerManager({ serverForm, setServerForm, handleSa
                 <span className="text-slate-600">· Chave pública: {credential.publicKeyAttachment?.name || '-'}</span>
                 <span className="text-slate-600">· Chave privada: {credential.privateKeyAttachment?.name || '-'}</span>
               </div>
-              <button type="button" title="Detalhes" aria-label="Detalhes" onClick={() => { setEditingUser(normalizeSshCredential(credential)); setDeleteUserConfirmation(''); }} className="inline-flex h-9 w-9 shrink-0 items-center justify-center self-start rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 sm:self-auto">
-                <Edit2 className="h-4 w-4" />
-              </button>
+              <div className="flex shrink-0 gap-2 self-start sm:self-auto"><button type="button" title="Visualizar" aria-label="Visualizar" onClick={() => setViewingUser(credential)} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"><Eye className="h-4 w-4" /></button><button type="button" title="Detalhes" aria-label="Detalhes" onClick={() => { setEditingUser(normalizeSshCredential(credential)); setDeleteUserConfirmation(''); }} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"><Edit2 className="h-4 w-4" /></button></div>
             </div>
           ))}
         </div>
@@ -503,6 +503,9 @@ export default function LinuxServerManager({ serverForm, setServerForm, handleSa
           onSave={addSshCredential}
         />
       )}
+
+      {viewingServer && <LinuxServerReadOnlyModal server={viewingServer} onClose={() => setViewingServer(null)} />}
+      {viewingUser && <SshCredentialReadOnlyModal credential={viewingUser} server={normalizedForm.servers.find((item) => item.id === viewingUser.serverId)} onClose={() => setViewingUser(null)} />}
 
       {editingServer && (
         <LinuxServerModal
@@ -535,6 +538,23 @@ export default function LinuxServerManager({ serverForm, setServerForm, handleSa
       )}
     </div>
   );
+}
+
+function LinuxServerReadOnlyModal({ server, onClose }) {
+  const normalized = normalizeLinuxServer(server);
+  return <ReadOnlyDetailsModal title="Visualizar servidor Linux" onClose={onClose}>
+    <div className="grid gap-4 sm:grid-cols-2"><ReadOnlyField label="Servidor" value={normalized.name} /><ReadOnlyField label="Sistema" value={normalized.systemType} /><ReadOnlyField label="Observações" value={normalized.notes} /></div>
+    <ReadOnlySection title="Conexões">{normalized.connections.length ? <div className="space-y-2">{normalized.connections.map((connection) => <div key={connection.id} className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">{getConnectionLabel(connection, normalized.connections)}{connection.type === 'VPN' ? ` / ${connection.vpn}` : ''} · {connection.ipv4 || '-'}</div>)}</div> : <p className="text-sm text-slate-500">Nenhuma conexão cadastrada.</p>}</ReadOnlySection>
+    <ReadOnlySection title="Portas">{normalized.portRules.length ? <div className="space-y-2">{normalized.portRules.map((rule) => <div key={rule.id} className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">{rule.name || 'Porta'} · {rule.portNumber || '-'} · {rule.direction} · {rule.protocol}</div>)}</div> : <p className="text-sm text-slate-500">Nenhuma porta cadastrada.</p>}</ReadOnlySection>
+    <ReadOnlySection title="Arquivos">{normalized.proxmoxApi.attachments.length ? <ul className="list-disc pl-5 text-sm text-slate-700">{normalized.proxmoxApi.attachments.map((file) => <li key={file.id}>{file.name}</li>)}</ul> : <p className="text-sm text-slate-500">Nenhum arquivo anexado.</p>}</ReadOnlySection>
+  </ReadOnlyDetailsModal>;
+}
+
+function SshCredentialReadOnlyModal({ credential, server, onClose }) {
+  const normalized = normalizeSshCredential(credential);
+  return <ReadOnlyDetailsModal title="Visualizar credencial SSH" onClose={onClose}>
+    <div className="grid gap-4 sm:grid-cols-2"><ReadOnlyField label="Usuário">{normalized.username || '-'} <button type="button" title="Copiar usuário" aria-label="Copiar usuário" onClick={() => copyToClipboardSilently(normalized.username)} className="ml-2 inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-300"><Copy className="h-3.5 w-3.5" /></button></ReadOnlyField><ReadOnlyField label="Senha">**** <button type="button" title="Copiar senha" aria-label="Copiar senha" onClick={() => copyToClipboardSilently(normalized.password)} className="ml-2 inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-300"><Copy className="h-3.5 w-3.5" /></button></ReadOnlyField><ReadOnlyField label="Porta SSH" value={normalized.sshPort} /><ReadOnlyField label="Servidor" value={server?.name || 'Servidor não informado'} /><ReadOnlyField label="Chave pública" value={normalized.publicKeyAttachment?.name} /><ReadOnlyField label="Chave privada" value={normalized.privateKeyAttachment?.name} /></div>
+  </ReadOnlyDetailsModal>;
 }
 
 function LinuxServerModal({ title, server, setServer, isSaving, onCancel, onSave, onDelete, deleteConfirmation, setDeleteConfirmation }) {

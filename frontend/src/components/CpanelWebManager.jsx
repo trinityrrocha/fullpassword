@@ -1,7 +1,9 @@
 import { useMemo, useState } from 'react';
-import { Plus, Edit2, X } from 'lucide-react';
+import { Plus, Edit2, X, Eye, Copy } from 'lucide-react';
 import SecurePasswordInput from './SecurePasswordInput';
 import DeleteConfirmationControl from './DeleteConfirmationControl';
+import ReadOnlyDetailsModal, { ReadOnlyField } from './ReadOnlyDetailsModal';
+import { copyToClipboardSilently } from '../utils/clipboard';
 
 const departmentOptions = [
   'Comercial',
@@ -112,6 +114,8 @@ export default function CpanelWebManager({ cpanelForm, setCpanelForm, handleSave
   const [userDraft, setUserDraft] = useState(emptyCpanelUser());
   const [editingCpanel, setEditingCpanel] = useState(null);
   const [editingUser, setEditingUser] = useState(null);
+  const [viewingCpanel, setViewingCpanel] = useState(null);
+  const [viewingUser, setViewingUser] = useState(null);
   const [deleteCpanelConfirmation, setDeleteCpanelConfirmation] = useState('');
   const [deleteUserConfirmation, setDeleteUserConfirmation] = useState('');
   const [showCpanelCreateModal, setShowCpanelCreateModal] = useState(false);
@@ -326,9 +330,7 @@ export default function CpanelWebManager({ cpanelForm, setCpanelForm, handleSave
                 <p className="truncate font-medium text-slate-900">{cpanel.domain || 'Domínio sem nome'}</p>
                 <p className="truncate text-sm text-slate-500">URL: {cpanel.url || '-'} | Usuário: {cpanel.username || '-'}</p>
               </div>
-              <button type="button" title="Detalhes" aria-label="Detalhes" onClick={() => { setEditingCpanel({ ...cpanel }); setDeleteCpanelConfirmation(''); }} className="inline-flex h-9 w-9 shrink-0 items-center justify-center self-start rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 sm:self-auto">
-                <Edit2 className="h-4 w-4" />
-              </button>
+              <div className="flex shrink-0 gap-2 self-start sm:self-auto"><button type="button" title="Visualizar" aria-label="Visualizar" onClick={() => setViewingCpanel(cpanel)} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"><Eye className="h-4 w-4" /></button><button type="button" title="Detalhes" aria-label="Detalhes" onClick={() => { setEditingCpanel({ ...cpanel }); setDeleteCpanelConfirmation(''); }} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"><Edit2 className="h-4 w-4" /></button></div>
             </div>
           ))}
         </div>
@@ -364,9 +366,7 @@ export default function CpanelWebManager({ cpanelForm, setCpanelForm, handleSave
                 <span className="text-slate-600">· Departamento: {user.department || '-'}</span>
                 <span className="text-slate-600">· cPanel / domínio: {getCpanelAccessLabel(user.cpanelId)}</span>
               </div>
-              <button type="button" title="Detalhes" aria-label="Detalhes" onClick={() => { setEditingUser({ ...user }); setDeleteUserConfirmation(''); }} className="inline-flex h-9 w-9 shrink-0 items-center justify-center self-start rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 sm:self-auto">
-                <Edit2 className="h-4 w-4" />
-              </button>
+              <div className="flex shrink-0 gap-2 self-start sm:self-auto"><button type="button" title="Visualizar" aria-label="Visualizar" onClick={() => setViewingUser(user)} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"><Eye className="h-4 w-4" /></button><button type="button" title="Detalhes" aria-label="Detalhes" onClick={() => { setEditingUser({ ...user }); setDeleteUserConfirmation(''); }} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"><Edit2 className="h-4 w-4" /></button></div>
             </div>
           ))}
         </div>
@@ -452,6 +452,9 @@ export default function CpanelWebManager({ cpanelForm, setCpanelForm, handleSave
           </div>
         </div>
       )}
+
+      {viewingCpanel && <CpanelReadOnlyModal cpanel={viewingCpanel} onClose={() => setViewingCpanel(null)} />}
+      {viewingUser && <CpanelUserReadOnlyModal user={viewingUser} cpanel={getCpanelById(viewingUser.cpanelId)} login={getUserLoginWithDomain(viewingUser)} onClose={() => setViewingUser(null)} />}
 
       {editingCpanel && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900 bg-opacity-60 p-4">
@@ -541,4 +544,16 @@ export default function CpanelWebManager({ cpanelForm, setCpanelForm, handleSave
       )}
     </div>
   );
+}
+
+function CopyValueButton({ value, label }) {
+  return <button type="button" title={`Copiar ${label}`} aria-label={`Copiar ${label}`} onClick={() => copyToClipboardSilently(value)} className="ml-2 inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-300 text-slate-600 hover:bg-slate-50"><Copy className="h-3.5 w-3.5" /></button>;
+}
+
+function CpanelReadOnlyModal({ cpanel, onClose }) {
+  return <ReadOnlyDetailsModal title="Visualizar cPanel / domínio" onClose={onClose}><div className="grid gap-4 sm:grid-cols-2"><ReadOnlyField label="Domínio">{cpanel.domain || '-'}<CopyValueButton value={cpanel.domain} label="domínio" /></ReadOnlyField><ReadOnlyField label="URL">{cpanel.url || '-'}<CopyValueButton value={cpanel.url} label="URL" /></ReadOnlyField><ReadOnlyField label="Usuário">{cpanel.username || '-'}<CopyValueButton value={cpanel.username} label="usuário" /></ReadOnlyField><ReadOnlyField label="Senha">****<CopyValueButton value={cpanel.password} label="senha" /></ReadOnlyField><ReadOnlyField label="Observações" value={cpanel.notes} /></div></ReadOnlyDetailsModal>;
+}
+
+function CpanelUserReadOnlyModal({ user, cpanel, login, onClose }) {
+  return <ReadOnlyDetailsModal title="Visualizar usuário cPanel / Web" onClose={onClose}><div className="grid gap-4 sm:grid-cols-2"><ReadOnlyField label="Nome" value={user.name} /><ReadOnlyField label="Login">{login}<CopyValueButton value={login === '-' ? '' : login} label="login" /></ReadOnlyField><ReadOnlyField label="Senha">****<CopyValueButton value={user.password} label="senha" /></ReadOnlyField><ReadOnlyField label="Departamento" value={user.department} /><ReadOnlyField label="cPanel / domínio" value={cpanel?.domain || cpanel?.url || 'Não informado'} /></div></ReadOnlyDetailsModal>;
 }
