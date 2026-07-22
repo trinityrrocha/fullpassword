@@ -86,13 +86,14 @@ export default function clientVaultVpnPlugin() {
       }
 
       next = next.replace(
-        /          \{activeTab === 'vpn' && \(\n[\s\S]*?\n          \)\}\n\n          \{activeTab === 'ts' && \(/,
+        /[ ]{10}\{activeTab === 'vpn' && \(\r?\n[\s\S]*?\r?\n[ ]{10}\)\}\r?\n\r?\n[ ]{10}\{activeTab === 'ts' && \(/,
         `          {activeTab === 'vpn' && (
             <VpnManager
               vpnForm={vpnForm}
               setVpnForm={setVpnForm}
               handleSaveData={handleSaveData}
               isSaving={isSaving}
+              onHideModule={canManageModules ? hideActiveModule : undefined}
             />
           )}
 

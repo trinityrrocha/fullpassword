@@ -374,6 +374,8 @@ export default function ClientVault() {
 
   const addModule = (moduleId) => persistEnabledModules([...enabledModules, moduleId]);
 
+  // Referenciado pelos transforms dos gerenciadores no build do Vite.
+  // eslint-disable-next-line no-unused-vars
   const hideActiveModule = async () => {
     const activeModule = COMPANY_MODULES.find((module) => module.tabId === activeTab);
     if (!activeModule || !canManageModules) return;
@@ -694,7 +696,6 @@ export default function ClientVault() {
         </div>
 
         <div className="p-6">
-          {canManageModules && <div className="mb-4 flex justify-end"><button type="button" disabled={isSavingModules} onClick={hideActiveModule} className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50">Ocultar aba</button></div>}
           {activeTab === 'cpanel' && (
             <div className="space-y-6 animate-fadeIn">
               <h3 className="text-lg font-medium leading-6 text-slate-900 border-b pb-2">Acesso ao cPanel / Hospedagem</h3>

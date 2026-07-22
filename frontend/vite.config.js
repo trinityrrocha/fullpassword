@@ -71,13 +71,14 @@ function clientVaultUiPlugin() {
       }
 
       next = next.replace(
-        /          \{activeTab === 'cpanel' && \(\n[\s\S]*?\n          \)\}\n\n          \{activeTab === 'vpn' && \(/,
+        /[ ]{10}\{activeTab === 'cpanel' && \(\r?\n[\s\S]*?\r?\n[ ]{10}\)\}\r?\n\r?\n[ ]{10}\{activeTab === 'vpn' && \(/,
         `          {activeTab === 'cpanel' && (
             <CpanelWebManager
               cpanelForm={cpanelForm}
               setCpanelForm={setCpanelForm}
               handleSaveData={handleSaveData}
               isSaving={isSaving}
+              onHideModule={canManageModules ? hideActiveModule : undefined}
             />
           )}
 

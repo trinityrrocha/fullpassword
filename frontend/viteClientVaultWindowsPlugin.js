@@ -195,13 +195,14 @@ export default function clientVaultWindowsPlugin() {
       }
 
       next = next.replace(
-        /          \{activeTab === 'ts' && \(\n[\s\S]*?\n          \)\}\n\n          \{activeTab === 'servers' && \(/,
+        /[ ]{10}\{activeTab === 'ts' && \(\r?\n[\s\S]*?\r?\n[ ]{10}\)\}\r?\n\r?\n[ ]{10}\{activeTab === 'servers' && \(/,
         `          {activeTab === 'ts' && (
             <WindowsServerManager
               tsForm={tsForm}
               setTsForm={setTsForm}
               handleSaveData={handleSaveData}
               isSaving={isSaving}
+              onHideModule={canManageModules ? hideActiveModule : undefined}
             />
           )}
 

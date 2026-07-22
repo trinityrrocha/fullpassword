@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Plus, Edit2, X, Eye } from 'lucide-react';
+import { Plus, Edit2, Trash2, X, Eye } from 'lucide-react';
 import SecurePasswordInput from './SecurePasswordInput';
 import DeleteConfirmationControl from './DeleteConfirmationControl';
 import ReadOnlyDetailsModal, { ReadOnlyAttachments, ReadOnlyField } from './ReadOnlyDetailsModal';
@@ -109,7 +109,7 @@ const cleanDomain = (value = '') => {
     .split(':')[0];
 };
 
-export default function CpanelWebManager({ cpanelForm, setCpanelForm, handleSaveData, isSaving }) {
+export default function CpanelWebManager({ cpanelForm, setCpanelForm, handleSaveData, isSaving, onHideModule }) {
   const normalizedForm = useMemo(() => normalizeCpanelForm(cpanelForm), [cpanelForm]);
   const [cpanelDraft, setCpanelDraft] = useState(emptyCpanel());
   const [userDraft, setUserDraft] = useState(emptyCpanelUser());
@@ -314,7 +314,7 @@ export default function CpanelWebManager({ cpanelForm, setCpanelForm, handleSave
       <div className="bg-slate-50 border border-slate-200 rounded-lg p-5">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
-            <h3 className="text-lg font-medium text-slate-900">cPanel / domínio</h3>
+            <h3 className="flex items-center gap-2 text-lg font-medium text-slate-900">{onHideModule && <button type="button" title="Ocultar aba" aria-label="Ocultar aba" onClick={onHideModule} className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-red-300 text-red-600 hover:bg-red-50"><Trash2 className="h-4 w-4" /></button>}cPanel / domínio</h3>
             <p className="text-sm text-slate-500">Cadastre e gerencie múltiplos acessos de hospedagem.</p>
           </div>
           <button type="button" disabled={isSaving} onClick={openCreateCpanelModal} className="inline-flex items-center justify-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50">
