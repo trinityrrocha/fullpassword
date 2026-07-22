@@ -1,10 +1,10 @@
 import { useMemo, useState } from 'react';
-import { Plus, Edit2, Trash2, X, Server, ShieldCheck, EthernetPort, Download, UserRound, Eye, Copy } from 'lucide-react';
+import { Plus, Edit2, Trash2, X, Server, ShieldCheck, EthernetPort, Download, UserRound, Eye } from 'lucide-react';
 import SecurePasswordInput from './SecurePasswordInput';
 import DeleteConfirmationControl from './DeleteConfirmationControl';
 import ReadOnlyDetailsModal, { ReadOnlyAttachments, ReadOnlyField, ReadOnlySection } from './ReadOnlyDetailsModal';
-import { copyToClipboardSilently } from '../utils/clipboard';
 import { downloadAttachment } from '../utils/attachments';
+import CopyButton from './CopyButton';
 
 const systemOptions = [
   'Ubuntu',
@@ -198,7 +198,7 @@ function CompactInlineInput({ label, value, onChange, placeholder, inputMode = '
 }
 
 function SilentCopyButton({ value, label }) {
-  return <button type="button" title={`Copiar ${label}`} aria-label={`Copiar ${label}`} onClick={() => copyToClipboardSilently(value)} className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-slate-300 text-slate-600 hover:bg-slate-50"><Copy className="h-3.5 w-3.5" /></button>;
+  return <CopyButton value={value} label={`Copiar ${label}`} />;
 }
 
 const readFileAsAttachment = (file) => new Promise((resolve, reject) => {
@@ -485,11 +485,11 @@ export default function LinuxServerManager({ serverForm, setServerForm, handleSa
                 <p className="inline-flex items-center gap-1 font-medium text-slate-900">
                   <UserRound className="mr-1 h-5 w-5 shrink-0 text-slate-500" />
                   <span>{credential.username || 'Usuário SSH sem nome'}</span>
-                  <button type="button" title="Copiar usuário" aria-label="Copiar usuário" onClick={() => copyToClipboardSilently(credential.username)} className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-300 text-slate-600 hover:bg-slate-50"><Copy className="h-3.5 w-3.5" /></button>
+                  <CopyButton value={credential.username} label="Copiar usuário" />
                 </p>
                 <span className="inline-flex items-center gap-1 text-slate-600">
                   <span>· Senha: ****</span>
-                  <button type="button" title="Copiar senha" aria-label="Copiar senha" onClick={() => copyToClipboardSilently(credential.password)} className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-300 text-slate-600 hover:bg-slate-50"><Copy className="h-3.5 w-3.5" /></button>
+                  <CopyButton value={credential.password} label="Copiar senha" />
                 </span>
                 <span className="text-slate-600">· Eth1: {getServerEth1Address(credential.serverId)}</span>
                 <span className="text-slate-600">· Porta SSH: {credential.sshPort || '22'}</span>
@@ -575,7 +575,7 @@ function LinuxServerReadOnlyModal({ server, onClose }) {
 function SshCredentialReadOnlyModal({ credential, server, onClose }) {
   const normalized = normalizeSshCredential(credential);
   return <ReadOnlyDetailsModal title="Visualizar credencial SSH" onClose={onClose}>
-    <div className="grid gap-4 sm:grid-cols-2"><ReadOnlyField label="Usuário">{normalized.username || '-'} <button type="button" title="Copiar usuário" aria-label="Copiar usuário" onClick={() => copyToClipboardSilently(normalized.username)} className="ml-2 inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-300"><Copy className="h-3.5 w-3.5" /></button></ReadOnlyField><ReadOnlyField label="Senha">**** <button type="button" title="Copiar senha" aria-label="Copiar senha" onClick={() => copyToClipboardSilently(normalized.password)} className="ml-2 inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-300"><Copy className="h-3.5 w-3.5" /></button></ReadOnlyField><ReadOnlyField label="Porta SSH" value={normalized.sshPort} /><ReadOnlyField label="Servidor" value={server?.name || 'Servidor não informado'} /><ReadOnlyField label="Chave pública" value={normalized.publicKeyAttachment?.name} /><ReadOnlyField label="Chave privada" value={normalized.privateKeyAttachment?.name} /></div>
+    <div className="grid gap-4 sm:grid-cols-2"><ReadOnlyField label="Usuário">{normalized.username || '-'} <CopyButton value={normalized.username} label="Copiar usuário" /></ReadOnlyField><ReadOnlyField label="Senha">**** <CopyButton value={normalized.password} label="Copiar senha" /></ReadOnlyField><ReadOnlyField label="Porta SSH" value={normalized.sshPort} /><ReadOnlyField label="Servidor" value={server?.name || 'Servidor não informado'} /><ReadOnlyField label="Chave pública" value={normalized.publicKeyAttachment?.name} /><ReadOnlyField label="Chave privada" value={normalized.privateKeyAttachment?.name} /></div>
     <ReadOnlyAttachments files={[normalized.publicKeyAttachment, normalized.privateKeyAttachment]} />
   </ReadOnlyDetailsModal>;
 }

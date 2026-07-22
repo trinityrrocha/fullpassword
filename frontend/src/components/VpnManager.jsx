@@ -1,12 +1,12 @@
 import { useMemo, useState } from 'react';
-import { Plus, Edit2, X, Eye, Copy } from 'lucide-react';
+import { Plus, Edit2, X, Eye } from 'lucide-react';
 import SecurePasswordInput from './SecurePasswordInput';
 import DeleteConfirmationControl from './DeleteConfirmationControl';
 import InlineField from './InlineField';
 import VaultAttachmentsField from './VaultAttachmentsField';
 import ReadOnlyDetailsModal, { ReadOnlyAttachments, ReadOnlyField } from './ReadOnlyDetailsModal';
+import CopyButton from './CopyButton';
 import { normalizeVaultAttachments } from '../utils/vaultAttachments';
-import { copyToClipboardSilently } from '../utils/clipboard';
 
 const VPN_SERVER_FILE_EXTENSIONS = ['.txt', '.ovpn', '.conf', '.crt', '.cer', '.key', '.pem', '.zip', '.rar'];
 const VPN_USER_FILE_EXTENSIONS = ['.zip', '.rar', '.txt'];
@@ -382,11 +382,11 @@ export default function VpnManager({ vpnForm, setVpnForm, handleSaveData, isSavi
                 <p className="font-medium text-slate-900">{user.personName || 'Pessoa não informada'}</p>
                 <span className="inline-flex items-center gap-1 text-slate-600">
                   <span>· Login VPN: {user.username || '-'}</span>
-                  <button type="button" title="Copiar login VPN" aria-label="Copiar login VPN" onClick={() => copyToClipboardSilently(user.username)} className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-300 text-slate-600 hover:bg-slate-50"><Copy className="h-3.5 w-3.5" /></button>
+                  <CopyButton value={user.username} label="Copiar login VPN" />
                 </span>
                 <span className="inline-flex items-center gap-1 text-slate-600">
                   <span>· Senha: ****</span>
-                  <button type="button" title="Copiar senha VPN" aria-label="Copiar senha VPN" onClick={() => copyToClipboardSilently(user.password)} className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-300 text-slate-600 hover:bg-slate-50"><Copy className="h-3.5 w-3.5" /></button>
+                  <CopyButton value={user.password} label="Copiar senha VPN" />
                 </span>
                 <span className="text-slate-600">· IPv4 Local: {getServerAccessSummary(user.serverId)}</span>
               </div>
@@ -461,7 +461,7 @@ function VpnServerReadOnlyModal({ server, onClose }) {
 }
 
 function VpnUserReadOnlyModal({ user, server, onClose }) {
-  return <ReadOnlyDetailsModal title="Visualizar usuário VPN" onClose={onClose}><div className="grid gap-4 sm:grid-cols-2"><ReadOnlyField label="Nome" value={user.personName} /><ReadOnlyField label="Usuário">{user.username || '-'} <button type="button" title="Copiar usuário" aria-label="Copiar usuário" onClick={() => copyToClipboardSilently(user.username)} className="ml-2 inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-300"><Copy className="h-3.5 w-3.5" /></button></ReadOnlyField><ReadOnlyField label="Senha">**** <button type="button" title="Copiar senha" aria-label="Copiar senha" onClick={() => copyToClipboardSilently(user.password)} className="ml-2 inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-300"><Copy className="h-3.5 w-3.5" /></button></ReadOnlyField><ReadOnlyField label="Servidor" value={server?.name || 'Servidor VPN não informado'} /><ReadOnlyField label="Observações" value={user.notes} /></div><ReadOnlyAttachments files={normalizeAttachments(user)} /></ReadOnlyDetailsModal>;
+  return <ReadOnlyDetailsModal title="Visualizar usuário VPN" onClose={onClose}><div className="grid gap-4 sm:grid-cols-2"><ReadOnlyField label="Nome" value={user.personName} /><ReadOnlyField label="Usuário">{user.username || '-'} <CopyButton value={user.username} label="Copiar usuário" /></ReadOnlyField><ReadOnlyField label="Senha">**** <CopyButton value={user.password} label="Copiar senha" /></ReadOnlyField><ReadOnlyField label="Servidor" value={server?.name || 'Servidor VPN não informado'} /><ReadOnlyField label="Observações" value={user.notes} /></div><ReadOnlyAttachments files={normalizeAttachments(user)} /></ReadOnlyDetailsModal>;
 }
 
 function VpnServerModal({ title, server, setServer, isSaving, onCancel, onSave, onDelete, deleteConfirmation, setDeleteConfirmation }) {

@@ -1,11 +1,11 @@
 import { useMemo, useState } from 'react';
-import { Plus, Edit2, Trash2, X, Server, UserRound, UserStar, TriangleAlert, ShieldCheck, EthernetPort, Copy, Eye } from 'lucide-react';
+import { Plus, Edit2, Trash2, X, Server, UserRound, UserStar, TriangleAlert, ShieldCheck, EthernetPort, Eye } from 'lucide-react';
 import SecurePasswordInput from './SecurePasswordInput';
 import DeleteConfirmationControl from './DeleteConfirmationControl';
 import VaultAttachmentsField from './VaultAttachmentsField';
 import ReadOnlyDetailsModal, { ReadOnlyAttachments } from './ReadOnlyDetailsModal';
+import CopyButton from './CopyButton';
 import { normalizeVaultAttachments } from '../utils/vaultAttachments';
-import { copyToClipboardSilently } from '../utils/clipboard';
 
 const WINDOWS_SERVER_FILE_EXTENSIONS = ['.txt', '.conf', '.json', '.xml', '.log', '.zip', '.rar'];
 
@@ -202,8 +202,6 @@ const validateWindowsServerPorts = (server) => {
   alert(`A porta "${displayedValue}" em "${invalidPort.name}" é inválida. Informe uma porta entre 1 e 65535.`);
   return false;
 };
-
-const copyAvailableValue = (value) => copyToClipboardSilently(value);
 
 const normalizeWindowsForm = (data = {}) => {
   if (Array.isArray(data.servers) || Array.isArray(data.users)) {
@@ -498,12 +496,12 @@ export default function WindowsServerManager({ tsForm, setTsForm, handleSaveData
             <div key={user.id} className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm">
                 <p className="flex items-center gap-2 font-medium text-slate-900"><PermissionIcon permission={user.permission} />{user.name || 'Usuário sem nome'}</p>
-                <span className="inline-flex items-center gap-1 text-slate-600"><span>· Login: {user.username || '-'}</span><button type="button" title="Copiar login" aria-label="Copiar login" onClick={() => copyAvailableValue(user.username)} className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-300 text-slate-600 hover:bg-slate-50"><Copy className="h-3.5 w-3.5" /></button></span>
-                <span className="inline-flex items-center gap-1 text-slate-600"><span>· Senha: ****</span><button type="button" title="Copiar senha" aria-label="Copiar senha" onClick={() => copyAvailableValue(user.password)} className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-300 text-slate-600 hover:bg-slate-50"><Copy className="h-3.5 w-3.5" /></button></span>
+                <span className="inline-flex items-center gap-1 text-slate-600"><span>· Login: {user.username || '-'}</span><CopyButton value={user.username} label="Copiar login" /></span>
+                <span className="inline-flex items-center gap-1 text-slate-600"><span>· Senha: ****</span><CopyButton value={user.password} label="Copiar senha" /></span>
                 <span className="text-slate-600">· {user.permission || '-'}</span>
                 {user.department && <span className="text-slate-600">· {user.department}</span>}
                 <span className="text-slate-600">· SRV: {getServerName(user.serverId)}</span>
-                {tsAddresses.map((rule, index) => <span key={rule.id} className="inline-flex items-center gap-1 text-slate-600"><span>· TS{index + 1}</span><button type="button" title="Copiar endereço TS" aria-label="Copiar endereço TS" onClick={() => copyAvailableValue(`${rule.host}:${rule.port}`)} className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-300 text-slate-600 hover:bg-slate-50"><Copy className="h-3.5 w-3.5" /></button></span>)}
+                {tsAddresses.map((rule, index) => <span key={rule.id} className="inline-flex items-center gap-1 text-slate-600"><span>· TS{index + 1}</span><CopyButton value={`${rule.host}:${rule.port}`} label="Copiar endereço TS" /></span>)}
               </div>
               <div className="flex shrink-0 gap-2 self-start sm:self-auto">
                 <button type="button" title="Visualizar" aria-label="Visualizar" onClick={() => setViewingUser(user)} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50">
@@ -645,8 +643,8 @@ function WindowsUserReadOnlyModal({ user, servers, onClose }) {
     <ReadOnlyDetailsModal title="Visualizar usuário" onClose={onClose}>
       <div className="grid gap-4 sm:grid-cols-2">
         <div><p className="text-xs font-medium uppercase tracking-wide text-slate-500">Nome</p><p className="mt-1 text-sm text-slate-900">{user.name || '-'}</p></div>
-        <div><p className="text-xs font-medium uppercase tracking-wide text-slate-500">Usuário</p><div className="mt-1 flex items-center gap-2"><span className="text-sm text-slate-900">{user.username || '-'}</span><button type="button" title="Copiar usuário" aria-label="Copiar usuário" onClick={() => copyAvailableValue(user.username, 'Usuário')} className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-300 text-slate-600 hover:bg-slate-50"><Copy className="h-3.5 w-3.5" /></button></div></div>
-        <div><p className="text-xs font-medium uppercase tracking-wide text-slate-500">Senha</p><div className="mt-1 flex items-center gap-2"><span className="text-sm text-slate-900">****</span><button type="button" title="Copiar senha" aria-label="Copiar senha" onClick={() => copyAvailableValue(user.password, 'Senha')} className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-300 text-slate-600 hover:bg-slate-50"><Copy className="h-3.5 w-3.5" /></button></div></div>
+        <div><p className="text-xs font-medium uppercase tracking-wide text-slate-500">Usuário</p><div className="mt-1 flex items-center gap-2"><span className="text-sm text-slate-900">{user.username || '-'}</span><CopyButton value={user.username} label="Copiar usuário" /></div></div>
+        <div><p className="text-xs font-medium uppercase tracking-wide text-slate-500">Senha</p><div className="mt-1 flex items-center gap-2"><span className="text-sm text-slate-900">****</span><CopyButton value={user.password} label="Copiar senha" /></div></div>
         <div><p className="text-xs font-medium uppercase tracking-wide text-slate-500">Permissão</p><p className="mt-1 text-sm text-slate-900">{user.permission || '-'}</p></div>
         <div><p className="text-xs font-medium uppercase tracking-wide text-slate-500">Departamento</p><p className="mt-1 text-sm text-slate-900">{user.department || '-'}</p></div>
         <div><p className="text-xs font-medium uppercase tracking-wide text-slate-500">Servidor</p><p className="mt-1 text-sm text-slate-900">{selectedServer?.name || 'Servidor não informado'}</p></div>
@@ -662,7 +660,7 @@ function WindowsUserReadOnlyModal({ user, servers, onClose }) {
                 <div key={rule.id} className="flex items-center gap-2 rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm">
                   <span className="min-w-[120px] font-medium text-slate-700">{rule.name || 'TS'}</span>
                   <span className="min-w-0 flex-1 truncate font-mono text-slate-700" title={address}>{address}</span>
-                  <button type="button" title="Copiar endereço TS" aria-label="Copiar endereço TS" onClick={() => copyAvailableValue(address, 'Endereço TS')} className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"><Copy className="h-4 w-4" /></button>
+                  <CopyButton value={address} label="Copiar endereço TS" className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50" iconClassName="h-4 w-4" />
                 </div>
               );
             })}
@@ -887,8 +885,6 @@ function WindowsUserModal({ title, user, setUser, servers, getServerLabel, isSav
     ? normalizeTsRules(selectedServer).filter((rule) => rule.host.trim() && rule.port)
     : [];
 
-  const copyTsAddress = (rule) => copyAvailableValue(`${rule.host}:${rule.port}`);
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900 bg-opacity-60 p-4">
       <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -943,15 +939,7 @@ function WindowsUserModal({ title, user, setUser, servers, getServerLabel, isSav
                       <div key={rule.id} className="flex items-center gap-2 rounded-md border border-sky-200 bg-white px-3 py-2 text-sm">
                         <span className="min-w-[120px] font-medium text-slate-700">{rule.name || 'TS'}</span>
                         <span className="min-w-0 flex-1 truncate font-mono text-slate-700" title={address}>{address}</span>
-                        <button
-                          type="button"
-                          title="Copiar endereço TS"
-                          aria-label="Copiar endereço TS"
-                          onClick={() => copyTsAddress(rule)}
-                          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-slate-300 text-slate-600 hover:bg-slate-50"
-                        >
-                          <Copy className="h-4 w-4" />
-                        </button>
+                        <CopyButton value={address} label="Copiar endereço TS" className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-slate-300 text-slate-600 hover:bg-slate-50" iconClassName="h-4 w-4" />
                       </div>
                     );
                   })}

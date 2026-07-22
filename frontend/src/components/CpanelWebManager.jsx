@@ -1,10 +1,10 @@
 import { useMemo, useState } from 'react';
-import { Plus, Edit2, X, Eye, Copy } from 'lucide-react';
+import { Plus, Edit2, X, Eye } from 'lucide-react';
 import SecurePasswordInput from './SecurePasswordInput';
 import DeleteConfirmationControl from './DeleteConfirmationControl';
 import ReadOnlyDetailsModal, { ReadOnlyAttachments, ReadOnlyField } from './ReadOnlyDetailsModal';
-import { copyToClipboardSilently } from '../utils/clipboard';
 import { normalizeVaultAttachments } from '../utils/vaultAttachments';
+import CopyButton from './CopyButton';
 
 const departmentOptions = [
   'Comercial',
@@ -370,11 +370,11 @@ export default function CpanelWebManager({ cpanelForm, setCpanelForm, handleSave
                 <p className="font-medium text-slate-900">{user.name || 'Usuário sem nome'}</p>
                 <span className="inline-flex items-center gap-1 text-slate-600">
                   <span>· Login: {getUserLoginWithDomain(user)}</span>
-                  <button type="button" title="Copiar login" aria-label="Copiar login" onClick={() => copyToClipboardSilently(getUserLoginWithDomain(user))} className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-300 text-slate-600 hover:bg-slate-50"><Copy className="h-3.5 w-3.5" /></button>
+                  <CopyButton value={getUserLoginWithDomain(user)} label="Copiar login" />
                 </span>
                 <span className="inline-flex items-center gap-1 text-slate-600">
                   <span>· Senha: ****</span>
-                  <button type="button" title="Copiar senha" aria-label="Copiar senha" onClick={() => copyToClipboardSilently(user.password)} className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-300 text-slate-600 hover:bg-slate-50"><Copy className="h-3.5 w-3.5" /></button>
+                  <CopyButton value={user.password} label="Copiar senha" />
                 </span>
                 <span className="text-slate-600">· Departamento: {user.department || '-'}</span>
                 <span className="text-slate-600">· Domínio: {getCpanelAccessLabel(user.cpanelId)}</span>
@@ -560,7 +560,7 @@ export default function CpanelWebManager({ cpanelForm, setCpanelForm, handleSave
 }
 
 function CopyValueButton({ value, label }) {
-  return <button type="button" title={`Copiar ${label}`} aria-label={`Copiar ${label}`} onClick={() => copyToClipboardSilently(value)} className="ml-2 inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-300 text-slate-600 hover:bg-slate-50"><Copy className="h-3.5 w-3.5" /></button>;
+  return <CopyButton value={value} label={`Copiar ${label}`} className="ml-2 inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-300 text-slate-600 hover:bg-slate-50" />;
 }
 
 function CpanelReadOnlyModal({ cpanel, onClose }) {

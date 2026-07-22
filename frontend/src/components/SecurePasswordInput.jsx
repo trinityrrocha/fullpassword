@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
-import { Eye, EyeOff, Copy, KeyRound } from 'lucide-react';
-import { copyToClipboardSilently } from '../utils/clipboard';
+import { Eye, EyeOff, KeyRound } from 'lucide-react';
+import CopyButton from './CopyButton';
 
 // ---------------------------------------------------------------------------
 // Geração de senha segura
@@ -77,13 +77,6 @@ export default function SecurePasswordInput({
 
   // Limpa o timer de undo ao desmontar
   useEffect(() => () => clearTimeout(undoTimerRef.current), []);
-
-  // -------------------------------------------------------------------------
-  // Copiar senha
-  // -------------------------------------------------------------------------
-  const copyToClipboard = async () => {
-    await copyToClipboardSilently(value);
-  };
 
   // -------------------------------------------------------------------------
   // Gerar senha
@@ -180,14 +173,7 @@ export default function SecurePasswordInput({
           )}
 
           {/* Copiar senha */}
-          <button
-            type="button"
-            onClick={copyToClipboard}
-            className="p-1 text-slate-400 hover:text-indigo-600 focus:outline-none transition-colors"
-            title="Copiar senha"
-          >
-            <Copy className="h-4 w-4" />
-          </button>
+          <CopyButton value={value} label="Copiar senha" className="inline-flex items-center justify-center p-1 text-slate-400 transition-colors hover:text-indigo-600 focus:outline-none" iconClassName="h-4 w-4" />
 
           {/* Mostrar / ocultar senha */}
           <button
