@@ -179,6 +179,8 @@ const getConnectionLabel = (connection, allConnections = []) => {
   return `VPN ${vpnIndex + 1}`;
 };
 
+const isProxmoxServer = (server) => String(server?.systemType || server?.os || server?.type || '').toLowerCase().includes('proxmox');
+
 function ConnectionIcon({ type }) {
   const isVpn = String(type || '').toUpperCase() === 'VPN';
   const Icon = isVpn ? ShieldCheck : EthernetPort;
@@ -192,6 +194,10 @@ function CompactInlineInput({ label, value, onChange, placeholder, inputMode = '
       <input type="text" inputMode={inputMode} aria-label={label} className="h-full min-w-0 flex-1 border-0 px-2 text-sm outline-none focus:ring-0" value={value} onChange={onChange} placeholder={placeholder} />
     </div>
   );
+}
+
+function SilentCopyButton({ value, label }) {
+  return <button type="button" title={`Copiar ${label}`} aria-label={`Copiar ${label}`} onClick={() => copyToClipboardSilently(value)} className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-slate-300 text-slate-600 hover:bg-slate-50"><Copy className="h-3.5 w-3.5" /></button>;
 }
 
 const readFileAsAttachment = (file) => new Promise((resolve, reject) => {
@@ -445,15 +451,26 @@ export default function LinuxServerManager({ serverForm, setServerForm, handleSa
         <div className="mt-5 space-y-3">
           {normalizedForm.servers.length === 0 ? (
             <p className="text-sm text-slate-500">Nenhum servidor Linux cadastrado.</p>
-          ) : normalizedForm.servers.map((server) => (
-            <div key={server.id} className="flex min-h-10 flex-col justify-between gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 sm:flex-row sm:items-center">
-              <div className="min-w-0">
-                <p className="flex items-center gap-2 truncate font-medium text-slate-900"><Server className="h-5 w-5 shrink-0 text-slate-500" />{server.name || 'Servidor sem nome'}</p>
-                <p className="truncate text-sm text-slate-500">Sistema: {server.systemType || '-'} | Conexões: {server.connections?.length || 0} | Portas: {server.portRules?.length || 0}</p>
+          ) : normalizedForm.servers.map((server) => {
+            const proxmoxApi = normalizeProxmoxApi(server.proxmoxApi);
+            const isProxmox = isProxmoxServer(server);
+            return (
+              <div key={server.id} className="flex min-h-10 flex-col justify-between gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 sm:flex-row sm:items-center">
+                <div className="min-w-0">
+                  <p className="flex items-center gap-2 truncate font-medium text-slate-900"><Server className="h-5 w-5 shrink-0 text-slate-500" />{server.name || 'Servidor sem nome'}</p>
+                  {isProxmox ? (
+                    <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm text-slate-600">
+                      <span>Proxmox</span>
+                      <span className="inline-flex items-center gap-1"><span>· Login: {proxmoxApi.username || 'não informado'}</span><SilentCopyButton value={proxmoxApi.username} label="login" /></span>
+                      <span className="inline-flex items-center gap-1"><span>· Senha: ****</span><SilentCopyButton value={proxmoxApi.tokenApi} label="senha" /></span>
+                      <span className="inline-flex min-w-0 items-center gap-1"><span className="break-all">· URL: {proxmoxApi.url || 'não informada'}</span><SilentCopyButton value={proxmoxApi.url} label="URL" /></span>
+                    </div>
+                  ) : <p className="truncate text-sm text-slate-500">Sistema: {server.systemType || '-'} | Conexões: {server.connections?.length || 0} | Portas: {server.portRules?.length || 0}</p>}
+                </div>
+                <div className="flex shrink-0 gap-2 self-start sm:self-auto"><button type="button" title="Visualizar" aria-label="Visualizar" onClick={() => setViewingServer(server)} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"><Eye className="h-4 w-4" /></button><button type="button" title="Detalhes" aria-label="Detalhes" onClick={() => { setEditingServer(normalizeLinuxServer(server)); setDeleteConfirmation(''); }} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"><Edit2 className="h-4 w-4" /></button></div>
               </div>
-              <div className="flex shrink-0 gap-2 self-start sm:self-auto"><button type="button" title="Visualizar" aria-label="Visualizar" onClick={() => setViewingServer(server)} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"><Eye className="h-4 w-4" /></button><button type="button" title="Detalhes" aria-label="Detalhes" onClick={() => { setEditingServer(normalizeLinuxServer(server)); setDeleteConfirmation(''); }} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"><Edit2 className="h-4 w-4" /></button></div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 
@@ -565,6 +582,7 @@ function LinuxServerReadOnlyModal({ server, onClose }) {
   const normalized = normalizeLinuxServer(server);
   return <ReadOnlyDetailsModal title="Visualizar servidor Linux" onClose={onClose}>
     <div className="grid gap-4 sm:grid-cols-2"><ReadOnlyField label="Servidor" value={normalized.name} /><ReadOnlyField label="Sistema" value={normalized.systemType} /><ReadOnlyField label="Observações" value={normalized.notes} /></div>
+    {isProxmoxServer(normalized) && <ReadOnlySection title="Acesso Proxmox"><div className="grid gap-4 sm:grid-cols-2"><ReadOnlyField label="URL">{normalized.proxmoxApi.url || 'não informada'} <SilentCopyButton value={normalized.proxmoxApi.url} label="URL" /></ReadOnlyField><ReadOnlyField label="Login">{normalized.proxmoxApi.username || 'não informado'} <SilentCopyButton value={normalized.proxmoxApi.username} label="login" /></ReadOnlyField><ReadOnlyField label="Senha">**** <SilentCopyButton value={normalized.proxmoxApi.tokenApi} label="senha" /></ReadOnlyField></div></ReadOnlySection>}
     <ReadOnlySection title="Conexões">{normalized.connections.length ? <div className="space-y-2">{normalized.connections.map((connection) => <div key={connection.id} className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">{getConnectionLabel(connection, normalized.connections)}{connection.type === 'VPN' ? ` / ${connection.vpn}` : ''} · {connection.ipv4 || '-'}</div>)}</div> : <p className="text-sm text-slate-500">Nenhuma conexão cadastrada.</p>}</ReadOnlySection>
     <ReadOnlySection title="Portas">{normalized.portRules.length ? <div className="space-y-2">{normalized.portRules.map((rule) => <div key={rule.id} className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">{rule.name || 'Porta'} · {rule.portNumber || '-'} · {rule.direction} · {rule.protocol}</div>)}</div> : <p className="text-sm text-slate-500">Nenhuma porta cadastrada.</p>}</ReadOnlySection>
     <ReadOnlySection title="Arquivos">{normalized.proxmoxApi.attachments.length ? <ul className="list-disc pl-5 text-sm text-slate-700">{normalized.proxmoxApi.attachments.map((file) => <li key={file.id}>{file.name}</li>)}</ul> : <p className="text-sm text-slate-500">Nenhum arquivo anexado.</p>}</ReadOnlySection>
