@@ -329,7 +329,12 @@ export default function CpanelWebManager({ cpanelForm, setCpanelForm, handleSave
             <div key={cpanel.id} className="flex min-h-10 flex-col justify-between gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 sm:flex-row sm:items-center">
               <div className="min-w-0">
                 <p className="truncate font-medium text-slate-900">{cpanel.domain || 'Domínio sem nome'}</p>
-                <p className="truncate text-sm text-slate-500">URL: {cpanel.url || '-'} | Usuário: {cpanel.username || '-'}</p>
+                <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm text-slate-500">
+                  <span className="inline-flex min-w-0 items-center"><span className="truncate">URL: {cpanel.url || '-'}</span><CopyValueButton value={cpanel.url} label="URL" /></span>
+                  <span aria-hidden="true">|</span>
+                  <span className="inline-flex items-center"><span>Login: {cpanel.username || '-'}</span><CopyValueButton value={cpanel.username} label="login" /></span>
+                  <span className="inline-flex items-center"><span>Senha: ****</span><CopyValueButton value={cpanel.password} label="senha" /></span>
+                </div>
               </div>
               <div className="flex shrink-0 gap-2 self-start sm:self-auto"><button type="button" title="Visualizar" aria-label="Visualizar" onClick={() => setViewingCpanel(cpanel)} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"><Eye className="h-4 w-4" /></button><button type="button" title="Detalhes" aria-label="Detalhes" onClick={() => { setEditingCpanel({ ...cpanel }); setDeleteCpanelConfirmation(''); }} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"><Edit2 className="h-4 w-4" /></button></div>
             </div>
