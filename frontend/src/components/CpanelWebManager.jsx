@@ -362,9 +362,16 @@ export default function CpanelWebManager({ cpanelForm, setCpanelForm, handleSave
             <div key={user.id} className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm">
                 <p className="font-medium text-slate-900">{user.name || 'Usuário sem nome'}</p>
-                <span className="text-slate-600">· Login: {getUserLoginWithDomain(user)}</span>
+                <span className="inline-flex items-center gap-1 text-slate-600">
+                  <span>· Login: {getUserLoginWithDomain(user)}</span>
+                  <button type="button" title="Copiar login" aria-label="Copiar login" onClick={() => copyToClipboardSilently(getUserLoginWithDomain(user))} className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-300 text-slate-600 hover:bg-slate-50"><Copy className="h-3.5 w-3.5" /></button>
+                </span>
+                <span className="inline-flex items-center gap-1 text-slate-600">
+                  <span>· Senha: ****</span>
+                  <button type="button" title="Copiar senha" aria-label="Copiar senha" onClick={() => copyToClipboardSilently(user.password)} className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-300 text-slate-600 hover:bg-slate-50"><Copy className="h-3.5 w-3.5" /></button>
+                </span>
                 <span className="text-slate-600">· Departamento: {user.department || '-'}</span>
-                <span className="text-slate-600">· cPanel / domínio: {getCpanelAccessLabel(user.cpanelId)}</span>
+                <span className="text-slate-600">· Domínio: {getCpanelAccessLabel(user.cpanelId)}</span>
               </div>
               <div className="flex shrink-0 gap-2 self-start sm:self-auto"><button type="button" title="Visualizar" aria-label="Visualizar" onClick={() => setViewingUser(user)} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"><Eye className="h-4 w-4" /></button><button type="button" title="Detalhes" aria-label="Detalhes" onClick={() => { setEditingUser({ ...user }); setDeleteUserConfirmation(''); }} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"><Edit2 className="h-4 w-4" /></button></div>
             </div>
