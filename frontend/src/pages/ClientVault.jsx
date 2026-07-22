@@ -217,14 +217,21 @@ export default function ClientVault() {
             setServerForm({ ...decryptedData, attachment: null });
           }
         } catch (err) {
-          decryptionFailures.push({ id: item.id, category: item.category, error: err });
+          decryptionFailures.push({
+            id: item.id,
+            category: item.category,
+            hasEncryptedData: typeof item.encrypted_data === 'string' && item.encrypted_data.length > 0,
+            encryptedDataLength: typeof item.encrypted_data === 'string' ? item.encrypted_data.length : 0,
+            algorithm: 'AES-GCM',
+            errorName: err?.name || 'Error'
+          });
           decryptedItems.push({ ...item, decryptError: true });
         }
       }
 
       if (decryptionFailures.length > 0) {
         console.warn('Alguns itens do cofre não puderam ser descriptografados.', {
-          failedItems: decryptionFailures.map(({ id: itemId, category }) => ({ id: itemId, category })),
+          failedItems: decryptionFailures,
           total: items.length
         });
       }
@@ -264,22 +271,27 @@ export default function ClientVault() {
         if (cancelled) return;
         setVaultPermissions(normalizedPermissions);
 
-        if (normalizedPermissions.is_owner) {
-          setVaultDataKey(masterKey);
+        const keyResponse = await api.get(`/vault-items/${id}/key-share`);
+        if (keyResponse.data?.encrypted_client_key) {
+          if (!user.encrypted_private_key) {
+            throw new Error('Sua chave privada ainda não está disponível. Desbloqueie o cofre novamente.');
+          }
+
+          const sharedKey = await decryptVaultKeyShare(
+            keyResponse.data.encrypted_client_key,
+            user.encrypted_private_key,
+            masterKey
+          );
+          if (!cancelled) setVaultDataKey(sharedKey);
           return;
         }
 
-        const keyResponse = await api.get(`/vault-items/${id}/key-share`);
-        if (!keyResponse.data?.encrypted_client_key || !user.encrypted_private_key) {
-          throw new Error('A chave criptográfica deste cofre ainda não foi entregue. Peça ao proprietário para salvar o compartilhamento novamente.');
+        if (normalizedPermissions.is_owner) {
+          if (!cancelled) setVaultDataKey(masterKey);
+          return;
         }
 
-        const sharedKey = await decryptVaultKeyShare(
-          keyResponse.data.encrypted_client_key,
-          user.encrypted_private_key,
-          masterKey
-        );
-        if (!cancelled) setVaultDataKey(sharedKey);
+        throw new Error('A chave criptográfica deste cofre ainda não foi entregue. Peça ao proprietário para salvar o compartilhamento novamente.');
       } catch (error) {
         console.error('Erro ao carregar acesso criptográfico do cofre:', error);
         if (!cancelled) {
@@ -301,6 +313,11 @@ export default function ClientVault() {
 
     if (!vaultDataKey) {
       alert('Cofre bloqueado. Por favor, insira sua senha mestre para continuar.');
+      return false;
+    }
+
+    if (failedVaultItems.length > 0) {
+      alert('O salvamento foi bloqueado porque existem itens que não puderam ser descriptografados. Recarregue o cofre ou corrija o acesso criptográfico antes de salvar.');
       return false;
     }
 
