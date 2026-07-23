@@ -16,7 +16,11 @@ const restoreUpload = multer({
 const receiveRestoreFile = (req, res, next) => restoreUpload.single('backup')(req, res, (error) => {
   if (!error) return next();
   const tooLarge = error.code === 'LIMIT_FILE_SIZE';
-  return res.status(tooLarge ? 413 : 400).json({ error: tooLarge ? 'O backup excede o limite de 50 MB' : 'Upload de backup inválido' });
+  return res.status(tooLarge ? 413 : 400).json({
+    error: tooLarge ? 'BACKUP_RESTORE_FILE_TOO_LARGE' : 'BACKUP_RESTORE_INVALID_UPLOAD',
+    message: 'O arquivo de backup não pôde ser enviado.',
+    details: tooLarge ? 'O backup excede o limite de 50 MB.' : 'O upload informado é inválido.'
+  });
 });
 
 // Rotas de sistema requerem autenticação

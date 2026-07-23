@@ -7,14 +7,42 @@ const { parseAndDecryptBackup, summarizeBackup, restoreBackupPayload } = require
 
 const BACKUP_ARCHIVE_DIR = process.env.BACKUP_ARCHIVE_DIR || '/var/lib/fullpassword-backups';
 
+const sendRestoreError = (res, status, error, message, details) => {
+  return res.status(status).json({
+    error,
+    message,
+    ...(details ? { details } : {})
+  });
+};
+
+const getSafeErrorDetails = (error, fallback) => {
+  const details = String(error?.message || fallback || '')
+    .replace(/[\r\n\t]+/g, ' ')
+    .trim()
+    .slice(0, 500);
+  return details || fallback;
+};
+
 const deny = async (req, res) => {
   await recordAuditEvent({ user: req.user, action: 'backup_restore_denied', status: 'denied', req, metadata: { reason: 'not_super_admin' } });
-  return res.status(403).json({ error: 'Apenas o Super Admin pode restaurar backups' });
+  return sendRestoreError(
+    res,
+    403,
+    'BACKUP_RESTORE_FORBIDDEN',
+    'Você não possui permissão para restaurar backups.',
+    'A restauração é permitida apenas para o Super Admin.'
+  );
 };
 
 const requireUpload = (req, res) => {
   if (!req.file?.buffer) {
-    res.status(400).json({ error: 'Selecione um arquivo .enc.json válido' });
+    sendRestoreError(
+      res,
+      400,
+      'BACKUP_RESTORE_INVALID_FILE',
+      'O arquivo de backup não pôde ser processado.',
+      'Selecione um arquivo .enc.json válido.'
+    );
     return false;
   }
   return true;
@@ -33,8 +61,16 @@ const dryRun = async (req, res) => {
     });
     return res.status(200).json(summary);
   } catch (error) {
+    const details = getSafeErrorDetails(error, 'Arquivo de backup inválido ou incompatível.');
     await recordAuditEvent({ user: req.user, action: 'backup_restore_dry_run_failed', status: 'failed', req, metadata: { reason: 'validation_failed' } });
-    return res.status(400).json({ error: error.message });
+    console.warn('Validação de backup recusada.', { errorName: error?.name || 'Error', reason: details });
+    return sendRestoreError(
+      res,
+      400,
+      'BACKUP_RESTORE_INVALID_FILE',
+      'O arquivo de backup não pôde ser validado.',
+      details
+    );
   }
 };
 
@@ -54,15 +90,29 @@ const restore = async (req, res) => {
   if (!requireUpload(req, res)) return;
   if (req.body?.confirmation !== 'RESTAURAR BACKUP') {
     await recordAuditEvent({ user: req.user, action: 'backup_restore_denied', status: 'denied', req, metadata: { reason: 'invalid_confirmation' } });
-    return res.status(400).json({ error: 'Digite exatamente RESTAURAR BACKUP para confirmar' });
+    return sendRestoreError(
+      res,
+      400,
+      'BACKUP_RESTORE_CONFIRMATION_REQUIRED',
+      'A confirmação da restauração é inválida.',
+      'Digite exatamente RESTAURAR BACKUP para confirmar.'
+    );
   }
 
   let parsed;
   try {
     parsed = await parseAndDecryptBackup(req.file.buffer, req.body?.passphrase);
   } catch (error) {
+    const details = getSafeErrorDetails(error, 'Arquivo de backup inválido ou incompatível.');
     await recordAuditEvent({ user: req.user, action: 'backup_restore_failed', status: 'failed', req, metadata: { reason: 'validation_failed' } });
-    return res.status(400).json({ error: error.message });
+    console.warn('Backup recusado antes da restauração.', { errorName: error?.name || 'Error', reason: details });
+    return sendRestoreError(
+      res,
+      400,
+      'BACKUP_RESTORE_INVALID_FILE',
+      'O arquivo de backup não pôde ser restaurado.',
+      details
+    );
   }
 
   let preRestoreFilename;
@@ -72,7 +122,13 @@ const restore = async (req, res) => {
   } catch (error) {
     console.error('Falha ao criar backup automático pré-restore:', error.message);
     await recordAuditEvent({ user: req.user, action: 'backup_pre_restore_export_failed', status: 'failed', req });
-    return res.status(500).json({ error: 'Não foi possível criar o backup automático de segurança. A restauração foi cancelada.' });
+    return sendRestoreError(
+      res,
+      500,
+      'BACKUP_RESTORE_SAFETY_BACKUP_FAILED',
+      'A restauração foi cancelada antes de alterar os dados.',
+      'Não foi possível criar o backup automático de segurança.'
+    );
   }
 
   try {
@@ -94,7 +150,13 @@ const restore = async (req, res) => {
   } catch (error) {
     console.error('Falha transacional ao restaurar backup:', error.message);
     await recordAuditEvent({ user: req.user, action: 'backup_restore_failed', status: 'failed', req, metadata: { reason: 'transaction_failed' } });
-    return res.status(500).json({ error: 'A restauração falhou e a transação foi revertida. O backup automático foi preservado.' });
+    return sendRestoreError(
+      res,
+      500,
+      'BACKUP_RESTORE_TRANSACTION_FAILED',
+      'Não foi possível restaurar o backup.',
+      'A transação foi revertida e o backup automático de segurança foi preservado.'
+    );
   }
 };
 
