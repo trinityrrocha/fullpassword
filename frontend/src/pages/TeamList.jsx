@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { Users, Plus, Shield, Star, UserRound, X, Loader2, FolderKey, Trash2 } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { Users, Plus, Shield, Star, UserRound, X, Loader2, FolderKey, Trash2, ChevronDown } from 'lucide-react';
 import SecurePasswordInput from '../components/SecurePasswordInput';
 import GroupModal from '../components/GroupModal';
 import api from '../services/api';
@@ -43,42 +43,81 @@ const getPermissionSummary = (group = {}) => {
 };
 
 function GroupMembershipSelector({ groups, selectedIds, onChange, disabled = false }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const selectorRef = useRef(null);
+  const safeSelectedIds = Array.isArray(selectedIds) ? selectedIds : [];
+  const selectedGroups = groups.filter((group) => safeSelectedIds.includes(group.id));
+  const selectionLabel = selectedGroups.length === 0
+    ? 'Selecione os grupos'
+    : selectedGroups.length <= 2
+      ? selectedGroups.map((group) => group.name).join(', ')
+      : `${selectedGroups.length} grupos selecionados`;
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
+
+    const handleOutsideClick = (event) => {
+      if (!selectorRef.current?.contains(event.target)) setIsOpen(false);
+    };
+    const handleEscape = (event) => {
+      if (event.key === 'Escape') setIsOpen(false);
+    };
+
+    document.addEventListener('mousedown', handleOutsideClick);
+    document.addEventListener('keydown', handleEscape);
+
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClick);
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, [isOpen]);
+
   const toggleGroup = (groupId) => {
     if (disabled) return;
 
-    const nextIds = selectedIds.includes(groupId)
-      ? selectedIds.filter((id) => id !== groupId)
-      : [...selectedIds, groupId];
+    const nextIds = safeSelectedIds.includes(groupId)
+      ? safeSelectedIds.filter((id) => id !== groupId)
+      : [...safeSelectedIds, groupId];
 
     onChange(nextIds);
   };
 
   return (
-    <div>
-      <label className="block text-sm font-medium text-slate-700 mb-2">Grupos do usuário</label>
-      <div className="max-h-44 overflow-y-auto border border-slate-200 rounded-md p-3 bg-slate-50">
-        {groups.length === 0 ? (
-          <p className="text-sm text-slate-500 text-center py-2">Nenhum grupo cadastrado.</p>
-        ) : (
-          <div className="space-y-2">
-            {groups.map((group) => (
-              <label key={group.id} className={`flex items-start gap-3 ${disabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}>
-                <input
-                  type="checkbox"
-                  disabled={disabled}
-                  className="h-4 w-4 mt-0.5 text-indigo-600 focus:ring-indigo-500 border-slate-300 rounded"
-                  checked={selectedIds.includes(group.id)}
-                  onChange={() => toggleGroup(group.id)}
-                />
-                <span className="text-sm text-slate-700">
-                  <span className="font-medium">{group.name}</span>
-                  <span className="block text-xs text-slate-500">{getPermissionSummary(group)}</span>
-                </span>
-              </label>
-            ))}
-          </div>
-        )}
-      </div>
+    <div ref={selectorRef} className="relative">
+      <label className="mb-1 block text-sm font-medium text-slate-700">Grupos do usuário</label>
+      <button
+        type="button"
+        disabled={disabled}
+        aria-expanded={isOpen}
+        aria-haspopup="listbox"
+        aria-label="Selecionar grupos do usuário"
+        onClick={() => setIsOpen((current) => !current)}
+        className="flex h-8 w-full items-center justify-between gap-2 rounded-md border border-slate-300 bg-white px-2 text-left text-sm shadow-sm disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        <span className={`truncate ${selectedGroups.length ? 'text-slate-700' : 'text-slate-500'}`}>{selectionLabel}</span>
+        <ChevronDown className={`h-4 w-4 shrink-0 text-slate-500 transition-transform ${isOpen ? 'rotate-180' : ''}`} aria-hidden="true" />
+      </button>
+      {isOpen && (
+        <div role="listbox" aria-multiselectable="true" className="absolute z-30 mt-1 max-h-56 w-full overflow-y-auto rounded-md border border-slate-200 bg-white p-1 shadow-lg">
+          {groups.length === 0 ? (
+            <p className="px-2 py-2 text-center text-sm text-slate-500">Nenhum grupo cadastrado.</p>
+          ) : groups.map((group) => (
+            <label role="option" aria-selected={safeSelectedIds.includes(group.id)} key={group.id} className={`flex items-start gap-2 rounded px-2 py-1.5 hover:bg-slate-50 ${disabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}>
+              <input
+                type="checkbox"
+                disabled={disabled}
+                className="mt-0.5 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                checked={safeSelectedIds.includes(group.id)}
+                onChange={() => toggleGroup(group.id)}
+              />
+              <span className="min-w-0 text-sm text-slate-700">
+                <span className="block truncate font-medium">{group.name}</span>
+                <span className="block truncate text-xs text-slate-500">{getPermissionSummary(group)}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -457,20 +496,20 @@ export default function TeamList() {
                 <form id="editUserForm" onSubmit={handleEditUser} className="space-y-4">
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">Nome Completo</label>
-                    <input type="text" required className="w-full border-slate-300 rounded-md shadow-sm p-2 border" value={editUser.name} onChange={e => setEditUser({...editUser, name: e.target.value})} />
+                    <input type="text" required className="h-8 w-full rounded-md border border-slate-300 px-2 py-1 text-sm shadow-sm" value={editUser.name} onChange={e => setEditUser({...editUser, name: e.target.value})} />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">E-mail</label>
-                    <input type="email" required className="w-full border-slate-300 rounded-md shadow-sm p-2 border" value={editUser.email} onChange={e => setEditUser({...editUser, email: e.target.value.toLowerCase()})} />
+                    <input type="email" required className="h-8 w-full rounded-md border border-slate-300 px-2 py-1 text-sm shadow-sm" value={editUser.email} onChange={e => setEditUser({...editUser, email: e.target.value.toLowerCase()})} />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">Nova Senha <span className="text-slate-400 font-normal">(deixe em branco para não alterar)</span></label>
-                    <SecurePasswordInput value={editUser.password} onChange={e => setEditUser({...editUser, password: e.target.value})} placeholder="Nova senha (opcional)" />
+                    <SecurePasswordInput className="[&_input]:h-8 [&_input]:py-1 [&_input]:pl-2" value={editUser.password} onChange={e => setEditUser({...editUser, password: e.target.value})} placeholder="Nova senha (opcional)" />
                     {editUser.password && editUser.password.trim() !== '' && <p className="mt-1 text-xs text-amber-600">Ao alterar a senha, as chaves criptográficas do usuário serão redefinidas.</p>}
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">Nível de Acesso</label>
-                    <select className="w-full border-slate-300 rounded-md shadow-sm p-2 border bg-white" value={editUser.role} onChange={e => setEditUser({...editUser, role: e.target.value})}>
+                    <select className="h-8 w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-sm shadow-sm" value={editUser.role} onChange={e => setEditUser({...editUser, role: e.target.value})}>
                       <option value="user">Usuário Padrão</option>
                       <option value="admin">Administrador</option>
                     </select>
@@ -525,19 +564,19 @@ export default function TeamList() {
                 <form id="newUserForm" onSubmit={handleCreateUser} className="space-y-4">
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">Nome Completo</label>
-                    <input type="text" required className="w-full border-slate-300 rounded-md shadow-sm p-2 border" value={newUser.name} onChange={e => setNewUser({...newUser, name: e.target.value})} placeholder="Ex: João Silva" />
+                    <input type="text" required className="h-8 w-full rounded-md border border-slate-300 px-2 py-1 text-sm shadow-sm" value={newUser.name} onChange={e => setNewUser({...newUser, name: e.target.value})} placeholder="Ex: João Silva" />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">E-mail</label>
-                    <input type="email" required className="w-full border-slate-300 rounded-md shadow-sm p-2 border" value={newUser.email} onChange={e => setNewUser({...newUser, email: e.target.value.toLowerCase()})} placeholder="joao@empresa.com.br" />
+                    <input type="email" required className="h-8 w-full rounded-md border border-slate-300 px-2 py-1 text-sm shadow-sm" value={newUser.email} onChange={e => setNewUser({...newUser, email: e.target.value.toLowerCase()})} placeholder="joao@empresa.com.br" />
                   </div>
                   <div>
-                    <SecurePasswordInput name="user_password" label="Senha de Acesso" value={newUser.password} onChange={e => setNewUser({...newUser, password: e.target.value})} required />
+                    <SecurePasswordInput className="[&_input]:h-8 [&_input]:py-1 [&_input]:pl-2" name="user_password" label="Senha de Acesso" value={newUser.password} onChange={e => setNewUser({...newUser, password: e.target.value})} required />
                     <p className="mt-1 text-xs text-slate-500">Esta senha será usada para login e para derivar a chave de criptografia do usuário.</p>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">Nível de Acesso</label>
-                    <select className="w-full border-slate-300 rounded-md shadow-sm p-2 border bg-white" value={newUser.role} onChange={e => setNewUser({...newUser, role: e.target.value})}>
+                    <select className="h-8 w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-sm shadow-sm" value={newUser.role} onChange={e => setNewUser({...newUser, role: e.target.value})}>
                       <option value="user">Usuário Padrão</option>
                       <option value="admin">Administrador</option>
                     </select>
