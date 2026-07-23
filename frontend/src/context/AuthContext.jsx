@@ -87,6 +87,7 @@ export const AuthProvider = ({ children }) => {
       setMasterKey(key);
 
       const currentUser = user;
+      let unlockedUser = currentUser;
       if (currentUser && (!currentUser.public_key || !currentUser.encrypted_private_key)) {
         console.log('Gerando chaves RSA para compartilhamento de cofres...');
         try {
@@ -99,6 +100,11 @@ export const AuthProvider = ({ children }) => {
             encrypted_private_key: encryptedPrivateKeyStr
           });
           
+          unlockedUser = {
+            ...currentUser,
+            public_key: publicKeyStr,
+            encrypted_private_key: encryptedPrivateKeyStr
+          };
           setUser((existingUser) => ({
             ...existingUser,
             public_key: publicKeyStr,
@@ -110,9 +116,9 @@ export const AuthProvider = ({ children }) => {
         }
       }
 
-      return { success: true };
-    } catch (error) {
-      console.error('Falha no desbloqueio:', error);
+      return { success: true, key, user: unlockedUser };
+    } catch {
+      console.warn('Não foi possível validar a senha mestre informada.');
       return { success: false, error: 'Senha mestre incorreta' };
     }
   };

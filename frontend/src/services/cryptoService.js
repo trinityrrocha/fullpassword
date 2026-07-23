@@ -131,9 +131,8 @@ export const unwrapMasterKey = async (wrappedKeyStr, kek) => {
       true,
       ['encrypt', 'decrypt']
     );
-  } catch (error) {
-    console.error('Erro ao desenvelopar Master Key:', error);
-    // Erro criptográfico real (OperationError) ocorre se a KEK estiver errada
+  } catch {
+    console.warn('Não foi possível desenvelopar a Master Key com a credencial informada.');
     throw new Error('Senha mestre incorreta'); 
   }
 };
@@ -206,8 +205,8 @@ export const decryptData = async (encryptedText, masterKey) => {
     // 4. Decodificar para string e parsear JSON
     const decryptedString = getMessageDecoding(decryptedBuffer);
     return JSON.parse(decryptedString);
-  } catch (error) {
-    console.error('Erro ao descriptografar dados:', error);
+  } catch {
+    console.warn('Não foi possível descriptografar os dados com a chave disponível.');
     throw new Error('Falha na descriptografia dos dados. A chave pode estar incorreta.');
   }
 };

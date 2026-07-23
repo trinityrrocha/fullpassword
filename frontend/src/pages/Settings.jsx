@@ -28,6 +28,7 @@ const AUDIT_ACTION_OPTIONS = [
   ['ip_unblocked', 'IP desbloqueado'],
   ['ip_whitelisted', 'IP adicionado à whitelist'],
   ['ip_whitelist_removed', 'IP removido da whitelist'],
+  ['user_deleted', 'Usuário excluído'],
   ['login_security_policy_updated', 'Política de login alterada'],
   ['ip_access_blocked', 'Acesso bloqueado por IP']
 ];

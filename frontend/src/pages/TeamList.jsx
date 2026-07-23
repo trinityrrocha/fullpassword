@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Users, Plus, Shield, Star, UserRound, X, Loader2, FolderKey } from 'lucide-react';
+import { Users, Plus, Shield, Star, UserRound, X, Loader2, FolderKey, Trash2 } from 'lucide-react';
 import SecurePasswordInput from '../components/SecurePasswordInput';
 import GroupModal from '../components/GroupModal';
 import api from '../services/api';
@@ -23,7 +23,8 @@ const defaultEditUser = {
   password: '',
   groupIds: [],
   mfa_required: false,
-  mfa_enabled: false
+  mfa_enabled: false,
+  is_super_admin: false
 };
 
 const permissionLabels = [
@@ -91,6 +92,7 @@ export default function TeamList() {
   const [teamMembers, setTeamMembers] = useState([]);
   const [newUser, setNewUser] = useState(defaultNewUser);
   const [editUser, setEditUser] = useState(defaultEditUser);
+  const [deleteUserConfirmation, setDeleteUserConfirmation] = useState('');
   const [activeTab, setActiveTab] = useState('users');
   const [groups, setGroups] = useState([]);
   const [isLoadingGroups, setIsLoadingGroups] = useState(false);
@@ -172,6 +174,7 @@ export default function TeamList() {
       alert('Usuário atualizado com sucesso!' + (payload.password ? ' A nova senha foi aplicada e as chaves criptográficas foram redefinidas.' : ''));
       setIsEditModalOpen(false);
       setEditUser(defaultEditUser);
+      setDeleteUserConfirmation('');
       await loadUsers();
     } catch (error) {
       console.error('Erro ao atualizar usuário:', error);
@@ -191,6 +194,31 @@ export default function TeamList() {
       console.error('Erro ao alterar status:', error);
       alert(error.response?.data?.error || 'Erro ao alterar status do usuário.');
     }
+  };
+
+  const handleDeleteUser = async () => {
+    if (!editUser.id || deleteUserConfirmation.trim() !== 'EXCLUIR') return;
+
+    setIsSaving(true);
+    try {
+      await api.delete(`/users/${editUser.id}`, {
+        data: { confirmation: deleteUserConfirmation.trim() }
+      });
+      setIsEditModalOpen(false);
+      setEditUser(defaultEditUser);
+      setDeleteUserConfirmation('');
+      await loadUsers();
+    } catch (error) {
+      alert(error.response?.data?.error || 'Erro ao excluir usuário.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const closeEditModal = () => {
+    setIsEditModalOpen(false);
+    setEditUser(defaultEditUser);
+    setDeleteUserConfirmation('');
   };
 
   const handleResetMfa = async () => {
@@ -218,8 +246,10 @@ export default function TeamList() {
       password: '',
       groupIds: Array.isArray(member.groups) ? member.groups.map((group) => group.id) : [],
       mfa_required: member.mfa_required === true,
-      mfa_enabled: member.mfa_enabled === true
+      mfa_enabled: member.mfa_enabled === true,
+      is_super_admin: member.is_super_admin === true
     });
+    setDeleteUserConfirmation('');
     setIsEditModalOpen(true);
   };
 
@@ -416,13 +446,13 @@ export default function TeamList() {
       {isEditModalOpen && (
         <div className="fixed inset-0 z-50 overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
           <div className="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
-            <div className="fixed inset-0 bg-slate-500 bg-opacity-75 transition-opacity" aria-hidden="true" onClick={() => setIsEditModalOpen(false)}></div>
+            <div className="fixed inset-0 bg-slate-500 bg-opacity-75 transition-opacity" aria-hidden="true" onClick={closeEditModal}></div>
             <span className="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
             <div className="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
               <div className="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
                 <div className="flex justify-between items-center mb-5">
                   <h3 className="text-lg leading-6 font-medium text-slate-900">Editar Usuário</h3>
-                  <button onClick={() => setIsEditModalOpen(false)} className="text-slate-400 hover:text-slate-500"><X className="h-6 w-6" /></button>
+                  <button onClick={closeEditModal} className="text-slate-400 hover:text-slate-500"><X className="h-6 w-6" /></button>
                 </div>
                 <form id="editUserForm" onSubmit={handleEditUser} className="space-y-4">
                   <div>
@@ -466,7 +496,16 @@ export default function TeamList() {
                   </div>
                 </form>
               </div>
-              <ModalFooter isSaving={isSaving} formId="editUserForm" submitLabel="Salvar Alterações" onCancel={() => setIsEditModalOpen(false)} />
+              <ModalFooter
+                isSaving={isSaving}
+                formId="editUserForm"
+                submitLabel="Salvar Alterações"
+                onCancel={closeEditModal}
+                showDelete={Boolean(user?.is_super_admin && !editUser.is_super_admin && editUser.id !== user.id)}
+                deleteConfirmation={deleteUserConfirmation}
+                onDeleteConfirmationChange={(event) => setDeleteUserConfirmation(event.target.value)}
+                onDelete={handleDeleteUser}
+              />
             </div>
           </div>
         </div>
@@ -521,14 +560,23 @@ export default function TeamList() {
   );
 }
 
-function ModalFooter({ isSaving, formId, submitLabel, onCancel }) {
+function ModalFooter({ isSaving, formId, submitLabel, onCancel, showDelete = false, deleteConfirmation = '', onDeleteConfirmationChange, onDelete }) {
   return (
-    <div className="bg-slate-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
-      <button type="submit" form={formId} disabled={isSaving} className={`w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-indigo-600 text-base font-medium text-white hover:bg-indigo-700 sm:ml-3 sm:w-auto sm:text-sm ${isSaving ? 'opacity-70 cursor-not-allowed' : ''}`}>
-        {isSaving ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Salvando...</> : submitLabel}
-      </button>
-      <button type="button" onClick={onCancel} className="mt-3 w-full inline-flex justify-center rounded-md border border-slate-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-slate-700 hover:bg-slate-50 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm">
+    <div className="flex flex-wrap items-center justify-end gap-2 bg-slate-50 px-4 py-3 sm:px-6">
+      {showDelete && (
+        <>
+          <button type="button" title="Excluir usuário" aria-label="Excluir usuário" disabled={deleteConfirmation.trim() !== 'EXCLUIR' || isSaving} onClick={onDelete} className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-red-300 text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50">
+            <Trash2 className="h-4 w-4" />
+          </button>
+          <label htmlFor="deleteSystemUserConfirmation" className="sr-only">Digite EXCLUIR para confirmar a exclusão do usuário</label>
+          <input id="deleteSystemUserConfirmation" value={deleteConfirmation} onChange={onDeleteConfirmationChange} placeholder="EXCLUIR" title="Digite EXCLUIR para confirmar a exclusão do usuário" autoComplete="off" className="h-9 w-28 rounded-md border border-red-300 bg-white px-2 text-sm" />
+        </>
+      )}
+      <button type="button" onClick={onCancel} className="inline-flex justify-center rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50">
         Cancelar
+      </button>
+      <button type="submit" form={formId} disabled={isSaving} className={`inline-flex justify-center rounded-md border border-transparent bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 ${isSaving ? 'cursor-not-allowed opacity-70' : ''}`}>
+        {isSaving ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Salvando...</> : submitLabel}
       </button>
     </div>
   );

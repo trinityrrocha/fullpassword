@@ -442,6 +442,91 @@ const updateUser = async (req, res) => {
   }
 };
 
+// DELETE /api/users/:id - Exclui definitivamente um usuário (Apenas Super Admin)
+const deleteUser = async (req, res) => {
+  const client = await db.pool.connect();
+
+  try {
+    if (!isSuperAdmin(req.user)) {
+      return res.status(403).json({ error: 'Apenas o Super Admin pode excluir usuários' });
+    }
+
+    const { id } = req.params;
+    if (String(req.user.id) === String(id)) {
+      return res.status(403).json({ error: 'Você não pode excluir seu próprio usuário.' });
+    }
+    if (req.body?.confirmation !== 'EXCLUIR') {
+      return res.status(400).json({ error: 'Confirmação de exclusão inválida' });
+    }
+
+    await ensureSharingSchema();
+    await client.query('BEGIN');
+    await client.query('SELECT pg_advisory_xact_lock($1)', [8142028]);
+
+    const targetResult = await client.query(
+      'SELECT id, email, role, is_active, is_super_admin FROM users WHERE id = $1 FOR UPDATE',
+      [id]
+    );
+    const targetUser = targetResult.rows[0];
+    if (!targetUser) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Usuário não encontrado' });
+    }
+    if (isSuperAdmin(targetUser)) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'O Super Admin não pode ser excluído.' });
+    }
+
+    if (targetUser.role === 'admin') {
+      const adminResult = await client.query(
+        `SELECT COUNT(*)::int AS count
+         FROM users
+         WHERE role = 'admin' AND is_active = TRUE AND id <> $1`,
+        [id]
+      );
+      if ((adminResult.rows[0]?.count || 0) < 1) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ error: 'Não é possível excluir o último administrador do sistema.' });
+      }
+    }
+
+    const ownershipResult = await client.query(
+      'SELECT EXISTS(SELECT 1 FROM clients WHERE created_by = $1) AS owns_clients',
+      [id]
+    );
+    if (ownershipResult.rows[0]?.owns_clients) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({
+        error: 'Este usuário não pode ser excluído porque possui empresas/cofres. Transfira a propriedade antes de excluir.'
+      });
+    }
+
+    await client.query('DELETE FROM users WHERE id = $1', [id]);
+    await client.query('COMMIT');
+
+    await recordAuditEvent({
+      user: req.user,
+      action: 'user_deleted',
+      status: 'success',
+      req,
+      metadata: { target_user_id: targetUser.id, target_user_email: targetUser.email }
+    });
+
+    return res.status(200).json({ deleted: true, id: targetUser.id });
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    if (error.code === '23503') {
+      return res.status(409).json({
+        error: 'Este usuário não pode ser excluído porque possui vínculos ativos ou permissões críticas.'
+      });
+    }
+    console.error('Erro ao excluir usuário:', error);
+    return res.status(500).json({ error: 'Erro interno ao excluir usuário' });
+  } finally {
+    client.release();
+  }
+};
+
 // PUT /api/users/keys - Salva as chaves RSA do usuário autenticado
 const updateMfaPolicy = async (req, res) => {
   try {
@@ -517,6 +602,7 @@ module.exports = {
   createUser,
   updateProfile,
   updateUser,
+  deleteUser,
   updateKeys,
   updateMfaPolicy,
   resetMfa

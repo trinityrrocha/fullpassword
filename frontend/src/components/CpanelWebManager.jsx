@@ -73,7 +73,7 @@ const normalizeCpanelForm = (data = {}) => {
   const legacyCpanel = legacyCpanelId
     ? [{
         id: legacyCpanelId,
-        domain: data.url || 'cPanel principal',
+        domain: data.url || 'Servidor hospedagem principal',
         url: data.url || '',
         username: data.username || '',
         password: data.password || '',
@@ -127,14 +127,14 @@ export default function CpanelWebManager({ cpanelForm, setCpanelForm, handleSave
 
   const getCpanelLabel = (cpanelId) => {
     const cpanel = getCpanelById(cpanelId);
-    if (!cpanel) return 'cPanel / domínio não informado';
-    return cpanel.domain || cpanel.url || 'cPanel / domínio sem nome';
+    if (!cpanel) return 'Servidor hospedagem não informado';
+    return cpanel.domain || cpanel.url || 'Servidor hospedagem sem nome';
   };
 
   const getCpanelAccessLabel = (cpanelId) => {
     const cpanel = getCpanelById(cpanelId);
-    if (!cpanel) return 'cPanel / domínio não informado';
-    return cpanel.url || cpanel.domain || 'cPanel / domínio sem nome';
+    if (!cpanel) return 'Servidor hospedagem não informado';
+    return cpanel.url || cpanel.domain || 'Servidor hospedagem sem nome';
   };
 
   const getCpanelDomainForEmail = (cpanelId) => {
@@ -170,11 +170,11 @@ export default function CpanelWebManager({ cpanelForm, setCpanelForm, handleSave
 
   const addCpanel = async () => {
     if (!cpanelDraft.domain.trim() && !cpanelDraft.url.trim()) {
-      alert('Informe pelo menos o domínio ou a URL do cPanel.');
+      alert('Informe pelo menos o domínio ou a URL da hospedagem.');
       return;
     }
     if (!cpanelDraft.username.trim()) {
-      alert('Informe o usuário do cPanel.');
+      alert('Informe o usuário de hospedagem.');
       return;
     }
 
@@ -184,7 +184,7 @@ export default function CpanelWebManager({ cpanelForm, setCpanelForm, handleSave
       cpanels: [newCpanel, ...normalizedForm.cpanels]
     };
 
-    const saved = await persistCpanelForm(nextForm, 'cPanel / domínio cadastrado e salvo automaticamente no cofre.');
+    const saved = await persistCpanelForm(nextForm, 'Servidor hospedagem cadastrado e salvo automaticamente no cofre.');
     if (saved) {
       setCpanelDraft(emptyCpanel());
       setUserDraft((current) => ({ ...current, cpanelId: current.cpanelId || newCpanel.id }));
@@ -194,11 +194,11 @@ export default function CpanelWebManager({ cpanelForm, setCpanelForm, handleSave
 
   const saveEditedCpanel = async () => {
     if (!editingCpanel.domain.trim() && !editingCpanel.url.trim()) {
-      alert('Informe pelo menos o domínio ou a URL do cPanel.');
+      alert('Informe pelo menos o domínio ou a URL da hospedagem.');
       return;
     }
     if (!editingCpanel.username.trim()) {
-      alert('Informe o usuário do cPanel.');
+      alert('Informe o usuário de hospedagem.');
       return;
     }
 
@@ -207,7 +207,7 @@ export default function CpanelWebManager({ cpanelForm, setCpanelForm, handleSave
       cpanels: normalizedForm.cpanels.map((item) => item.id === editingCpanel.id ? editingCpanel : item)
     };
 
-    const saved = await persistCpanelForm(nextForm, 'cPanel / domínio atualizado e salvo no cofre.');
+    const saved = await persistCpanelForm(nextForm, 'Servidor hospedagem atualizado e salvo no cofre.');
     if (saved) {
       setEditingCpanel(null);
       setDeleteCpanelConfirmation('');
@@ -225,7 +225,7 @@ export default function CpanelWebManager({ cpanelForm, setCpanelForm, handleSave
       users: normalizedForm.users.map((user) => user.cpanelId === editingCpanel.id ? { ...user, cpanelId: '' } : user)
     };
 
-    const saved = await persistCpanelForm(nextForm, 'cPanel / domínio excluído e cofre atualizado.');
+    const saved = await persistCpanelForm(nextForm, 'Servidor hospedagem excluído e cofre atualizado.');
     if (saved) {
       setEditingCpanel(null);
       setDeleteCpanelConfirmation('');
@@ -234,7 +234,7 @@ export default function CpanelWebManager({ cpanelForm, setCpanelForm, handleSave
 
   const addCpanelUser = async () => {
     if (!userDraft.cpanelId) {
-      alert('Selecione o cPanel / domínio ao qual este usuário pertence.');
+      alert('Selecione o Servidor hospedagem ao qual este usuário pertence.');
       return;
     }
     if (!userDraft.name.trim() || !userDraft.login.trim()) {
@@ -257,7 +257,7 @@ export default function CpanelWebManager({ cpanelForm, setCpanelForm, handleSave
 
   const saveEditedUser = async () => {
     if (!editingUser.cpanelId) {
-      alert('Selecione o cPanel / domínio ao qual este usuário pertence.');
+      alert('Selecione o Servidor hospedagem ao qual este usuário pertence.');
       return;
     }
     if (!editingUser.name.trim() || !editingUser.login.trim()) {
@@ -314,17 +314,17 @@ export default function CpanelWebManager({ cpanelForm, setCpanelForm, handleSave
       <div className="bg-slate-50 border border-slate-200 rounded-lg p-5">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
-            <h3 className="flex items-center gap-2 text-lg font-medium text-slate-900">{onHideModule && <button type="button" title="Ocultar aba" aria-label="Ocultar aba" onClick={onHideModule} className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-red-300 text-red-600 hover:bg-red-50"><Trash2 className="h-4 w-4" /></button>}cPanel / domínio</h3>
+            <h3 className="flex items-center gap-2 text-lg font-medium text-slate-900">{onHideModule && <button type="button" title="Ocultar aba" aria-label="Ocultar aba" onClick={onHideModule} className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-red-300 text-red-600 hover:bg-red-50"><Trash2 className="h-4 w-4" /></button>}Servidor hospedagem</h3>
             <p className="text-sm text-slate-500">Cadastre e gerencie múltiplos acessos de hospedagem.</p>
           </div>
           <button type="button" disabled={isSaving} onClick={openCreateCpanelModal} className="inline-flex items-center justify-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50">
-            <Plus className="w-4 h-4 mr-2" /> Adicionar cPanel / domínio
+            <Plus className="w-4 h-4 mr-2" /> Adicionar Servidor hospedagem
           </button>
         </div>
 
         <div className="mt-5 space-y-3">
           {normalizedForm.cpanels.length === 0 ? (
-            <p className="text-sm text-slate-500">Nenhum cPanel / domínio cadastrado.</p>
+            <p className="text-sm text-slate-500">Nenhum Servidor hospedagem cadastrado.</p>
           ) : normalizedForm.cpanels.map((cpanel) => (
             <div key={cpanel.id} className="flex min-h-10 flex-col justify-between gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 sm:flex-row sm:items-center">
               <div className="min-w-0">
@@ -345,8 +345,8 @@ export default function CpanelWebManager({ cpanelForm, setCpanelForm, handleSave
       <div className="bg-slate-50 border border-slate-200 rounded-lg p-5">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
-            <h3 className="text-lg font-medium text-slate-900">Usuários de cPanel / Web</h3>
-            <p className="text-sm text-slate-500">Cadastre usuários vinculados ao cPanel / domínio.</p>
+            <h3 className="text-lg font-medium text-slate-900">Usuários do Servidor hospedagem</h3>
+            <p className="text-sm text-slate-500">Cadastre usuários vinculados ao Servidor hospedagem.</p>
           </div>
           <button type="button" disabled={isSaving} onClick={openCreateUserModal} className="inline-flex items-center justify-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50">
             <Plus className="w-4 h-4 mr-2" /> Adicionar usuário
@@ -389,7 +389,7 @@ export default function CpanelWebManager({ cpanelForm, setCpanelForm, handleSave
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900 bg-opacity-60 p-4">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
-              <h3 className="text-lg font-semibold text-slate-900">Adicionar cPanel / domínio</h3>
+              <h3 className="text-lg font-semibold text-slate-900">Adicionar Servidor hospedagem</h3>
               <button type="button" onClick={() => setShowCpanelCreateModal(false)} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5" /></button>
             </div>
             <div className="p-6 space-y-4">
@@ -399,15 +399,15 @@ export default function CpanelWebManager({ cpanelForm, setCpanelForm, handleSave
                   <input type="text" className="w-full border-slate-300 rounded-md shadow-sm p-2 border" value={cpanelDraft.domain} onChange={(e) => setCpanelDraft({ ...cpanelDraft, domain: e.target.value })} placeholder="dominio.com.br" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">URL do cPanel</label>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">URL da hospedagem</label>
                   <input type="text" className="w-full border-slate-300 rounded-md shadow-sm p-2 border" value={cpanelDraft.url} onChange={(e) => setCpanelDraft({ ...cpanelDraft, url: e.target.value })} placeholder="dominio.com.br:2083" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Usuário cPanel</label>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Usuário</label>
                   <input type="text" className="w-full border-slate-300 rounded-md shadow-sm p-2 border" value={cpanelDraft.username} onChange={(e) => setCpanelDraft({ ...cpanelDraft, username: e.target.value })} />
                 </div>
                 <div className="max-w-md">
-                  <SecurePasswordInput name="new_cpanel_password" label="Senha cPanel" value={cpanelDraft.password} onChange={(e) => setCpanelDraft({ ...cpanelDraft, password: e.target.value })} />
+                  <SecurePasswordInput name="new_cpanel_password" label="Senha" value={cpanelDraft.password} onChange={(e) => setCpanelDraft({ ...cpanelDraft, password: e.target.value })} />
                 </div>
                 <div className="sm:col-span-2">
                   <label className="block text-sm font-medium text-slate-700 mb-1">Observações</label>
@@ -417,7 +417,7 @@ export default function CpanelWebManager({ cpanelForm, setCpanelForm, handleSave
             </div>
             <div className="flex justify-end gap-3 px-6 py-4 border-t border-slate-200 bg-slate-50">
               <button type="button" onClick={() => setShowCpanelCreateModal(false)} className="px-4 py-2 border border-slate-300 rounded-md text-sm font-medium text-slate-700 bg-white hover:bg-slate-50">Cancelar</button>
-              <button type="button" disabled={isSaving} onClick={addCpanel} className="px-4 py-2 border border-transparent rounded-md text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50">{isSaving ? 'Salvando...' : 'Salvar cPanel / domínio'}</button>
+              <button type="button" disabled={isSaving} onClick={addCpanel} className="px-4 py-2 border border-transparent rounded-md text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50">{isSaving ? 'Salvando...' : 'Salvar Servidor hospedagem'}</button>
             </div>
           </div>
         </div>
@@ -441,7 +441,7 @@ export default function CpanelWebManager({ cpanelForm, setCpanelForm, handleSave
                   <input type="text" className="w-full border-slate-300 rounded-md shadow-sm p-2 border" value={userDraft.login} onChange={(e) => setUserDraft({ ...userDraft, login: e.target.value })} />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">cPanel / domínio</label>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Servidor hospedagem</label>
                   <select className="w-full border-slate-300 rounded-md shadow-sm p-2 border bg-white" value={userDraft.cpanelId} onChange={(e) => setUserDraft({ ...userDraft, cpanelId: e.target.value })}>
                     <option value="">Selecione...</option>
                     {normalizedForm.cpanels.map((cpanel) => <option key={cpanel.id} value={cpanel.id}>{cpanel.domain || cpanel.url}</option>)}
@@ -473,7 +473,7 @@ export default function CpanelWebManager({ cpanelForm, setCpanelForm, handleSave
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900 bg-opacity-60 p-4">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
-              <h3 className="text-lg font-semibold text-slate-900">Detalhes do cPanel / domínio</h3>
+              <h3 className="text-lg font-semibold text-slate-900">Detalhes do Servidor hospedagem</h3>
               <button type="button" onClick={() => setEditingCpanel(null)} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5" /></button>
             </div>
             <div className="p-6 space-y-4">
@@ -483,7 +483,7 @@ export default function CpanelWebManager({ cpanelForm, setCpanelForm, handleSave
                   <input type="text" className="w-full border-slate-300 rounded-md shadow-sm p-2 border" value={editingCpanel.domain} onChange={(e) => setEditingCpanel({ ...editingCpanel, domain: e.target.value })} />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">URL do cPanel</label>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">URL da hospedagem</label>
                   <input type="text" className="w-full border-slate-300 rounded-md shadow-sm p-2 border" value={editingCpanel.url} onChange={(e) => setEditingCpanel({ ...editingCpanel, url: e.target.value })} />
                 </div>
                 <div>
@@ -528,7 +528,7 @@ export default function CpanelWebManager({ cpanelForm, setCpanelForm, handleSave
                   <input type="text" className="w-full border-slate-300 rounded-md shadow-sm p-2 border" value={editingUser.login} onChange={(e) => setEditingUser({ ...editingUser, login: e.target.value })} />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">cPanel / domínio</label>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Servidor hospedagem</label>
                   <select className="w-full border-slate-300 rounded-md shadow-sm p-2 border bg-white" value={editingUser.cpanelId} onChange={(e) => setEditingUser({ ...editingUser, cpanelId: e.target.value })}>
                     <option value="">Selecione...</option>
                     {normalizedForm.cpanels.map((cpanel) => <option key={cpanel.id} value={cpanel.id}>{cpanel.domain || cpanel.url}</option>)}
@@ -564,9 +564,9 @@ function CopyValueButton({ value, label }) {
 }
 
 function CpanelReadOnlyModal({ cpanel, onClose }) {
-  return <ReadOnlyDetailsModal title="Visualizar cPanel / domínio" onClose={onClose}><div className="grid gap-4 sm:grid-cols-2"><ReadOnlyField label="Domínio">{cpanel.domain || '-'}<CopyValueButton value={cpanel.domain} label="domínio" /></ReadOnlyField><ReadOnlyField label="URL">{cpanel.url || '-'}<CopyValueButton value={cpanel.url} label="URL" /></ReadOnlyField><ReadOnlyField label="Usuário">{cpanel.username || '-'}<CopyValueButton value={cpanel.username} label="usuário" /></ReadOnlyField><ReadOnlyField label="Senha">****<CopyValueButton value={cpanel.password} label="senha" /></ReadOnlyField><ReadOnlyField label="Observações" value={cpanel.notes} /></div><ReadOnlyAttachments files={normalizeVaultAttachments(cpanel)} /></ReadOnlyDetailsModal>;
+  return <ReadOnlyDetailsModal title="Visualizar Servidor hospedagem" onClose={onClose}><div className="grid gap-4 sm:grid-cols-2"><ReadOnlyField label="Domínio">{cpanel.domain || '-'}<CopyValueButton value={cpanel.domain} label="domínio" /></ReadOnlyField><ReadOnlyField label="URL">{cpanel.url || '-'}<CopyValueButton value={cpanel.url} label="URL" /></ReadOnlyField><ReadOnlyField label="Usuário">{cpanel.username || '-'}<CopyValueButton value={cpanel.username} label="usuário" /></ReadOnlyField><ReadOnlyField label="Senha">****<CopyValueButton value={cpanel.password} label="senha" /></ReadOnlyField><ReadOnlyField label="Observações" value={cpanel.notes} /></div><ReadOnlyAttachments files={normalizeVaultAttachments(cpanel)} /></ReadOnlyDetailsModal>;
 }
 
 function CpanelUserReadOnlyModal({ user, cpanel, login, onClose }) {
-  return <ReadOnlyDetailsModal title="Visualizar usuário cPanel / Web" onClose={onClose}><div className="grid gap-4 sm:grid-cols-2"><ReadOnlyField label="Nome" value={user.name} /><ReadOnlyField label="Login">{login}<CopyValueButton value={login === '-' ? '' : login} label="login" /></ReadOnlyField><ReadOnlyField label="Senha">****<CopyValueButton value={user.password} label="senha" /></ReadOnlyField><ReadOnlyField label="Departamento" value={user.department} /><ReadOnlyField label="cPanel / domínio" value={cpanel?.domain || cpanel?.url || 'Não informado'} /></div><ReadOnlyAttachments files={normalizeVaultAttachments(user)} /></ReadOnlyDetailsModal>;
+  return <ReadOnlyDetailsModal title="Visualizar usuário do Servidor hospedagem" onClose={onClose}><div className="grid gap-4 sm:grid-cols-2"><ReadOnlyField label="Nome" value={user.name} /><ReadOnlyField label="Login">{login}<CopyValueButton value={login === '-' ? '' : login} label="login" /></ReadOnlyField><ReadOnlyField label="Senha">****<CopyValueButton value={user.password} label="senha" /></ReadOnlyField><ReadOnlyField label="Departamento" value={user.department} /><ReadOnlyField label="Servidor hospedagem" value={cpanel?.domain || cpanel?.url || 'Não informado'} /></div><ReadOnlyAttachments files={normalizeVaultAttachments(user)} /></ReadOnlyDetailsModal>;
 }

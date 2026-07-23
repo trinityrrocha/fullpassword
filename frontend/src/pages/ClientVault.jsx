@@ -25,7 +25,7 @@ const normalizeVaultPermissions = (permissions) => {
 };
 
 const COMPANY_MODULES = [
-  { id: 'cpanelWeb', name: 'cPanel / Web', icon: Globe },
+  { id: 'cpanelWeb', name: 'Servidor hospedagem', icon: Globe },
   { id: 'vpn', name: 'VPN', icon: Shield },
   { id: 'windowsServer', name: 'Servidor Windows', icon: Server },
   { id: 'linuxServer', name: 'Servidor Linux', icon: HardDrive }
@@ -693,7 +693,7 @@ export default function ClientVault() {
       ) : tabs.length === 0 ? (
         <div className="rounded-lg border border-dashed border-slate-300 bg-white p-8 text-center shadow-sm">
           <h2 className="font-medium text-slate-800">Nenhuma aba adicionada.</h2>
-          <p className="mt-1 text-sm text-slate-500">Clique em &quot;Adicionar&quot; para incluir cPanel / Web, VPN, Servidor Windows ou Servidor Linux nesta empresa.</p>
+          <p className="mt-1 text-sm text-slate-500">Clique em &quot;Adicionar&quot; para incluir Servidor hospedagem, VPN, Servidor Windows ou Servidor Linux nesta empresa.</p>
         </div>
       ) : (
       <div className="bg-white shadow rounded-lg border border-slate-200 overflow-hidden">
@@ -715,10 +715,10 @@ export default function ClientVault() {
         <div className="p-6">
           {activeModuleId === 'cpanelWeb' && (
             <div className="space-y-6 animate-fadeIn">
-              <h3 className="text-lg font-medium leading-6 text-slate-900 border-b pb-2">Acesso ao cPanel / Hospedagem</h3>
+              <h3 className="text-lg font-medium leading-6 text-slate-900 border-b pb-2">Acesso ao Servidor hospedagem</h3>
               <div className="grid grid-cols-1 gap-y-6 gap-x-4 sm:grid-cols-2">
                 <div className="sm:col-span-2">
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Endereço do cPanel (URL)</label>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">URL da hospedagem</label>
                   <input type="url" className="w-full border-slate-300 rounded-md shadow-sm p-2 border focus:ring-indigo-500 focus:border-indigo-500" value={cpanelForm.url} onChange={(e) => setCpanelForm({ ...cpanelForm, url: e.target.value })} placeholder="https://cpanel.dominio.com.br" />
                 </div>
                 <div>
@@ -726,7 +726,7 @@ export default function ClientVault() {
                   <input type="text" className="w-full border-slate-300 rounded-md shadow-sm p-2 border focus:ring-indigo-500 focus:border-indigo-500" value={cpanelForm.username} onChange={(e) => setCpanelForm({ ...cpanelForm, username: e.target.value })} />
                 </div>
                 <div>
-                  <SecurePasswordInput name="cpanel_pass" label="Senha do cPanel" value={cpanelForm.password} onChange={(e) => setCpanelForm({ ...cpanelForm, password: e.target.value })} />
+                  <SecurePasswordInput name="cpanel_pass" label="Senha" value={cpanelForm.password} onChange={(e) => setCpanelForm({ ...cpanelForm, password: e.target.value })} />
                 </div>
               </div>
 
@@ -756,7 +756,7 @@ export default function ClientVault() {
 
               <div className="pt-5 flex justify-end">
                 <button disabled={isSaving} onClick={() => handleSaveData('cPanel', cpanelForm)} className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50">
-                  <Save className="w-4 h-4 mr-2" /> {isSaving ? 'Criptografando...' : 'Salvar cPanel'}
+                  <Save className="w-4 h-4 mr-2" /> {isSaving ? 'Criptografando...' : 'Salvar hospedagem'}
                 </button>
               </div>
             </div>
