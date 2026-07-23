@@ -7,53 +7,142 @@ const scryptAsync = promisify(crypto.scrypt);
 const MAX_BACKUP_BYTES = 50 * 1024 * 1024;
 const REQUIRED_CORE_TABLES = ['users', 'groups', 'user_groups', 'clients', 'vault_items'];
 const restoreOrder = [...backupTables];
+const isEncryptedBackupFilename = (filename) => (
+  typeof filename === 'string' && filename.toLowerCase().endsWith('.enc.json')
+);
 
-const assertPlainObject = (value, message) => {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(message);
+class BackupValidationError extends Error {
+  constructor(code, message) {
+    super(message);
+    this.name = 'BackupValidationError';
+    this.code = code;
+  }
+}
+
+const failValidation = (code, message) => {
+  throw new BackupValidationError(code, message);
 };
 
-const parseAndDecryptBackup = async (fileBuffer, passphrase) => {
-  if (!Buffer.isBuffer(fileBuffer) || fileBuffer.length === 0 || fileBuffer.length > MAX_BACKUP_BYTES) throw new Error('Arquivo de backup vazio ou maior que 50 MB');
-  if (typeof passphrase !== 'string' || passphrase.length < 16) throw new Error('Frase de descriptografia inválida');
+const isPlainObject = (value) => Boolean(value && typeof value === 'object' && !Array.isArray(value));
 
+const decodeBase64Field = (value, field, expectedLength, maxLength) => {
+  if (
+    typeof value !== 'string'
+    || value.length === 0
+    || value.length % 4 !== 0
+    || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)
+  ) {
+    failValidation('BACKUP_INVALID_ENVELOPE', `Campo ${field} inválido no envelope do backup.`);
+  }
+
+  const decoded = Buffer.from(value, 'base64');
+  if (
+    (expectedLength !== undefined && decoded.length !== expectedLength)
+    || (maxLength !== undefined && decoded.length > maxLength)
+  ) {
+    failValidation('BACKUP_INVALID_ENVELOPE', `Campo ${field} inválido no envelope do backup.`);
+  }
+  return decoded;
+};
+
+const parseEncryptedBackupUpload = (fileBuffer) => {
+  if (!Buffer.isBuffer(fileBuffer) || fileBuffer.length === 0 || fileBuffer.length > MAX_BACKUP_BYTES) {
+    failValidation('BACKUP_INVALID_ENVELOPE', 'O arquivo de backup está vazio ou excede o limite de 50 MB.');
+  }
   let envelope;
   try {
     envelope = JSON.parse(fileBuffer.toString('utf8'));
   } catch {
-    throw new Error('Arquivo de backup não contém JSON válido');
+    failValidation('BACKUP_INVALID_JSON', 'O arquivo selecionado não é um JSON válido.');
   }
-  assertPlainObject(envelope, 'Envelope de backup inválido');
-  if (envelope.format !== 'fullpassword-encrypted-backup' || envelope.version !== 1) throw new Error('Formato ou versão de backup incompatível');
-  if (envelope.kdf?.name !== 'scrypt' || envelope.cipher?.name !== 'aes-256-gcm') throw new Error('Algoritmos do backup não são compatíveis');
-  const params = envelope.kdf?.params;
-  if (!params || params.N !== 32768 || params.r !== 8 || params.p !== 1 || params.keyLength !== 32) throw new Error('Parâmetros de derivação incompatíveis');
 
+  return validateEncryptedBackupEnvelope(envelope);
+};
+
+const validateEncryptedBackupEnvelope = (envelope) => {
+  if (!isPlainObject(envelope)) {
+    failValidation('BACKUP_INVALID_ENVELOPE', 'O conteúdo do arquivo não corresponde a um backup válido do FullPassword.');
+  }
+  if (envelope.format !== 'fullpassword-encrypted-backup' || envelope.version !== 1) {
+    failValidation('BACKUP_INVALID_ENVELOPE', 'O formato ou a versão do backup não é compatível com o FullPassword.');
+  }
+  if (typeof envelope.generated_at !== 'string' || Number.isNaN(Date.parse(envelope.generated_at))) {
+    failValidation('BACKUP_INVALID_ENVELOPE', 'A data de geração está ausente ou inválida no envelope do backup.');
+  }
+  if (!isPlainObject(envelope.kdf) || envelope.kdf.name !== 'scrypt') {
+    failValidation('BACKUP_INVALID_ENVELOPE', 'A configuração de derivação de chave do backup é inválida.');
+  }
+  const params = envelope.kdf?.params;
+  if (!isPlainObject(params) || params.N !== 32768 || params.r !== 8 || params.p !== 1 || params.keyLength !== 32) {
+    failValidation('BACKUP_INVALID_ENVELOPE', 'Os parâmetros de derivação de chave do backup são incompatíveis.');
+  }
+  if (!isPlainObject(envelope.cipher) || envelope.cipher.name !== 'aes-256-gcm') {
+    failValidation('BACKUP_INVALID_ENVELOPE', 'A configuração de criptografia do backup é inválida.');
+  }
+  decodeBase64Field(envelope.kdf.salt, 'kdf.salt', 32);
+  decodeBase64Field(envelope.cipher.iv, 'cipher.iv', 12);
+  decodeBase64Field(envelope.cipher.tag, 'cipher.tag', 16);
+  const ciphertext = decodeBase64Field(envelope.ciphertext, 'ciphertext', undefined, MAX_BACKUP_BYTES);
+  if (ciphertext.length === 0) {
+    failValidation('BACKUP_INVALID_ENVELOPE', 'O envelope do backup não contém dados criptografados.');
+  }
+  return envelope;
+};
+
+const decryptBackupEnvelope = async (envelope, passphrase) => {
+  if (typeof passphrase !== 'string' || passphrase.length < 16) {
+    failValidation('BACKUP_INVALID_PASSPHRASE', 'A frase de descriptografia deve ter ao menos 16 caracteres.');
+  }
+
+  const salt = Buffer.from(envelope.kdf.salt, 'base64');
+  const iv = Buffer.from(envelope.cipher.iv, 'base64');
+  const tag = Buffer.from(envelope.cipher.tag, 'base64');
+  const ciphertext = Buffer.from(envelope.ciphertext, 'base64');
+  let plaintext;
   try {
-    const salt = Buffer.from(String(envelope.kdf.salt || ''), 'base64');
-    const iv = Buffer.from(String(envelope.cipher.iv || ''), 'base64');
-    const tag = Buffer.from(String(envelope.cipher.tag || ''), 'base64');
-    const ciphertext = Buffer.from(String(envelope.ciphertext || ''), 'base64');
-    if (salt.length !== 32 || iv.length !== 12 || tag.length !== 16 || ciphertext.length === 0 || ciphertext.length > MAX_BACKUP_BYTES) throw new Error('Campos criptográficos inválidos');
     const key = await scryptAsync(passphrase, salt, 32, { N: 32768, r: 8, p: 1, maxmem: 64 * 1024 * 1024 });
     const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
     decipher.setAuthTag(tag);
-    const plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
-    const payload = JSON.parse(plaintext.toString('utf8'));
-    assertPlainObject(payload, 'Conteúdo descriptografado inválido');
-    assertPlainObject(payload.metadata, 'Metadata do backup ausente');
-    assertPlainObject(payload.data, 'Dados do backup ausentes');
-    if (payload.metadata.project !== 'FullPassword' || payload.metadata.type !== 'full-encrypted-backup') throw new Error('Metadata incompatível com FullPassword');
-    if (payload.metadata.version !== undefined && payload.metadata.version !== 1) throw new Error('Versão da metadata incompatível');
-    for (const table of REQUIRED_CORE_TABLES) if (!Array.isArray(payload.data[table])) throw new Error(`Tabela obrigatória ausente: ${table}`);
-    for (const [table, rows] of Object.entries(payload.data)) {
-      if (!restoreOrder.includes(table)) throw new Error(`Tabela não suportada no backup: ${table}`);
-      if (!Array.isArray(rows) || rows.some((row) => !row || typeof row !== 'object' || Array.isArray(row))) throw new Error(`Dados inválidos na tabela: ${table}`);
-    }
-    return { envelope, payload };
-  } catch (error) {
-    if (/incompat|inválid|ausente|suportada/.test(error.message)) throw error;
-    throw new Error('Não foi possível descriptografar o backup. Verifique a frase e a integridade do arquivo.');
+    plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+  } catch {
+    failValidation('BACKUP_INVALID_PASSPHRASE', 'Não foi possível descriptografar o backup. Verifique a frase informada.');
   }
+
+  let payload;
+  try {
+    payload = JSON.parse(plaintext.toString('utf8'));
+  } catch {
+    failValidation('BACKUP_INVALID_ENVELOPE', 'O conteúdo descriptografado do backup não é um JSON válido.');
+  }
+  if (!isPlainObject(payload) || !isPlainObject(payload.metadata) || !isPlainObject(payload.data)) {
+    failValidation('BACKUP_INVALID_ENVELOPE', 'O conteúdo descriptografado não corresponde a um backup válido do FullPassword.');
+  }
+  if (payload.metadata.project !== 'FullPassword' || payload.metadata.type !== 'full-encrypted-backup') {
+    failValidation('BACKUP_INVALID_ENVELOPE', 'A identificação interna do backup é incompatível com o FullPassword.');
+  }
+  if (payload.metadata.version !== undefined && payload.metadata.version !== 1) {
+    failValidation('BACKUP_INVALID_ENVELOPE', 'A versão interna do backup é incompatível com o FullPassword.');
+  }
+  for (const table of REQUIRED_CORE_TABLES) {
+    if (!Array.isArray(payload.data[table])) {
+      failValidation('BACKUP_INVALID_ENVELOPE', `Tabela obrigatória ausente no backup: ${table}.`);
+    }
+  }
+  for (const [table, rows] of Object.entries(payload.data)) {
+    if (!restoreOrder.includes(table)) {
+      failValidation('BACKUP_INVALID_ENVELOPE', `Tabela não suportada no backup: ${table}.`);
+    }
+    if (!Array.isArray(rows) || rows.some((row) => !isPlainObject(row))) {
+      failValidation('BACKUP_INVALID_ENVELOPE', `Dados inválidos na tabela do backup: ${table}.`);
+    }
+  }
+  return payload;
+};
+
+const parseAndDecryptBackup = async (fileBuffer, passphrase) => {
+  const envelope = parseEncryptedBackupUpload(fileBuffer);
+  const payload = await decryptBackupEnvelope(envelope, passphrase);
+  return { envelope, payload };
 };
 
 const summarizeBackup = ({ envelope, payload }) => ({
@@ -107,4 +196,13 @@ const restoreBackupPayload = async (payload) => {
   }
 };
 
-module.exports = { MAX_BACKUP_BYTES, parseAndDecryptBackup, summarizeBackup, restoreBackupPayload };
+module.exports = {
+  MAX_BACKUP_BYTES,
+  isEncryptedBackupFilename,
+  parseEncryptedBackupUpload,
+  validateEncryptedBackupEnvelope,
+  decryptBackupEnvelope,
+  parseAndDecryptBackup,
+  summarizeBackup,
+  restoreBackupPayload
+};

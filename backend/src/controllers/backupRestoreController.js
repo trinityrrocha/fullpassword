@@ -6,6 +6,11 @@ const { buildBackupPayload, encryptBackupPayload } = require('./systemController
 const { parseAndDecryptBackup, summarizeBackup, restoreBackupPayload } = require('../services/backupRestoreService');
 
 const BACKUP_ARCHIVE_DIR = process.env.BACKUP_ARCHIVE_DIR || '/var/lib/fullpassword-backups';
+const BACKUP_VALIDATION_CODES = new Set([
+  'BACKUP_INVALID_JSON',
+  'BACKUP_INVALID_ENVELOPE',
+  'BACKUP_INVALID_PASSPHRASE'
+]);
 
 const sendRestoreError = (res, status, error, message, details) => {
   return res.status(status).json({
@@ -21,6 +26,23 @@ const getSafeErrorDetails = (error, fallback) => {
     .trim()
     .slice(0, 500);
   return details || fallback;
+};
+
+const getUploadMetadata = (file) => ({
+  originalname: String(file?.originalname || '').slice(0, 255),
+  mimetype: String(file?.mimetype || '').slice(0, 100),
+  size: Number(file?.size || 0),
+  hasBuffer: Buffer.isBuffer(file?.buffer)
+});
+
+const getBackupValidationResponse = (error, fallbackMessage) => {
+  if (BACKUP_VALIDATION_CODES.has(error?.code)) {
+    return { error: error.code, message: error.message };
+  }
+  return {
+    error: 'BACKUP_INVALID_ENVELOPE',
+    message: fallbackMessage
+  };
 };
 
 const deny = async (req, res) => {
@@ -39,9 +61,9 @@ const requireUpload = (req, res) => {
     sendRestoreError(
       res,
       400,
-      'BACKUP_RESTORE_INVALID_FILE',
-      'O arquivo de backup não pôde ser processado.',
-      'Selecione um arquivo .enc.json válido.'
+      'BACKUP_RESTORE_INVALID_UPLOAD',
+      'Nenhum arquivo de backup foi recebido.',
+      'Envie um arquivo .enc.json no campo backup.'
     );
     return false;
   }
@@ -61,15 +83,22 @@ const dryRun = async (req, res) => {
     });
     return res.status(200).json(summary);
   } catch (error) {
-    const details = getSafeErrorDetails(error, 'Arquivo de backup inválido ou incompatível.');
+    const response = getBackupValidationResponse(
+      error,
+      'O conteúdo do arquivo não corresponde a um backup válido do FullPassword.'
+    );
     await recordAuditEvent({ user: req.user, action: 'backup_restore_dry_run_failed', status: 'failed', req, metadata: { reason: 'validation_failed' } });
-    console.warn('Validação de backup recusada.', { errorName: error?.name || 'Error', reason: details });
+    console.warn('Validação de backup recusada.', {
+      stage: 'dry-run',
+      code: response.error,
+      upload: getUploadMetadata(req.file),
+      reason: getSafeErrorDetails(error, response.message)
+    });
     return sendRestoreError(
       res,
       400,
-      'BACKUP_RESTORE_INVALID_FILE',
-      'O arquivo de backup não pôde ser validado.',
-      details
+      response.error,
+      response.message
     );
   }
 };
@@ -103,15 +132,22 @@ const restore = async (req, res) => {
   try {
     parsed = await parseAndDecryptBackup(req.file.buffer, req.body?.passphrase);
   } catch (error) {
-    const details = getSafeErrorDetails(error, 'Arquivo de backup inválido ou incompatível.');
+    const response = getBackupValidationResponse(
+      error,
+      'O conteúdo do arquivo não corresponde a um backup válido do FullPassword.'
+    );
     await recordAuditEvent({ user: req.user, action: 'backup_restore_failed', status: 'failed', req, metadata: { reason: 'validation_failed' } });
-    console.warn('Backup recusado antes da restauração.', { errorName: error?.name || 'Error', reason: details });
+    console.warn('Backup recusado antes da restauração.', {
+      stage: 'restore',
+      code: response.error,
+      upload: getUploadMetadata(req.file),
+      reason: getSafeErrorDetails(error, response.message)
+    });
     return sendRestoreError(
       res,
       400,
-      'BACKUP_RESTORE_INVALID_FILE',
-      'O arquivo de backup não pôde ser restaurado.',
-      details
+      response.error,
+      response.message
     );
   }
 

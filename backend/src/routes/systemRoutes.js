@@ -7,19 +7,42 @@ const passwordPolicyController = require('../controllers/passwordPolicyControlle
 const backupRestoreController = require('../controllers/backupRestoreController');
 const multer = require('multer');
 const { verifyToken } = require('../middleware/authMiddleware');
+const { MAX_BACKUP_BYTES, isEncryptedBackupFilename } = require('../services/backupRestoreService');
 const asyncRoute = (handler) => (req, res, next) => Promise.resolve(handler(req, res, next)).catch(next);
 const restoreUpload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 50 * 1024 * 1024, files: 1 },
-  fileFilter: (_req, file, callback) => callback(null, /\.enc\.json$/i.test(file.originalname))
+  limits: { fileSize: MAX_BACKUP_BYTES, files: 1 },
+  fileFilter: (_req, file, callback) => {
+    if (isEncryptedBackupFilename(file.originalname)) return callback(null, true);
+    const error = new Error('A extensão do arquivo precisa ser .enc.json.');
+    error.code = 'BACKUP_INVALID_EXTENSION';
+    console.warn('Upload de backup recusado.', {
+      stage: 'upload',
+      code: error.code,
+      originalname: String(file.originalname || '').slice(0, 255),
+      mimetype: String(file.mimetype || '').slice(0, 100)
+    });
+    return callback(error);
+  }
 });
 const receiveRestoreFile = (req, res, next) => restoreUpload.single('backup')(req, res, (error) => {
   if (!error) return next();
   const tooLarge = error.code === 'LIMIT_FILE_SIZE';
+  const invalidExtension = error.code === 'BACKUP_INVALID_EXTENSION';
   return res.status(tooLarge ? 413 : 400).json({
-    error: tooLarge ? 'BACKUP_RESTORE_FILE_TOO_LARGE' : 'BACKUP_RESTORE_INVALID_UPLOAD',
-    message: 'O arquivo de backup não pôde ser enviado.',
-    details: tooLarge ? 'O backup excede o limite de 50 MB.' : 'O upload informado é inválido.'
+    error: tooLarge
+      ? 'BACKUP_RESTORE_FILE_TOO_LARGE'
+      : invalidExtension
+        ? 'BACKUP_INVALID_EXTENSION'
+        : 'BACKUP_RESTORE_INVALID_UPLOAD',
+    message: invalidExtension
+      ? 'A extensão do arquivo precisa ser .enc.json.'
+      : 'O arquivo de backup não pôde ser enviado.',
+    details: tooLarge
+      ? 'O backup excede o limite de 50 MB.'
+      : invalidExtension
+        ? undefined
+        : 'O upload informado é inválido.'
   });
 });
 
