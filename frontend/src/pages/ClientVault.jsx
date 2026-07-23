@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft, Server, Globe, Shield, HardDrive, Plus, Save, Share, KeyRound, Edit2, X } from 'lucide-react';
 import SecurePasswordInput from '../components/SecurePasswordInput';
@@ -127,10 +127,32 @@ export default function ClientVault() {
   const [enabledModules, setEnabledModules] = useState([]);
   const [modulesLoaded, setModulesLoaded] = useState(false);
   const [isAddModuleOpen, setIsAddModuleOpen] = useState(false);
+  const addModuleMenuRef = useRef(null);
   const [isSavingModules, setIsSavingModules] = useState(false);
   const [modulePendingDeletion, setModulePendingDeletion] = useState(null);
   const [moduleDeleteConfirmation, setModuleDeleteConfirmation] = useState('');
   const [isDeletingModule, setIsDeletingModule] = useState(false);
+
+  useEffect(() => {
+    if (!isAddModuleOpen) return undefined;
+
+    const handlePointerDown = (event) => {
+      if (!addModuleMenuRef.current?.contains(event.target)) {
+        setIsAddModuleOpen(false);
+      }
+    };
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') setIsAddModuleOpen(false);
+    };
+
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isAddModuleOpen]);
 
   // Mock do cliente atual
   const client = { id, name: 'Acme Corp', address: 'Av. Paulista, 1000 - SP' };
@@ -724,23 +746,25 @@ export default function ClientVault() {
             <p className="text-sm text-slate-500">Cofre de Senhas e Credenciais</p>
           </div>
         </div>
-        <div className="relative flex items-center gap-2">
-          <button type="button" disabled={!canManageModules || isSavingModules} onClick={() => setIsAddModuleOpen((open) => !open)} className="inline-flex items-center justify-center rounded-md border border-indigo-200 bg-white px-4 py-2 text-sm font-medium text-indigo-700 shadow-sm hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-50">
-            <Plus className="mr-2 h-4 w-4" /> Adicionar
-          </button>
+        <div className="flex items-center gap-2">
+          <div ref={addModuleMenuRef} className="relative">
+            <button type="button" disabled={!canManageModules || isSavingModules} aria-expanded={isAddModuleOpen} aria-haspopup="menu" onClick={() => setIsAddModuleOpen((open) => !open)} className="inline-flex items-center justify-center rounded-md border border-indigo-200 bg-white px-4 py-2 text-sm font-medium text-indigo-700 shadow-sm hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-50">
+              <Plus className="mr-2 h-4 w-4" /> Adicionar
+            </button>
+            {isAddModuleOpen && canManageModules && (
+              <div role="menu" className="absolute right-0 top-full z-30 mt-2 w-64 rounded-md border border-slate-200 bg-white p-2 shadow-lg">
+                {availableModules.length === 0 ? <p className="px-3 py-2 text-sm text-slate-500">Todas as abas já foram adicionadas.</p> : availableModules.map((module) => (
+                  <button role="menuitem" key={module.id} type="button" disabled={isSavingModules} onClick={() => addModule(module.id)} className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50">
+                    <module.icon className="h-4 w-4 text-slate-500" /> {module.name}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
           {hasEnabledModules && (effectiveVaultPermissions.is_owner || effectiveVaultPermissions.is_admin) && (
             <button type="button" onClick={() => setIsSharingModalOpen(true)} className="inline-flex items-center justify-center px-4 py-2 border border-indigo-200 rounded-md shadow-sm text-sm font-medium text-indigo-700 bg-white hover:bg-indigo-50">
               <Share className="w-4 h-4 mr-2" /> Compartilhar
             </button>
-          )}
-          {isAddModuleOpen && canManageModules && (
-            <div className="absolute right-0 top-full z-30 mt-2 w-64 rounded-md border border-slate-200 bg-white p-2 shadow-lg">
-              {availableModules.length === 0 ? <p className="px-3 py-2 text-sm text-slate-500">Todas as abas já foram adicionadas.</p> : availableModules.map((module) => (
-                <button key={module.id} type="button" disabled={isSavingModules} onClick={() => addModule(module.id)} className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50">
-                  <module.icon className="h-4 w-4 text-slate-500" /> {module.name}
-                </button>
-              ))}
-            </div>
           )}
         </div>
       </div>
