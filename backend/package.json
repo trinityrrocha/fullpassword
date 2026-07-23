@@ -4,7 +4,7 @@
   "description": "Backend para o projeto FullPassword",
   "main": "src/server.js",
   "scripts": {
-    "test": "node scripts/test-backup-v2.js",
+    "test": "node scripts/test-backup-v2.js && node scripts/test-ip-cidr.js",
     "start": "node src/server.js",
     "dev": "nodemon src/server.js"
   },

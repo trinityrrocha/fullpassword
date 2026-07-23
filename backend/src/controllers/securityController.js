@@ -1,7 +1,8 @@
 const db = require('../config/database');
 const { isSuperAdmin } = require('../config/security');
 const { recordAuditEvent } = require('../services/auditService');
-const { normalizeIp, normalizeIpOrCidr, isCidr, ruleTargetMatchesIp, getLoginSecurityPolicy, hasActiveAllowRule } = require('../services/ipSecurityService');
+const { normalizeIp, isCidr, ruleTargetMatchesIp, getLoginSecurityPolicy, hasActiveAllowRule } = require('../services/ipSecurityService');
+const { normalizeIpv4Cidr } = require('../utils/ipCidr');
 
 const THRESHOLDS = new Set([5, 10, 15]);
 const WINDOWS = new Set([10, 15, 30, 60]);
@@ -103,10 +104,16 @@ const createRuleRecord = async ({ req, ipAddress, ruleType, reason, durationMinu
 
 const createIpRule = async (req, res) => {
   if (!requireSuperAdmin(req, res)) return;
-  const ipAddress = normalizeIpOrCidr(req.body?.rule_target || req.body?.ip_address);
+  const ipAddress = normalizeIpv4Cidr(req.body?.rule_target || req.body?.ip_address);
   const ruleType = String(req.body?.rule_type || '');
   const reason = String(req.body?.reason || '').slice(0, 500);
-  if (!ipAddress || !RULE_TYPES.has(ruleType)) return res.status(400).json({ error: 'IP ou tipo de regra inválido.' });
+  if (!ipAddress) {
+    return res.status(400).json({
+      error: 'INVALID_IP_CIDR',
+      message: 'Informe um IP ou CIDR válido.'
+    });
+  }
+  if (!RULE_TYPES.has(ruleType)) return res.status(400).json({ error: 'Tipo de regra inválido.' });
   try {
     return res.status(201).json({ rule: await createRuleRecord({ req, ipAddress, ruleType, reason, durationMinutes: Number(req.body?.duration_minutes) }) });
   } catch (error) {
