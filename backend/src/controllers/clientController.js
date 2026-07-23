@@ -101,6 +101,12 @@ const createClient = async (req, res) => {
 };
 
 const allowedModules = ['cpanelWeb', 'vpn', 'windowsServer', 'linuxServer'];
+const moduleVaultCategories = Object.freeze({
+  cpanelWeb: ['cPanel'],
+  vpn: ['VPN'],
+  windowsServer: ['Servidor TS'],
+  linuxServer: ['Servidor Linux', 'Servidores Diversos']
+});
 
 const getClientModules = async (req, res) => {
   try {
@@ -128,6 +134,88 @@ const updateClientModules = async (req, res) => {
     if (error.statusCode) return res.status(error.statusCode).json({ error: error.statusCode === 404 ? 'Cofre não encontrado' : 'Acesso negado' });
     console.error('Erro ao atualizar módulos da empresa:', error);
     res.status(500).json({ error: 'Erro ao atualizar módulos da empresa' });
+  }
+};
+
+const deleteClientModule = async (req, res) => {
+  let transaction;
+
+  try {
+    await ensureSharingSchema();
+
+    const { clientId, moduleId } = req.params;
+    const categories = moduleVaultCategories[moduleId];
+
+    if (!categories) {
+      return res.status(400).json({ error: 'Módulo inválido' });
+    }
+
+    if (req.body?.confirmation !== 'EXCLUIR') {
+      return res.status(400).json({ error: 'Confirmação de exclusão inválida' });
+    }
+
+    await requireClientPermission(clientId, req.user, 'delete');
+
+    transaction = await db.pool.connect();
+    await transaction.query('BEGIN');
+
+    const clientResult = await transaction.query(
+      'SELECT enabled_modules FROM clients WHERE id = $1 FOR UPDATE',
+      [clientId]
+    );
+
+    if (clientResult.rows.length === 0) {
+      await transaction.query('ROLLBACK');
+      return res.status(404).json({ error: 'Cliente não encontrado' });
+    }
+
+    const currentModules = Array.isArray(clientResult.rows[0].enabled_modules)
+      ? allowedModules.filter((allowedModule) => clientResult.rows[0].enabled_modules.includes(allowedModule))
+      : allowedModules;
+    const enabledModules = currentModules.filter((enabledModule) => enabledModule !== moduleId);
+
+    const deletedItems = await transaction.query(
+      'DELETE FROM vault_items WHERE client_id = $1 AND category = ANY($2::text[]) RETURNING id',
+      [clientId, categories]
+    );
+
+    await transaction.query(
+      'UPDATE clients SET enabled_modules = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+      [enabledModules, clientId]
+    );
+
+    await transaction.query('COMMIT');
+
+    await logVaultAccess(clientId, req.user.id, 'vault_module_delete', {
+      module_id: moduleId,
+      deleted_items: deletedItems.rowCount
+    });
+
+    return res.status(200).json({
+      deleted: true,
+      moduleId,
+      enabledModules,
+      deletedItems: deletedItems.rowCount
+    });
+  } catch (error) {
+    if (transaction) {
+      try {
+        await transaction.query('ROLLBACK');
+      } catch (rollbackError) {
+        console.error('Erro ao reverter exclusão de módulo:', rollbackError);
+      }
+    }
+
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({
+        error: error.statusCode === 404 ? 'Cofre não encontrado' : 'Você não tem permissão para excluir este módulo'
+      });
+    }
+
+    console.error('Erro ao excluir módulo da empresa:', error);
+    return res.status(500).json({ error: 'Não foi possível excluir o módulo da empresa' });
+  } finally {
+    if (transaction) transaction.release();
   }
 };
 
@@ -181,5 +269,6 @@ module.exports = {
   updateClient,
   deleteClient,
   getClientModules,
-  updateClientModules
+  updateClientModules,
+  deleteClientModule
 };

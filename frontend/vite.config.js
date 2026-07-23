@@ -78,7 +78,7 @@ function clientVaultUiPlugin() {
               setCpanelForm={setCpanelForm}
               handleSaveData={handleSaveData}
               isSaving={isSaving}
-              onHideModule={canManageModules ? hideActiveModule : undefined}
+              onDeleteModule={canDeleteModules ? openDeleteModuleModal : undefined}
             />
           )}
 

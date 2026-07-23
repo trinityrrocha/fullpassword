@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Server, Globe, Shield, HardDrive, Plus, Save, Share, KeyRound, Edit2, X } from 'lucide-react';
+import { ArrowLeft, Server, Globe, Shield, HardDrive, Plus, Save, Share, KeyRound, Edit2, X, Trash2 } from 'lucide-react';
 import SecurePasswordInput from '../components/SecurePasswordInput';
 import DeleteConfirmationControl from '../components/DeleteConfirmationControl';
 import VaultSharingManager from '../components/VaultSharingManager';
@@ -32,6 +32,12 @@ const COMPANY_MODULES = [
 ];
 
 const COMPANY_MODULE_IDS = COMPANY_MODULES.map((module) => module.id);
+const MODULE_VAULT_CATEGORIES = Object.freeze({
+  cpanelWeb: ['cPanel'],
+  vpn: ['VPN'],
+  windowsServer: ['Servidor TS'],
+  linuxServer: ['Servidor Linux', 'Servidores Diversos']
+});
 const normalizeEnabledModules = (modules) => Array.isArray(modules)
   ? COMPANY_MODULE_IDS.filter((moduleId) => modules.includes(moduleId))
   : null;
@@ -122,6 +128,9 @@ export default function ClientVault() {
   const [modulesLoaded, setModulesLoaded] = useState(false);
   const [isAddModuleOpen, setIsAddModuleOpen] = useState(false);
   const [isSavingModules, setIsSavingModules] = useState(false);
+  const [modulePendingDeletion, setModulePendingDeletion] = useState(null);
+  const [moduleDeleteConfirmation, setModuleDeleteConfirmation] = useState('');
+  const [isDeletingModule, setIsDeletingModule] = useState(false);
 
   // Mock do cliente atual
   const client = { id, name: 'Acme Corp', address: 'Av. Paulista, 1000 - SP' };
@@ -175,6 +184,7 @@ export default function ClientVault() {
     ? normalizeVaultPermissions(vaultPermissions)
     : null;
   const canManageModules = Boolean(effectiveVaultPermissions && (effectiveVaultPermissions.is_owner || effectiveVaultPermissions.is_admin || effectiveVaultPermissions.can_edit));
+  const canDeleteModules = Boolean(effectiveVaultPermissions && (effectiveVaultPermissions.is_owner || effectiveVaultPermissions.is_admin || effectiveVaultPermissions.can_delete));
   const hasEnabledModules = enabledModules.length > 0;
   const failedVaultItems = savedItems.filter((item) => item.decryptError);
   const allVaultItemsFailed = savedItems.length > 0 && failedVaultItems.length === savedItems.length;
@@ -391,14 +401,79 @@ export default function ClientVault() {
 
   const addModule = (moduleId) => persistEnabledModules([...enabledModules, moduleId]);
 
+  const closeDeleteModuleModal = () => {
+    if (isDeletingModule) return;
+    setModulePendingDeletion(null);
+    setModuleDeleteConfirmation('');
+  };
+
   // Referenciado pelos transforms dos gerenciadores no build do Vite.
   // eslint-disable-next-line no-unused-vars
-  const hideActiveModule = async () => {
+  const openDeleteModuleModal = () => {
     const activeModule = COMPANY_MODULES.find((module) => module.id === activeModuleId);
-    if (!activeModule || !canManageModules) return;
-    const confirmed = window.confirm('Deseja ocultar esta aba da empresa? Os dados cadastrados serão mantidos e poderão ser exibidos novamente ao adicionar a aba.');
-    if (!confirmed) return;
-    await persistEnabledModules(enabledModules.filter((moduleId) => moduleId !== activeModule.id));
+    if (!activeModule || !canDeleteModules) return;
+
+    if (!vaultDataKey) {
+      alert('Cofre bloqueado. Desbloqueie o cofre antes de excluir o servidor.');
+      return;
+    }
+
+    if (failedVaultItems.length > 0) {
+      alert('A exclusão foi bloqueada porque existem itens que não puderam ser descriptografados. Recarregue o cofre ou corrija o acesso criptográfico antes de continuar.');
+      return;
+    }
+
+    setModuleDeleteConfirmation('');
+    setModulePendingDeletion(activeModule);
+  };
+
+  const clearDeletedModuleState = (moduleId) => {
+    if (moduleId === 'cpanelWeb') setCpanelForm({ cpanels: [], users: [] });
+    if (moduleId === 'vpn') setVpnForm({ servers: [], users: [] });
+    if (moduleId === 'windowsServer') setTsForm({ servers: [], users: [] });
+    if (moduleId === 'linuxServer') setServerForm({ servers: [], sshCredentials: [] });
+  };
+
+  const handleConfirmDeleteModule = async () => {
+    if (
+      !modulePendingDeletion ||
+      moduleDeleteConfirmation.trim() !== 'EXCLUIR' ||
+      !canDeleteModules ||
+      isDeletingModule
+    ) return;
+
+    if (!vaultDataKey || failedVaultItems.length > 0) {
+      alert('A exclusão foi bloqueada porque o cofre não está disponível com uma chave válida.');
+      return;
+    }
+
+    setIsDeletingModule(true);
+    try {
+      const response = await api.delete(`/clients/${id}/modules/${modulePendingDeletion.id}`, {
+        data: { confirmation: moduleDeleteConfirmation.trim() }
+      });
+      const nextModules = normalizeEnabledModules(response.data?.enabledModules) || [];
+      const deletedCategories = MODULE_VAULT_CATEGORIES[modulePendingDeletion.id] || [];
+
+      clearDeletedModuleState(modulePendingDeletion.id);
+      setSavedItems((items) => items.filter((item) => !deletedCategories.includes(item.category)));
+      setEnabledModules(nextModules);
+      setActiveModuleId(COMPANY_MODULES.find((module) => nextModules.includes(module.id))?.id || null);
+      setIsAddModuleOpen(false);
+      if (nextModules.length === 0) setIsSharingModalOpen(false);
+
+      setModulePendingDeletion(null);
+      setModuleDeleteConfirmation('');
+      alert('Servidor e todos os dados desta aba foram excluídos com sucesso.');
+    } catch (error) {
+      console.error('Erro ao excluir módulo da empresa.', {
+        status: error.response?.status,
+        moduleId: modulePendingDeletion.id
+      });
+      alert(error.response?.data?.error || 'Não foi possível excluir o servidor. Nenhuma alteração foi aplicada.');
+    } finally {
+      setIsDeletingModule(false);
+    }
   };
 
   const persistTsForm = async (nextForm, successMessage) => {
@@ -1012,6 +1087,53 @@ export default function ClientVault() {
           )}
         </div>
       </div>
+      )}
+
+      {modulePendingDeletion && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900 bg-opacity-60 p-4" role="dialog" aria-modal="true" aria-labelledby="delete-module-title">
+          <div className="w-full max-w-lg rounded-lg bg-white shadow-xl">
+            <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+              <h2 id="delete-module-title" className="text-lg font-semibold text-slate-900">Excluir servidor</h2>
+              <button type="button" disabled={isDeletingModule} onClick={closeDeleteModuleModal} className="text-slate-400 hover:text-slate-600 disabled:opacity-50" aria-label="Fechar confirmação de exclusão">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="space-y-4 p-6">
+              <p className="text-sm text-slate-700">
+                Esta ação excluirá todas as informações cadastradas em <strong>{modulePendingDeletion.name}</strong> e removerá a aba da empresa. Para confirmar, digite EXCLUIR.
+              </p>
+              <div className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-200 pt-4">
+                <button
+                  type="button"
+                  title="Excluir servidor"
+                  aria-label="Excluir servidor"
+                  disabled={moduleDeleteConfirmation.trim() !== 'EXCLUIR' || isDeletingModule}
+                  onClick={handleConfirmDeleteModule}
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-red-300 text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+                <label htmlFor="deleteModuleConfirmation" className="sr-only">Digite EXCLUIR para confirmar a exclusão do servidor</label>
+                <input
+                  id="deleteModuleConfirmation"
+                  type="text"
+                  value={moduleDeleteConfirmation}
+                  onChange={(event) => setModuleDeleteConfirmation(event.target.value)}
+                  placeholder="EXCLUIR"
+                  autoComplete="off"
+                  disabled={isDeletingModule}
+                  className="h-9 w-28 rounded-md border border-red-300 px-2 text-sm focus:border-red-500 focus:outline-none focus:ring-1 focus:ring-red-500 disabled:opacity-50"
+                />
+                <button type="button" disabled={isDeletingModule} onClick={closeDeleteModuleModal} className="inline-flex h-9 items-center justify-center rounded-md border border-slate-300 bg-white px-4 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50">
+                  Cancelar
+                </button>
+                <button type="button" disabled={moduleDeleteConfirmation.trim() !== 'EXCLUIR' || isDeletingModule} onClick={handleConfirmDeleteModule} className="inline-flex h-9 items-center justify-center rounded-md bg-red-600 px-4 text-sm font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50">
+                  {isDeletingModule ? 'Excluindo...' : 'Excluir'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {isSharingModalOpen && hasEnabledModules && (effectiveVaultPermissions.is_owner || effectiveVaultPermissions.is_admin) && (

@@ -131,7 +131,7 @@ const normalizeVpnForm = (data = {}) => {
   };
 };
 
-export default function VpnManager({ vpnForm, setVpnForm, handleSaveData, isSaving, onHideModule }) {
+export default function VpnManager({ vpnForm, setVpnForm, handleSaveData, isSaving, onDeleteModule }) {
   const normalizedForm = useMemo(() => normalizeVpnForm(vpnForm), [vpnForm]);
   const [serverDraft, setServerDraft] = useState(emptyVpnServer());
   const [userDraft, setUserDraft] = useState(emptyVpnUser());
@@ -330,7 +330,7 @@ export default function VpnManager({ vpnForm, setVpnForm, handleSaveData, isSavi
       <div className="bg-slate-50 border border-slate-200 rounded-lg p-5">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
-            <h3 className="flex items-center gap-2 text-lg font-medium text-slate-900">{onHideModule && <button type="button" title="Ocultar aba" aria-label="Ocultar aba" onClick={onHideModule} className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-red-300 text-red-600 hover:bg-red-50"><Trash2 className="h-4 w-4" /></button>}Servidores VPN</h3>
+            <h3 className="flex items-center gap-2 text-lg font-medium text-slate-900">{onDeleteModule && <button type="button" title="Excluir servidor" aria-label="Excluir servidor" onClick={onDeleteModule} className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-red-300 text-red-600 hover:bg-red-50"><Trash2 className="h-4 w-4" /></button>}Servidores VPN</h3>
             <p className="text-sm text-slate-500">Cadastre e gerencie servidores VPN do cliente.</p>
           </div>
           <button type="button" disabled={isSaving} onClick={openCreateServerModal} className="inline-flex items-center justify-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50">

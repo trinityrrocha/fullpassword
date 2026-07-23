@@ -202,7 +202,7 @@ export default function clientVaultWindowsPlugin() {
               setTsForm={setTsForm}
               handleSaveData={handleSaveData}
               isSaving={isSaving}
-              onHideModule={canManageModules ? hideActiveModule : undefined}
+              onDeleteModule={canDeleteModules ? openDeleteModuleModal : undefined}
             />
           )}
 

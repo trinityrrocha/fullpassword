@@ -15,5 +15,6 @@ router.put('/:clientId', clientController.updateClient);
 router.delete('/:clientId', clientController.deleteClient);
 router.get('/:clientId/modules', clientController.getClientModules);
 router.put('/:clientId/modules', clientController.updateClientModules);
+router.delete('/:clientId/modules/:moduleId', clientController.deleteClientModule);
 
 module.exports = router;

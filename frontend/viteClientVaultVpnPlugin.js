@@ -93,7 +93,7 @@ export default function clientVaultVpnPlugin() {
               setVpnForm={setVpnForm}
               handleSaveData={handleSaveData}
               isSaving={isSaving}
-              onHideModule={canManageModules ? hideActiveModule : undefined}
+              onDeleteModule={canDeleteModules ? openDeleteModuleModal : undefined}
             />
           )}
 

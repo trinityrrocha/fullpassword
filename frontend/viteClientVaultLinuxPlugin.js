@@ -48,7 +48,7 @@ export default function clientVaultLinuxPlugin() {
               setServerForm={setServerForm}
               handleSaveData={handleSaveData}
               isSaving={isSaving}
-              onHideModule={canManageModules ? hideActiveModule : undefined}
+              onDeleteModule={canDeleteModules ? openDeleteModuleModal : undefined}
             />
           )}
         </div>`
