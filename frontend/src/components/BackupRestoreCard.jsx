@@ -10,12 +10,14 @@ export default function BackupRestoreCard() {
   const [validatedFile, setValidatedFile] = useState(null);
   const [feedback, setFeedback] = useState({ type: '', message: '' });
   const [loading, setLoading] = useState('');
+  const [uploadProgress, setUploadProgress] = useState(null);
 
   const isBackupValidated = Boolean(file && validatedFile === file);
 
   const resetValidation = () => {
     setValidatedFile(null);
     setSummary(null);
+    setUploadProgress(null);
     setFeedback({ type: '', message: '' });
   };
 
@@ -35,7 +37,7 @@ export default function BackupRestoreCard() {
   };
 
   const buildForm = (includeConfirmation) => {
-    if (!file) throw new Error('Selecione um arquivo .enc.json.');
+    if (!file) throw new Error('Selecione um arquivo .enc.json ou .zip.');
     if (passphrase.length < 16) throw new Error('A frase de descriptografia deve ter ao menos 16 caracteres.');
     const form = new FormData();
     form.append('backup', file);
@@ -44,13 +46,33 @@ export default function BackupRestoreCard() {
     return form;
   };
 
+  const buildUploadConfig = (processingMessage) => ({
+    onUploadProgress: ({ loaded, total }) => {
+      const percent = total ? Math.min(100, Math.round((loaded / total) * 100)) : null;
+      setUploadProgress(percent);
+      setFeedback({
+        type: 'progress',
+        message: percent === 100
+          ? processingMessage
+          : percent === null
+            ? 'Enviando backup...'
+            : `Enviando backup: ${percent}%`
+      });
+    }
+  });
+
   const runDryRun = async () => {
-    setFeedback({ type: 'progress', message: 'Validando arquivo de backup...' });
+    setFeedback({ type: 'progress', message: 'Preparando upload do backup...' });
     setSummary(null);
     setValidatedFile(null);
+    setUploadProgress(null);
     setLoading('dry-run');
     try {
-      const { data } = await api.post('/system/backup/restore/dry-run', buildForm(false));
+      const { data } = await api.post(
+        '/system/backup/restore/dry-run',
+        buildForm(false),
+        buildUploadConfig('Validando manifesto, checksums e partes criptografadas...')
+      );
       setSummary(data);
       setValidatedFile(file);
       setFeedback({ type: 'success', message: 'Arquivo validado com sucesso. Nenhum dado foi alterado.' });
@@ -61,6 +83,7 @@ export default function BackupRestoreCard() {
       });
     } finally {
       setLoading('');
+      setUploadProgress(null);
     }
   };
 
@@ -75,9 +98,14 @@ export default function BackupRestoreCard() {
     }
     if (!window.confirm('Esta ação pode substituir os dados atuais. Continuar com a restauração?')) return;
     setLoading('restore');
+    setUploadProgress(null);
     setFeedback({ type: 'progress', message: 'Restaurando backup... Não feche esta tela.' });
     try {
-      const { data } = await api.post('/system/backup/restore', buildForm(true));
+      const { data } = await api.post(
+        '/system/backup/restore',
+        buildForm(true),
+        buildUploadConfig('Restaurando banco e verificando integridade final... Não feche esta tela.')
+      );
       if (data.summary) setSummary(data.summary);
       setPassphrase('');
       setConfirmation('');
@@ -98,6 +126,7 @@ export default function BackupRestoreCard() {
       });
     } finally {
       setLoading('');
+      setUploadProgress(null);
     }
   };
 
@@ -109,8 +138,8 @@ export default function BackupRestoreCard() {
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
         <div>
           <label className="block text-sm font-medium text-slate-700">Arquivo de backup criptografado</label>
-          <input type="file" accept=".enc.json,application/json" disabled={Boolean(loading)} onChange={(event) => { setFile(event.target.files?.[0] || null); resetValidation(); }} className="mt-1 block w-full text-sm text-slate-600 disabled:opacity-60" />
-          <p className="mt-1 text-xs text-slate-500">Somente arquivos .enc.json, com limite de 50 MB.</p>
+          <input type="file" accept=".enc.json,.zip,application/json,application/zip" disabled={Boolean(loading)} onChange={(event) => { setFile(event.target.files?.[0] || null); resetValidation(); }} className="mt-1 block w-full text-sm text-slate-600 disabled:opacity-60" />
+          <p className="mt-1 text-xs text-slate-500">Backup legado .enc.json ou pacote v2 .zip. O limite é definido pelo servidor.</p>
         </div>
         <div>
           <label className="block text-sm font-medium text-slate-700">Frase de descriptografia</label>
@@ -136,6 +165,10 @@ export default function BackupRestoreCard() {
           <p><strong>Data:</strong> {summary.generated_at ? new Date(summary.generated_at).toLocaleString() : 'Não informada'}</p>
           <p><strong>Gerado por:</strong> {summary.generated_by || 'Não informado'}</p>
           <p><strong>Versão:</strong> {summary.version}</p>
+          {summary.parts !== undefined && <p><strong>Partes:</strong> {summary.parts}</p>}
+          {summary.total_bytes !== undefined && <p><strong>Tamanho criptografado:</strong> {(summary.total_bytes / (1024 * 1024)).toFixed(2)} MB</p>}
+          {summary.attachments !== undefined && <p><strong>Anexos identificáveis:</strong> {summary.attachments}</p>}
+          {summary.total_attachment_bytes !== undefined && <p><strong>Volume de anexos identificável:</strong> {(summary.total_attachment_bytes / (1024 * 1024)).toFixed(2)} MB</p>}
           <div className="mt-2 grid grid-cols-1 gap-1 sm:grid-cols-2">{summary.tables?.map((item) => <span key={item.table}>{item.table}: {item.records} registros</span>)}</div>
           {summary.warnings?.map((warning) => <p key={warning} className="mt-2 text-amber-700">{warning}</p>)}
         </div>
@@ -152,7 +185,14 @@ export default function BackupRestoreCard() {
           }`}
         >
           {feedback.type === 'progress' && <Loader2 className="mr-2 h-4 w-4 shrink-0 animate-spin" />}
-          {feedback.message}
+          <span className="flex-1">
+            {feedback.message}
+            {feedback.type === 'progress' && uploadProgress !== null && (
+              <span className="mt-1 block h-1.5 overflow-hidden rounded-full bg-indigo-100">
+                <span className="block h-full bg-indigo-600" style={{ width: `${uploadProgress}%` }} />
+              </span>
+            )}
+          </span>
         </div>
       )}
     </div>

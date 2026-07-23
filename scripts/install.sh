@@ -47,6 +47,10 @@ SSH_PORT=${SSH_PORT:-22}
 SUPER_ADMIN_EMAIL="$LETSENCRYPT_EMAIL"
 REPO_URL="https://github.com/trinityrrocha/fullpassword.git"
 RUNTIME_NGINX_CONF="./docker/nginx.runtime.conf"
+BACKUP_CHUNK_SIZE_MB=50
+BACKUP_MAX_UPLOAD_MB=2048
+BACKUP_TEMP_DIR=/tmp/fullpassword-backups
+BACKUP_RESTORE_TIMEOUT_MS=1800000
 
 compose() {
     if docker compose version >/dev/null 2>&1; then
@@ -158,6 +162,12 @@ ADMIN_BOOTSTRAP_TOKEN=$ADMIN_BOOTSTRAP_TOKEN
 SUPER_ADMIN_EMAIL=$SUPER_ADMIN_EMAIL
 APP_ORIGIN=https://$DOMAIN
 
+# Configurações de Backup v2
+BACKUP_CHUNK_SIZE_MB=$BACKUP_CHUNK_SIZE_MB
+BACKUP_MAX_UPLOAD_MB=$BACKUP_MAX_UPLOAD_MB
+BACKUP_TEMP_DIR=$BACKUP_TEMP_DIR
+BACKUP_RESTORE_TIMEOUT_MS=$BACKUP_RESTORE_TIMEOUT_MS
+
 # Configurações do Frontend
 VITE_API_URL=https://$DOMAIN/api
 
@@ -237,7 +247,9 @@ server {
 
     # Backend API (Node.js)
     location /api/ {
-        client_max_body_size 12m;
+        client_max_body_size ${BACKUP_MAX_UPLOAD_MB}m;
+        proxy_read_timeout $((BACKUP_RESTORE_TIMEOUT_MS / 1000))s;
+        proxy_send_timeout $((BACKUP_RESTORE_TIMEOUT_MS / 1000))s;
         proxy_pass http://backend:3000;
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;

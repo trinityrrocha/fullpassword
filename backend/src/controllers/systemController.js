@@ -1,10 +1,15 @@
 const crypto = require('crypto');
+const fsStream = require('fs');
 const fs = require('fs/promises');
 const path = require('path');
+const { pipeline } = require('stream/promises');
 const { promisify } = require('util');
 const db = require('../config/database');
 const { SUPER_ADMIN_EMAIL, normalizeRole, isSuperAdmin } = require('../config/security');
+const { BACKUP_TABLES } = require('../config/backupTables');
+const { BACKUP_RESTORE_TIMEOUT_MS } = require('../config/backupConfig');
 const { recordAuditEvent } = require('../services/auditService');
+const { createBackupPackageV2, cleanupBackupWorkspace } = require('../services/backupPackageV2Service');
 
 const UPDATER_REQUEST_DIR = process.env.UPDATER_REQUEST_DIR || '/var/lib/fullpassword-updater/requests';
 const scryptAsync = promisify(crypto.scrypt);
@@ -15,23 +20,7 @@ const denyNonSuperAdmin = (res) => {
   });
 };
 
-const backupTables = [
-  'users',
-  'groups',
-  'user_groups',
-  'clients',
-  'client_group_access',
-  'client_key_shares',
-  'vault_items',
-  'vault_shares',
-  'vault_access_audit',
-  'user_mfa_settings',
-  'user_mfa_recovery_codes',
-  'password_policy_settings',
-  'login_security_policy',
-  'ip_security_rules',
-  'system_audit_events'
-];
+const backupTables = [...BACKUP_TABLES];
 
 const buildBackupPayload = async (generatedBy) => {
   const data = {};
@@ -150,6 +139,9 @@ const updateSystem = async (req, res) => {
 // POST /api/system/backup - Exporta backup completo em envelope criptografado
 const downloadBackup = async (req, res) => {
   await recordAuditEvent({ user: req.user, action: 'backup_export_attempt', status: 'attempt', req });
+  let v2Workspace;
+  req.setTimeout(BACKUP_RESTORE_TIMEOUT_MS);
+  res.setTimeout(BACKUP_RESTORE_TIMEOUT_MS);
 
   try {
     if (!isSuperAdmin(req.user)) {
@@ -158,6 +150,10 @@ const downloadBackup = async (req, res) => {
     }
 
     const { confirmation, passphrase } = req.body || {};
+    const format = String(req.body?.format || req.query?.format || 'v2').trim().toLowerCase();
+    if (!['v1', 'v2'].includes(format)) {
+      return res.status(400).json({ error: 'BACKUP_EXPORT_INVALID_FORMAT', message: 'Escolha o formato de backup v1 ou v2.' });
+    }
     if (confirmation !== 'EXPORTAR BACKUP') {
       await recordAuditEvent({ user: req.user, action: 'backup_export_denied', status: 'denied', req, metadata: { reason: 'invalid_confirmation' } });
       return res.status(400).json({ error: 'Digite exatamente EXPORTAR BACKUP para confirmar.' });
@@ -167,11 +163,39 @@ const downloadBackup = async (req, res) => {
       return res.status(400).json({ error: 'A frase de criptografia deve ter ao menos 16 caracteres.' });
     }
 
+    if (format === 'v2') {
+      const backupPackage = await createBackupPackageV2({
+        generatedBy: req.user?.email,
+        passphrase
+      });
+      v2Workspace = backupPackage.workspace;
+      const packageStat = await fs.stat(backupPackage.packagePath);
+      res.setHeader('Content-Type', 'application/zip');
+      res.setHeader('Content-Disposition', `attachment; filename="${backupPackage.filename}"`);
+      res.setHeader('Content-Length', String(packageStat.size));
+      res.setHeader('Cache-Control', 'no-store');
+      res.status(200);
+      await pipeline(fsStream.createReadStream(backupPackage.packagePath), res);
+
+      await recordAuditEvent({
+        user: req.user,
+        action: 'backup_export_success',
+        status: 'success',
+        req,
+        metadata: {
+          format: 'fullpassword-backup-package',
+          version: 2,
+          parts: backupPackage.manifest.parts.length,
+          bytes: packageStat.size
+        }
+      });
+      return;
+    }
+
     const payload = await buildBackupPayload(req.user?.email);
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     const encryptedBackup = await encryptBackupPayload(payload, passphrase);
     const content = JSON.stringify(encryptedBackup, null, 2);
-
     await recordAuditEvent({
       user: req.user,
       action: 'backup_export_success',
@@ -179,16 +203,24 @@ const downloadBackup = async (req, res) => {
       req,
       metadata: { format: 'fullpassword-encrypted-backup', version: 1 }
     });
-
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="fullpassword-${timestamp}.fullpassword-backup.enc.json"`);
     res.setHeader('Cache-Control', 'no-store');
     return res.status(200).send(content);
 
   } catch (error) {
-    console.error('Erro ao gerar backup:', error);
+    console.error('Erro ao gerar backup:', {
+      code: String(error?.code || '').slice(0, 80) || null,
+      name: error?.name || 'Error'
+    });
     await recordAuditEvent({ user: req.user, action: 'backup_export_failed', status: 'failed', req });
+    if (res.headersSent) {
+      res.destroy();
+      return;
+    }
     return res.status(500).json({ error: 'Erro interno ao gerar backup criptografado' });
+  } finally {
+    await cleanupBackupWorkspace(v2Workspace);
   }
 };
 

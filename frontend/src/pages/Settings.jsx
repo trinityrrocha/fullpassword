@@ -42,7 +42,9 @@ export default function Settings() {
   const [updateCountdown, setUpdateCountdown] = useState(0);
   const [backupConfirmation, setBackupConfirmation] = useState('');
   const [backupPassphrase, setBackupPassphrase] = useState('');
+  const [backupFormat, setBackupFormat] = useState('v2');
   const [isDownloadingBackup, setIsDownloadingBackup] = useState(false);
+  const [backupProgress, setBackupProgress] = useState({ type: '', message: '', percent: null });
   const [systemPermissions, setSystemPermissions] = useState(null);
   const [isLoadingPermissions, setIsLoadingPermissions] = useState(true);
   const [auditEvents, setAuditEvents] = useState([]);
@@ -127,17 +129,109 @@ export default function Settings() {
     }
 
     setIsDownloadingBackup(true);
+    setBackupProgress({ type: 'progress', message: 'Preparando backup criptografado...', percent: null });
 
     try {
+      if (backupFormat === 'v2' && typeof window.showSaveFilePicker === 'function') {
+        let writable;
+        try {
+          const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+          const fileHandle = await window.showSaveFilePicker({
+            suggestedName: `fullpassword-${timestamp}.fullpassword-backup-v2.zip`,
+            types: [{
+              description: 'Backup FullPassword v2',
+              accept: { 'application/zip': ['.zip'] }
+            }]
+          });
+
+          let csrfToken = document.cookie
+            .split('; ')
+            .find((item) => item.startsWith('fp_csrf='))
+            ?.slice('fp_csrf='.length);
+          if (!csrfToken) {
+            await api.get('/auth/csrf');
+            csrfToken = document.cookie
+              .split('; ')
+              .find((item) => item.startsWith('fp_csrf='))
+              ?.slice('fp_csrf='.length);
+          }
+
+          const apiBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
+          const backupUrl = new URL(`${apiBaseUrl.replace(/\/$/, '')}/system/backup`, window.location.origin);
+          const response = await fetch(backupUrl, {
+            method: 'POST',
+            credentials: 'include',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(csrfToken ? { 'X-CSRF-Token': decodeURIComponent(csrfToken) } : {})
+            },
+            body: JSON.stringify({
+              confirmation: backupConfirmation,
+              passphrase: backupPassphrase,
+              format: backupFormat
+            })
+          });
+
+          if (!response.ok) {
+            const errorBody = await response.json().catch(() => ({}));
+            throw new Error(errorBody.message || errorBody.error || 'Erro ao gerar backup criptografado.');
+          }
+          if (!response.body) throw new Error('O navegador não disponibilizou o stream do backup.');
+
+          writable = await fileHandle.createWritable();
+          const reader = response.body.getReader();
+          const totalBytes = Number(response.headers.get('content-length')) || 0;
+          let downloadedBytes = 0;
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            await writable.write(value);
+            downloadedBytes += value.byteLength;
+            const percent = totalBytes
+              ? Math.min(100, Math.round((downloadedBytes / totalBytes) * 100))
+              : null;
+            setBackupProgress({
+              type: 'progress',
+              message: percent === null ? 'Baixando backup...' : `Baixando backup: ${percent}%`,
+              percent
+            });
+          }
+          await writable.close();
+          writable = null;
+          setBackupConfirmation('');
+          setBackupPassphrase('');
+          setBackupProgress({ type: 'success', message: 'Backup criptografado salvo com sucesso.', percent: 100 });
+          return;
+        } catch (error) {
+          if (writable) await writable.abort().catch(() => {});
+          if (error?.name === 'AbortError') {
+            setBackupProgress({ type: '', message: '', percent: null });
+            return;
+          }
+          throw error;
+        }
+      }
+
       const response = await api.post('/system/backup', {
         confirmation: backupConfirmation,
-        passphrase: backupPassphrase
+        passphrase: backupPassphrase,
+        format: backupFormat
       }, {
-        responseType: 'blob'
+        responseType: 'blob',
+        onDownloadProgress: ({ loaded, total }) => {
+          const percent = total ? Math.min(100, Math.round((loaded / total) * 100)) : null;
+          setBackupProgress({
+            type: 'progress',
+            message: percent === null ? 'Baixando backup...' : `Baixando backup: ${percent}%`,
+            percent
+          });
+        }
       });
 
       const disposition = response.headers['content-disposition'];
-      let filename = 'fullpassword-backup.fullpassword-backup.enc.json';
+      let filename = backupFormat === 'v2'
+        ? 'fullpassword-backup.fullpassword-backup-v2.zip'
+        : 'fullpassword-backup.fullpassword-backup.enc.json';
 
       if (disposition) {
         const match = disposition.match(/filename="(.+)"/);
@@ -160,6 +254,7 @@ export default function Settings() {
       document.body.removeChild(link);
       setBackupConfirmation('');
       setBackupPassphrase('');
+      setBackupProgress({ type: 'success', message: 'Backup criptografado baixado com sucesso.', percent: 100 });
 
     } catch (error) {
       let message = 'Erro ao gerar backup criptografado.';
@@ -171,7 +266,8 @@ export default function Settings() {
           // Mantém mensagem genérica sem expor a frase enviada no objeto Axios.
         }
       }
-      alert(message);
+      if (!(error.response?.data instanceof Blob) && error?.message) message = error.message;
+      setBackupProgress({ type: 'error', message, percent: null });
     } finally {
       setIsDownloadingBackup(false);
     }
@@ -409,6 +505,45 @@ export default function Settings() {
               restrictedWarning('Apenas o Super Admin inicial pode gerar backup completo do sistema.')
             ) : (
               <div className="space-y-4">
+                <fieldset>
+                  <legend className="mb-2 text-sm font-medium text-slate-700">Formato do backup</legend>
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                    <label className={`cursor-pointer rounded-md border p-3 ${backupFormat === 'v2' ? 'border-indigo-500 bg-indigo-50' : 'border-slate-300'}`}>
+                      <span className="flex items-start gap-2">
+                        <input
+                          type="radio"
+                          name="backup-format"
+                          value="v2"
+                          checked={backupFormat === 'v2'}
+                          onChange={(event) => setBackupFormat(event.target.value)}
+                          disabled={isDownloadingBackup}
+                          className="mt-1"
+                        />
+                        <span>
+                          <span className="block text-sm font-semibold text-slate-900">Recomendado v2</span>
+                          <span className="block text-xs text-slate-600">Manifesto, checksums e partes criptografadas para backups grandes e anexos.</span>
+                        </span>
+                      </span>
+                    </label>
+                    <label className={`cursor-pointer rounded-md border p-3 ${backupFormat === 'v1' ? 'border-indigo-500 bg-indigo-50' : 'border-slate-300'}`}>
+                      <span className="flex items-start gap-2">
+                        <input
+                          type="radio"
+                          name="backup-format"
+                          value="v1"
+                          checked={backupFormat === 'v1'}
+                          onChange={(event) => setBackupFormat(event.target.value)}
+                          disabled={isDownloadingBackup}
+                          className="mt-1"
+                        />
+                        <span>
+                          <span className="block text-sm font-semibold text-slate-900">Compatível v1</span>
+                          <span className="block text-xs text-slate-600">Formato legado em arquivo .enc.json, indicado apenas para backups pequenos.</span>
+                        </span>
+                      </span>
+                    </label>
+                  </div>
+                </fieldset>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">Confirmação</label>
@@ -441,8 +576,27 @@ export default function Settings() {
                   className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
                 >
                   <Download className="w-4 h-4 mr-2" />
-                  {isDownloadingBackup ? 'Criptografando backup...' : 'Baixar Backup Criptografado'}
+                  {isDownloadingBackup ? 'Preparando e baixando...' : `Baixar Backup ${backupFormat.toUpperCase()}`}
                 </button>
+                {backupProgress.message && (
+                  <div
+                    role={backupProgress.type === 'error' ? 'alert' : 'status'}
+                    className={`rounded-md border px-3 py-2 text-sm ${
+                      backupProgress.type === 'error'
+                        ? 'border-red-200 bg-red-50 text-red-800'
+                        : backupProgress.type === 'success'
+                          ? 'border-green-200 bg-green-50 text-green-800'
+                          : 'border-indigo-200 bg-indigo-50 text-indigo-800'
+                    }`}
+                  >
+                    {backupProgress.message}
+                    {backupProgress.type === 'progress' && backupProgress.percent !== null && (
+                      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-indigo-100">
+                        <div className="h-full bg-indigo-600" style={{ width: `${backupProgress.percent}%` }} />
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
         </SettingsAccordionCard>

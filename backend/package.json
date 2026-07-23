@@ -4,10 +4,12 @@
   "description": "Backend para o projeto FullPassword",
   "main": "src/server.js",
   "scripts": {
+    "test": "node scripts/test-backup-v2.js",
     "start": "node src/server.js",
     "dev": "nodemon src/server.js"
   },
   "dependencies": {
+    "archiver": "^7.0.1",
     "argon2": "^0.40.1",
     "cookie-parser": "1.4.7",
     "cors": "^2.8.5",
@@ -20,8 +22,10 @@
     "multer": "^2.0.2",
     "otplib": "12.0.1",
     "pg": "^8.11.5",
+    "pg-query-stream": "^4.16.0",
     "qrcode": "^1.5.4",
-    "ua-parser-js": "^2.0.6"
+    "ua-parser-js": "^2.0.6",
+    "yauzl": "^3.4.0"
   },
   "devDependencies": {
     "nodemon": "^3.1.0"

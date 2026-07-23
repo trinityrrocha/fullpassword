@@ -43,6 +43,10 @@ services:
       - SUPER_ADMIN_EMAIL=${SUPER_ADMIN_EMAIL:?SUPER_ADMIN_EMAIL obrigatório}
       - APP_ORIGIN=${APP_ORIGIN:?APP_ORIGIN obrigatória}
       - BACKUP_ARCHIVE_DIR=/var/lib/fullpassword-backups
+      - BACKUP_CHUNK_SIZE_MB=${BACKUP_CHUNK_SIZE_MB:-50}
+      - BACKUP_MAX_UPLOAD_MB=${BACKUP_MAX_UPLOAD_MB:-2048}
+      - BACKUP_TEMP_DIR=${BACKUP_TEMP_DIR:-/tmp/fullpassword-backups}
+      - BACKUP_RESTORE_TIMEOUT_MS=${BACKUP_RESTORE_TIMEOUT_MS:-1800000}
     depends_on:
       db:
         condition: service_healthy

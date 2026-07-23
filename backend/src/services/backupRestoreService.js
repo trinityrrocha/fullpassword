@@ -1,12 +1,12 @@
 const crypto = require('crypto');
 const { promisify } = require('util');
 const db = require('../config/database');
-const { backupTables } = require('../controllers/systemController');
+const { BACKUP_TABLES } = require('../config/backupTables');
 
 const scryptAsync = promisify(crypto.scrypt);
 const MAX_BACKUP_BYTES = 50 * 1024 * 1024;
 const REQUIRED_CORE_TABLES = ['users', 'groups', 'user_groups', 'clients', 'vault_items'];
-const restoreOrder = [...backupTables];
+const restoreOrder = [...BACKUP_TABLES];
 const isEncryptedBackupFilename = (filename) => (
   typeof filename === 'string' && filename.toLowerCase().endsWith('.enc.json')
 );
@@ -190,7 +190,7 @@ const createRestoreDatabaseError = (error, context) => {
   return restoreError;
 };
 
-const restoreBackupPayload = async (payload) => {
+const restoreBackupRecords = async (records, expectedCounts = null) => {
   let client;
   try {
     client = await db.pool.connect();
@@ -199,6 +199,9 @@ const restoreBackupPayload = async (payload) => {
   }
 
   const context = { stage: 'begin', table: null, row: null };
+  const columnsByTable = new Map();
+  const restoredCounts = Object.fromEntries(restoreOrder.map((table) => [table, 0]));
+  let previousTableIndex = 0;
   try {
     await client.query('BEGIN');
     context.stage = 'constraints';
@@ -209,25 +212,62 @@ const restoreBackupPayload = async (payload) => {
       await client.query(`DELETE FROM ${table}`);
     }
 
+    for await (const record of records) {
+      const tableIndex = restoreOrder.indexOf(record?.table);
+      if (
+        tableIndex < 0
+        || tableIndex < previousTableIndex
+        || !record?.row
+        || typeof record.row !== 'object'
+        || Array.isArray(record.row)
+      ) {
+        const invalidRecordError = new Error('Registro ou ordem de restauração inválida.');
+        invalidRecordError.code = 'BACKUP_INVALID_RESTORE_RECORD';
+        throw invalidRecordError;
+      }
+      previousTableIndex = tableIndex;
+      const table = record.table;
+      context.table = table;
+      restoredCounts[table] += 1;
+      context.row = restoredCounts[table];
+      let allowedColumns = columnsByTable.get(table);
+      if (!allowedColumns) {
+        context.stage = 'schema';
+        allowedColumns = await getInsertableColumns(client, table);
+        columnsByTable.set(table, allowedColumns);
+      }
+      context.stage = 'insert';
+      const columns = Object.keys(record.row).filter((column) => allowedColumns.has(column));
+      if (columns.length === 0) continue;
+      const values = columns.map((column) => record.row[column]);
+      const placeholders = columns.map((_, placeholderIndex) => `$${placeholderIndex + 1}`);
+      await client.query(`INSERT INTO ${table} (${columns.join(', ')}) VALUES (${placeholders.join(', ')})`, values);
+    }
+
+    context.row = null;
+    context.stage = 'verify';
+    if (expectedCounts) {
+      for (const table of restoreOrder) {
+        if (
+          Number.isSafeInteger(expectedCounts[table])
+          && restoredCounts[table] !== expectedCounts[table]
+        ) {
+          context.table = table;
+          const countError = new Error(`Contagem restaurada divergente para a tabela ${table}.`);
+          countError.code = 'BACKUP_RESTORE_COUNT_MISMATCH';
+          throw countError;
+        }
+      }
+    }
+
     for (const table of restoreOrder) {
       context.table = table;
-      context.row = null;
-      const rows = payload.data[table];
-      if (!Array.isArray(rows)) continue;
-      context.stage = 'schema';
-      const allowedColumns = await getInsertableColumns(client, table);
-      context.stage = 'insert';
-      for (let index = 0; index < rows.length; index += 1) {
-        context.row = index + 1;
-        const row = rows[index];
-        const columns = Object.keys(row).filter((column) => allowedColumns.has(column));
-        if (columns.length === 0) continue;
-        const values = columns.map((column) => row[column]);
-        const placeholders = columns.map((_, placeholderIndex) => `$${placeholderIndex + 1}`);
-        await client.query(`INSERT INTO ${table} (${columns.join(', ')}) VALUES (${placeholders.join(', ')})`, values);
-      }
-      context.row = null;
       context.stage = 'sequence';
+      let allowedColumns = columnsByTable.get(table);
+      if (!allowedColumns) {
+        allowedColumns = await getInsertableColumns(client, table);
+        columnsByTable.set(table, allowedColumns);
+      }
       await resetTableSequence(client, table, allowedColumns);
     }
     context.table = 'password_policy_settings';
@@ -238,12 +278,28 @@ const restoreBackupPayload = async (payload) => {
     context.table = null;
     context.stage = 'commit';
     await client.query('COMMIT');
+    return restoredCounts;
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {});
     throw createRestoreDatabaseError(error, context);
   } finally {
     client.release();
   }
+};
+
+const restoreBackupPayload = async (payload) => {
+  async function* payloadRecords() {
+    for (const table of restoreOrder) {
+      const rows = payload.data[table];
+      if (!Array.isArray(rows)) continue;
+      for (const row of rows) yield { table, row };
+    }
+  }
+
+  const expectedCounts = Object.fromEntries(
+    restoreOrder.map((table) => [table, Array.isArray(payload.data[table]) ? payload.data[table].length : 0])
+  );
+  return restoreBackupRecords(payloadRecords(), expectedCounts);
 };
 
 module.exports = {
@@ -254,5 +310,6 @@ module.exports = {
   decryptBackupEnvelope,
   parseAndDecryptBackup,
   summarizeBackup,
+  restoreBackupRecords,
   restoreBackupPayload
 };

@@ -32,10 +32,20 @@ compose() {
 write_runtime_nginx_conf() {
   runtime_conf_path="${NGINX_CONF_PATH:-./docker/nginx.runtime.conf}"
   domain="$(printf '%s' "$APP_ORIGIN" | sed 's#^https://##;s#/$##')"
+  backup_max_upload_mb="${BACKUP_MAX_UPLOAD_MB:-2048}"
+  backup_restore_timeout_ms="${BACKUP_RESTORE_TIMEOUT_MS:-1800000}"
 
   [ -n "$domain" ] || fail "Não foi possível derivar o domínio a partir de APP_ORIGIN"
 
   log "Regenerando configuração runtime do Nginx para frontend estático em $runtime_conf_path"
+  case "$backup_max_upload_mb" in ''|*[!0-9]*) fail "BACKUP_MAX_UPLOAD_MB inválido no .env" ;; esac
+  case "$backup_restore_timeout_ms" in ''|*[!0-9]*) fail "BACKUP_RESTORE_TIMEOUT_MS inválido no .env" ;; esac
+  [ "$backup_max_upload_mb" -ge 1 ] && [ "$backup_max_upload_mb" -le 10240 ] \
+    || fail "BACKUP_MAX_UPLOAD_MB deve estar entre 1 e 10240"
+  [ "$backup_restore_timeout_ms" -ge 60000 ] && [ "$backup_restore_timeout_ms" -le 14400000 ] \
+    || fail "BACKUP_RESTORE_TIMEOUT_MS deve estar entre 60000 e 14400000"
+  backup_restore_timeout_seconds=$((backup_restore_timeout_ms / 1000))
+
   mkdir -p "$(dirname "$runtime_conf_path")"
 
   cat > "$runtime_conf_path" <<EOF
@@ -68,7 +78,9 @@ server {
 
     # Backend API (Node.js)
     location /api/ {
-        client_max_body_size 12m;
+        client_max_body_size ${backup_max_upload_mb}m;
+        proxy_read_timeout ${backup_restore_timeout_seconds}s;
+        proxy_send_timeout ${backup_restore_timeout_seconds}s;
         proxy_pass http://backend:3000;
         proxy_http_version 1.1;
         proxy_set_header Host \$host;
