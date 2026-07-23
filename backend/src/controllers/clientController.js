@@ -1,5 +1,5 @@
 const db = require('../config/database');
-const { ensureSharingSchema, requireClientPermission } = require('../services/accessControlService');
+const { ensureSharingSchema, requireClientPermission, logVaultAccess } = require('../services/accessControlService');
 const { isSuperAdmin } = require('../config/security');
 
 // GET /api/clients - Lista apenas cofres próprios ou compartilhados com grupos que podem visualizar
@@ -139,6 +139,7 @@ const updateClientModules = async (req, res) => {
 
 const deleteClientModule = async (req, res) => {
   let transaction;
+  let committed = false;
 
   try {
     await ensureSharingSchema();
@@ -154,8 +155,6 @@ const deleteClientModule = async (req, res) => {
       return res.status(400).json({ error: 'Confirmação de exclusão inválida' });
     }
 
-    await requireClientPermission(clientId, req.user, 'delete');
-
     transaction = await db.pool.connect();
     await transaction.query('BEGIN');
 
@@ -168,6 +167,8 @@ const deleteClientModule = async (req, res) => {
       await transaction.query('ROLLBACK');
       return res.status(404).json({ error: 'Cliente não encontrado' });
     }
+
+    await requireClientPermission(clientId, req.user, 'delete');
 
     const currentModules = Array.isArray(clientResult.rows[0].enabled_modules)
       ? allowedModules.filter((allowedModule) => clientResult.rows[0].enabled_modules.includes(allowedModule))
@@ -185,11 +186,20 @@ const deleteClientModule = async (req, res) => {
     );
 
     await transaction.query('COMMIT');
+    committed = true;
 
-    await logVaultAccess(clientId, req.user.id, 'vault_module_delete', {
-      module_id: moduleId,
-      deleted_items: deletedItems.rowCount
-    });
+    try {
+      await logVaultAccess(clientId, req.user.id, 'vault_module_delete', {
+        module_id: moduleId,
+        deleted_items: deletedItems.rowCount
+      });
+    } catch (auditError) {
+      console.error('Módulo excluído, mas não foi possível registrar a auditoria.', {
+        clientId,
+        moduleId,
+        errorName: auditError?.name || 'Error'
+      });
+    }
 
     return res.status(200).json({
       deleted: true,
@@ -198,7 +208,7 @@ const deleteClientModule = async (req, res) => {
       deletedItems: deletedItems.rowCount
     });
   } catch (error) {
-    if (transaction) {
+    if (transaction && !committed) {
       try {
         await transaction.query('ROLLBACK');
       } catch (rollbackError) {

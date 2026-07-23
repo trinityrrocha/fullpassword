@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Server, Globe, Shield, HardDrive, Plus, Save, Share, KeyRound, Edit2, X, Trash2 } from 'lucide-react';
+import { ArrowLeft, Server, Globe, Shield, HardDrive, Plus, Save, Share, KeyRound, Edit2, X } from 'lucide-react';
 import SecurePasswordInput from '../components/SecurePasswordInput';
 import DeleteConfirmationControl from '../components/DeleteConfirmationControl';
 import VaultSharingManager from '../components/VaultSharingManager';
@@ -1103,16 +1103,6 @@ export default function ClientVault() {
                 Esta ação excluirá todas as informações cadastradas em <strong>{modulePendingDeletion.name}</strong> e removerá a aba da empresa. Para confirmar, digite EXCLUIR.
               </p>
               <div className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-200 pt-4">
-                <button
-                  type="button"
-                  title="Excluir servidor"
-                  aria-label="Excluir servidor"
-                  disabled={moduleDeleteConfirmation.trim() !== 'EXCLUIR' || isDeletingModule}
-                  onClick={handleConfirmDeleteModule}
-                  className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-red-300 text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </button>
                 <label htmlFor="deleteModuleConfirmation" className="sr-only">Digite EXCLUIR para confirmar a exclusão do servidor</label>
                 <input
                   id="deleteModuleConfirmation"
