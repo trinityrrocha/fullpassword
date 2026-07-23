@@ -45,6 +45,39 @@ const getBackupValidationResponse = (error, fallbackMessage) => {
   };
 };
 
+const getRestoreFailureResponse = (error) => {
+  const stage = String(error?.restoreStage || 'unknown').replace(/[^a-z_-]/gi, '').slice(0, 40);
+  const table = String(error?.restoreTable || '').replace(/[^a-z0-9_]/gi, '').slice(0, 80);
+  const sqlCode = String(error?.sqlCode || '').replace(/[^a-z0-9]/gi, '').slice(0, 10);
+  const constraint = String(error?.constraint || '').replace(/[^a-z0-9_.-]/gi, '').slice(0, 120);
+  const row = Number.isInteger(error?.restoreRow) ? error.restoreRow : null;
+  const isConstraintError = sqlCode.startsWith('23');
+  const location = [table ? `tabela ${table}` : '', row ? `registro ${row}` : ''].filter(Boolean).join(', ');
+  const details = [
+    `Falha na etapa ${stage}${location ? ` (${location})` : ''}.`,
+    sqlCode ? `Código SQL: ${sqlCode}.` : '',
+    constraint ? `Constraint: ${constraint}.` : '',
+    'A transação foi revertida e o backup automático de segurança foi preservado.'
+  ].filter(Boolean).join(' ');
+
+  return {
+    status: isConstraintError ? 409 : 500,
+    error: isConstraintError ? 'BACKUP_RESTORE_CONSTRAINT_ERROR' : 'BACKUP_RESTORE_DATABASE_ERROR',
+    message: isConstraintError
+      ? 'Não foi possível restaurar o backup devido a uma restrição do banco de dados.'
+      : 'Não foi possível gravar os dados do backup.',
+    details,
+    metadata: {
+      reason: isConstraintError ? 'constraint_error' : 'database_error',
+      stage,
+      table: table || null,
+      row,
+      sql_code: sqlCode || null,
+      constraint: constraint || null
+    }
+  };
+};
+
 const deny = async (req, res) => {
   await recordAuditEvent({ user: req.user, action: 'backup_restore_denied', status: 'denied', req, metadata: { reason: 'not_super_admin' } });
   return sendRestoreError(
@@ -184,14 +217,21 @@ const restore = async (req, res) => {
     });
     return res.status(200).json({ message: 'Backup restaurado com sucesso. Faça login novamente.', summary, session_invalidated: true });
   } catch (error) {
-    console.error('Falha transacional ao restaurar backup:', error.message);
-    await recordAuditEvent({ user: req.user, action: 'backup_restore_failed', status: 'failed', req, metadata: { reason: 'transaction_failed' } });
+    const failure = getRestoreFailureResponse(error);
+    console.error('Falha transacional ao restaurar backup.', failure.metadata);
+    await recordAuditEvent({
+      user: req.user,
+      action: 'backup_restore_failed',
+      status: 'failed',
+      req,
+      metadata: failure.metadata
+    });
     return sendRestoreError(
       res,
-      500,
-      'BACKUP_RESTORE_TRANSACTION_FAILED',
-      'Não foi possível restaurar o backup.',
-      'A transação foi revertida e o backup automático de segurança foi preservado.'
+      failure.status,
+      failure.error,
+      failure.message,
+      failure.details
     );
   }
 };

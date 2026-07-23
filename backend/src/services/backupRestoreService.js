@@ -150,7 +150,11 @@ const summarizeBackup = ({ envelope, payload }) => ({
   generated_by: payload.metadata.generated_by || null,
   version: envelope.version,
   tables: restoreOrder.filter((table) => Array.isArray(payload.data[table])).map((table) => ({ table, records: payload.data[table].length })),
-  warnings: ['Sessões ativas não são restauradas; todos os usuários deverão autenticar novamente.', 'Anexos atuais já estão incluídos nos campos criptografados do banco.']
+  warnings: [
+    'Sessões ativas não são restauradas; todos os usuários deverão autenticar novamente.',
+    'Registros existentes nas tabelas incluídas serão substituídos pelos dados deste backup.',
+    'Anexos atuais já estão incluídos nos campos criptografados do banco.'
+  ]
 });
 
 const getInsertableColumns = async (client, table) => {
@@ -162,35 +166,81 @@ const getInsertableColumns = async (client, table) => {
   return new Set(result.rows.map((row) => row.column_name));
 };
 
+const resetTableSequence = async (client, table, columns) => {
+  if (!columns.has('id')) return;
+
+  const sequence = await client.query('SELECT pg_get_serial_sequence($1, $2) AS name', [table, 'id']);
+  if (!sequence.rows[0]?.name) return;
+
+  await client.query(
+    `SELECT setval($1, COALESCE((SELECT MAX(id) FROM ${table}), 1), (SELECT COUNT(*) > 0 FROM ${table}))`,
+    [sequence.rows[0].name]
+  );
+};
+
+const createRestoreDatabaseError = (error, context) => {
+  const restoreError = new Error('Falha ao gravar os dados do backup.', { cause: error });
+  restoreError.name = 'BackupRestoreDatabaseError';
+  restoreError.code = 'BACKUP_RESTORE_DATABASE_ERROR';
+  restoreError.sqlCode = String(error?.code || '').slice(0, 10) || null;
+  restoreError.constraint = String(error?.constraint || '').replace(/[^a-zA-Z0-9_.-]/g, '').slice(0, 120) || null;
+  restoreError.restoreStage = context.stage;
+  restoreError.restoreTable = context.table || null;
+  restoreError.restoreRow = Number.isInteger(context.row) ? context.row : null;
+  return restoreError;
+};
+
 const restoreBackupPayload = async (payload) => {
-  const client = await db.pool.connect();
+  let client;
+  try {
+    client = await db.pool.connect();
+  } catch (error) {
+    throw createRestoreDatabaseError(error, { stage: 'connect' });
+  }
+
+  const context = { stage: 'begin', table: null, row: null };
   try {
     await client.query('BEGIN');
+    context.stage = 'constraints';
     await client.query('SET CONSTRAINTS ALL DEFERRED');
-    for (const table of [...restoreOrder].reverse()) await client.query(`DELETE FROM ${table}`);
+    context.stage = 'delete';
+    for (const table of [...restoreOrder].reverse()) {
+      context.table = table;
+      await client.query(`DELETE FROM ${table}`);
+    }
 
     for (const table of restoreOrder) {
+      context.table = table;
+      context.row = null;
       const rows = payload.data[table];
       if (!Array.isArray(rows)) continue;
+      context.stage = 'schema';
       const allowedColumns = await getInsertableColumns(client, table);
-      for (const row of rows) {
+      context.stage = 'insert';
+      for (let index = 0; index < rows.length; index += 1) {
+        context.row = index + 1;
+        const row = rows[index];
         const columns = Object.keys(row).filter((column) => allowedColumns.has(column));
         if (columns.length === 0) continue;
         const values = columns.map((column) => row[column]);
-        const placeholders = columns.map((_, index) => `$${index + 1}`);
+        const placeholders = columns.map((_, placeholderIndex) => `$${placeholderIndex + 1}`);
         await client.query(`INSERT INTO ${table} (${columns.join(', ')}) VALUES (${placeholders.join(', ')})`, values);
       }
-      const sequence = await client.query('SELECT pg_get_serial_sequence($1, $2) AS name', [table, 'id']);
-      if (sequence.rows[0]?.name) {
-        await client.query(`SELECT setval($1, COALESCE((SELECT MAX(id) FROM ${table}), 1), (SELECT COUNT(*) > 0 FROM ${table}))`, [sequence.rows[0].name]);
-      }
+      context.row = null;
+      context.stage = 'sequence';
+      await resetTableSequence(client, table, allowedColumns);
     }
+    context.table = 'password_policy_settings';
+    context.stage = 'defaults';
     await client.query('INSERT INTO password_policy_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING');
+    context.table = 'login_security_policy';
     await client.query('INSERT INTO login_security_policy (id) VALUES (1) ON CONFLICT (id) DO NOTHING');
+    context.table = null;
+    context.stage = 'commit';
     await client.query('COMMIT');
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {});
-    throw error;
+    throw createRestoreDatabaseError(error, context);
   } finally {
     client.release();
   }
