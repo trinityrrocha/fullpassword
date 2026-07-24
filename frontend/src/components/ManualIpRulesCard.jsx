@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { AlertTriangle, Eye, ListPlus } from 'lucide-react';
+import { AlertTriangle, Eye, ListPlus, Plus } from 'lucide-react';
 import api from '../services/api';
 import { formatDateTimeShort } from '../utils/formatDateTimeShort';
 import { validateIpv4Cidr } from '../utils/ipCidr';
@@ -78,26 +78,33 @@ export default function ManualIpRulesCard() {
         </div>
         {message && <div className={`rounded-md border p-3 text-sm ${message.type === 'success' ? 'border-green-200 bg-green-50 text-green-800' : 'border-red-200 bg-red-50 text-red-800'}`}>{message.text}</div>}
         <form onSubmit={addRule} className="space-y-3">
-          <div className="w-full overflow-x-auto">
-            <div className="flex min-w-[830px] items-start gap-2">
-              <IpCidrInput
-                value={form.ip_address}
-                onChange={(ip_address) => setForm({ ...form, ip_address })}
-                state={ipValidation.state}
-                error={ipValidation.error}
-                containerClassName="w-[200px]"
-                inputWrapperClassName="h-[35px] w-[200px]"
-              />
-              <label className="block w-[200px] text-[11px] font-medium uppercase tracking-wide text-slate-600">
-                Tipo
-                <select value={form.rule_type} onChange={(e) => setForm({ ...form, rule_type: e.target.value })} title={ruleLabels[form.rule_type]} className="mt-1 block h-[35px] w-[200px] rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-900 outline-none"><option value="allow">Whitelist</option><option value="block">Blacklist permanente</option><option value="temporary_block">Blacklist temporária</option></select>
-              </label>
-              <label className="block w-[300px] text-[11px] font-medium uppercase tracking-wide text-slate-600">
-                Motivo (opcional)
-                <input value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} maxLength={500} className="mt-1 block h-[35px] w-[300px] rounded-md border border-slate-300 px-2 text-xs normal-case tracking-normal text-slate-900" />
-              </label>
-              <button disabled={isLoading || ipValidation.state !== 'valid'} className="mt-[21px] h-[35px] shrink-0 rounded-md bg-indigo-600 px-4 text-sm font-medium text-white disabled:opacity-50">Adicionar regra</button>
-            </div>
+          <div className="flex w-full flex-wrap items-start gap-2 lg:flex-nowrap">
+            <IpCidrInput
+              value={form.ip_address}
+              onChange={(ip_address) => setForm({ ...form, ip_address })}
+              state={ipValidation.state}
+              error={ipValidation.error}
+              containerClassName="w-[160px] shrink-0"
+              inputWrapperClassName="h-[35px] w-[160px]"
+              inputClassName="text-sm tracking-wide"
+            />
+            <label className="block w-[160px] shrink-0 text-[11px] font-medium uppercase tracking-wide text-slate-600">
+              Tipo
+              <select value={form.rule_type} onChange={(e) => setForm({ ...form, rule_type: e.target.value })} title={ruleLabels[form.rule_type]} className="mt-1 block h-[35px] w-[160px] rounded-md border border-slate-300 bg-white px-2 text-sm normal-case tracking-normal text-slate-900 outline-none"><option value="allow">Whitelist</option><option value="block">Blacklist permanente</option><option value="temporary_block">Blacklist temporária</option></select>
+            </label>
+            <label className="block min-w-[180px] flex-1 text-[11px] font-medium uppercase tracking-wide text-slate-600 lg:min-w-0 lg:max-w-[240px]">
+              Motivo (opcional)
+              <input value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} maxLength={500} className="mt-1 block h-[35px] w-full min-w-0 rounded-md border border-slate-300 px-2 text-sm normal-case tracking-normal text-slate-900" />
+            </label>
+            <button
+              type="submit"
+              title="Adicionar regra"
+              aria-label="Adicionar regra"
+              disabled={isLoading || ipValidation.state !== 'valid'}
+              className="mt-[21px] inline-flex h-[35px] w-[35px] shrink-0 items-center justify-center rounded-md border border-slate-300 bg-white text-indigo-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Plus className="h-4 w-4" />
+            </button>
           </div>
           {form.rule_type === 'temporary_block' && (
             <label className="block w-[200px] text-[11px] font-medium uppercase tracking-wide text-slate-600">

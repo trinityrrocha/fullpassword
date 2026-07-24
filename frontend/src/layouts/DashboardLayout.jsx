@@ -41,7 +41,7 @@ export default function DashboardLayout() {
   ];
 
   return (
-    <ScreenProtection userEmail={user?.email}>
+    <ScreenProtection>
       <div className="flex h-screen bg-gray-50">
       {/* Sidebar Desktop */}
       <aside className="hidden w-64 bg-slate-900 text-white md:flex md:flex-col">
