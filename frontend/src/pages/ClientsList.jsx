@@ -30,6 +30,10 @@ const summarizeModule = (moduleId, data = {}) => {
     const users = countList(data.users);
     return servers || users ? `Servidor Windows possui ${servers} servidor(es) e ${users} usuário(s)` : 'Servidor Windows não possui servidor cadastrado';
   }
+  if (moduleId === 'devices') {
+    const devices = countList(data.devices);
+    return devices ? `Dispositivos possui ${devices} dispositivo(s)` : 'Dispositivos não possui dispositivos cadastrados';
+  }
   const servers = Array.isArray(data.servers) ? data.servers.length : (data.port || data.notes || data.annotations || data.hasAttachment ? 1 : 0);
   const users = Array.isArray(data.sshCredentials) ? data.sshCredentials.length : countList(data.users);
   return servers || users ? `Servidor Linux possui ${servers} servidor(es) e ${users} usuário(s)` : 'Servidor Linux não tem servidor';
@@ -39,7 +43,8 @@ const SUMMARY_MODULES = [
   { id: 'cpanelWeb', label: 'Servidor hospedagem', categories: ['cPanel'] },
   { id: 'vpn', label: 'VPN', categories: ['VPN'] },
   { id: 'windowsServer', label: 'Servidor Windows', categories: ['Servidor TS'] },
-  { id: 'linuxServer', label: 'Servidor Linux', categories: ['Servidor Linux', 'Servidores Diversos'] }
+  { id: 'linuxServer', label: 'Servidor Linux', categories: ['Servidor Linux', 'Servidores Diversos'] },
+  { id: 'devices', label: 'Dispositivos', categories: ['Dispositivos'] }
 ];
 
 export default function ClientsList() {

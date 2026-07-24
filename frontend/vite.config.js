@@ -1,3 +1,4 @@
+/* global process, __dirname */
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import fs from 'node:fs'
@@ -7,6 +8,7 @@ import clientVaultWindowsPlugin from './viteClientVaultWindowsPlugin.js'
 import clientVaultCardIconsPlugin from './viteClientVaultCardIconsPlugin.js'
 import clientVaultClientHeaderPlugin from './viteClientVaultClientHeaderPlugin.js'
 import clientVaultLinuxPlugin from './viteClientVaultLinuxPlugin.js'
+import clientVaultDevicesPlugin from './viteClientVaultDevicesPlugin.js'
 import clientVaultSharingPlugin from './viteClientVaultSharingPlugin.js'
 
 function readGitCommitFromDir(gitDir) {
@@ -181,7 +183,7 @@ const appCommit = readGitCommit()
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [clientVaultUiPlugin(), clientVaultSharingPlugin(), clientVaultClientHeaderPlugin(), clientVaultVpnPlugin(), clientVaultWindowsPlugin(), clientVaultLinuxPlugin(), clientVaultCardIconsPlugin(), react()],
+  plugins: [clientVaultUiPlugin(), clientVaultSharingPlugin(), clientVaultClientHeaderPlugin(), clientVaultVpnPlugin(), clientVaultWindowsPlugin(), clientVaultLinuxPlugin(), clientVaultDevicesPlugin(), clientVaultCardIconsPlugin(), react()],
   define: {
     __APP_COMMIT__: JSON.stringify(appCommit),
     Share2: '((props) => null)',

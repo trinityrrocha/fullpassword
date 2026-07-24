@@ -100,12 +100,14 @@ const createClient = async (req, res) => {
   }
 };
 
-const allowedModules = ['cpanelWeb', 'vpn', 'windowsServer', 'linuxServer'];
+const allowedModules = ['cpanelWeb', 'vpn', 'windowsServer', 'linuxServer', 'devices'];
+const legacyDefaultModules = allowedModules.filter((moduleId) => moduleId !== 'devices');
 const moduleVaultCategories = Object.freeze({
   cpanelWeb: ['cPanel'],
   vpn: ['VPN'],
   windowsServer: ['Servidor TS'],
-  linuxServer: ['Servidor Linux', 'Servidores Diversos']
+  linuxServer: ['Servidor Linux', 'Servidores Diversos'],
+  devices: ['Dispositivos']
 });
 
 const getClientModules = async (req, res) => {
@@ -172,7 +174,7 @@ const deleteClientModule = async (req, res) => {
 
     const currentModules = Array.isArray(clientResult.rows[0].enabled_modules)
       ? allowedModules.filter((allowedModule) => clientResult.rows[0].enabled_modules.includes(allowedModule))
-      : allowedModules;
+      : legacyDefaultModules;
     const enabledModules = currentModules.filter((enabledModule) => enabledModule !== moduleId);
 
     const deletedItems = await transaction.query(
