@@ -13,11 +13,14 @@ const windowsNormalizeTsForm = `const normalizeTsForm = (data = {}) => {
         id: connection.id || makeId(),
         type: connection.type || 'Eth1',
         vpn: connection.type === 'VPN' ? (connection.vpn || connection.vpnType || defaultConnectionVpn) : '',
-        ipv4: sanitizeIpv4MaskInput(connection.ipv4 || connection.ip || '')
+        name: connection.name || connection.connectionName || '',
+        ipv4: sanitizeIpv4MaskInput(connection.ipv4Cidr || connection.ipv4 || connection.ip || connection.ipAddress || connection.address || ''),
+        gateway: String(connection.gateway || connection.gatewayIpv4 || '').trim()
       }));
     }
 
-    if (server.ip) return [{ id: makeId(), type: 'Eth1', vpn: '', ipv4: sanitizeIpv4MaskInput(server.ip) }];
+    const legacyIpv4 = server.ipv4Cidr || server.ipv4 || server.ip || server.ipAddress || server.address || '';
+    if (legacyIpv4) return [{ id: makeId(), type: 'Eth1', vpn: '', name: '', ipv4: sanitizeIpv4MaskInput(legacyIpv4), gateway: '' }];
     return [];
   };
 
@@ -173,7 +176,7 @@ export default function clientVaultWindowsPlugin() {
 
       let next = code
 
-      next = next.replace(/const normalizeTsForm = \(data = \{\}\) => \{[\s\S]*?\n\};\n\nexport default function ClientVault/, `${windowsNormalizeTsForm}\n\nexport default function ClientVault`)
+      next = next.replace(/const normalizeTsForm = \(data = \{\}\) => \{[\s\S]*?\r?\n\};\r?\n\r?\nexport default function ClientVault/, `${windowsNormalizeTsForm}\n\nexport default function ClientVault`)
 
       if (!next.includes('WindowsServerManager')) {
         if (next.includes("import VpnManager from '../components/VpnManager';")) {

@@ -101,12 +101,13 @@ const normalizeConnections = (server = {}) => {
       type: connection.type || 'Eth1',
       vpn: connection.type === 'VPN' ? (connection.vpn || connection.vpnType || 'OpenVPN') : '',
       name: connection.name || connection.connectionName || '',
-      ipv4: sanitizeIpv4MaskInput(connection.ipv4Cidr || connection.ipv4 || connection.ip || connection.address || ''),
+      ipv4: sanitizeIpv4MaskInput(connection.ipv4Cidr || connection.ipv4 || connection.ip || connection.ipAddress || connection.address || ''),
       gateway: String(connection.gateway || connection.gatewayIpv4 || '').trim()
     }));
   }
 
-  if (server.ip) return [{ id: makeId(), type: 'Eth1', vpn: '', name: '', ipv4: sanitizeIpv4MaskInput(server.ip), gateway: '' }];
+  const legacyIpv4 = server.ipv4Cidr || server.ipv4 || server.ip || server.ipAddress || server.address || '';
+  if (legacyIpv4) return [{ id: makeId(), type: 'Eth1', vpn: '', name: '', ipv4: sanitizeIpv4MaskInput(legacyIpv4), gateway: '' }];
   return [];
 };
 
@@ -185,14 +186,14 @@ const getConnectionLabel = (connection, allConnections = []) => {
   return `VPN ${vpnIndex + 1}`;
 };
 
-const getLinuxEthConnectionError = (server) => {
+const getLinuxConnectionError = (server) => {
   const sourceConnections = Array.isArray(server?.connections) ? server.connections : normalizeConnections(server);
   for (const connection of sourceConnections) {
-    if (connection.type === 'VPN') continue;
-    const ipv4Cidr = connection.ipv4Cidr || connection.ipv4 || connection.ip || connection.address || '';
+    const ipv4Cidr = connection.ipv4Cidr || connection.ipv4 || connection.ip || connection.ipAddress || connection.address || '';
     if (validateIpv4Cidr(ipv4Cidr).state === 'invalid') {
-      return `Corrija o IPV4/CIDR da conexão ${connection.type || 'Eth'} antes de salvar.`;
+      return `Corrija o IPV4/CIDR da conexão ${connection.type === 'VPN' ? 'VPN' : connection.type || 'Eth'} antes de salvar.`;
     }
+    if (connection.type === 'VPN') continue;
     if (validateIpv4(connection.gateway || connection.gatewayIpv4 || '').state === 'invalid') {
       return `Corrija o Gateway(IPV4) da conexão ${connection.type || 'Eth'} antes de salvar.`;
     }
@@ -319,7 +320,7 @@ export default function LinuxServerManager({ serverForm, setServerForm, handleSa
       alert('Informe o nome do servidor.');
       return;
     }
-    const connectionError = getLinuxEthConnectionError(serverDraft);
+    const connectionError = getLinuxConnectionError(serverDraft);
     if (connectionError) {
       alert(connectionError);
       return;
@@ -343,7 +344,7 @@ export default function LinuxServerManager({ serverForm, setServerForm, handleSa
       alert('Informe o nome do servidor.');
       return;
     }
-    const connectionError = getLinuxEthConnectionError(editingServer);
+    const connectionError = getLinuxConnectionError(editingServer);
     if (connectionError) {
       alert(connectionError);
       return;
@@ -614,11 +615,11 @@ function LinuxServerModal({ title, server, setServer, isSaving, onCancel, onSave
   const connections = normalizeConnections(server);
   const portRules = normalizePortRules(server);
   const proxmoxApi = normalizeProxmoxApi(server.proxmoxApi || {});
-  const hasInvalidEthConnections = connections.some((connection) => (
-    connection.type !== 'VPN'
-    && (
-      validateIpv4Cidr(connection.ipv4).state === 'invalid'
-      || validateIpv4(connection.gateway).state === 'invalid'
+  const hasInvalidConnections = connections.some((connection) => (
+    validateIpv4Cidr(connection.ipv4).state === 'invalid'
+    || (
+      connection.type !== 'VPN'
+      && validateIpv4(connection.gateway).state === 'invalid'
     )
   ));
 
@@ -803,7 +804,7 @@ function LinuxServerModal({ title, server, setServer, isSaving, onCancel, onSave
                 const isVpn = connection.type === 'VPN';
                 return (
                   <div key={connection.id} className="w-full overflow-x-auto rounded-md border border-slate-200 bg-slate-50">
-                    <div className={`flex items-center gap-2 p-3 ${isVpn ? 'min-w-[760px]' : 'min-w-[844px]'}`}>
+                    <div className={`flex items-center gap-2 p-3 ${isVpn ? 'min-w-[800px]' : 'min-w-[844px]'}`}>
                       <div className="flex h-10 w-64 shrink-0 items-center gap-2 rounded-md border border-slate-200 bg-white px-2 text-sm text-slate-700">
                         <ConnectionIcon type={connection.type} />
                         <span className="shrink-0">{getConnectionLabel(connection, connections)}</span>
@@ -814,7 +815,21 @@ function LinuxServerModal({ title, server, setServer, isSaving, onCancel, onSave
                           <select aria-label="Tipo de VPN" className="w-48 shrink-0 border-slate-300 rounded-md shadow-sm p-2 border bg-white" value={connection.vpn || 'OpenVPN'} onChange={(e) => updateConnection(connection.id, 'vpn', e.target.value)}>
                             {connectionVpnOptions.map((option) => <option key={option} value={option}>{option}</option>)}
                           </select>
-                          <input type="text" inputMode="decimal" aria-label="IPv4 da VPN" className="min-w-0 flex-1 rounded-md border border-slate-300 p-2 shadow-sm" value={connection.ipv4} onChange={(e) => updateConnection(connection.id, 'ipv4', e.target.value)} placeholder="Ex: 192.168.1.10 ou 192.168.1.0/24" />
+                          <IpCidrInput
+                            value={connection.ipv4}
+                            onChange={(value) => updateConnection(connection.id, 'ipv4', value)}
+                            state={ipv4CidrValidation.state}
+                            error={ipv4CidrValidation.error}
+                            label=""
+                            ariaLabel="IPV4/CIDR da VPN"
+                            placeholder="192.168.1.10/24"
+                            prefix="IPV4/"
+                            required={false}
+                            showHelperText={false}
+                            containerClassName="w-[250px] shrink-0"
+                            inputWrapperClassName="h-[40px] w-[250px]"
+                            inputClassName="text-sm tracking-normal"
+                          />
                         </>
                       ) : (
                         <>
@@ -899,7 +914,7 @@ function LinuxServerModal({ title, server, setServer, isSaving, onCancel, onSave
           )}
           <div className="flex gap-2 justify-end">
             <button type="button" onClick={onCancel} className="px-4 py-2 border border-slate-300 rounded-md text-sm font-medium text-slate-700 bg-white hover:bg-slate-50">Cancelar</button>
-            <button type="button" disabled={isSaving || hasInvalidEthConnections} onClick={onSave} className="px-4 py-2 border border-transparent rounded-md text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50">{isSaving ? 'Salvando...' : 'Salvar'}</button>
+            <button type="button" disabled={isSaving || hasInvalidConnections} onClick={onSave} className="px-4 py-2 border border-transparent rounded-md text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50">{isSaving ? 'Salvando...' : 'Salvar'}</button>
           </div>
         </div>
       </div>
