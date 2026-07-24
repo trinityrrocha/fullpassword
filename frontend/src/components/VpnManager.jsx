@@ -3,9 +3,11 @@ import { Plus, Edit2, Trash2, X, Eye } from 'lucide-react';
 import SecurePasswordInput from './SecurePasswordInput';
 import DeleteConfirmationControl from './DeleteConfirmationControl';
 import InlineField from './InlineField';
+import IpCidrInput from './IpCidrInput';
 import VaultAttachmentsField from './VaultAttachmentsField';
 import ReadOnlyDetailsModal, { ReadOnlyAttachments, ReadOnlyField } from './ReadOnlyDetailsModal';
 import CopyButton from './CopyButton';
+import { validateIpv4Cidr } from '../utils/ipCidr';
 import { normalizeVaultAttachments } from '../utils/vaultAttachments';
 
 const VPN_SERVER_FILE_EXTENSIONS = ['.txt', '.ovpn', '.conf', '.crt', '.cer', '.key', '.pem', '.zip', '.rar'];
@@ -65,6 +67,16 @@ const emptyVpnUser = (serverId = '') => ({
 });
 
 const normalizeAttachments = normalizeVaultAttachments;
+
+const getVpnServerIpError = (server) => {
+  if (validateIpv4Cidr(server?.ipv4Local || server?.localIpv4 || '').state === 'invalid') {
+    return 'Corrija o IPV4 Local antes de salvar.';
+  }
+  if (validateIpv4Cidr(server?.ipv4Tunnel || server?.tunnelIpv4 || '').state === 'invalid') {
+    return 'Corrija o IPV4 Túnel antes de salvar.';
+  }
+  return '';
+};
 
 const normalizeVpnForm = (data = {}) => {
   if (Array.isArray(data.servers) || Array.isArray(data.users)) {
@@ -190,6 +202,11 @@ export default function VpnManager({ vpnForm, setVpnForm, handleSaveData, isSavi
       alert('Selecione a VPN.');
       return;
     }
+    const ipError = getVpnServerIpError(serverDraft);
+    if (ipError) {
+      alert(ipError);
+      return;
+    }
 
     const newServer = { ...serverDraft, id: makeId(), attachments: normalizeAttachments(serverDraft) };
     const nextForm = {
@@ -216,6 +233,11 @@ export default function VpnManager({ vpnForm, setVpnForm, handleSaveData, isSavi
     }
     if (!editingServer.vpn) {
       alert('Selecione a VPN.');
+      return;
+    }
+    const ipError = getVpnServerIpError(editingServer);
+    if (ipError) {
+      alert(ipError);
       return;
     }
 
@@ -465,6 +487,10 @@ function VpnUserReadOnlyModal({ user, server, onClose }) {
 }
 
 function VpnServerModal({ title, server, setServer, isSaving, onCancel, onSave, onDelete, deleteConfirmation, setDeleteConfirmation }) {
+  const ipv4LocalValidation = validateIpv4Cidr(server.ipv4Local);
+  const ipv4TunnelValidation = validateIpv4Cidr(server.ipv4Tunnel);
+  const hasInvalidIpFields = ipv4LocalValidation.state === 'invalid' || ipv4TunnelValidation.state === 'invalid';
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900 bg-opacity-60 p-4">
       <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -490,9 +516,39 @@ function VpnServerModal({ title, server, setServer, isSaving, onCancel, onSave, 
                 {serverModes.map((option) => <option key={option} value={option}>{option}</option>)}
               </select>
             </div>
-            <InlineField label="IPV4 Local"><input type="text" aria-label="IPV4 Local" className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm shadow-sm" value={server.ipv4Local} onChange={(e) => setServer({ ...server, ipv4Local: sanitizeIpv4MaskInput(e.target.value) })} placeholder="Ex: 192.168.1.1" /></InlineField>
-            <InlineField label="VLAN"><input type="text" aria-label="VLAN" className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm shadow-sm" value={server.vlan} onChange={(e) => setServer({ ...server, vlan: sanitizeIpv4MaskInput(e.target.value) })} placeholder="Ex: 10.8.0.0/24" /></InlineField>
-            <InlineField label="IPV4 Túnel"><input type="text" aria-label="IPV4 Túnel" className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm shadow-sm" value={server.ipv4Tunnel} onChange={(e) => setServer({ ...server, ipv4Tunnel: sanitizeIpv4MaskInput(e.target.value) })} placeholder="Ex: 10.8.0.1" /></InlineField>
+            <InlineField label="IPV4 Local">
+              <IpCidrInput
+                value={server.ipv4Local}
+                onChange={(value) => setServer({ ...server, ipv4Local: value })}
+                state={ipv4LocalValidation.state}
+                error={ipv4LocalValidation.error}
+                label=""
+                ariaLabel="IPV4 Local"
+                placeholder="192.168.1.1/24"
+                required={false}
+                showHelperText={false}
+                containerClassName="w-full"
+                inputWrapperClassName="h-[40px] w-full"
+                inputClassName="text-sm tracking-normal"
+              />
+            </InlineField>
+            <InlineField label="VLAN"><input type="text" aria-label="VLAN" className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm shadow-sm" value={server.vlan} onChange={(e) => setServer({ ...server, vlan: sanitizeIpv4MaskInput(e.target.value) })} placeholder="1001" /></InlineField>
+            <InlineField label="IPV4 Túnel">
+              <IpCidrInput
+                value={server.ipv4Tunnel}
+                onChange={(value) => setServer({ ...server, ipv4Tunnel: value })}
+                state={ipv4TunnelValidation.state}
+                error={ipv4TunnelValidation.error}
+                label=""
+                ariaLabel="IPV4 Túnel"
+                placeholder="10.8.0.0/24"
+                required={false}
+                showHelperText={false}
+                containerClassName="w-full"
+                inputWrapperClassName="h-[40px] w-full"
+                inputClassName="text-sm tracking-normal"
+              />
+            </InlineField>
             <InlineField label="Porta"><input type="text" aria-label="Porta" className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm shadow-sm" value={server.port} onChange={(e) => setServer({ ...server, port: sanitizePortInput(e.target.value) })} placeholder="Ex: 1194" /></InlineField>
             <div className="sm:col-span-2">
               <label className="block text-sm font-medium text-slate-700 mb-1">Observação</label>
@@ -514,7 +570,7 @@ function VpnServerModal({ title, server, setServer, isSaving, onCancel, onSave, 
           )}
           <div className="flex gap-2 justify-end">
             <button type="button" onClick={onCancel} className="px-4 py-2 border border-slate-300 rounded-md text-sm font-medium text-slate-700 bg-white hover:bg-slate-50">Cancelar</button>
-            <button type="button" disabled={isSaving} onClick={onSave} className="px-4 py-2 border border-transparent rounded-md text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50">{isSaving ? 'Salvando...' : 'Salvar'}</button>
+            <button type="button" disabled={isSaving || hasInvalidIpFields} onClick={onSave} className="px-4 py-2 border border-transparent rounded-md text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50">{isSaving ? 'Salvando...' : 'Salvar'}</button>
           </div>
         </div>
       </div>
