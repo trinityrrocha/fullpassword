@@ -1,9 +1,11 @@
 import { useMemo, useState } from 'react';
-import { Edit2, EthernetPort, Eye, Plus, Router, ShieldCheck, Trash2, X } from 'lucide-react';
+import { Edit2, EthernetPort, Eye, Plus, Router, ShieldCheck, Trash2, UserRound, UserStar, X } from 'lucide-react';
+import CopyButton from './CopyButton';
 import DeleteConfirmationControl from './DeleteConfirmationControl';
 import IpCidrInput from './IpCidrInput';
 import Ipv4Input from './Ipv4Input';
 import ReadOnlyDetailsModal, { ReadOnlyAttachments } from './ReadOnlyDetailsModal';
+import SecurePasswordInput from './SecurePasswordInput';
 import VaultAttachmentsField from './VaultAttachmentsField';
 import { sanitizeIpv4Input, validateIpv4, validateIpv4Cidr } from '../utils/ipCidr';
 import { normalizeVaultAttachments } from '../utils/vaultAttachments';
@@ -14,6 +16,21 @@ const CONNECTION_OPTIONS = ['Eth1', 'Eth2', 'Eth3', 'Eth4', 'Eth5', 'VPN'];
 const VPN_OPTIONS = ['OpenVPN', 'WireGuard', 'ZeroTier', 'Tailscale', 'Outro'];
 const DIRECTION_OPTIONS = ['Entrada', 'Saída', 'Entrada/Saída'];
 const PROTOCOL_OPTIONS = ['TCP', 'UDP', 'TCP/UDP'];
+const DEVICE_LOGIN_PERMISSIONS = ['Admin', 'User'];
+const DEPARTMENT_OPTIONS = [
+  'Geral',
+  'Comercial',
+  'Contabilidade',
+  'ERP',
+  'Financeiro',
+  'Fiscal',
+  'Gerencia',
+  'Outro',
+  'RH',
+  'Sistema',
+  'Suporte',
+  'Vendas'
+];
 
 const makeId = () => {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
@@ -40,6 +57,15 @@ const emptyDevice = () => ({
   connections: [],
   portRules: [],
   attachments: []
+});
+
+const emptyDeviceLogin = (deviceId = '') => ({
+  id: makeId(),
+  deviceId,
+  login: '',
+  password: '',
+  department: 'Geral',
+  permission: 'User'
 });
 
 const normalizeConnections = (device = {}) => {
@@ -91,8 +117,20 @@ const normalizeDevice = (device = {}) => ({
   attachments: normalizeVaultAttachments(device)
 });
 
+const normalizeDeviceLogin = (deviceLogin = {}) => ({
+  id: deviceLogin.id || makeId(),
+  deviceId: deviceLogin.deviceId || '',
+  login: deviceLogin.login || deviceLogin.username || '',
+  password: deviceLogin.password || '',
+  department: DEPARTMENT_OPTIONS.includes(deviceLogin.department) ? deviceLogin.department : 'Geral',
+  permission: String(deviceLogin.permission || '').toLowerCase() === 'admin' ? 'Admin' : 'User'
+});
+
 const normalizeDevicesForm = (data = {}) => ({
-  devices: Array.isArray(data.devices) ? data.devices.map((device) => normalizeDevice(device)) : []
+  devices: Array.isArray(data.devices) ? data.devices.map((device) => normalizeDevice(device)) : [],
+  deviceLogins: Array.isArray(data.deviceLogins)
+    ? data.deviceLogins.map((deviceLogin) => normalizeDeviceLogin(deviceLogin))
+    : []
 });
 
 const getConnectionLabel = (connection, allConnections = []) => {
@@ -127,6 +165,11 @@ function ConnectionIcon({ type }) {
   return <Icon className={isVpn ? 'h-5 w-5 shrink-0 text-indigo-500' : 'h-5 w-5 shrink-0 text-slate-500'} aria-label={isVpn ? 'VPN' : 'Rede'} />;
 }
 
+function DeviceLoginIcon({ permission }) {
+  const Icon = permission === 'Admin' ? UserStar : UserRound;
+  return <Icon className={permission === 'Admin' ? 'h-5 w-5 shrink-0 text-red-400' : 'h-5 w-5 shrink-0 text-slate-500'} aria-label={permission === 'Admin' ? 'Admin' : 'User'} />;
+}
+
 function CompactInlineInput({ label, value, onChange, placeholder, widthClass = 'w-[150px]', inputMode = 'text' }) {
   return (
     <div className={`flex h-10 shrink-0 items-center overflow-hidden rounded-md border border-slate-300 bg-white shadow-sm ${widthClass}`}>
@@ -143,6 +186,12 @@ export default function DevicesManager({ devicesForm, setDevicesForm, handleSave
   const [viewingDevice, setViewingDevice] = useState(null);
   const [deleteConfirmation, setDeleteConfirmation] = useState('');
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [loginDraft, setLoginDraft] = useState(emptyDeviceLogin());
+  const [editingLogin, setEditingLogin] = useState(null);
+  const [viewingLogin, setViewingLogin] = useState(null);
+  const [loginDeleteConfirmation, setLoginDeleteConfirmation] = useState('');
+  const [showLoginCreateModal, setShowLoginCreateModal] = useState(false);
+  const [loginSearch, setLoginSearch] = useState('');
 
   const persistDevices = async (nextForm, successMessage) => {
     const saved = await handleSaveData('Dispositivos', nextForm, { successMessage });
@@ -175,7 +224,7 @@ export default function DevicesManager({ devicesForm, setDevicesForm, handleSave
   const addDevice = async () => {
     if (!validateDevice(deviceDraft)) return;
     const newDevice = normalizeDevice({ ...deviceDraft, id: makeId() });
-    const nextForm = { devices: [newDevice, ...normalizedForm.devices] };
+    const nextForm = { ...normalizedForm, devices: [newDevice, ...normalizedForm.devices] };
     const saved = await persistDevices(nextForm, 'Dispositivo cadastrado e salvo automaticamente no cofre.');
     if (saved) {
       setDeviceDraft(emptyDevice());
@@ -187,6 +236,7 @@ export default function DevicesManager({ devicesForm, setDevicesForm, handleSave
     if (!validateDevice(editingDevice)) return;
     const normalizedDevice = normalizeDevice(editingDevice);
     const nextForm = {
+      ...normalizedForm,
       devices: normalizedForm.devices.map((device) => device.id === normalizedDevice.id ? normalizedDevice : device)
     };
     const saved = await persistDevices(nextForm, 'Dispositivo atualizado e salvo no cofre.');
@@ -201,13 +251,113 @@ export default function DevicesManager({ devicesForm, setDevicesForm, handleSave
       alert('Para confirmar a exclusão, escreva EXCLUIR no campo de confirmação.');
       return;
     }
-    const nextForm = { devices: normalizedForm.devices.filter((device) => device.id !== editingDevice.id) };
-    const saved = await persistDevices(nextForm, 'Dispositivo excluído e cofre atualizado.');
+    const linkedLogins = normalizedForm.deviceLogins.filter((deviceLogin) => deviceLogin.deviceId === editingDevice.id);
+    const nextForm = {
+      ...normalizedForm,
+      devices: normalizedForm.devices.filter((device) => device.id !== editingDevice.id),
+      deviceLogins: normalizedForm.deviceLogins.filter((deviceLogin) => deviceLogin.deviceId !== editingDevice.id)
+    };
+    const successMessage = linkedLogins.length === 1
+      ? 'Dispositivo e login vinculado excluídos do cofre.'
+      : linkedLogins.length > 1
+        ? `Dispositivo e ${linkedLogins.length} logins vinculados excluídos do cofre.`
+        : 'Dispositivo excluído e cofre atualizado.';
+    const saved = await persistDevices(nextForm, successMessage);
     if (saved) {
       setEditingDevice(null);
       setDeleteConfirmation('');
     }
   };
+
+  const getDeviceName = (deviceId) => (
+    normalizedForm.devices.find((device) => device.id === deviceId)?.name || 'Dispositivo não encontrado'
+  );
+
+  const validateDeviceLogin = (deviceLogin) => {
+    if (!normalizedForm.devices.some((device) => device.id === deviceLogin.deviceId)) {
+      alert('Selecione um dispositivo válido.');
+      return false;
+    }
+    if (!deviceLogin.login.trim()) {
+      alert('Informe o login.');
+      return false;
+    }
+    if (!deviceLogin.password) {
+      alert('Informe a senha.');
+      return false;
+    }
+    if (!DEPARTMENT_OPTIONS.includes(deviceLogin.department)) {
+      alert('Selecione um departamento válido.');
+      return false;
+    }
+    if (!DEVICE_LOGIN_PERMISSIONS.includes(deviceLogin.permission)) {
+      alert('Selecione a permissão Admin ou User.');
+      return false;
+    }
+    return true;
+  };
+
+  const openCreateLoginModal = () => {
+    setLoginDraft(emptyDeviceLogin(normalizedForm.devices[0]?.id || ''));
+    setShowLoginCreateModal(true);
+  };
+
+  const addDeviceLogin = async () => {
+    if (!validateDeviceLogin(loginDraft)) return;
+    const newLogin = normalizeDeviceLogin({ ...loginDraft, id: makeId() });
+    const nextForm = {
+      ...normalizedForm,
+      deviceLogins: [newLogin, ...normalizedForm.deviceLogins]
+    };
+    const saved = await persistDevices(nextForm, 'Login do dispositivo cadastrado e salvo no cofre.');
+    if (saved) {
+      setLoginDraft(emptyDeviceLogin(normalizedForm.devices[0]?.id || ''));
+      setShowLoginCreateModal(false);
+    }
+  };
+
+  const saveEditedLogin = async () => {
+    if (!validateDeviceLogin(editingLogin)) return;
+    const normalizedLogin = normalizeDeviceLogin(editingLogin);
+    const nextForm = {
+      ...normalizedForm,
+      deviceLogins: normalizedForm.deviceLogins.map((deviceLogin) => (
+        deviceLogin.id === normalizedLogin.id ? normalizedLogin : deviceLogin
+      ))
+    };
+    const saved = await persistDevices(nextForm, 'Login do dispositivo atualizado e salvo no cofre.');
+    if (saved) {
+      setEditingLogin(null);
+      setLoginDeleteConfirmation('');
+    }
+  };
+
+  const deleteEditedLogin = async () => {
+    if (loginDeleteConfirmation !== 'EXCLUIR') {
+      alert('Para confirmar a exclusão, escreva EXCLUIR no campo de confirmação.');
+      return;
+    }
+    const nextForm = {
+      ...normalizedForm,
+      deviceLogins: normalizedForm.deviceLogins.filter((deviceLogin) => deviceLogin.id !== editingLogin.id)
+    };
+    const saved = await persistDevices(nextForm, 'Login do dispositivo excluído e cofre atualizado.');
+    if (saved) {
+      setEditingLogin(null);
+      setLoginDeleteConfirmation('');
+    }
+  };
+
+  const filteredLogins = normalizedForm.deviceLogins.filter((deviceLogin) => {
+    const search = loginSearch.trim().toLowerCase();
+    if (!search) return true;
+    return [
+      deviceLogin.login,
+      deviceLogin.permission,
+      deviceLogin.department,
+      getDeviceName(deviceLogin.deviceId)
+    ].join(' ').toLowerCase().includes(search);
+  });
 
   return (
     <div className="space-y-6 animate-fadeIn">
@@ -243,8 +393,84 @@ export default function DevicesManager({ devicesForm, setDevicesForm, handleSave
         </div>
       </div>
 
+      <div className="rounded-lg border border-slate-200 bg-slate-50 p-5">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h3 className="text-lg font-medium text-slate-900">Logins dos dispositivos</h3>
+            <p className="text-sm text-slate-500">Cadastre acessos vinculados aos dispositivos desta empresa.</p>
+          </div>
+          <button
+            type="button"
+            disabled={isSaving || normalizedForm.devices.length === 0}
+            title={normalizedForm.devices.length === 0 ? 'Cadastre um dispositivo antes de adicionar logins.' : 'Adicionar login'}
+            onClick={openCreateLoginModal}
+            className="inline-flex items-center justify-center rounded-md border border-transparent bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Plus className="mr-2 h-4 w-4" /> Adicionar login
+          </button>
+        </div>
+
+        <div className="mt-4">
+          <label className="mb-1 block text-sm font-medium text-slate-700">Pesquisar login</label>
+          <input
+            type="text"
+            className="w-full rounded-md border border-slate-300 p-2 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+            placeholder="Buscar por login, departamento, permissão ou dispositivo..."
+            value={loginSearch}
+            onChange={(event) => setLoginSearch(event.target.value)}
+          />
+        </div>
+
+        <div className="mt-5 space-y-3">
+          {filteredLogins.length === 0 ? (
+            <p className="text-sm text-slate-500">
+              {loginSearch.trim() ? 'Nenhum login encontrado.' : 'Nenhum login de dispositivo cadastrado.'}
+            </p>
+          ) : filteredLogins.map((deviceLogin) => (
+            <div key={deviceLogin.id} className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+                <span className="inline-flex items-center gap-2 font-medium text-slate-900">
+                  <DeviceLoginIcon permission={deviceLogin.permission} />
+                  <span>{deviceLogin.login || 'Login não informado'}</span>
+                  <CopyButton value={deviceLogin.login} label="Copiar login" />
+                </span>
+                <span className="inline-flex items-center gap-1 text-slate-600">
+                  <span>· Senha: ****</span>
+                  <CopyButton value={deviceLogin.password} label="Copiar senha" />
+                </span>
+                <span className="text-slate-600">· {deviceLogin.permission}</span>
+                <span className="text-slate-600">· {deviceLogin.department}</span>
+                <span className="text-slate-600">· Dispositivo: {getDeviceName(deviceLogin.deviceId)}</span>
+              </div>
+              <div className="flex shrink-0 gap-2 self-start sm:self-auto">
+                <button type="button" title="Visualizar" aria-label="Visualizar" onClick={() => setViewingLogin(deviceLogin)} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"><Eye className="h-4 w-4" /></button>
+                <button type="button" title="Detalhes" aria-label="Detalhes" onClick={() => { setEditingLogin({ ...deviceLogin }); setLoginDeleteConfirmation(''); }} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"><Edit2 className="h-4 w-4" /></button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
       {showCreateModal && <DeviceModal title="Cadastrar dispositivo" device={deviceDraft} setDevice={setDeviceDraft} isSaving={isSaving} onCancel={() => setShowCreateModal(false)} onSave={addDevice} />}
       {viewingDevice && <DeviceReadOnlyModal device={viewingDevice} onClose={() => setViewingDevice(null)} />}
+      {showLoginCreateModal && (
+        <DeviceLoginModal
+          title="Adicionar login"
+          deviceLogin={loginDraft}
+          setDeviceLogin={setLoginDraft}
+          devices={normalizedForm.devices}
+          isSaving={isSaving}
+          onCancel={() => setShowLoginCreateModal(false)}
+          onSave={addDeviceLogin}
+        />
+      )}
+      {viewingLogin && (
+        <DeviceLoginReadOnlyModal
+          deviceLogin={viewingLogin}
+          deviceName={getDeviceName(viewingLogin.deviceId)}
+          onClose={() => setViewingLogin(null)}
+        />
+      )}
       {editingDevice && (
         <DeviceModal
           title="Detalhes do dispositivo"
@@ -253,9 +479,24 @@ export default function DevicesManager({ devicesForm, setDevicesForm, handleSave
           isSaving={isSaving}
           deleteConfirmation={deleteConfirmation}
           setDeleteConfirmation={setDeleteConfirmation}
+          linkedLoginCount={normalizedForm.deviceLogins.filter((deviceLogin) => deviceLogin.deviceId === editingDevice.id).length}
           onCancel={() => setEditingDevice(null)}
           onSave={saveEditedDevice}
           onDelete={deleteEditedDevice}
+        />
+      )}
+      {editingLogin && (
+        <DeviceLoginModal
+          title="Detalhes do login"
+          deviceLogin={editingLogin}
+          setDeviceLogin={setEditingLogin}
+          devices={normalizedForm.devices}
+          isSaving={isSaving}
+          deleteConfirmation={loginDeleteConfirmation}
+          setDeleteConfirmation={setLoginDeleteConfirmation}
+          onCancel={() => setEditingLogin(null)}
+          onSave={saveEditedLogin}
+          onDelete={deleteEditedLogin}
         />
       )}
     </div>
@@ -305,7 +546,144 @@ function DeviceReadOnlyModal({ device, onClose }) {
   );
 }
 
-function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onDelete, deleteConfirmation, setDeleteConfirmation }) {
+function DeviceLoginReadOnlyModal({ deviceLogin, deviceName, onClose }) {
+  const normalized = normalizeDeviceLogin(deviceLogin);
+  return (
+    <ReadOnlyDetailsModal title="Visualizar login do dispositivo" onClose={onClose}>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div>
+          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Dispositivo</p>
+          <p className="mt-1 text-sm text-slate-900">{deviceName}</p>
+        </div>
+        <div>
+          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Login</p>
+          <div className="mt-1 flex items-center gap-2">
+            <span className="text-sm text-slate-900">{normalized.login || '-'}</span>
+            <CopyButton value={normalized.login} label="Copiar login" />
+          </div>
+        </div>
+        <div>
+          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Senha</p>
+          <div className="mt-1 flex items-center gap-2">
+            <span className="text-sm text-slate-900">****</span>
+            <CopyButton value={normalized.password} label="Copiar senha" />
+          </div>
+        </div>
+        <div>
+          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Departamento</p>
+          <p className="mt-1 text-sm text-slate-900">{normalized.department}</p>
+        </div>
+        <div>
+          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Permissão</p>
+          <p className="mt-1 text-sm text-slate-900">{normalized.permission}</p>
+        </div>
+      </div>
+    </ReadOnlyDetailsModal>
+  );
+}
+
+function DeviceLoginModal({
+  title,
+  deviceLogin,
+  setDeviceLogin,
+  devices,
+  isSaving,
+  onCancel,
+  onSave,
+  onDelete,
+  deleteConfirmation,
+  setDeleteConfirmation
+}) {
+  const linkedDeviceExists = devices.some((device) => device.id === deviceLogin.deviceId);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900 bg-opacity-60 p-4">
+      <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-lg bg-white shadow-xl">
+        <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+          <h3 className="text-lg font-semibold text-slate-900">{title}</h3>
+          <button type="button" onClick={onCancel} className="text-slate-400 hover:text-slate-600"><X className="h-5 w-5" /></button>
+        </div>
+
+        <div className="space-y-4 p-6">
+          <div>
+            <label className="mb-1 block text-sm font-medium text-slate-700">Dispositivo</label>
+            <select
+              required
+              className="w-full rounded-md border border-slate-300 bg-white p-2 shadow-sm"
+              value={deviceLogin.deviceId}
+              onChange={(event) => setDeviceLogin({ ...deviceLogin, deviceId: event.target.value })}
+            >
+              <option value="">Selecione o dispositivo</option>
+              {!linkedDeviceExists && deviceLogin.deviceId && <option value={deviceLogin.deviceId}>Dispositivo não encontrado</option>}
+              {devices.map((device) => <option key={device.id} value={device.id}>{device.name || 'Dispositivo sem nome'}</option>)}
+            </select>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700">Login</label>
+              <input
+                type="text"
+                required
+                autoComplete="username"
+                className="w-full rounded-md border border-slate-300 p-2 shadow-sm"
+                value={deviceLogin.login}
+                onChange={(event) => setDeviceLogin({ ...deviceLogin, login: event.target.value })}
+                placeholder="login"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700">Permissão</label>
+              <select
+                required
+                className="w-full rounded-md border border-slate-300 bg-white p-2 shadow-sm"
+                value={deviceLogin.permission}
+                onChange={(event) => setDeviceLogin({ ...deviceLogin, permission: event.target.value })}
+              >
+                {DEVICE_LOGIN_PERMISSIONS.map((permission) => <option key={permission} value={permission}>{permission}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700">Departamento</label>
+              <select
+                required
+                className="w-full rounded-md border border-slate-300 bg-white p-2 shadow-sm"
+                value={deviceLogin.department}
+                onChange={(event) => setDeviceLogin({ ...deviceLogin, department: event.target.value })}
+              >
+                {DEPARTMENT_OPTIONS.map((department) => <option key={department} value={department}>{department}</option>)}
+              </select>
+            </div>
+            <SecurePasswordInput
+              name={`device_login_password_${deviceLogin.id}`}
+              label="Senha"
+              required
+              value={deviceLogin.password}
+              onChange={(event) => setDeviceLogin({ ...deviceLogin, password: event.target.value })}
+            />
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-200 bg-slate-50 px-6 py-4">
+          {onDelete && (
+            <DeleteConfirmationControl
+              value={deleteConfirmation}
+              onChange={(event) => setDeleteConfirmation(event.target.value)}
+              onDelete={onDelete}
+              disabled={isSaving}
+            />
+          )}
+          <div className="flex justify-end gap-2">
+            <button type="button" onClick={onCancel} className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Cancelar</button>
+            <button type="button" disabled={isSaving} onClick={onSave} className="rounded-md border border-transparent bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50">{isSaving ? 'Salvando...' : 'Salvar'}</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onDelete, deleteConfirmation, setDeleteConfirmation, linkedLoginCount = 0 }) {
   const connections = normalizeConnections(device);
   const portRules = normalizePortRules(device);
   const hasInvalidConnections = connections.some((connection) => (
@@ -451,6 +829,13 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
           <VaultAttachmentsField title="Arquivos do dispositivo" helpText="Arquivos de texto, configuração, documentos e imagens." attachments={device.attachments} allowedExtensions={DEVICE_FILE_EXTENSIONS} onChange={(attachments) => setDevice({ ...device, attachments })} />
         </div>
 
+        {onDelete && linkedLoginCount > 0 && (
+          <p className="border-t border-amber-200 bg-amber-50 px-6 py-3 text-sm text-amber-800">
+            {linkedLoginCount === 1
+              ? 'O login vinculado a este dispositivo também será excluído.'
+              : `Os ${linkedLoginCount} logins vinculados a este dispositivo também serão excluídos.`}
+          </p>
+        )}
         <div className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-200 bg-slate-50 px-6 py-4">
           {onDelete && <DeleteConfirmationControl value={deleteConfirmation} onChange={(event) => setDeleteConfirmation(event.target.value)} onDelete={onDelete} disabled={isSaving} />}
           <div className="flex justify-end gap-2">

@@ -32,7 +32,10 @@ const summarizeModule = (moduleId, data = {}) => {
   }
   if (moduleId === 'devices') {
     const devices = countList(data.devices);
-    return devices ? `Dispositivos possui ${devices} dispositivo(s)` : 'Dispositivos não possui dispositivos cadastrados';
+    const logins = countList(data.deviceLogins);
+    if (!devices && !logins) return 'Dispositivos não possui dispositivos ou logins cadastrados';
+    if (!logins) return `Dispositivos possui ${devices} dispositivo(s) e nenhum login cadastrado`;
+    return `Dispositivos possui ${devices} dispositivo(s) e ${logins} login(s)`;
   }
   const servers = Array.isArray(data.servers) ? data.servers.length : (data.port || data.notes || data.annotations || data.hasAttachment ? 1 : 0);
   const users = Array.isArray(data.sshCredentials) ? data.sshCredentials.length : countList(data.users);

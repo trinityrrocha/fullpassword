@@ -47,7 +47,7 @@ const LEGACY_COMPANY_MODULE_IDS = COMPANY_MODULE_IDS.filter((moduleId) => module
         next = next.replace(
           '  const [tsForm, setTsForm] = useState({ servers: [], users: [] });',
           `  const [tsForm, setTsForm] = useState({ servers: [], users: [] });
-  const [devicesForm, setDevicesForm] = useState({ devices: [] });`
+  const [devicesForm, setDevicesForm] = useState({ devices: [], deviceLogins: [] });`
         );
       }
 
@@ -68,7 +68,7 @@ const LEGACY_COMPANY_MODULE_IDS = COMPANY_MODULE_IDS.filter((moduleId) => module
         next = next.replace(
           "    if (moduleId === 'linuxServer') setServerForm({ servers: [], sshCredentials: [] });",
           `    if (moduleId === 'linuxServer') setServerForm({ servers: [], sshCredentials: [] });
-    if (moduleId === 'devices') setDevicesForm({ devices: [] });`
+    if (moduleId === 'devices') setDevicesForm({ devices: [], deviceLogins: [] });`
         );
       }
 
