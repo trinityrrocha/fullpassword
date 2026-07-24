@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Plus, Edit2, Trash2, X, Eye } from 'lucide-react';
+import { Plus, Edit2, Trash2, X, Eye, Globe } from 'lucide-react';
 import SecurePasswordInput from './SecurePasswordInput';
 import DeleteConfirmationControl from './DeleteConfirmationControl';
 import ReadOnlyDetailsModal, { ReadOnlyAttachments, ReadOnlyField } from './ReadOnlyDetailsModal';
@@ -310,31 +310,25 @@ export default function CpanelWebManager({ cpanelForm, setCpanelForm, handleSave
   });
 
   return (
-    <div className="space-y-6 animate-fadeIn">
-      <div className="bg-slate-50 border border-slate-200 rounded-lg p-5">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <div>
-            <h3 className="flex items-center gap-2 text-lg font-medium text-slate-900">{onDeleteModule && <button type="button" title="Excluir servidor" aria-label="Excluir servidor" onClick={onDeleteModule} className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-red-300 text-red-600 hover:bg-red-50"><Trash2 className="h-4 w-4" /></button>}Servidor hospedagem</h3>
-            <p className="text-sm text-slate-500">Cadastre e gerencie múltiplos acessos de hospedagem.</p>
-          </div>
+    <div className="space-y-4 animate-fadeIn">
+      <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <h3 className="flex items-center gap-2 text-lg font-medium text-slate-900">{onDeleteModule && <button type="button" title="Excluir servidor" aria-label="Excluir servidor" onClick={onDeleteModule} className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-red-300 text-red-600 hover:bg-red-50"><Trash2 className="h-4 w-4" /></button>}Servidor hospedagem</h3>
           <button type="button" disabled={isSaving} onClick={openCreateCpanelModal} className="inline-flex items-center justify-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50">
             <Plus className="w-4 h-4 mr-2" /> Adicionar Servidor hospedagem
           </button>
         </div>
 
-        <div className="mt-5 space-y-3">
+        <div className="mt-3 space-y-2">
           {normalizedForm.cpanels.length === 0 ? (
             <p className="text-sm text-slate-500">Nenhum Servidor hospedagem cadastrado.</p>
           ) : normalizedForm.cpanels.map((cpanel) => (
             <div key={cpanel.id} className="flex min-h-10 flex-col justify-between gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 sm:flex-row sm:items-center">
-              <div className="min-w-0">
-                <p className="truncate font-medium text-slate-900">{cpanel.domain || 'Domínio sem nome'}</p>
-                <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm text-slate-500">
-                  <span className="inline-flex min-w-0 items-center"><span className="truncate">URL: {cpanel.url || '-'}</span><CopyValueButton value={cpanel.url} label="URL" /></span>
-                  <span aria-hidden="true">|</span>
-                  <span className="inline-flex items-center"><span>Login: {cpanel.username || '-'}</span><CopyValueButton value={cpanel.username} label="login" /></span>
-                  <span className="inline-flex items-center"><span>Senha: ****</span><CopyValueButton value={cpanel.password} label="senha" /></span>
-                </div>
+              <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm text-slate-500 lg:flex-nowrap">
+                <strong className="flex max-w-52 shrink-0 items-center gap-2 font-medium text-slate-900"><Globe className="h-5 w-5 shrink-0 text-slate-500" /><span className="truncate">{cpanel.domain || 'Domínio sem nome'}</span></strong>
+                <span className="inline-flex min-w-0 items-center"><span className="truncate">URL: {cpanel.url || '-'}</span><CopyValueButton value={cpanel.url} label="URL" /></span>
+                <span className="inline-flex shrink-0 items-center"><span>Login: {cpanel.username || '-'}</span><CopyValueButton value={cpanel.username} label="login" /></span>
+                <span className="inline-flex shrink-0 items-center"><span>Senha: ****</span><CopyValueButton value={cpanel.password} label="senha" /></span>
               </div>
               <div className="flex shrink-0 gap-2 self-start sm:self-auto"><button type="button" title="Visualizar" aria-label="Visualizar" onClick={() => setViewingCpanel(cpanel)} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"><Eye className="h-4 w-4" /></button><button type="button" title="Detalhes" aria-label="Detalhes" onClick={() => { setEditingCpanel({ ...cpanel }); setDeleteCpanelConfirmation(''); }} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"><Edit2 className="h-4 w-4" /></button></div>
             </div>
@@ -342,12 +336,9 @@ export default function CpanelWebManager({ cpanelForm, setCpanelForm, handleSave
         </div>
       </div>
 
-      <div className="bg-slate-50 border border-slate-200 rounded-lg p-5">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <div>
-            <h3 className="text-lg font-medium text-slate-900">Usuários do Servidor hospedagem</h3>
-            <p className="text-sm text-slate-500">Cadastre usuários vinculados ao Servidor hospedagem.</p>
-          </div>
+      <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <h3 className="text-lg font-medium text-slate-900">Usuários do Servidor hospedagem</h3>
           <button type="button" disabled={isSaving} onClick={openCreateUserModal} className="inline-flex items-center justify-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50">
             <Plus className="w-4 h-4 mr-2" /> Adicionar usuário
           </button>
@@ -359,9 +350,9 @@ export default function CpanelWebManager({ cpanelForm, setCpanelForm, handleSave
         <input type="text" className="w-full border-slate-300 rounded-md shadow-sm p-2 border focus:ring-indigo-500 focus:border-indigo-500" placeholder="Buscar por nome, login, departamento ou domínio..." value={userSearch} onChange={(e) => setUserSearch(e.target.value)} />
       </div>
 
-      <div className="bg-slate-50 border border-slate-200 rounded-lg p-5">
-        <h3 className="text-lg font-medium text-slate-900 mb-4">Usuários cadastrados</h3>
-        <div className="space-y-3">
+      <div className="rounded-lg border border-slate-200 bg-slate-50 px-5 pb-5 pt-3">
+        <h3 className="mb-2 text-lg font-medium text-slate-900">Usuários cadastrados</h3>
+        <div className="space-y-2">
           {filteredUsers.length === 0 ? (
             <p className="text-sm text-slate-500">{userSearch.trim() ? 'Nenhum usuário encontrado.' : 'Nenhum usuário cadastrado.'}</p>
           ) : filteredUsers.map((user) => (
