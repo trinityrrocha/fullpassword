@@ -126,6 +126,12 @@ const normalizeDeviceLogin = (deviceLogin = {}) => ({
   permission: String(deviceLogin.permission || '').toLowerCase() === 'admin' ? 'Admin' : 'User'
 });
 
+const formatDeviceOptionLabel = (device) => {
+  const name = device?.name || 'Dispositivo sem nome';
+  const type = device?.deviceType || device?.type || 'Sem tipo';
+  return `${name} (${type})`;
+};
+
 const normalizeDevicesForm = (data = {}) => ({
   devices: Array.isArray(data.devices) ? data.devices.map((device) => normalizeDevice(device)) : [],
   deviceLogins: Array.isArray(data.deviceLogins)
@@ -269,9 +275,10 @@ export default function DevicesManager({ devicesForm, setDevicesForm, handleSave
     }
   };
 
-  const getDeviceName = (deviceId) => (
-    normalizedForm.devices.find((device) => device.id === deviceId)?.name || 'Dispositivo não encontrado'
-  );
+  const getDeviceLabel = (deviceId) => {
+    const device = normalizedForm.devices.find((item) => item.id === deviceId);
+    return device ? formatDeviceOptionLabel(device) : 'Dispositivo não encontrado';
+  };
 
   const validateDeviceLogin = (deviceLogin) => {
     if (!normalizedForm.devices.some((device) => device.id === deviceLogin.deviceId)) {
@@ -355,7 +362,7 @@ export default function DevicesManager({ devicesForm, setDevicesForm, handleSave
       deviceLogin.login,
       deviceLogin.permission,
       deviceLogin.department,
-      getDeviceName(deviceLogin.deviceId)
+      getDeviceLabel(deviceLogin.deviceId)
     ].join(' ').toLowerCase().includes(search);
   });
 
@@ -440,7 +447,7 @@ export default function DevicesManager({ devicesForm, setDevicesForm, handleSave
                 </span>
                 <span className="text-slate-600">· {deviceLogin.permission}</span>
                 <span className="text-slate-600">· {deviceLogin.department}</span>
-                <span className="text-slate-600">· Dispositivo: {getDeviceName(deviceLogin.deviceId)}</span>
+                <span className="text-slate-600">· Dispositivo: {getDeviceLabel(deviceLogin.deviceId)}</span>
               </div>
               <div className="flex shrink-0 gap-2 self-start sm:self-auto">
                 <button type="button" title="Visualizar" aria-label="Visualizar" onClick={() => setViewingLogin(deviceLogin)} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"><Eye className="h-4 w-4" /></button>
@@ -467,7 +474,7 @@ export default function DevicesManager({ devicesForm, setDevicesForm, handleSave
       {viewingLogin && (
         <DeviceLoginReadOnlyModal
           deviceLogin={viewingLogin}
-          deviceName={getDeviceName(viewingLogin.deviceId)}
+          deviceLabel={getDeviceLabel(viewingLogin.deviceId)}
           onClose={() => setViewingLogin(null)}
         />
       )}
@@ -546,14 +553,14 @@ function DeviceReadOnlyModal({ device, onClose }) {
   );
 }
 
-function DeviceLoginReadOnlyModal({ deviceLogin, deviceName, onClose }) {
+function DeviceLoginReadOnlyModal({ deviceLogin, deviceLabel, onClose }) {
   const normalized = normalizeDeviceLogin(deviceLogin);
   return (
     <ReadOnlyDetailsModal title="Visualizar login do dispositivo" onClose={onClose}>
       <div className="grid gap-4 sm:grid-cols-2">
         <div>
           <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Dispositivo</p>
-          <p className="mt-1 text-sm text-slate-900">{deviceName}</p>
+          <p className="mt-1 text-sm text-slate-900">{deviceLabel}</p>
         </div>
         <div>
           <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Login</p>
@@ -615,7 +622,7 @@ function DeviceLoginModal({
             >
               <option value="">Selecione o dispositivo</option>
               {!linkedDeviceExists && deviceLogin.deviceId && <option value={deviceLogin.deviceId}>Dispositivo não encontrado</option>}
-              {devices.map((device) => <option key={device.id} value={device.id}>{device.name || 'Dispositivo sem nome'}</option>)}
+              {devices.map((device) => <option key={device.id} value={device.id}>{formatDeviceOptionLabel(device)}</option>)}
             </select>
           </div>
 
