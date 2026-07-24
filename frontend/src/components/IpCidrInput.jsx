@@ -20,37 +20,46 @@ export default function IpCidrInput({
   state = 'neutral',
   error = '',
   label = 'IP ou CIDR',
+  ariaLabel = label || 'IP ou CIDR',
   placeholder = '192.168.1.1',
-  className = ''
+  className = '',
+  containerClassName = 'w-[150px]',
+  inputWrapperClassName = 'h-[34px] w-[150px]',
+  inputClassName = '',
+  maxLength = 18,
+  neutralMessage = 'IPv4 ou CIDR 0–32.',
+  required = true,
+  sanitize = sanitizeIpv4CidrInput
 }) {
   const id = useId();
   const effectiveState = stateStyles[state] ? state : 'neutral';
 
   return (
-    <div className={`w-[150px] ${className}`}>
+    <div className={`${containerClassName} ${className}`}>
       {label && <label htmlFor={id} className="mb-1 inline-block text-[11px] font-medium uppercase tracking-wide text-slate-600">{label}</label>}
-      <div className={`flex h-[34px] w-[150px] items-center gap-1 rounded-md border bg-white px-2 shadow-sm ring-2 ring-transparent transition-all ${stateStyles[effectiveState]}`}>
+      <div className={`flex items-center gap-1 rounded-md border bg-white px-2 shadow-sm ring-2 ring-transparent transition-all ${inputWrapperClassName} ${stateStyles[effectiveState]}`}>
         {stateIcons[effectiveState]}
         <input
           id={id}
           type="text"
+          aria-label={ariaLabel}
           inputMode="decimal"
           autoComplete="off"
           spellCheck={false}
-          required
+          required={required}
           placeholder={placeholder}
           value={value}
-          onChange={(event) => onChange(sanitizeIpv4CidrInput(event.target.value))}
-          maxLength={18}
+          onChange={(event) => onChange(sanitize(event.target.value))}
+          maxLength={maxLength}
           aria-invalid={effectiveState === 'invalid'}
           aria-describedby={error ? `${id}-error` : undefined}
-          className="min-w-0 flex-1 bg-transparent font-mono text-xs tracking-tight text-slate-900 outline-none placeholder:text-slate-400"
+          className={`min-w-0 flex-1 bg-transparent font-mono text-xs tracking-tight text-slate-900 outline-none placeholder:text-slate-400 ${inputClassName}`}
         />
       </div>
       <div className="mt-1 min-h-[16px]">
         {effectiveState === 'invalid' && error && <p id={`${id}-error`} className="text-[11px] leading-tight text-red-700" role="alert">{error}</p>}
         {effectiveState === 'valid' && <p className="text-[11px] leading-tight text-emerald-700">Formato válido.</p>}
-        {effectiveState === 'neutral' && <p className="text-[11px] leading-tight text-slate-500">IPv4 ou CIDR 0–32.</p>}
+        {effectiveState === 'neutral' && <p className="text-[11px] leading-tight text-slate-500">{neutralMessage}</p>}
       </div>
     </div>
   );

@@ -5,6 +5,9 @@ import DeleteConfirmationControl from './DeleteConfirmationControl';
 import ReadOnlyDetailsModal, { ReadOnlyAttachments, ReadOnlyField, ReadOnlySection } from './ReadOnlyDetailsModal';
 import { downloadAttachment } from '../utils/attachments';
 import CopyButton from './CopyButton';
+import IpCidrInput from './IpCidrInput';
+import Ipv4Input from './Ipv4Input';
+import { sanitizeIpv4Input, validateIpv4, validateIpv4Cidr } from '../utils/ipCidr';
 
 const systemOptions = [
   'Ubuntu',
@@ -97,11 +100,13 @@ const normalizeConnections = (server = {}) => {
       id: connection.id || makeId(),
       type: connection.type || 'Eth1',
       vpn: connection.type === 'VPN' ? (connection.vpn || connection.vpnType || 'OpenVPN') : '',
-      ipv4: sanitizeIpv4MaskInput(connection.ipv4 || connection.ip || '')
+      name: connection.name || connection.connectionName || '',
+      ipv4: sanitizeIpv4MaskInput(connection.ipv4Cidr || connection.ipv4 || connection.ip || connection.address || ''),
+      gateway: String(connection.gateway || connection.gatewayIpv4 || '').trim()
     }));
   }
 
-  if (server.ip) return [{ id: makeId(), type: 'Eth1', vpn: '', ipv4: sanitizeIpv4MaskInput(server.ip) }];
+  if (server.ip) return [{ id: makeId(), type: 'Eth1', vpn: '', name: '', ipv4: sanitizeIpv4MaskInput(server.ip), gateway: '' }];
   return [];
 };
 
@@ -178,6 +183,21 @@ const getConnectionLabel = (connection, allConnections = []) => {
   if (connection.type !== 'VPN') return connection.type;
   const vpnIndex = allConnections.filter((item) => item.type === 'VPN').findIndex((item) => item.id === connection.id);
   return `VPN ${vpnIndex + 1}`;
+};
+
+const getLinuxEthConnectionError = (server) => {
+  const sourceConnections = Array.isArray(server?.connections) ? server.connections : normalizeConnections(server);
+  for (const connection of sourceConnections) {
+    if (connection.type === 'VPN') continue;
+    const ipv4Cidr = connection.ipv4Cidr || connection.ipv4 || connection.ip || connection.address || '';
+    if (validateIpv4Cidr(ipv4Cidr).state === 'invalid') {
+      return `Corrija o IPV4/CIDR da conexão ${connection.type || 'Eth'} antes de salvar.`;
+    }
+    if (validateIpv4(connection.gateway || connection.gatewayIpv4 || '').state === 'invalid') {
+      return `Corrija o Gateway(IPV4) da conexão ${connection.type || 'Eth'} antes de salvar.`;
+    }
+  }
+  return '';
 };
 
 const isProxmoxServer = (server) => String(server?.systemType || server?.os || server?.type || '').toLowerCase().includes('proxmox');
@@ -299,6 +319,11 @@ export default function LinuxServerManager({ serverForm, setServerForm, handleSa
       alert('Informe o nome do servidor.');
       return;
     }
+    const connectionError = getLinuxEthConnectionError(serverDraft);
+    if (connectionError) {
+      alert(connectionError);
+      return;
+    }
 
     const newServer = normalizeLinuxServer({ ...serverDraft, id: makeId() });
     const nextForm = {
@@ -316,6 +341,11 @@ export default function LinuxServerManager({ serverForm, setServerForm, handleSa
   const saveEditedServer = async () => {
     if (!editingServer.name.trim()) {
       alert('Informe o nome do servidor.');
+      return;
+    }
+    const connectionError = getLinuxEthConnectionError(editingServer);
+    if (connectionError) {
+      alert(connectionError);
       return;
     }
 
@@ -566,7 +596,7 @@ function LinuxServerReadOnlyModal({ server, onClose }) {
   return <ReadOnlyDetailsModal title="Visualizar servidor Linux" onClose={onClose}>
     <div className="grid gap-4 sm:grid-cols-2"><ReadOnlyField label="Servidor" value={normalized.name} /><ReadOnlyField label="Sistema" value={normalized.systemType} /><ReadOnlyField label="Observações" value={normalized.notes} /></div>
     {isProxmoxServer(normalized) && <ReadOnlySection title="Acesso Proxmox"><div className="grid gap-4 sm:grid-cols-2"><ReadOnlyField label="URL">{normalized.proxmoxApi.url || 'não informada'} <SilentCopyButton value={normalized.proxmoxApi.url} label="URL" /></ReadOnlyField><ReadOnlyField label="Login">{normalized.proxmoxApi.username || 'não informado'} <SilentCopyButton value={normalized.proxmoxApi.username} label="login" /></ReadOnlyField><ReadOnlyField label="Senha">**** <SilentCopyButton value={normalized.proxmoxApi.tokenApi} label="senha" /></ReadOnlyField></div></ReadOnlySection>}
-    <ReadOnlySection title="Conexões">{normalized.connections.length ? <div className="space-y-2">{normalized.connections.map((connection) => <div key={connection.id} className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">{getConnectionLabel(connection, normalized.connections)}{connection.type === 'VPN' ? ` / ${connection.vpn}` : ''} · {connection.ipv4 || '-'}</div>)}</div> : <p className="text-sm text-slate-500">Nenhuma conexão cadastrada.</p>}</ReadOnlySection>
+    <ReadOnlySection title="Conexões">{normalized.connections.length ? <div className="space-y-2">{normalized.connections.map((connection) => <div key={connection.id} className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">{getConnectionLabel(connection, normalized.connections)}{connection.type === 'VPN' ? ` / ${connection.vpn}` : ''} · {connection.ipv4 || '-'}{connection.type !== 'VPN' ? ` · Gateway: ${connection.gateway || '-'}` : ''}</div>)}</div> : <p className="text-sm text-slate-500">Nenhuma conexão cadastrada.</p>}</ReadOnlySection>
     <ReadOnlySection title="Portas">{normalized.portRules.length ? <div className="space-y-2">{normalized.portRules.map((rule) => <div key={rule.id} className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">{rule.name || 'Porta'} · {rule.portNumber || '-'} · {rule.direction} · {rule.protocol}</div>)}</div> : <p className="text-sm text-slate-500">Nenhuma porta cadastrada.</p>}</ReadOnlySection>
     <ReadOnlyAttachments files={normalized.proxmoxApi.attachments} />
   </ReadOnlyDetailsModal>;
@@ -584,6 +614,13 @@ function LinuxServerModal({ title, server, setServer, isSaving, onCancel, onSave
   const connections = normalizeConnections(server);
   const portRules = normalizePortRules(server);
   const proxmoxApi = normalizeProxmoxApi(server.proxmoxApi || {});
+  const hasInvalidEthConnections = connections.some((connection) => (
+    connection.type !== 'VPN'
+    && (
+      validateIpv4Cidr(connection.ipv4).state === 'invalid'
+      || validateIpv4(connection.gateway).state === 'invalid'
+    )
+  ));
 
   const canAddConnection = (type) => {
     if (!type) return false;
@@ -600,14 +637,19 @@ function LinuxServerModal({ title, server, setServer, isSaving, onCancel, onSave
 
     setServer({
       ...server,
-      connections: [...connections, { id: makeId(), type, vpn: type === 'VPN' ? 'OpenVPN' : '', ipv4: '' }]
+      connections: [...connections, { id: makeId(), type, vpn: type === 'VPN' ? 'OpenVPN' : '', name: '', ipv4: '', gateway: '' }]
     });
   };
 
   const updateConnection = (connectionId, field, value) => {
+    const nextValue = field === 'ipv4'
+      ? sanitizeIpv4MaskInput(value)
+      : field === 'gateway'
+        ? sanitizeIpv4Input(value)
+        : value;
     setServer({
       ...server,
-      connections: connections.map((connection) => connection.id === connectionId ? { ...connection, [field]: field === 'ipv4' ? sanitizeIpv4MaskInput(value) : value } : connection)
+      connections: connections.map((connection) => connection.id === connectionId ? { ...connection, [field]: nextValue } : connection)
     });
   };
 
@@ -755,20 +797,60 @@ function LinuxServerModal({ title, server, setServer, isSaving, onCancel, onSave
             <div className="space-y-3">
               {connections.length === 0 ? (
                 <p className="text-sm text-slate-500">Nenhuma conexão adicionada.</p>
-              ) : connections.map((connection) => (
-                <div key={connection.id} className={`flex items-center gap-3 rounded-md border border-slate-200 bg-slate-50 p-3 ${connection.type === 'VPN' ? 'flex-nowrap' : 'flex-wrap'}`}>
-                  <div className="w-40 shrink-0 rounded-md border border-slate-200 bg-white p-2 text-sm text-slate-700 flex items-center gap-2"><ConnectionIcon type={connection.type} />{getConnectionLabel(connection, connections)}</div>
-                  {connection.type === 'VPN' && (
-                    <select aria-label="Tipo de VPN" className="w-48 shrink-0 border-slate-300 rounded-md shadow-sm p-2 border bg-white" value={connection.vpn || 'OpenVPN'} onChange={(e) => updateConnection(connection.id, 'vpn', e.target.value)}>
-                      {connectionVpnOptions.map((option) => <option key={option} value={option}>{option}</option>)}
-                    </select>
-                  )}
-                  <input type="text" inputMode="decimal" className="flex-1 min-w-0 border-slate-300 rounded-md shadow-sm p-2 border" value={connection.ipv4} onChange={(e) => updateConnection(connection.id, 'ipv4', e.target.value)} placeholder="Ex: 192.168.1.10 ou 192.168.1.0/24" />
-                  <button type="button" title="Remover" aria-label="Remover" onClick={() => removeConnection(connection.id)} className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-red-300 text-red-600 hover:bg-red-50">
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                </div>
-              ))}
+              ) : connections.map((connection) => {
+                const ipv4CidrValidation = validateIpv4Cidr(connection.ipv4);
+                const gatewayValidation = validateIpv4(connection.gateway);
+                const isVpn = connection.type === 'VPN';
+                return (
+                  <div key={connection.id} className="w-full overflow-x-auto rounded-md border border-slate-200 bg-slate-50">
+                    <div className={`flex items-start gap-2 p-3 ${isVpn ? 'min-w-[760px]' : 'min-w-[844px]'}`}>
+                      <div className="flex h-10 w-64 shrink-0 items-center gap-2 rounded-md border border-slate-200 bg-white px-2 text-sm text-slate-700">
+                        <ConnectionIcon type={connection.type} />
+                        <span className="shrink-0">{getConnectionLabel(connection, connections)}</span>
+                        <input type="text" aria-label="Nome da conexão" className="min-w-0 flex-1 border-0 bg-transparent p-0 text-sm text-slate-700 placeholder-slate-400 outline-none focus:ring-0" value={connection.name || ''} onChange={(e) => updateConnection(connection.id, 'name', e.target.value)} placeholder="Nome" />
+                      </div>
+                      {isVpn ? (
+                        <>
+                          <select aria-label="Tipo de VPN" className="w-48 shrink-0 border-slate-300 rounded-md shadow-sm p-2 border bg-white" value={connection.vpn || 'OpenVPN'} onChange={(e) => updateConnection(connection.id, 'vpn', e.target.value)}>
+                            {connectionVpnOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+                          </select>
+                          <input type="text" inputMode="decimal" aria-label="IPv4 da VPN" className="min-w-0 flex-1 rounded-md border border-slate-300 p-2 shadow-sm" value={connection.ipv4} onChange={(e) => updateConnection(connection.id, 'ipv4', e.target.value)} placeholder="Ex: 192.168.1.10 ou 192.168.1.0/24" />
+                        </>
+                      ) : (
+                        <>
+                          <IpCidrInput
+                            value={connection.ipv4}
+                            onChange={(value) => updateConnection(connection.id, 'ipv4', value)}
+                            state={ipv4CidrValidation.state}
+                            error={ipv4CidrValidation.error}
+                            label=""
+                            ariaLabel="IPV4/CIDR"
+                            placeholder="192.168.1.10/24"
+                            required={false}
+                            containerClassName="w-[250px] shrink-0"
+                            inputWrapperClassName="h-[40px] w-[250px]"
+                          />
+                          <Ipv4Input
+                            value={connection.gateway}
+                            onChange={(value) => updateConnection(connection.id, 'gateway', value)}
+                            state={gatewayValidation.state}
+                            error={gatewayValidation.error}
+                            label=""
+                            ariaLabel="Gateway(IPV4)"
+                            placeholder="192.168.1.1"
+                            required={false}
+                            containerClassName="w-[250px] shrink-0"
+                            inputWrapperClassName="h-[40px] w-[250px]"
+                          />
+                        </>
+                      )}
+                      <button type="button" title="Remover" aria-label="Remover" onClick={() => removeConnection(connection.id)} className={`inline-flex shrink-0 items-center justify-center rounded-md border border-red-300 text-red-600 hover:bg-red-50 ${isVpn ? 'h-9 w-9' : 'h-10 w-10'}`}>
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
 
@@ -811,7 +893,7 @@ function LinuxServerModal({ title, server, setServer, isSaving, onCancel, onSave
           )}
           <div className="flex gap-2 justify-end">
             <button type="button" onClick={onCancel} className="px-4 py-2 border border-slate-300 rounded-md text-sm font-medium text-slate-700 bg-white hover:bg-slate-50">Cancelar</button>
-            <button type="button" disabled={isSaving} onClick={onSave} className="px-4 py-2 border border-transparent rounded-md text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50">{isSaving ? 'Salvando...' : 'Salvar'}</button>
+            <button type="button" disabled={isSaving || hasInvalidEthConnections} onClick={onSave} className="px-4 py-2 border border-transparent rounded-md text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50">{isSaving ? 'Salvando...' : 'Salvar'}</button>
           </div>
         </div>
       </div>

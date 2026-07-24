@@ -4,6 +4,10 @@ export const sanitizeIpv4CidrInput = (value) => (
   String(value || '').replace(/[^0-9./]/g, '').slice(0, 18)
 );
 
+export const sanitizeIpv4Input = (value) => (
+  String(value || '').replace(/[^0-9.]/g, '').slice(0, 15)
+);
+
 export const validateIpv4Cidr = (value) => {
   const input = String(value || '').trim();
   if (!input) return { state: 'neutral', error: '' };
@@ -35,6 +39,32 @@ export const validateIpv4Cidr = (value) => {
     }
     const prefix = Number(cidr);
     if (prefix < 0 || prefix > 32) return invalid('O prefixo CIDR deve estar entre 0 e 32.');
+  }
+
+  return { state: 'valid', error: '' };
+};
+
+export const validateIpv4 = (value, { required = false } = {}) => {
+  const input = String(value || '').trim();
+  if (!input) {
+    return required
+      ? invalid('Informe o gateway IPv4.')
+      : { state: 'neutral', error: '' };
+  }
+  if (input.length > 15 || /[^0-9.]/.test(input)) {
+    return invalid('Use somente números e pontos no gateway IPv4.');
+  }
+
+  const octets = input.split('.');
+  if (octets.length !== 4) return invalid('Informe um IPv4 com 4 blocos. Exemplo: 192.168.1.1');
+
+  for (const octet of octets) {
+    if (!/^\d+$/.test(octet)) return invalid('Cada bloco do IP deve conter apenas números.');
+    if (octet.length > 1 && octet.startsWith('0')) {
+      return invalid('Evite zeros à esquerda nos blocos do IP.');
+    }
+    const number = Number(octet);
+    if (number < 0 || number > 255) return invalid('Cada bloco do IP deve estar entre 0 e 255.');
   }
 
   return { state: 'valid', error: '' };
