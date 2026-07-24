@@ -28,7 +28,9 @@ export default function IpCidrInput({
   inputClassName = '',
   maxLength = 18,
   neutralMessage = 'IPv4 ou CIDR 0–32.',
+  prefix = '',
   required = true,
+  showHelperText = true,
   sanitize = sanitizeIpv4CidrInput
 }) {
   const id = useId();
@@ -37,30 +39,35 @@ export default function IpCidrInput({
   return (
     <div className={`${containerClassName} ${className}`}>
       {label && <label htmlFor={id} className="mb-1 inline-block text-[11px] font-medium uppercase tracking-wide text-slate-600">{label}</label>}
-      <div className={`flex items-center gap-1 rounded-md border bg-white px-2 shadow-sm ring-2 ring-transparent transition-all ${inputWrapperClassName} ${stateStyles[effectiveState]}`}>
+      <div title={effectiveState === 'invalid' ? error : undefined} className={`flex items-center gap-1 rounded-md border bg-white px-2 shadow-sm ring-2 ring-transparent transition-all ${inputWrapperClassName} ${stateStyles[effectiveState]}`}>
         {stateIcons[effectiveState]}
-        <input
-          id={id}
-          type="text"
-          aria-label={ariaLabel}
-          inputMode="decimal"
-          autoComplete="off"
-          spellCheck={false}
-          required={required}
-          placeholder={placeholder}
-          value={value}
-          onChange={(event) => onChange(sanitize(event.target.value))}
-          maxLength={maxLength}
-          aria-invalid={effectiveState === 'invalid'}
-          aria-describedby={error ? `${id}-error` : undefined}
-          className={`min-w-0 flex-1 bg-transparent font-mono text-xs tracking-tight text-slate-900 outline-none placeholder:text-slate-400 ${inputClassName}`}
-        />
+        <div className="flex min-w-0 flex-1 items-center">
+          {prefix && <span className="shrink-0 font-mono text-sm font-medium text-slate-500">{prefix}</span>}
+          <input
+            id={id}
+            type="text"
+            aria-label={ariaLabel}
+            inputMode="decimal"
+            autoComplete="off"
+            spellCheck={false}
+            required={required}
+            placeholder={placeholder}
+            value={value}
+            onChange={(event) => onChange(sanitize(event.target.value))}
+            maxLength={maxLength}
+            aria-invalid={effectiveState === 'invalid'}
+            aria-describedby={showHelperText && error ? `${id}-error` : undefined}
+            className={`min-w-0 flex-1 bg-transparent font-mono text-xs tracking-tight text-slate-900 outline-none placeholder:text-slate-400 ${inputClassName}`}
+          />
+        </div>
       </div>
-      <div className="mt-1 min-h-[16px]">
-        {effectiveState === 'invalid' && error && <p id={`${id}-error`} className="text-[11px] leading-tight text-red-700" role="alert">{error}</p>}
-        {effectiveState === 'valid' && <p className="text-[11px] leading-tight text-emerald-700">Formato válido.</p>}
-        {effectiveState === 'neutral' && <p className="text-[11px] leading-tight text-slate-500">{neutralMessage}</p>}
-      </div>
+      {showHelperText && (
+        <div className="mt-1 min-h-[16px]">
+          {effectiveState === 'invalid' && error && <p id={`${id}-error`} className="text-[11px] leading-tight text-red-700" role="alert">{error}</p>}
+          {effectiveState === 'valid' && <p className="text-[11px] leading-tight text-emerald-700">Formato válido.</p>}
+          {effectiveState === 'neutral' && <p className="text-[11px] leading-tight text-slate-500">{neutralMessage}</p>}
+        </div>
+      )}
     </div>
   );
 }

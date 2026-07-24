@@ -803,7 +803,7 @@ function LinuxServerModal({ title, server, setServer, isSaving, onCancel, onSave
                 const isVpn = connection.type === 'VPN';
                 return (
                   <div key={connection.id} className="w-full overflow-x-auto rounded-md border border-slate-200 bg-slate-50">
-                    <div className={`flex items-start gap-2 p-3 ${isVpn ? 'min-w-[760px]' : 'min-w-[844px]'}`}>
+                    <div className={`flex items-center gap-2 p-3 ${isVpn ? 'min-w-[760px]' : 'min-w-[844px]'}`}>
                       <div className="flex h-10 w-64 shrink-0 items-center gap-2 rounded-md border border-slate-200 bg-white px-2 text-sm text-slate-700">
                         <ConnectionIcon type={connection.type} />
                         <span className="shrink-0">{getConnectionLabel(connection, connections)}</span>
@@ -826,9 +826,12 @@ function LinuxServerModal({ title, server, setServer, isSaving, onCancel, onSave
                             label=""
                             ariaLabel="IPV4/CIDR"
                             placeholder="192.168.1.10/24"
+                            prefix="IPV4/"
                             required={false}
+                            showHelperText={false}
                             containerClassName="w-[250px] shrink-0"
                             inputWrapperClassName="h-[40px] w-[250px]"
+                            inputClassName="text-sm tracking-normal"
                           />
                           <Ipv4Input
                             value={connection.gateway}
@@ -838,9 +841,12 @@ function LinuxServerModal({ title, server, setServer, isSaving, onCancel, onSave
                             label=""
                             ariaLabel="Gateway(IPV4)"
                             placeholder="192.168.1.1"
+                            prefix="Gateway/"
                             required={false}
+                            showHelperText={false}
                             containerClassName="w-[250px] shrink-0"
                             inputWrapperClassName="h-[40px] w-[250px]"
+                            inputClassName="text-sm tracking-normal"
                           />
                         </>
                       )}
