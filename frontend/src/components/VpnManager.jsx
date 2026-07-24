@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Plus, Edit2, Trash2, X, Eye } from 'lucide-react';
+import { Plus, Edit2, Trash2, X, Eye, Server } from 'lucide-react';
 import SecurePasswordInput from './SecurePasswordInput';
 import DeleteConfirmationControl from './DeleteConfirmationControl';
 import InlineField from './InlineField';
@@ -364,13 +364,14 @@ export default function VpnManager({ vpnForm, setVpnForm, handleSaveData, isSavi
           {normalizedForm.servers.length === 0 ? (
             <p className="text-sm text-slate-500">Nenhum servidor VPN cadastrado.</p>
           ) : normalizedForm.servers.map((server) => (
-            <div key={server.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white border border-slate-200 rounded-lg p-4">
-              <div className="space-y-1">
-                <p className="font-medium text-slate-900">{server.name || 'Servidor VPN sem nome'} - {server.vpn || '-'}</p>
-                <p className="text-sm text-slate-500">Modo: {server.type || '-'} | IPv4 túnel: {server.ipv4Tunnel || '-'}</p>
-                <p className="text-xs text-slate-500">IPv4 local: {server.ipv4Local || '-'} | VLAN: {server.vlan || '-'} | Porta: {server.port || '-'} | Anexos: {normalizeAttachments(server).length}</p>
+            <div key={server.id} className="flex flex-col justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 sm:flex-row sm:items-center">
+              <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm text-slate-600 lg:flex-nowrap">
+                <strong className="flex min-w-0 items-center gap-2 truncate font-medium text-slate-900"><Server className="h-5 w-5 shrink-0 text-slate-500" />{server.name || 'Servidor VPN sem nome'} - {server.vpn || '-'}</strong>
+                <span className="whitespace-nowrap">IPv4 túnel: {server.ipv4Tunnel || '-'}</span>
+                <span className="whitespace-nowrap">IPv4 local: {server.ipv4Local || '-'}</span>
+                <span className="whitespace-nowrap">Porta: {server.port || '-'}</span>
               </div>
-              <div className="flex shrink-0 gap-2"><button type="button" title="Visualizar" aria-label="Visualizar" onClick={() => setViewingServer(server)} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"><Eye className="h-4 w-4" /></button><button type="button" title="Detalhes" aria-label="Detalhes" onClick={() => { setEditingServer({ ...server, attachments: normalizeAttachments(server) }); setDeleteServerConfirmation(''); }} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"><Edit2 className="h-4 w-4" /></button></div>
+              <div className="flex shrink-0 gap-2 self-start sm:self-auto"><button type="button" title="Visualizar" aria-label="Visualizar" onClick={() => setViewingServer(server)} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"><Eye className="h-4 w-4" /></button><button type="button" title="Detalhes" aria-label="Detalhes" onClick={() => { setEditingServer({ ...server, attachments: normalizeAttachments(server) }); setDeleteServerConfirmation(''); }} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"><Edit2 className="h-4 w-4" /></button></div>
             </div>
           ))}
         </div>

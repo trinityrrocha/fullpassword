@@ -469,17 +469,23 @@ export default function LinuxServerManager({ serverForm, setServerForm, handleSa
             const proxmoxApi = normalizeProxmoxApi(server.proxmoxApi);
             const isProxmox = isProxmoxServer(server);
             return (
-              <div key={server.id} className="flex min-h-10 flex-col justify-between gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 sm:flex-row sm:items-center">
-                <div className="min-w-0">
-                  <p className="flex items-center gap-2 truncate font-medium text-slate-900"><Server className="h-5 w-5 shrink-0 text-slate-500" />{server.name || 'Servidor sem nome'}</p>
+              <div key={server.id} className="flex flex-col justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 sm:flex-row sm:items-center">
+                <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm text-slate-600 lg:flex-nowrap">
+                  <strong className="flex min-w-0 items-center gap-2 truncate font-medium text-slate-900"><Server className="h-5 w-5 shrink-0 text-slate-500" />{server.name || 'Servidor sem nome'}</strong>
                   {isProxmox ? (
-                    <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm text-slate-600">
+                    <>
                       <span>Proxmox</span>
-                      <span className="inline-flex items-center gap-1"><span>· Login: {proxmoxApi.username || 'não informado'}</span><SilentCopyButton value={proxmoxApi.username} label="login" /></span>
-                      <span className="inline-flex items-center gap-1"><span>· Senha: ****</span><SilentCopyButton value={proxmoxApi.tokenApi} label="senha" /></span>
-                      <span className="inline-flex min-w-0 items-center gap-1"><span className="break-all">· URL: {proxmoxApi.url || 'não informada'}</span><SilentCopyButton value={proxmoxApi.url} label="URL" /></span>
-                    </div>
-                  ) : <p className="truncate text-sm text-slate-500">Sistema: {server.systemType || '-'} | Conexões: {server.connections?.length || 0} | Portas: {server.portRules?.length || 0}</p>}
+                      <span className="inline-flex items-center gap-1 whitespace-nowrap"><span>Login: {proxmoxApi.username || 'não informado'}</span><SilentCopyButton value={proxmoxApi.username} label="login" /></span>
+                      <span className="inline-flex items-center gap-1 whitespace-nowrap"><span>Senha: ****</span><SilentCopyButton value={proxmoxApi.tokenApi} label="senha" /></span>
+                      <span className="inline-flex min-w-0 items-center gap-1"><span className="truncate">URL: {proxmoxApi.url || 'não informada'}</span><SilentCopyButton value={proxmoxApi.url} label="URL" /></span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="whitespace-nowrap">Sistema: {server.systemType || '-'}</span>
+                      <span className="whitespace-nowrap">Conexões: {server.connections?.length || 0}</span>
+                      <span className="whitespace-nowrap">Portas: {server.portRules?.length || 0}</span>
+                    </>
+                  )}
                 </div>
                 <div className="flex shrink-0 gap-2 self-start sm:self-auto"><button type="button" title="Visualizar" aria-label="Visualizar" onClick={() => setViewingServer(server)} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"><Eye className="h-4 w-4" /></button><button type="button" title="Detalhes" aria-label="Detalhes" onClick={() => { setEditingServer(normalizeLinuxServer(server)); setDeleteConfirmation(''); }} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"><Edit2 className="h-4 w-4" /></button></div>
               </div>

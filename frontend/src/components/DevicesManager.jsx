@@ -386,10 +386,12 @@ export default function DevicesManager({ devicesForm, setDevicesForm, handleSave
           {normalizedForm.devices.length === 0 ? (
             <p className="text-sm text-slate-500">Nenhum dispositivo cadastrado.</p>
           ) : normalizedForm.devices.map((device) => (
-            <div key={device.id} className="flex min-h-10 flex-col justify-between gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 sm:flex-row sm:items-center">
-              <div className="min-w-0">
-                <p className="flex items-center gap-2 truncate font-medium text-slate-900"><Router className="h-5 w-5 shrink-0 text-slate-500" />{device.name || 'Dispositivo sem nome'}</p>
-                <p className="truncate text-sm text-slate-500">Tipo: {device.deviceType || '-'} | Conexões: {device.connections.length} | Portas: {device.portRules.length}</p>
+            <div key={device.id} className="flex flex-col justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 sm:flex-row sm:items-center">
+              <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm text-slate-500 lg:flex-nowrap">
+                <strong className="flex min-w-0 items-center gap-2 truncate font-medium text-slate-900"><Router className="h-5 w-5 shrink-0 text-slate-500" />{device.name || 'Dispositivo sem nome'} ({device.deviceType || '-'})</strong>
+                <span className="whitespace-nowrap">Conexões: {device.connections.length}</span>
+                <span className="whitespace-nowrap">Portas: {device.portRules.length}</span>
+                <span className="whitespace-nowrap">Logins: {normalizedForm.deviceLogins.filter((deviceLogin) => deviceLogin.deviceId === device.id).length}</span>
               </div>
               <div className="flex shrink-0 gap-2 self-start sm:self-auto">
                 <button type="button" title="Visualizar" aria-label="Visualizar" onClick={() => setViewingDevice(device)} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"><Eye className="h-4 w-4" /></button>

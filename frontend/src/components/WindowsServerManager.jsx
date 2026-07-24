@@ -480,10 +480,12 @@ export default function WindowsServerManager({ tsForm, setTsForm, handleSaveData
           {normalizedForm.servers.length === 0 ? (
             <p className="text-sm text-slate-500">Nenhum servidor cadastrado.</p>
           ) : normalizedForm.servers.map((server) => (
-            <div key={server.id} className="flex min-h-10 flex-col justify-between gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 sm:flex-row sm:items-center">
-              <div className="min-w-0">
-                <p className="flex items-center gap-2 truncate font-medium text-slate-900"><Server className="h-5 w-5 shrink-0 text-slate-500" />{server.name || 'Servidor sem nome'}</p>
-                <p className="truncate text-sm text-slate-500">Conexões: {server.connections?.length || 0} | Portas: {server.portRules?.length || 0} | TS: {server.tsRules?.length || 0}</p>
+            <div key={server.id} className="flex flex-col justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 sm:flex-row sm:items-center">
+              <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm text-slate-500 lg:flex-nowrap">
+                <strong className="flex min-w-0 items-center gap-2 truncate font-medium text-slate-900"><Server className="h-5 w-5 shrink-0 text-slate-500" />{server.name || 'Servidor sem nome'}</strong>
+                <span className="whitespace-nowrap">Conexões: {server.connections?.length || 0}</span>
+                <span className="whitespace-nowrap">Portas: {server.portRules?.length || 0}</span>
+                <span className="whitespace-nowrap">TS: {server.tsRules?.length || 0}</span>
               </div>
               <div className="flex shrink-0 gap-2 self-start sm:self-auto">
                 <button type="button" title="Visualizar" aria-label="Visualizar" onClick={() => setViewingServer(server)} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50">
