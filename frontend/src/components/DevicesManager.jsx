@@ -198,6 +198,7 @@ export default function DevicesManager({ devicesForm, setDevicesForm, handleSave
   const [loginDeleteConfirmation, setLoginDeleteConfirmation] = useState('');
   const [showLoginCreateModal, setShowLoginCreateModal] = useState(false);
   const [loginSearch, setLoginSearch] = useState('');
+  const [loginDeviceFilter, setLoginDeviceFilter] = useState('');
 
   const persistDevices = async (nextForm, successMessage) => {
     const saved = await handleSaveData('Dispositivos', nextForm, { successMessage });
@@ -356,6 +357,8 @@ export default function DevicesManager({ devicesForm, setDevicesForm, handleSave
   };
 
   const filteredLogins = normalizedForm.deviceLogins.filter((deviceLogin) => {
+    if (loginDeviceFilter && deviceLogin.deviceId !== loginDeviceFilter) return false;
+
     const search = loginSearch.trim().toLowerCase();
     if (!search) return true;
     return [
@@ -367,22 +370,28 @@ export default function DevicesManager({ devicesForm, setDevicesForm, handleSave
   });
 
   return (
-    <div className="space-y-6 animate-fadeIn">
-      <div className="rounded-lg border border-slate-200 bg-slate-50 p-5">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h3 className="flex items-center gap-2 text-lg font-medium text-slate-900">
-              {onDeleteModule && <button type="button" title="Excluir dispositivos" aria-label="Excluir dispositivos" onClick={onDeleteModule} className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-red-300 text-red-600 hover:bg-red-50"><Trash2 className="h-4 w-4" /></button>}
-              Dispositivos
-            </h3>
-            <p className="text-sm text-slate-500">Cadastre e gerencie dispositivos de rede e infraestrutura.</p>
-          </div>
-          <button type="button" disabled={isSaving} onClick={() => { setDeviceDraft(emptyDevice()); setShowCreateModal(true); }} className="inline-flex items-center justify-center rounded-md border border-transparent bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 disabled:opacity-50">
-            <Plus className="mr-2 h-4 w-4" /> Cadastrar dispositivo
+    <div className="space-y-4 animate-fadeIn">
+      <div className="flex min-h-10 w-full flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1 shadow-sm sm:h-10 sm:flex-nowrap sm:py-0">
+        <div className="flex min-w-0 flex-wrap items-center gap-2 sm:flex-nowrap">
+          <button type="button" disabled={isSaving} onClick={() => { setDeviceDraft(emptyDevice()); setShowCreateModal(true); }} className="inline-flex h-8 shrink-0 items-center justify-center rounded-md border border-transparent bg-indigo-600 px-3 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 disabled:opacity-50">
+            <Plus className="mr-2 h-4 w-4" /> Adicionar dispositivo
+          </button>
+          <button
+            type="button"
+            disabled={isSaving || normalizedForm.devices.length === 0}
+            title={normalizedForm.devices.length === 0 ? 'Cadastre um dispositivo antes de adicionar logins.' : 'Adicionar login'}
+            onClick={openCreateLoginModal}
+            className="inline-flex h-8 shrink-0 items-center justify-center rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Plus className="mr-2 h-4 w-4" /> Adicionar login
           </button>
         </div>
+        {onDeleteModule && <button type="button" title="Excluir dispositivos" aria-label="Excluir dispositivos" onClick={onDeleteModule} className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-red-300 text-red-600 hover:bg-red-50"><Trash2 className="h-4 w-4" /></button>}
+      </div>
 
-        <div className="mt-5 space-y-3">
+      <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 pb-4 pt-3">
+        <h3 className="mb-2 text-lg font-medium text-slate-900">Dispositivos cadastrados</h3>
+        <div className="space-y-2">
           {normalizedForm.devices.length === 0 ? (
             <p className="text-sm text-slate-500">Nenhum dispositivo cadastrado.</p>
           ) : normalizedForm.devices.map((device) => (
@@ -402,24 +411,8 @@ export default function DevicesManager({ devicesForm, setDevicesForm, handleSave
         </div>
       </div>
 
-      <div className="rounded-lg border border-slate-200 bg-slate-50 p-5">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h3 className="text-lg font-medium text-slate-900">Logins dos dispositivos</h3>
-            <p className="text-sm text-slate-500">Cadastre acessos vinculados aos dispositivos desta empresa.</p>
-          </div>
-          <button
-            type="button"
-            disabled={isSaving || normalizedForm.devices.length === 0}
-            title={normalizedForm.devices.length === 0 ? 'Cadastre um dispositivo antes de adicionar logins.' : 'Adicionar login'}
-            onClick={openCreateLoginModal}
-            className="inline-flex items-center justify-center rounded-md border border-transparent bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <Plus className="mr-2 h-4 w-4" /> Adicionar login
-          </button>
-        </div>
-
-        <div className="mt-4">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div>
           <label className="mb-1 block text-sm font-medium text-slate-700">Pesquisar login</label>
           <input
             type="text"
@@ -429,11 +422,21 @@ export default function DevicesManager({ devicesForm, setDevicesForm, handleSave
             onChange={(event) => setLoginSearch(event.target.value)}
           />
         </div>
+        <div>
+          <label className="mb-1 block text-sm font-medium text-slate-700">Filtrar por dispositivo</label>
+          <select className="w-full rounded-md border border-slate-300 bg-white p-2 shadow-sm focus:border-indigo-500 focus:ring-indigo-500" value={loginDeviceFilter} onChange={(event) => setLoginDeviceFilter(event.target.value)}>
+            <option value="">Todos os dispositivos</option>
+            {normalizedForm.devices.map((device) => <option key={device.id} value={device.id}>{getDeviceLabel(device.id)}</option>)}
+          </select>
+        </div>
+      </div>
 
-        <div className="mt-5 space-y-3">
+      <div className="rounded-lg border border-slate-200 bg-slate-50 px-5 pb-5 pt-3">
+        <h3 className="mb-2 text-lg font-medium text-slate-900">Logins cadastrados</h3>
+        <div className="space-y-2">
           {filteredLogins.length === 0 ? (
             <p className="text-sm text-slate-500">
-              {loginSearch.trim() ? 'Nenhum login encontrado.' : 'Nenhum login de dispositivo cadastrado.'}
+              {loginSearch.trim() || loginDeviceFilter ? 'Nenhum login encontrado.' : 'Nenhum login de dispositivo cadastrado.'}
             </p>
           ) : filteredLogins.map((deviceLogin) => (
             <div key={deviceLogin.id} className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 sm:flex-row sm:items-center sm:justify-between">

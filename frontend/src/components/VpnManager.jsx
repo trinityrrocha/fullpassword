@@ -156,6 +156,7 @@ export default function VpnManager({ vpnForm, setVpnForm, handleSaveData, isSavi
   const [showServerCreateModal, setShowServerCreateModal] = useState(false);
   const [showUserCreateModal, setShowUserCreateModal] = useState(false);
   const [userSearch, setUserSearch] = useState('');
+  const [userServerFilter, setUserServerFilter] = useState('');
 
   const getServerById = (serverId) => normalizedForm.servers.find((item) => item.id === serverId);
 
@@ -336,6 +337,8 @@ export default function VpnManager({ vpnForm, setVpnForm, handleSaveData, isSavi
   };
 
   const filteredUsers = normalizedForm.users.filter((user) => {
+    if (userServerFilter && user.serverId !== userServerFilter) return false;
+
     const search = userSearch.trim().toLowerCase();
     if (!search) return true;
 
@@ -348,19 +351,22 @@ export default function VpnManager({ vpnForm, setVpnForm, handleSaveData, isSavi
   });
 
   return (
-    <div className="space-y-6 animate-fadeIn">
-      <div className="bg-slate-50 border border-slate-200 rounded-lg p-5">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <div>
-            <h3 className="flex items-center gap-2 text-lg font-medium text-slate-900">{onDeleteModule && <button type="button" title="Excluir servidor" aria-label="Excluir servidor" onClick={onDeleteModule} className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-red-300 text-red-600 hover:bg-red-50"><Trash2 className="h-4 w-4" /></button>}Servidores VPN</h3>
-            <p className="text-sm text-slate-500">Cadastre e gerencie servidores VPN do cliente.</p>
-          </div>
-          <button type="button" disabled={isSaving} onClick={openCreateServerModal} className="inline-flex items-center justify-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50">
-            <Plus className="w-4 h-4 mr-2" /> Adicionar Servidor
+    <div className="space-y-4 animate-fadeIn">
+      <div className="flex min-h-10 w-full flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1 shadow-sm sm:h-10 sm:flex-nowrap sm:py-0">
+        <div className="flex min-w-0 flex-wrap items-center gap-2 sm:flex-nowrap">
+          <button type="button" disabled={isSaving} onClick={openCreateServerModal} className="inline-flex h-8 shrink-0 items-center justify-center rounded-md border border-transparent bg-indigo-600 px-3 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 disabled:opacity-50">
+            <Plus className="mr-2 h-4 w-4" /> Adicionar Servidor
+          </button>
+          <button type="button" disabled={isSaving} onClick={openCreateUserModal} className="inline-flex h-8 shrink-0 items-center justify-center rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50">
+            <Plus className="mr-2 h-4 w-4" /> Adicionar usuário
           </button>
         </div>
+        {onDeleteModule && <button type="button" title="Excluir servidor" aria-label="Excluir servidor" onClick={onDeleteModule} className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-red-300 text-red-600 hover:bg-red-50"><Trash2 className="h-4 w-4" /></button>}
+      </div>
 
-        <div className="mt-5 space-y-3">
+      <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 pb-4 pt-3">
+        <h3 className="mb-2 text-lg font-medium text-slate-900">Servidores cadastrados</h3>
+        <div className="space-y-2">
           {normalizedForm.servers.length === 0 ? (
             <p className="text-sm text-slate-500">Nenhum servidor VPN cadastrado.</p>
           ) : normalizedForm.servers.map((server) => (
@@ -377,28 +383,25 @@ export default function VpnManager({ vpnForm, setVpnForm, handleSaveData, isSavi
         </div>
       </div>
 
-      <div className="bg-slate-50 border border-slate-200 rounded-lg p-5">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <div>
-            <h3 className="text-lg font-medium text-slate-900">Usuários VPN</h3>
-            <p className="text-sm text-slate-500">Cadastre usuários e logins vinculados aos servidores VPN.</p>
-          </div>
-          <button type="button" disabled={isSaving} onClick={openCreateUserModal} className="inline-flex items-center justify-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50">
-            <Plus className="w-4 h-4 mr-2" /> Adicionar usuário
-          </button>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div>
+          <label className="mb-1 block text-sm font-medium text-slate-700">Pesquisar usuário</label>
+          <input type="text" className="w-full rounded-md border border-slate-300 p-2 shadow-sm focus:border-indigo-500 focus:ring-indigo-500" placeholder="Buscar por pessoa, usuário VPN, observação ou servidor..." value={userSearch} onChange={(e) => setUserSearch(e.target.value)} />
+        </div>
+        <div>
+          <label className="mb-1 block text-sm font-medium text-slate-700">Filtrar por servidor</label>
+          <select className="w-full rounded-md border border-slate-300 bg-white p-2 shadow-sm focus:border-indigo-500 focus:ring-indigo-500" value={userServerFilter} onChange={(e) => setUserServerFilter(e.target.value)}>
+            <option value="">Todos os servidores</option>
+            {normalizedForm.servers.map((server) => <option key={server.id} value={server.id}>{getServerLabel(server.id)}</option>)}
+          </select>
         </div>
       </div>
 
-      <div>
-        <label className="block text-sm font-medium text-slate-700 mb-1">Pesquisar usuários ou logins</label>
-        <input type="text" className="w-full border-slate-300 rounded-md shadow-sm p-2 border focus:ring-indigo-500 focus:border-indigo-500" placeholder="Buscar por pessoa, usuário VPN, observação ou servidor..." value={userSearch} onChange={(e) => setUserSearch(e.target.value)} />
-      </div>
-
-      <div className="bg-slate-50 border border-slate-200 rounded-lg p-5">
-        <h3 className="text-lg font-medium text-slate-900 mb-4">Usuários cadastrados</h3>
-        <div className="space-y-3">
+      <div className="rounded-lg border border-slate-200 bg-slate-50 px-5 pb-5 pt-3">
+        <h3 className="mb-2 text-lg font-medium text-slate-900">Usuários cadastrados</h3>
+        <div className="space-y-2">
           {filteredUsers.length === 0 ? (
-            <p className="text-sm text-slate-500">{userSearch.trim() ? 'Nenhum usuário encontrado.' : 'Nenhum usuário VPN cadastrado.'}</p>
+            <p className="text-sm text-slate-500">{userSearch.trim() || userServerFilter ? 'Nenhum usuário encontrado.' : 'Nenhum usuário VPN cadastrado.'}</p>
           ) : filteredUsers.map((user) => (
             <div key={user.id} className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm">
