@@ -27,9 +27,9 @@ export default function IpCidrInput({
   const effectiveState = stateStyles[state] ? state : 'neutral';
 
   return (
-    <div className={`w-[133px] ${className}`}>
+    <div className={`w-[150px] ${className}`}>
       {label && <label htmlFor={id} className="mb-1 inline-block text-[11px] font-medium uppercase tracking-wide text-slate-600">{label}</label>}
-      <div className={`flex h-[30px] w-[133px] items-center gap-1 rounded-md border bg-white px-2 shadow-sm ring-2 ring-transparent transition-all ${stateStyles[effectiveState]}`}>
+      <div className={`flex h-[34px] w-[150px] items-center gap-1 rounded-md border bg-white px-2 shadow-sm ring-2 ring-transparent transition-all ${stateStyles[effectiveState]}`}>
         {stateIcons[effectiveState]}
         <input
           id={id}

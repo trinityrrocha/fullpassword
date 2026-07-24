@@ -81,9 +81,9 @@ export default function ManualIpRulesCard() {
             state={ipValidation.state}
             error={ipValidation.error}
           />
-          <label className="block w-[133px] text-[11px] font-medium uppercase tracking-wide text-slate-600">
+          <label className="block w-[150px] text-[11px] font-medium uppercase tracking-wide text-slate-600">
             Tipo
-            <select value={form.rule_type} onChange={(e) => setForm({ ...form, rule_type: e.target.value })} title={ruleLabels[form.rule_type]} className="mt-1 block h-[30px] w-[133px] rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-900 outline-none"><option value="allow">Whitelist</option><option value="block">Blacklist permanente</option><option value="temporary_block">Blacklist temporária</option></select>
+            <select value={form.rule_type} onChange={(e) => setForm({ ...form, rule_type: e.target.value })} title={ruleLabels[form.rule_type]} className="mt-1 block h-[34px] w-[150px] rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-900 outline-none"><option value="allow">Whitelist</option><option value="block">Blacklist permanente</option><option value="temporary_block">Blacklist temporária</option></select>
           </label>
           {form.rule_type === 'temporary_block' && <label className="text-sm text-slate-700">Duração<select value={form.duration_minutes} onChange={(e) => setForm({ ...form, duration_minutes: Number(e.target.value) })} className={`${fieldClass} mt-1 bg-white`}>{durations.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>}
           <label className="text-sm text-slate-700">Motivo (opcional)<input value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} maxLength={500} className={`${fieldClass} mt-1`} /></label>
