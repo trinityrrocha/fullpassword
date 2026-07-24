@@ -1,13 +1,37 @@
-import { useState } from 'react';
+import { createContext, useContext, useId, useState } from 'react';
 import { ChevronDown } from 'lucide-react';
 
+const SettingsAccordionContext = createContext(null);
+
+export function SettingsAccordionGroup({ children }) {
+  const [openAccordion, setOpenAccordion] = useState(null);
+  const toggleAccordion = (id) => setOpenAccordion((current) => current === id ? null : id);
+
+  return (
+    <SettingsAccordionContext.Provider value={{ openAccordion, toggleAccordion }}>
+      {children}
+    </SettingsAccordionContext.Provider>
+  );
+}
+
 export default function SettingsAccordionCard({ id, title, icon, badge, headerAction, defaultOpen = false, children }) {
-  const [isOpen, setIsOpen] = useState(defaultOpen);
+  const generatedId = useId();
+  const accordionId = id || generatedId;
+  const accordionGroup = useContext(SettingsAccordionContext);
+  const [localIsOpen, setLocalIsOpen] = useState(defaultOpen);
+  const isOpen = accordionGroup ? accordionGroup.openAccordion === accordionId : localIsOpen;
+  const toggle = () => {
+    if (accordionGroup) {
+      accordionGroup.toggleAccordion(accordionId);
+      return;
+    }
+    setLocalIsOpen((open) => !open);
+  };
 
   return (
     <section id={id} className="w-full max-w-[781px] mx-auto bg-white shadow rounded-lg overflow-hidden border border-slate-200">
       <div className="flex h-11 items-center border-b border-slate-200 bg-slate-50">
-        <button type="button" onClick={() => setIsOpen((open) => !open)} aria-expanded={isOpen} className="flex h-11 min-w-0 flex-1 items-center justify-between px-4 py-0 text-left">
+        <button type="button" onClick={toggle} aria-expanded={isOpen} className="flex h-11 min-w-0 flex-1 items-center justify-between px-4 py-0 text-left">
           <span className="min-w-0 truncate">
             <span className="flex min-w-0 items-center truncate text-base font-medium leading-none text-slate-900">{icon}{title}</span>
           </span>

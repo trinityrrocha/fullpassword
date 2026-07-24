@@ -32,7 +32,10 @@ export default function ManualIpRulesCard() {
     } finally { setIsLoading(false); }
   }, [filters.ip_address, filters.rule_type]);
 
-  useEffect(() => { loadRules(); }, [loadRules]);
+  useEffect(() => {
+    const loadTimer = window.setTimeout(() => { void loadRules(); }, 0);
+    return () => window.clearTimeout(loadTimer);
+  }, [loadRules]);
 
   const addRule = async (event) => {
     event.preventDefault();
@@ -74,20 +77,36 @@ export default function ManualIpRulesCard() {
           <p className="flex font-medium"><AlertTriangle className="mr-2 h-4 w-4 shrink-0" />Cuidado: bloquear um CIDR incorreto pode impedir acesso legítimo de uma rede inteira. O IP atual do Super Admin não pode ser bloqueado. Whitelist prevalece sobre blacklist.</p>
         </div>
         {message && <div className={`rounded-md border p-3 text-sm ${message.type === 'success' ? 'border-green-200 bg-green-50 text-green-800' : 'border-red-200 bg-red-50 text-red-800'}`}>{message.text}</div>}
-        <form onSubmit={addRule} className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <IpCidrInput
-            value={form.ip_address}
-            onChange={(ip_address) => setForm({ ...form, ip_address })}
-            state={ipValidation.state}
-            error={ipValidation.error}
-          />
-          <label className="block w-[150px] text-[11px] font-medium uppercase tracking-wide text-slate-600">
-            Tipo
-            <select value={form.rule_type} onChange={(e) => setForm({ ...form, rule_type: e.target.value })} title={ruleLabels[form.rule_type]} className="mt-1 block h-[34px] w-[150px] rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-900 outline-none"><option value="allow">Whitelist</option><option value="block">Blacklist permanente</option><option value="temporary_block">Blacklist temporária</option></select>
-          </label>
-          {form.rule_type === 'temporary_block' && <label className="text-sm text-slate-700">Duração<select value={form.duration_minutes} onChange={(e) => setForm({ ...form, duration_minutes: Number(e.target.value) })} className={`${fieldClass} mt-1 bg-white`}>{durations.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>}
-          <label className="text-sm text-slate-700">Motivo (opcional)<input value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} maxLength={500} className={`${fieldClass} mt-1`} /></label>
-          <div className="md:col-span-2"><button disabled={isLoading || ipValidation.state !== 'valid'} className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">Adicionar regra</button></div>
+        <form onSubmit={addRule} className="space-y-3">
+          <div className="w-full overflow-x-auto">
+            <div className="flex min-w-[830px] items-start gap-2">
+              <IpCidrInput
+                value={form.ip_address}
+                onChange={(ip_address) => setForm({ ...form, ip_address })}
+                state={ipValidation.state}
+                error={ipValidation.error}
+                containerClassName="w-[200px]"
+                inputWrapperClassName="h-[35px] w-[200px]"
+              />
+              <label className="block w-[200px] text-[11px] font-medium uppercase tracking-wide text-slate-600">
+                Tipo
+                <select value={form.rule_type} onChange={(e) => setForm({ ...form, rule_type: e.target.value })} title={ruleLabels[form.rule_type]} className="mt-1 block h-[35px] w-[200px] rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-900 outline-none"><option value="allow">Whitelist</option><option value="block">Blacklist permanente</option><option value="temporary_block">Blacklist temporária</option></select>
+              </label>
+              <label className="block w-[300px] text-[11px] font-medium uppercase tracking-wide text-slate-600">
+                Motivo (opcional)
+                <input value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} maxLength={500} className="mt-1 block h-[35px] w-[300px] rounded-md border border-slate-300 px-2 text-xs normal-case tracking-normal text-slate-900" />
+              </label>
+              <button disabled={isLoading || ipValidation.state !== 'valid'} className="mt-[21px] h-[35px] shrink-0 rounded-md bg-indigo-600 px-4 text-sm font-medium text-white disabled:opacity-50">Adicionar regra</button>
+            </div>
+          </div>
+          {form.rule_type === 'temporary_block' && (
+            <label className="block w-[200px] text-[11px] font-medium uppercase tracking-wide text-slate-600">
+              Duração
+              <select value={form.duration_minutes} onChange={(e) => setForm({ ...form, duration_minutes: Number(e.target.value) })} className="mt-1 block h-[35px] w-[200px] rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-900 outline-none">
+                {durations.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              </select>
+            </label>
+          )}
         </form>
         <div className="flex flex-col gap-3 sm:flex-row"><input value={filters.ip_address} onChange={(e) => setFilters({ ...filters, ip_address: e.target.value })} placeholder="Pesquisar por IP/CIDR" className={`${fieldClass} flex-1`} /><select value={filters.rule_type} onChange={(e) => setFilters({ ...filters, rule_type: e.target.value })} className={`${fieldClass} bg-white sm:w-64`}><option value="">Todos</option><option value="allow">Whitelist</option><option value="block">Blacklist permanente</option><option value="temporary_block">Blacklist temporária</option></select></div>
         <div className="overflow-x-auto rounded-lg border border-slate-200">

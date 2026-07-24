@@ -212,6 +212,7 @@ export default function Login() {
                   : setPassword(e.target.value)}
                 required={true}
                 enableGenerator={bootstrapRequired}
+                showCopyButton={false}
                 placeholder="Sua senha mestre"
               />
             </div>}
@@ -220,7 +221,7 @@ export default function Login() {
               <div>
                 <SecurePasswordInput name="confirm" label="Confirmar senha" value={bootstrap.confirm}
                   onChange={(e) => setBootstrap((value) => ({ ...value, confirm: e.target.value }))}
-                  required={true} enableGenerator={false} />
+                  required={true} enableGenerator={false} showCopyButton={false} />
               </div>
               <div>
                 <label htmlFor="bootstrap-token" className="block text-sm font-medium text-slate-700">Token de instalação</label>

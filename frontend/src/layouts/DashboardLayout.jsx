@@ -3,6 +3,7 @@ import { Users, Settings, Shield, LogOut, Menu, X, Building2, Bell } from 'lucid
 import { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import UserProfileModal from '../components/UserProfileModal';
+import ScreenProtection from '../components/ScreenProtection';
 import api from '../services/api';
 
 export default function DashboardLayout() {
@@ -17,10 +18,7 @@ export default function DashboardLayout() {
   const mustChangePassword = user?.must_change_password === true;
 
   useEffect(() => {
-    if (!user?.is_super_admin) {
-      setNotifications({ unread_count: 0, items: [] });
-      return;
-    }
+    if (!user?.is_super_admin) return;
     api.get('/system/security-notifications')
       .then((response) => setNotifications(response.data))
       .catch(() => setNotifications({ unread_count: 0, items: [] }));
@@ -43,7 +41,8 @@ export default function DashboardLayout() {
   ];
 
   return (
-    <div className="flex h-screen bg-gray-50">
+    <ScreenProtection userEmail={user?.email}>
+      <div className="flex h-screen bg-gray-50">
       {/* Sidebar Desktop */}
       <aside className="hidden w-64 bg-slate-900 text-white md:flex md:flex-col">
         <div className="flex items-center justify-center h-16 border-b border-slate-800">
@@ -163,6 +162,7 @@ export default function DashboardLayout() {
         }}
         forcePasswordChange={mustChangePassword}
       />
-    </div>
+      </div>
+    </ScreenProtection>
   );
 }

@@ -1,10 +1,11 @@
+/* global __APP_COMMIT__ */
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Settings as SettingsIcon, RefreshCw, AlertTriangle, ShieldCheck, Download, Database } from 'lucide-react';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import SecurityCard from '../components/SecurityCard';
-import SettingsAccordionCard from '../components/SettingsAccordionCard';
+import SettingsAccordionCard, { SettingsAccordionGroup } from '../components/SettingsAccordionCard';
 import ActiveSessionsCard from '../components/ActiveSessionsCard';
 import PasswordPolicyCard from '../components/PasswordPolicyCard';
 import BackupRestoreCard from '../components/BackupRestoreCard';
@@ -301,18 +302,22 @@ export default function Settings() {
 
   useEffect(() => {
     if (!canManageSystem) return;
+    const timers = [];
     const auditAction = searchParams.get('audit_action');
     const userEmail = searchParams.get('user_email');
     const requestedIp = searchParams.get('ip');
     if (auditAction) {
       const filters = { ...auditFilters, action: auditAction, ...(userEmail ? { user_email: userEmail } : {}) };
-      setAuditFilters(filters);
-      loadAuditEvents(1, filters);
-      setTimeout(() => document.getElementById('system-audit')?.scrollIntoView({ behavior: 'smooth' }), 0);
+      timers.push(window.setTimeout(() => {
+        setAuditFilters(filters);
+        void loadAuditEvents(1, filters);
+        document.getElementById('system-audit')?.scrollIntoView({ behavior: 'smooth' });
+      }, 0));
     }
     if (searchParams.get('security_tab') || requestedIp) {
-      setTimeout(() => document.getElementById('security-card')?.scrollIntoView({ behavior: 'smooth' }), 0);
+      timers.push(window.setTimeout(() => document.getElementById('security-card')?.scrollIntoView({ behavior: 'smooth' }), 0));
     }
+    return () => timers.forEach((timer) => window.clearTimeout(timer));
   // Query strings are intentionally applied once after Super Admin permission is known.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canManageSystem, searchParams]);
@@ -368,6 +373,7 @@ export default function Settings() {
         </div>
       )}
 
+      <SettingsAccordionGroup>
       <div className="grid grid-cols-1 gap-6">
         <SettingsAccordionCard title="WebUpdater (Atualização Automática)" icon={<RefreshCw className="w-5 h-5 mr-2 text-indigo-500" />} badge={canManageSystem && <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">Super Admin</span>}>
             <p className="text-sm text-slate-600 mb-4">
@@ -475,7 +481,7 @@ export default function Settings() {
         )}
 
         {canManageSystem && (
-          <SettingsAccordionCard title="Política Global de Senha" icon={<ShieldCheck className="w-5 h-5 mr-2 text-indigo-500" />} description="Requisitos obrigatórios e aviso periódico de troca de senha.">
+          <SettingsAccordionCard title="Política Global de Senhas" icon={<ShieldCheck className="w-5 h-5 mr-2 text-indigo-500" />} description="Requisitos obrigatórios e aviso periódico de troca de senha.">
             <PasswordPolicyCard />
           </SettingsAccordionCard>
         )}
@@ -636,6 +642,7 @@ export default function Settings() {
           </div>
         </div>
       </div>
+      </SettingsAccordionGroup>
     </div>
   );
 }
