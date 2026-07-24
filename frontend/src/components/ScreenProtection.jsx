@@ -3,9 +3,13 @@ import { useEffect } from 'react';
 export default function ScreenProtection({ children, enabled = true }) {
 
   useEffect(() => {
-    if (!enabled) return undefined;
+    if (!enabled) {
+      document.documentElement.classList.remove('screen-protected', 'screen-protection-enabled');
+      return undefined;
+    }
 
     let printScreenTimer;
+    document.documentElement.classList.add('screen-protection-enabled');
     const protectScreen = () => document.documentElement.classList.add('screen-protected');
     const restoreScreen = () => {
       if (!document.hidden) document.documentElement.classList.remove('screen-protected');
@@ -52,7 +56,7 @@ export default function ScreenProtection({ children, enabled = true }) {
       window.removeEventListener('keydown', handleProtectedShortcut, true);
       window.removeEventListener('keyup', handleProtectedShortcut, true);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
-      document.documentElement.classList.remove('screen-protected');
+      document.documentElement.classList.remove('screen-protected', 'screen-protection-enabled');
     };
   }, [enabled]);
 

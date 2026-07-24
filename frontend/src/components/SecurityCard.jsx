@@ -2,10 +2,17 @@ import { useCallback, useEffect, useState } from 'react';
 import { AlertTriangle, RefreshCw, ShieldCheck } from 'lucide-react';
 import api from '../services/api';
 import { formatDateTimeShort } from '../utils/formatDateTimeShort';
+import { SCREEN_PROTECTION_CHANGED_EVENT } from '../utils/screenProtection';
 import SettingsAccordionCard from './SettingsAccordionCard';
 
 const selectClass = 'border border-slate-300 rounded-md px-[9px] py-[6px] text-sm bg-white';
-const defaultPolicy = { auto_block_enabled: true, failed_attempts_threshold: 5, observation_window_minutes: 15, block_duration_minutes: 30 };
+const defaultPolicy = {
+  auto_block_enabled: true,
+  failed_attempts_threshold: 5,
+  observation_window_minutes: 15,
+  block_duration_minutes: 30,
+  screen_protection_enabled: true
+};
 const failureStatus = (status) => {
   if (status === 'whitelisted' || status === 'whitelist') return { label: 'Whitelist', dotClass: 'bg-green-500' };
   if (['permanently_blocked', 'temporary_blocked', 'blocked', 'blacklist'].includes(status)) return { label: 'Bloqueado', dotClass: 'bg-red-500' };
@@ -19,13 +26,14 @@ export default function SecurityCard() {
   const [failureLimit, setFailureLimit] = useState(10);
   const [isLoading, setIsLoading] = useState(false);
   const [message, setMessage] = useState(null);
+  const screenProtectionEnabled = policy.screen_protection_enabled !== false;
 
   const showError = (error) => setMessage({ type: 'error', text: error.response?.data?.error || 'Não foi possível concluir a operação.' });
   const updatePolicyField = (field, value) => setPolicy((current) => ({ ...current, [field]: value }));
 
   const loadPolicy = useCallback(async () => {
     const response = await api.get('/system/login-security-policy');
-    setPolicy(response.data.policy || defaultPolicy);
+    setPolicy({ ...defaultPolicy, ...(response.data.policy || {}) });
   }, []);
 
   const loadFailures = useCallback(async (page = 1) => {
@@ -40,7 +48,10 @@ export default function SecurityCard() {
     try { await Promise.all([loadPolicy(), loadFailures()]); } catch (error) { showError(error); } finally { setIsLoading(false); }
   }, [loadFailures, loadPolicy]);
 
-  useEffect(() => { refresh(); }, [refresh]);
+  useEffect(() => {
+    const refreshTimer = window.setTimeout(() => { void refresh(); }, 0);
+    return () => window.clearTimeout(refreshTimer);
+  }, [refresh]);
 
   const savePolicy = async () => {
     setIsLoading(true); setMessage(null);
@@ -49,6 +60,28 @@ export default function SecurityCard() {
       setPolicy(response.data.policy);
       setMessage({ type: 'success', text: 'Política de login atualizada.' });
     } catch (error) { showError(error); } finally { setIsLoading(false); }
+  };
+
+  const toggleScreenProtection = async () => {
+    const enabled = !screenProtectionEnabled;
+    setIsLoading(true);
+    setMessage(null);
+    try {
+      const response = await api.put('/system/screen-protection', { enabled });
+      const savedEnabled = response.data.enabled !== false;
+      updatePolicyField('screen_protection_enabled', savedEnabled);
+      window.dispatchEvent(new CustomEvent(SCREEN_PROTECTION_CHANGED_EVENT, {
+        detail: { enabled: savedEnabled }
+      }));
+      setMessage({
+        type: 'success',
+        text: `Proteção contra impressão e captura ${savedEnabled ? 'ativada' : 'desativada'}.`
+      });
+    } catch (error) {
+      showError(error);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const createRule = async (ipAddress, rule_type) => {
@@ -73,6 +106,27 @@ export default function SecurityCard() {
           <p className="flex items-start font-medium"><AlertTriangle className="mr-2 h-4 w-4 shrink-0" />Cuidado: bloquear IP incorreto pode impedir acesso legítimo. O IP atual do Super Admin não pode ser bloqueado. Whitelist prevalece sobre bloqueios automáticos e permanentes.</p>
         </div>
         {message && <div className={`rounded-md border p-3 text-sm ${message.type === 'success' ? 'bg-green-50 border-green-200 text-green-800' : 'bg-red-50 border-red-200 text-red-800'}`}>{message.text}</div>}
+
+        <section className="flex items-start justify-between gap-4 rounded-md border border-slate-200 bg-slate-50 p-4">
+          <div>
+            <h4 className="text-sm font-semibold text-slate-900">Proteção contra impressão e captura de tela</h4>
+            <p className="mt-1 text-xs leading-5 text-slate-600">
+              Ativa bloqueio de impressão, proteção visual ao perder foco e tentativa de interceptar Print Screen. A proteção contra screenshot é limitada pelo navegador e pelo sistema operacional.
+            </p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={screenProtectionEnabled}
+            aria-label="Proteção contra impressão e captura de tela"
+            title={screenProtectionEnabled ? 'Desativar proteção de tela' : 'Ativar proteção de tela'}
+            onClick={toggleScreenProtection}
+            disabled={isLoading}
+            className={`relative mt-0.5 inline-flex h-6 w-11 shrink-0 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${screenProtectionEnabled ? 'bg-indigo-600' : 'bg-slate-300'}`}
+          >
+            <span className={`mt-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${screenProtectionEnabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
+          </button>
+        </section>
 
         <section className="space-y-4">
           <h4 className="font-semibold text-slate-900">Política de Login</h4>

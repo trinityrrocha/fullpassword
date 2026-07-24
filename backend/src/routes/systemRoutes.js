@@ -82,6 +82,8 @@ router.delete('/sessions/:id', sessionController.revokeSessionByAdmin);
 router.get('/password-policy', passwordPolicyController.getPolicy);
 router.put('/password-policy', passwordPolicyController.updatePolicy);
 router.get('/audit-events', systemController.getAuditEvents);
+router.get('/screen-protection', asyncRoute(securityController.getScreenProtection));
+router.put('/screen-protection', asyncRoute(securityController.updateScreenProtection));
 router.get('/login-security-policy', asyncRoute(securityController.getPolicy));
 router.put('/login-security-policy', asyncRoute(securityController.updatePolicy));
 router.get('/login-failures', asyncRoute(securityController.getLoginFailures));

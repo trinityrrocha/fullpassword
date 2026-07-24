@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import UserProfileModal from '../components/UserProfileModal';
 import ScreenProtection from '../components/ScreenProtection';
 import api from '../services/api';
+import { SCREEN_PROTECTION_CHANGED_EVENT } from '../utils/screenProtection';
 
 export default function DashboardLayout() {
   const location = useLocation();
@@ -13,6 +14,7 @@ export default function DashboardLayout() {
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [notifications, setNotifications] = useState({ unread_count: 0, items: [] });
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const [screenProtectionEnabled, setScreenProtectionEnabled] = useState(true);
 
   const { user, logout } = useAuth();
   const mustChangePassword = user?.must_change_password === true;
@@ -23,6 +25,29 @@ export default function DashboardLayout() {
       .then((response) => setNotifications(response.data))
       .catch(() => setNotifications({ unread_count: 0, items: [] }));
   }, [user?.is_super_admin]);
+
+  useEffect(() => {
+    if (!user?.id) return undefined;
+
+    let isMounted = true;
+    const handleProtectionChange = (event) => {
+      setScreenProtectionEnabled(event.detail?.enabled !== false);
+    };
+
+    window.addEventListener(SCREEN_PROTECTION_CHANGED_EVENT, handleProtectionChange);
+    api.get('/system/screen-protection')
+      .then((response) => {
+        if (isMounted) setScreenProtectionEnabled(response.data.enabled !== false);
+      })
+      .catch(() => {
+        if (isMounted) setScreenProtectionEnabled(true);
+      });
+
+    return () => {
+      isMounted = false;
+      window.removeEventListener(SCREEN_PROTECTION_CHANGED_EVENT, handleProtectionChange);
+    };
+  }, [user?.id]);
 
   const openNotification = (targetUrl) => {
     setIsNotificationsOpen(false);
@@ -41,7 +66,7 @@ export default function DashboardLayout() {
   ];
 
   return (
-    <ScreenProtection>
+    <ScreenProtection enabled={screenProtectionEnabled}>
       <div className="flex h-screen bg-gray-50">
       {/* Sidebar Desktop */}
       <aside className="hidden w-64 bg-slate-900 text-white md:flex md:flex-col">

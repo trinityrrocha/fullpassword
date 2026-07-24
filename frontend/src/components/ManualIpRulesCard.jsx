@@ -78,7 +78,7 @@ export default function ManualIpRulesCard() {
         </div>
         {message && <div className={`rounded-md border p-3 text-sm ${message.type === 'success' ? 'border-green-200 bg-green-50 text-green-800' : 'border-red-200 bg-red-50 text-red-800'}`}>{message.text}</div>}
         <form onSubmit={addRule} className="space-y-3">
-          <div className="flex w-full flex-wrap items-start gap-2 lg:flex-nowrap">
+          <div className="flex w-full flex-wrap items-end gap-2 lg:flex-nowrap">
             <IpCidrInput
               value={form.ip_address}
               onChange={(ip_address) => setForm({ ...form, ip_address })}
@@ -87,6 +87,7 @@ export default function ManualIpRulesCard() {
               containerClassName="w-[160px] shrink-0"
               inputWrapperClassName="h-[35px] w-[160px]"
               inputClassName="text-sm tracking-wide"
+              showHelperText={false}
             />
             <label className="block w-[160px] shrink-0 text-[11px] font-medium uppercase tracking-wide text-slate-600">
               Tipo
@@ -101,7 +102,7 @@ export default function ManualIpRulesCard() {
               title="Adicionar regra"
               aria-label="Adicionar regra"
               disabled={isLoading || ipValidation.state !== 'valid'}
-              className="mt-[21px] inline-flex h-[35px] w-[35px] shrink-0 items-center justify-center rounded-md border border-slate-300 bg-white text-indigo-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex h-[35px] w-[35px] shrink-0 items-center justify-center rounded-md border border-slate-300 bg-white text-indigo-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Plus className="h-4 w-4" />
             </button>

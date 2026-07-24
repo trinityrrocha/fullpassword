@@ -24,11 +24,11 @@
 }
 
 @media print {
-  body * {
+  html.screen-protection-enabled body * {
     visibility: hidden !important;
   }
 
-  .screen-protection-print-message {
+  html.screen-protection-enabled .screen-protection-print-message {
     position: fixed;
     inset: 0;
     display: flex !important;

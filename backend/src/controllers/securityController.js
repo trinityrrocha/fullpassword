@@ -45,6 +45,40 @@ const updatePolicy = async (req, res) => {
   return res.json({ policy: result.rows[0] });
 };
 
+const getScreenProtection = async (_req, res) => {
+  const policy = await getLoginSecurityPolicy();
+  return res.json({ enabled: policy?.screen_protection_enabled !== false });
+};
+
+const updateScreenProtection = async (req, res) => {
+  if (!requireSuperAdmin(req, res)) return;
+  if (typeof req.body?.enabled !== 'boolean') {
+    return res.status(400).json({ error: 'Estado da proteção de tela inválido.' });
+  }
+
+  const previous = await getLoginSecurityPolicy();
+  const result = await db.query(
+    `UPDATE login_security_policy
+     SET screen_protection_enabled = $1, updated_by = $2, updated_by_email = $3,
+         updated_at = CURRENT_TIMESTAMP
+     WHERE id = 1
+     RETURNING screen_protection_enabled`,
+    [req.body.enabled, req.user.id, req.user.email]
+  );
+  const enabled = result.rows[0]?.screen_protection_enabled !== false;
+  await recordAuditEvent({
+    user: req.user,
+    action: 'login_security_policy_updated',
+    status: 'success',
+    req,
+    metadata: {
+      previous: { screen_protection_enabled: previous?.screen_protection_enabled !== false },
+      next: { screen_protection_enabled: enabled }
+    }
+  });
+  return res.json({ enabled });
+};
+
 const getLoginFailures = async (req, res) => {
   if (!requireSuperAdmin(req, res)) return;
   const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
@@ -175,4 +209,15 @@ const getSecurityNotifications = async (req, res) => {
   return res.json({ unread_count: items.reduce((total, item) => total + item.count, 0), items });
 };
 
-module.exports = { getPolicy, updatePolicy, getLoginFailures, createIpRule, listIpRules, deactivateIpRule, blockFromAudit, getSecurityNotifications };
+module.exports = {
+  getPolicy,
+  updatePolicy,
+  getScreenProtection,
+  updateScreenProtection,
+  getLoginFailures,
+  createIpRule,
+  listIpRules,
+  deactivateIpRule,
+  blockFromAudit,
+  getSecurityNotifications
+};

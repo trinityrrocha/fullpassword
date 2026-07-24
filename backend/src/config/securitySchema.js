@@ -125,11 +125,13 @@ const ensureSecuritySchema = async () => {
         failed_attempts_threshold INTEGER NOT NULL DEFAULT 5 CHECK (failed_attempts_threshold IN (5, 10, 15)),
         observation_window_minutes INTEGER NOT NULL DEFAULT 15 CHECK (observation_window_minutes IN (10, 15, 30, 60)),
         block_duration_minutes INTEGER NOT NULL DEFAULT 30 CHECK (block_duration_minutes IN (10, 15, 30, 60, 120, 240, 360, 720, 1440)),
+        screen_protection_enabled BOOLEAN NOT NULL DEFAULT TRUE,
         updated_by UUID REFERENCES users(id) ON DELETE SET NULL,
         updated_by_email TEXT,
         updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
       )
     `);
+    await client.query('ALTER TABLE login_security_policy ADD COLUMN IF NOT EXISTS screen_protection_enabled BOOLEAN NOT NULL DEFAULT TRUE');
     await client.query('INSERT INTO login_security_policy (id) VALUES (1) ON CONFLICT (id) DO NOTHING');
     await client.query(`
       CREATE TABLE IF NOT EXISTS ip_security_rules (
