@@ -175,6 +175,11 @@ export default function TeamList() {
     setIsModalOpen(true);
   };
 
+  const closeCreateUserModal = () => {
+    setIsModalOpen(false);
+    setNewUser(defaultNewUser);
+  };
+
   const handleCreateUser = async (e) => {
     e.preventDefault();
     setIsSaving(true);
@@ -554,13 +559,13 @@ export default function TeamList() {
       {isModalOpen && (
         <div className="fixed inset-0 z-50 overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
           <div className="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
-            <div className="fixed inset-0 bg-slate-500 bg-opacity-75 transition-opacity" aria-hidden="true" onClick={() => setIsModalOpen(false)}></div>
+            <div className="fixed inset-0 bg-slate-500 bg-opacity-75 transition-opacity" aria-hidden="true" onClick={closeCreateUserModal}></div>
             <span className="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
             <div className="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
               <div className="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
                 <div className="flex justify-between items-center mb-5">
                   <h3 className="text-lg leading-6 font-medium text-slate-900">Cadastrar Novo Membro</h3>
-                  <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-500"><X className="h-6 w-6" /></button>
+                  <button onClick={closeCreateUserModal} className="text-slate-400 hover:text-slate-500"><X className="h-6 w-6" /></button>
                 </div>
                 <form id="newUserForm" onSubmit={handleCreateUser} className="space-y-4">
                   <div>
@@ -591,7 +596,7 @@ export default function TeamList() {
                   )}
                 </form>
               </div>
-              <ModalFooter isSaving={isSaving} formId="newUserForm" submitLabel="Salvar Usuário" onCancel={() => setIsModalOpen(false)} />
+              <ModalFooter isSaving={isSaving} formId="newUserForm" submitLabel="Salvar Usuário" onCancel={closeCreateUserModal} />
             </div>
           </div>
         </div>

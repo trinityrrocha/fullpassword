@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Server, Globe, Shield, HardDrive, Plus, Save, Share, KeyRound, Edit2, X } from 'lucide-react';
+import { ArrowLeft, Server, Globe, Shield, HardDrive, Plus, Save, Share, KeyRound, LockKeyhole, Edit2, X } from 'lucide-react';
 import SecurePasswordInput from '../components/SecurePasswordInput';
 import DeleteConfirmationControl from '../components/DeleteConfirmationControl';
 import VaultSharingManager from '../components/VaultSharingManager';
@@ -198,7 +198,14 @@ export default function ClientVault() {
     attachment: null
   });
 
-  const { user, masterKey, isVaultUnlocked, unlockVault } = useAuth();
+  const {
+    user,
+    masterKey,
+    isVaultUnlocked,
+    vaultLockReason,
+    lockVault,
+    unlockVault
+  } = useAuth();
   const [unlockPassword, setUnlockPassword] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -530,6 +537,11 @@ export default function ClientVault() {
     }
   };
 
+  const handleManualLock = () => {
+    setUnlockPassword('');
+    lockVault('manual');
+  };
+
   const handleDownloadAttachment = async (item) => {
     if (!item.encrypted_attachment) return;
 
@@ -715,7 +727,9 @@ export default function ClientVault() {
           </div>
           <h2 className="text-xl font-bold text-slate-900">Cofre Bloqueado</h2>
           <p className="text-sm text-slate-500 mt-2">
-            Sua chave de criptografia foi removida da memória. Insira sua senha mestre novamente para derivar a chave e desbloquear o cofre.
+            {vaultLockReason === 'inactivity'
+              ? 'Cofre bloqueado por inatividade. Digite sua senha para desbloquear novamente.'
+              : 'Sua chave de criptografia foi removida da memória. Insira sua senha mestre novamente para derivar a chave e desbloquear o cofre.'}
           </p>
         </div>
 
@@ -757,6 +771,9 @@ export default function ClientVault() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <button type="button" onClick={handleManualLock} className="inline-flex items-center justify-center rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50">
+            <LockKeyhole className="mr-2 h-4 w-4" /> Bloquear cofre
+          </button>
           <div ref={addModuleMenuRef} className="relative">
             <button type="button" disabled={!canManageModules || isSavingModules} aria-expanded={isAddModuleOpen} aria-haspopup="menu" onClick={() => setIsAddModuleOpen((open) => !open)} className="inline-flex items-center justify-center rounded-md border border-indigo-200 bg-white px-4 py-2 text-sm font-medium text-indigo-700 shadow-sm hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-50">
               <Plus className="mr-2 h-4 w-4" /> Adicionar

@@ -8,6 +8,12 @@ import ClientVault from './pages/ClientVault';
 import TeamList from './pages/TeamList';
 import Settings from './pages/Settings';
 import ProtectedRoute from './components/ProtectedRoute';
+import { useAuth } from './context/AuthContext';
+
+function VaultAwareDashboardLayout() {
+  const { vaultStateEpoch } = useAuth();
+  return <DashboardLayout key={vaultStateEpoch} />;
+}
 
 function App() {
   return (
@@ -16,7 +22,7 @@ function App() {
         <Route path="/login" element={<Login />} />
         
         {/* Rotas Protegidas com AuthGuard */}
-        <Route element={<DashboardLayout />}>
+        <Route element={<VaultAwareDashboardLayout />}>
           {/* Rotas para todos os usuários logados */}
           <Route element={<ProtectedRoute />}>
             <Route path="/" element={<ClientsList />} />

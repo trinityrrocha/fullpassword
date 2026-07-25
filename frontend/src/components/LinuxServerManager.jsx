@@ -317,6 +317,16 @@ export default function LinuxServerManager({ serverForm, setServerForm, handleSa
     setShowUserCreateModal(true);
   };
 
+  const closeCreateServerModal = () => {
+    setServerDraft(emptyLinuxServer());
+    setShowServerCreateModal(false);
+  };
+
+  const closeCreateUserModal = () => {
+    setUserDraft(emptySshCredential(normalizedForm.servers[0]?.id || ''));
+    setShowUserCreateModal(false);
+  };
+
   const addServer = async () => {
     if (!serverDraft.name.trim()) {
       alert('Informe o nome do servidor.');
@@ -548,7 +558,7 @@ export default function LinuxServerManager({ serverForm, setServerForm, handleSa
           server={serverDraft}
           setServer={setServerDraft}
           isSaving={isSaving}
-          onCancel={() => setShowServerCreateModal(false)}
+          onCancel={closeCreateServerModal}
           onSave={addServer}
         />
       )}
@@ -561,7 +571,7 @@ export default function LinuxServerManager({ serverForm, setServerForm, handleSa
           servers={normalizedForm.servers}
           getServerLabel={getServerLabel}
           isSaving={isSaving}
-          onCancel={() => setShowUserCreateModal(false)}
+          onCancel={closeCreateUserModal}
           onSave={addSshCredential}
         />
       )}

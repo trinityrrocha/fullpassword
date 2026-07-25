@@ -163,6 +163,16 @@ export default function CpanelWebManager({ cpanelForm, setCpanelForm, handleSave
     setShowUserCreateModal(true);
   };
 
+  const closeCreateCpanelModal = () => {
+    setCpanelDraft(emptyCpanel());
+    setShowCpanelCreateModal(false);
+  };
+
+  const closeCreateUserModal = () => {
+    setUserDraft(emptyCpanelUser(normalizedForm.cpanels[0]?.id || ''));
+    setShowUserCreateModal(false);
+  };
+
   const persistCpanelForm = async (nextForm, successMessage) => {
     const saved = await handleSaveData('cPanel', nextForm, { successMessage });
     if (saved) setCpanelForm(nextForm);
@@ -391,7 +401,7 @@ export default function CpanelWebManager({ cpanelForm, setCpanelForm, handleSave
           <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
               <h3 className="text-lg font-semibold text-slate-900">Adicionar Servidor hospedagem</h3>
-              <button type="button" onClick={() => setShowCpanelCreateModal(false)} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5" /></button>
+              <button type="button" onClick={closeCreateCpanelModal} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5" /></button>
             </div>
             <div className="p-6 space-y-4">
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -417,7 +427,7 @@ export default function CpanelWebManager({ cpanelForm, setCpanelForm, handleSave
               </div>
             </div>
             <div className="flex justify-end gap-3 px-6 py-4 border-t border-slate-200 bg-slate-50">
-              <button type="button" onClick={() => setShowCpanelCreateModal(false)} className="px-4 py-2 border border-slate-300 rounded-md text-sm font-medium text-slate-700 bg-white hover:bg-slate-50">Cancelar</button>
+              <button type="button" onClick={closeCreateCpanelModal} className="px-4 py-2 border border-slate-300 rounded-md text-sm font-medium text-slate-700 bg-white hover:bg-slate-50">Cancelar</button>
               <button type="button" disabled={isSaving} onClick={addCpanel} className="px-4 py-2 border border-transparent rounded-md text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50">{isSaving ? 'Salvando...' : 'Salvar Servidor hospedagem'}</button>
             </div>
           </div>
@@ -429,7 +439,7 @@ export default function CpanelWebManager({ cpanelForm, setCpanelForm, handleSave
           <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
               <h3 className="text-lg font-semibold text-slate-900">Adicionar usuário</h3>
-              <button type="button" onClick={() => setShowUserCreateModal(false)} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5" /></button>
+              <button type="button" onClick={closeCreateUserModal} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5" /></button>
             </div>
             <div className="p-6 space-y-4">
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -460,7 +470,7 @@ export default function CpanelWebManager({ cpanelForm, setCpanelForm, handleSave
               </div>
             </div>
             <div className="flex justify-end gap-3 px-6 py-4 border-t border-slate-200 bg-slate-50">
-              <button type="button" onClick={() => setShowUserCreateModal(false)} className="px-4 py-2 border border-slate-300 rounded-md text-sm font-medium text-slate-700 bg-white hover:bg-slate-50">Cancelar</button>
+              <button type="button" onClick={closeCreateUserModal} className="px-4 py-2 border border-slate-300 rounded-md text-sm font-medium text-slate-700 bg-white hover:bg-slate-50">Cancelar</button>
               <button type="button" disabled={isSaving} onClick={addCpanelUser} className="px-4 py-2 border border-transparent rounded-md text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50">{isSaving ? 'Salvando...' : 'Salvar usuário'}</button>
             </div>
           </div>

@@ -11,6 +11,7 @@ const DIGITS  = '0123456789';
 const SPECIAL = '!@#$%^&*()_+=[]{}|;:<>?';
 const POOL    = UPPER + LOWER + DIGITS + SPECIAL;
 const PASSWORD_LENGTH = 20;
+const PASSWORD_REVEAL_TIMEOUT_MS = 30 * 1000;
 
 /**
  * Retorna um índice aleatório no intervalo [0, max) usando rejection sampling
@@ -75,9 +76,25 @@ export default function SecurePasswordInput({
   const [previousValue, setPreviousValue]   = useState(null);
   const [showUndo, setShowUndo]             = useState(false);
   const undoTimerRef                        = useRef(null);
+  const revealTimerRef                      = useRef(null);
 
-  // Limpa o timer de undo ao desmontar
-  useEffect(() => () => clearTimeout(undoTimerRef.current), []);
+  useEffect(() => () => {
+    clearTimeout(undoTimerRef.current);
+    clearTimeout(revealTimerRef.current);
+  }, []);
+
+  const handlePasswordVisibility = () => {
+    clearTimeout(revealTimerRef.current);
+    if (showPassword) {
+      setShowPassword(false);
+      return;
+    }
+
+    setShowPassword(true);
+    revealTimerRef.current = window.setTimeout(() => {
+      setShowPassword(false);
+    }, PASSWORD_REVEAL_TIMEOUT_MS);
+  };
 
   // -------------------------------------------------------------------------
   // Gerar senha
@@ -179,9 +196,10 @@ export default function SecurePasswordInput({
           {/* Mostrar / ocultar senha */}
           <button
             type="button"
-            onClick={() => setShowPassword((v) => !v)}
+            onClick={handlePasswordVisibility}
             className="p-1 text-slate-400 hover:text-indigo-600 focus:outline-none transition-colors"
             title={showPassword ? 'Ocultar senha' : 'Mostrar senha'}
+            aria-label={showPassword ? 'Ocultar senha' : 'Mostrar senha'}
           >
             {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
           </button>

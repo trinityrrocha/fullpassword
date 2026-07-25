@@ -196,6 +196,11 @@ export default function ClientsList() {
     loadClientSummary(client, masterKey, user);
   };
 
+  const closeViewClient = () => {
+    setViewClient(null);
+    setViewSummary({ loading: false, lines: [], error: '' });
+  };
+
   const closeUnlockModal = () => {
     if (isUnlocking) return;
     setUnlockClient(null);
@@ -363,11 +368,11 @@ export default function ClientsList() {
       )}
 
       {viewClient && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4" role="dialog" aria-modal="true" aria-labelledby="view-client-title" onClick={() => setViewClient(null)}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4" role="dialog" aria-modal="true" aria-labelledby="view-client-title" onClick={closeViewClient}>
           <div className="w-full max-w-2xl overflow-hidden rounded-lg bg-white shadow-xl" onClick={(event) => event.stopPropagation()}>
             <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
               <h2 id="view-client-title" className="text-lg font-semibold text-slate-900">Visualizar cliente</h2>
-              <button type="button" title="Fechar" aria-label="Fechar" onClick={() => setViewClient(null)} className="text-slate-400 hover:text-slate-600"><X className="h-5 w-5" /></button>
+              <button type="button" title="Fechar" aria-label="Fechar" onClick={closeViewClient} className="text-slate-400 hover:text-slate-600"><X className="h-5 w-5" /></button>
             </div>
             <div className="max-h-[75vh] space-y-6 overflow-y-auto p-6">
               <dl className="grid gap-4 sm:grid-cols-2">
@@ -384,7 +389,7 @@ export default function ClientsList() {
                 )}
               </section>
             </div>
-            <div className="flex justify-end border-t border-slate-200 bg-slate-50 px-6 py-3"><button type="button" onClick={() => setViewClient(null)} className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Fechar</button></div>
+            <div className="flex justify-end border-t border-slate-200 bg-slate-50 px-6 py-3"><button type="button" onClick={closeViewClient} className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Fechar</button></div>
           </div>
         </div>
       )}

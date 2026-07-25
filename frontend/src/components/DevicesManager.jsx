@@ -228,6 +228,11 @@ export default function DevicesManager({ devicesForm, setDevicesForm, handleSave
     return true;
   };
 
+  const closeCreateDeviceModal = () => {
+    setDeviceDraft(emptyDevice());
+    setShowCreateModal(false);
+  };
+
   const addDevice = async () => {
     if (!validateDevice(deviceDraft)) return;
     const newDevice = normalizeDevice({ ...deviceDraft, id: makeId() });
@@ -308,6 +313,11 @@ export default function DevicesManager({ devicesForm, setDevicesForm, handleSave
   const openCreateLoginModal = () => {
     setLoginDraft(emptyDeviceLogin(normalizedForm.devices[0]?.id || ''));
     setShowLoginCreateModal(true);
+  };
+
+  const closeCreateLoginModal = () => {
+    setLoginDraft(emptyDeviceLogin(normalizedForm.devices[0]?.id || ''));
+    setShowLoginCreateModal(false);
   };
 
   const addDeviceLogin = async () => {
@@ -463,7 +473,7 @@ export default function DevicesManager({ devicesForm, setDevicesForm, handleSave
         </div>
       </div>
 
-      {showCreateModal && <DeviceModal title="Cadastrar dispositivo" device={deviceDraft} setDevice={setDeviceDraft} isSaving={isSaving} onCancel={() => setShowCreateModal(false)} onSave={addDevice} />}
+      {showCreateModal && <DeviceModal title="Cadastrar dispositivo" device={deviceDraft} setDevice={setDeviceDraft} isSaving={isSaving} onCancel={closeCreateDeviceModal} onSave={addDevice} />}
       {viewingDevice && <DeviceReadOnlyModal device={viewingDevice} onClose={() => setViewingDevice(null)} />}
       {showLoginCreateModal && (
         <DeviceLoginModal
@@ -472,7 +482,7 @@ export default function DevicesManager({ devicesForm, setDevicesForm, handleSave
           setDeviceLogin={setLoginDraft}
           devices={normalizedForm.devices}
           isSaving={isSaving}
-          onCancel={() => setShowLoginCreateModal(false)}
+          onCancel={closeCreateLoginModal}
           onSave={addDeviceLogin}
         />
       )}

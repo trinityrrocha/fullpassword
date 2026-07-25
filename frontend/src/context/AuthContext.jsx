@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useCallback, useContext, useState, useEffect, useRef } from 'react';
 import api from '../services/api';
 import { 
   deriveMasterKey, 
@@ -12,11 +12,16 @@ import {
 import { safeLogError, safeLogInfo } from '../utils/safeLogger';
 
 const AuthContext = createContext(null);
+const AUTO_LOCK_TIMEOUT_MS = 10 * 60 * 1000;
+const ACTIVITY_EVENTS = ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart', 'click'];
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [masterKey, setMasterKey] = useState(null);
+  const [vaultLockReason, setVaultLockReason] = useState(null);
+  const [vaultStateEpoch, setVaultStateEpoch] = useState(0);
   const [loading, setLoading] = useState(true);
+  const lastActivityRef = useRef(null);
 
   const finishAuthentication = (data) => {
     if (!data?.user) return { success: false, error: 'Resposta de autenticação inválida' };
@@ -31,6 +36,7 @@ export const AuthProvider = ({ children }) => {
       };
     }
     setUser(data.user);
+    setVaultLockReason(null);
     return { success: true, recoveryCodes: data.recovery_codes || [], recoveryCodeUsed: data.recovery_code_used === true };
   };
 
@@ -82,6 +88,50 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  const clearSensitiveVaultState = useCallback((reason = 'manual') => {
+    if (!masterKey) return false;
+    setMasterKey(null);
+    setVaultLockReason(reason);
+    setVaultStateEpoch((current) => current + 1);
+    return true;
+  }, [masterKey]);
+  const lockVault = clearSensitiveVaultState;
+
+  useEffect(() => {
+    if (!masterKey) return undefined;
+
+    let timeoutId;
+    function scheduleCheck() {
+      window.clearTimeout(timeoutId);
+      const remaining = Math.max(0, AUTO_LOCK_TIMEOUT_MS - (Date.now() - lastActivityRef.current));
+      timeoutId = window.setTimeout(checkInactivity, remaining);
+    }
+    function checkInactivity() {
+      if (Date.now() - lastActivityRef.current >= AUTO_LOCK_TIMEOUT_MS) {
+        lockVault('inactivity');
+        return;
+      }
+      scheduleCheck();
+    }
+    const markActivity = () => {
+      lastActivityRef.current = Date.now();
+    };
+    const handleVisibilityChange = () => {
+      if (!document.hidden) checkInactivity();
+    };
+
+    lastActivityRef.current = Date.now();
+    ACTIVITY_EVENTS.forEach((eventName) => window.addEventListener(eventName, markActivity, true));
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    scheduleCheck();
+
+    return () => {
+      window.clearTimeout(timeoutId);
+      ACTIVITY_EVENTS.forEach((eventName) => window.removeEventListener(eventName, markActivity, true));
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [lockVault, masterKey]);
+
   const logout = async () => {
     try {
       await api.post('/auth/logout');
@@ -90,6 +140,8 @@ export const AuthProvider = ({ children }) => {
     } finally {
       setUser(null);
       setMasterKey(null);
+      setVaultLockReason(null);
+      setVaultStateEpoch((current) => current + 1);
     }
   };
 
@@ -98,6 +150,7 @@ export const AuthProvider = ({ children }) => {
       const kek = await deriveMasterKey(password, saltStr);
       const key = await unwrapMasterKey(wrappedKeyStr, kek);
       setMasterKey(key);
+      setVaultLockReason(null);
 
       const currentUser = user;
       let unlockedUser = currentUser;
@@ -148,10 +201,13 @@ export const AuthProvider = ({ children }) => {
     masterKey,
     isAuthenticated: !!user,
     isVaultUnlocked: !!masterKey,
+    vaultLockReason,
+    vaultStateEpoch,
     login,
     verifyMfaLogin,
     confirmMfaSetup,
     logout,
+    lockVault,
     unlockVault,
     loading
   };

@@ -320,6 +320,16 @@ export default function WindowsServerManager({ tsForm, setTsForm, handleSaveData
     setShowUserCreateModal(true);
   };
 
+  const closeCreateServerModal = () => {
+    setServerDraft(emptyServer());
+    setShowServerCreateModal(false);
+  };
+
+  const closeCreateUserModal = () => {
+    setUserDraft(emptyUser(normalizedForm.servers[0]?.id || ''));
+    setShowUserCreateModal(false);
+  };
+
   const addServer = async () => {
     if (!serverDraft.name.trim()) {
       alert('Informe o nome do servidor.');
@@ -559,7 +569,7 @@ export default function WindowsServerManager({ tsForm, setTsForm, handleSaveData
           server={serverDraft}
           setServer={setServerDraft}
           isSaving={isSaving}
-          onCancel={() => setShowServerCreateModal(false)}
+          onCancel={closeCreateServerModal}
           onSave={addServer}
         />
       )}
@@ -572,7 +582,7 @@ export default function WindowsServerManager({ tsForm, setTsForm, handleSaveData
           servers={normalizedForm.servers}
           getServerLabel={getServerLabel}
           isSaving={isSaving}
-          onCancel={() => setShowUserCreateModal(false)}
+          onCancel={closeCreateUserModal}
           onSave={addUser}
         />
       )}

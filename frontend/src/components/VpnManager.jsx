@@ -190,6 +190,16 @@ export default function VpnManager({ vpnForm, setVpnForm, handleSaveData, isSavi
     setShowUserCreateModal(true);
   };
 
+  const closeCreateServerModal = () => {
+    setServerDraft(emptyVpnServer());
+    setShowServerCreateModal(false);
+  };
+
+  const closeCreateUserModal = () => {
+    setUserDraft(emptyVpnUser(normalizedForm.servers[0]?.id || ''));
+    setShowUserCreateModal(false);
+  };
+
   const addVpnServer = async () => {
     if (!serverDraft.name.trim()) {
       alert('Informe o nome do servidor VPN.');
@@ -428,7 +438,7 @@ export default function VpnManager({ vpnForm, setVpnForm, handleSaveData, isSavi
           server={serverDraft}
           setServer={setServerDraft}
           isSaving={isSaving}
-          onCancel={() => setShowServerCreateModal(false)}
+          onCancel={closeCreateServerModal}
           onSave={addVpnServer}
         />
       )}
@@ -441,7 +451,7 @@ export default function VpnManager({ vpnForm, setVpnForm, handleSaveData, isSavi
           servers={normalizedForm.servers}
           getServerLabel={getServerLabel}
           isSaving={isSaving}
-          onCancel={() => setShowUserCreateModal(false)}
+          onCancel={closeCreateUserModal}
           onSave={addVpnUser}
         />
       )}

@@ -46,6 +46,21 @@ export default function UserProfileModal({ isOpen, onClose, forcePasswordChange 
     }
   }, [isOpen, user]);
 
+  const handleClose = () => {
+    setFormData((current) => ({
+      ...current,
+      currentPassword: '',
+      newPassword: '',
+      confirmNewPassword: ''
+    }));
+    setMfaCode('');
+    setMfaSetup(null);
+    setRecoveryCodes([]);
+    setError('');
+    setSuccess('');
+    onClose();
+  };
+
   if (!isOpen) return null;
 
   const handleChange = (e) => {
@@ -195,7 +210,7 @@ export default function UserProfileModal({ isOpen, onClose, forcePasswordChange 
           className="fixed inset-0 bg-slate-900 bg-opacity-75 transition-opacity"
           aria-hidden="true"
           onClick={() => {
-            if (!forcePasswordChange) onClose();
+            if (!forcePasswordChange) handleClose();
           }}
         ></div>
 
@@ -364,7 +379,7 @@ export default function UserProfileModal({ isOpen, onClose, forcePasswordChange 
             {!forcePasswordChange && (
               <button
                 type="button"
-                onClick={onClose}
+                onClick={handleClose}
                 disabled={isSaving}
                 className="mt-3 inline-flex h-8 w-full items-center justify-center rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 sm:ml-3 sm:mt-0 sm:w-auto"
               >
