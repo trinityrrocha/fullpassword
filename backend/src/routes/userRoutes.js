@@ -13,6 +13,7 @@ router.get('/profile/mfa', mfaController.getProfileStatus);
 router.post('/profile/mfa/setup/start', mfaController.startProfileSetup);
 router.post('/profile/mfa/setup/confirm', mfaController.confirmProfileSetup);
 router.post('/profile/mfa/recovery-codes/regenerate', mfaController.regenerateRecoveryCodes);
+router.post('/profile/mfa/disable', mfaController.disableProfileMfa);
 router.put('/profile', userController.updateProfile);
 router.put('/keys', userController.updateKeys);
 router.patch('/:id/mfa-policy', userController.updateMfaPolicy);

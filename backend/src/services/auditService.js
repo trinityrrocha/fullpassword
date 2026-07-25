@@ -1,9 +1,18 @@
 const db = require('../config/database');
 const { safeLogError } = require('../utils/safeLogger');
 
-const recordAuditEvent = async ({ user, userEmail, action, status, req, metadata = {} }) => {
+const recordAuditEvent = async ({
+  user,
+  userEmail,
+  action,
+  status,
+  req,
+  metadata = {},
+  queryable = db,
+  throwOnError = false
+}) => {
   try {
-    await db.query(
+    await queryable.query(
       `INSERT INTO system_audit_events
          (user_id, user_email, action, status, ip_address, user_agent, metadata)
        VALUES ($1, $2, $3, $4, $5, $6, $7)`,
@@ -19,6 +28,7 @@ const recordAuditEvent = async ({ user, userEmail, action, status, req, metadata
     );
   } catch (error) {
     safeLogError('Falha ao registrar evento de auditoria.', error);
+    if (throwOnError) throw error;
   }
 };
 

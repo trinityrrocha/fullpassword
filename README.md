@@ -214,6 +214,8 @@ No login, um código de recuperação só pode ser informado depois que e-mail e
 
 Os códigos em texto claro são retornados apenas na ativação ou regeneração, para exibição e geração local do PDF. O perfil mostra somente a quantidade restante. A regeneração exige o TOTP atual, invalida todos os códigos anteriores e entrega um novo conjunto uma única vez.
 
+Se o usuário perder o aplicativo autenticador, o Perfil permite desativar o MFA com a senha atual e um código de recuperação ainda não usado. A operação é transacional: o código só é consumido se o MFA for realmente desativado, todos os códigos antigos são invalidados e a sessão atual permanece ativa para configurar imediatamente um novo aplicativo.
+
 Para impedir rotação de identidade sem prova de posse, administradores não definem uma nova senha no formulário de edição de membros. A recuperação deve ser iniciada pelo próprio usuário em **Esqueceu a senha?** e concluída com token, confirmação explícita e MFA quando habilitado.
 
 ### 🎨 Interface e experiência

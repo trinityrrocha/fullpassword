@@ -27,6 +27,13 @@ export default function UserProfileModal({ isOpen, onClose, forcePasswordChange 
   const [mfaSetup, setMfaSetup] = useState(null);
   const [mfaCode, setMfaCode] = useState('');
   const [recoveryCodes, setRecoveryCodes] = useState([]);
+  const [recoveryCodesAcknowledged, setRecoveryCodesAcknowledged] = useState(true);
+  const [mfaRecoveryOpen, setMfaRecoveryOpen] = useState(false);
+  const [mfaRecoveryError, setMfaRecoveryError] = useState('');
+  const [mfaRecoveryForm, setMfaRecoveryForm] = useState({
+    currentPassword: '',
+    recoveryCode: ''
+  });
   
   const [formData, setFormData] = useState({
     name: '',
@@ -48,6 +55,10 @@ export default function UserProfileModal({ isOpen, onClose, forcePasswordChange 
     setMfaSetup(null);
     setMfaCode('');
     setRecoveryCodes([]);
+    setRecoveryCodesAcknowledged(true);
+    setMfaRecoveryOpen(false);
+    setMfaRecoveryError('');
+    setMfaRecoveryForm({ currentPassword: '', recoveryCode: '' });
     setError('');
     setSuccess('');
     setIsSaving(false);
@@ -67,6 +78,10 @@ export default function UserProfileModal({ isOpen, onClose, forcePasswordChange 
       setMfaSetup(null);
       setMfaCode('');
       setRecoveryCodes([]);
+      setRecoveryCodesAcknowledged(true);
+      setMfaRecoveryOpen(false);
+      setMfaRecoveryError('');
+      setMfaRecoveryForm({ currentPassword: '', recoveryCode: '' });
       api.get('/users/profile/mfa')
         .then(({ data }) => setMfaStatus(data))
         .catch(() => setMfaStatus(null));
@@ -74,6 +89,10 @@ export default function UserProfileModal({ isOpen, onClose, forcePasswordChange 
   }, [isOpen, user]);
 
   const handleClose = () => {
+    if (recoveryCodes.length > 0 && !recoveryCodesAcknowledged) {
+      setError('Baixe, copie ou confirme que guardou os códigos de recuperação antes de fechar esta janela.');
+      return;
+    }
     setFormData((current) => ({
       ...current,
       currentPassword: '',
@@ -83,6 +102,10 @@ export default function UserProfileModal({ isOpen, onClose, forcePasswordChange 
     setMfaCode('');
     setMfaSetup(null);
     setRecoveryCodes([]);
+    setRecoveryCodesAcknowledged(true);
+    setMfaRecoveryOpen(false);
+    setMfaRecoveryError('');
+    setMfaRecoveryForm({ currentPassword: '', recoveryCode: '' });
     setError('');
     setSuccess('');
     onClose();
@@ -99,6 +122,10 @@ export default function UserProfileModal({ isOpen, onClose, forcePasswordChange 
     e.preventDefault();
     setError('');
     setSuccess('');
+    if (recoveryCodes.length > 0 && !recoveryCodesAcknowledged) {
+      setError('Baixe, copie ou confirme que guardou os códigos de recuperação antes de continuar.');
+      return;
+    }
     setIsSaving(true);
 
     try {
@@ -209,6 +236,7 @@ export default function UserProfileModal({ isOpen, onClose, forcePasswordChange 
       const { data } = await api.post('/users/profile/mfa/setup/start');
       setMfaSetup(data);
       setRecoveryCodes([]);
+      setRecoveryCodesAcknowledged(true);
     } catch (err) {
       setError(err.response?.data?.error || 'Não foi possível iniciar a configuração MFA.');
     } finally {
@@ -222,6 +250,7 @@ export default function UserProfileModal({ isOpen, onClose, forcePasswordChange 
     try {
       const { data } = await api.post('/users/profile/mfa/setup/confirm', { code: mfaCode });
       setRecoveryCodes(data.recovery_codes || []);
+      setRecoveryCodesAcknowledged(false);
       setMfaStatus((status) => ({ ...status, mfa_enabled: true, recovery_codes_remaining: data.recovery_codes?.length || 0 }));
       setMfaSetup(null);
       setMfaCode('');
@@ -239,11 +268,67 @@ export default function UserProfileModal({ isOpen, onClose, forcePasswordChange 
     try {
       const { data } = await api.post('/users/profile/mfa/recovery-codes/regenerate', { code: mfaCode });
       setRecoveryCodes(data.recovery_codes || []);
+      setRecoveryCodesAcknowledged(false);
       setMfaCode('');
       setMfaStatus((status) => ({ ...status, recovery_codes_remaining: data.recovery_codes?.length || 0 }));
       setSuccess('Novos códigos gerados. Salve o novo PDF; os códigos anteriores foram invalidados.');
     } catch (err) {
       setError(err.response?.data?.error || 'Não foi possível regenerar os códigos.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const openMfaRecovery = () => {
+    setError('');
+    setSuccess('');
+    setMfaRecoveryError('');
+    setMfaRecoveryForm({ currentPassword: '', recoveryCode: '' });
+    setMfaRecoveryOpen(true);
+  };
+
+  const closeMfaRecovery = () => {
+    if (isSaving) return;
+    setMfaRecoveryOpen(false);
+    setMfaRecoveryError('');
+    setMfaRecoveryForm({ currentPassword: '', recoveryCode: '' });
+  };
+
+  const disableMfaWithRecoveryCode = async () => {
+    setMfaRecoveryError('');
+    if (!mfaRecoveryForm.currentPassword) {
+      setMfaRecoveryError('Informe sua senha atual.');
+      return;
+    }
+    if (!mfaRecoveryForm.recoveryCode.trim()) {
+      setMfaRecoveryError('Informe um código de recuperação ainda não usado.');
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const { data } = await api.post('/users/profile/mfa/disable', {
+        current_password: mfaRecoveryForm.currentPassword,
+        mfa_method: 'recovery_code',
+        recovery_code: mfaRecoveryForm.recoveryCode.trim()
+      });
+      setMfaStatus((status) => ({
+        ...status,
+        mfa_enabled: false,
+        recovery_codes_remaining: 0
+      }));
+      setMfaSetup(null);
+      setMfaCode('');
+      setRecoveryCodes([]);
+      setRecoveryCodesAcknowledged(true);
+      setMfaRecoveryOpen(false);
+      setMfaRecoveryForm({ currentPassword: '', recoveryCode: '' });
+      setSuccess(
+        data?.message
+        || 'MFA desativado com sucesso. Agora você pode ativar novamente o MFA e gerar novos códigos de recuperação.'
+      );
+    } catch (err) {
+      setMfaRecoveryError(err.response?.data?.error || 'Não foi possível desativar o MFA.');
     } finally {
       setIsSaving(false);
     }
@@ -403,9 +488,23 @@ export default function UserProfileModal({ isOpen, onClose, forcePasswordChange 
                             </p>
                             <input type="text" autoComplete="one-time-code" value={mfaCode} onChange={(e) => setMfaCode(e.target.value)} placeholder="Código atual do autenticador" className="block w-full border border-slate-300 rounded-md py-2 px-3 text-sm" />
                             <button type="button" onClick={regenerateRecoveryCodes} className="text-sm font-medium text-indigo-600 hover:text-indigo-800">Regenerar códigos de recuperação</button>
+                            <div className="rounded-md border border-amber-200 bg-amber-50 p-3">
+                              <p className="text-sm font-medium text-amber-900">Perdeu acesso ao aplicativo autenticador?</p>
+                              <p className="mt-1 text-xs text-amber-800">
+                                Use um código de recuperação para desativar o MFA e configurar um novo aplicativo.
+                              </p>
+                              <button type="button" onClick={openMfaRecovery} className="mt-2 text-sm font-medium text-indigo-700 hover:text-indigo-900">
+                                Perdi acesso ao aplicativo autenticador
+                              </button>
+                            </div>
                           </div>
                         )}
-                        <RecoveryCodesPanel codes={recoveryCodes} userEmail={user?.email} />
+                        <RecoveryCodesPanel
+                          codes={recoveryCodes}
+                          userEmail={user?.email}
+                          onSaved={() => setRecoveryCodesAcknowledged(true)}
+                          onAcknowledged={() => setRecoveryCodesAcknowledged(true)}
+                        />
                       </div>
                     )}
                     {!forcePasswordChange && (
@@ -441,6 +540,60 @@ export default function UserProfileModal({ isOpen, onClose, forcePasswordChange 
               </button>
             )}
           </div>
+          {mfaRecoveryOpen && (
+            <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/70 p-4" role="dialog" aria-modal="true" aria-labelledby="mfa-recovery-title">
+              <div className="w-full max-w-md rounded-lg bg-white p-5 text-left shadow-2xl">
+                <h4 id="mfa-recovery-title" className="text-lg font-semibold text-slate-900">Reconfigurar MFA</h4>
+                <p className="mt-2 text-sm text-slate-600">
+                  Use esta opção se você perdeu acesso ao aplicativo autenticador. Você poderá validar sua identidade usando um código de recuperação do PDF.
+                </p>
+                <p className="mt-2 text-sm text-slate-600">
+                  Depois disso, o MFA atual será desativado e você poderá configurar um novo aplicativo autenticador.
+                </p>
+                {mfaRecoveryError && (
+                  <p role="alert" className="mt-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{mfaRecoveryError}</p>
+                )}
+                <div className="mt-4 space-y-3">
+                  <div>
+                    <label htmlFor="mfa-recovery-password" className="block text-sm font-medium text-slate-700">Senha atual</label>
+                    <input
+                      id="mfa-recovery-password"
+                      type="password"
+                      autoComplete="current-password"
+                      maxLength={1024}
+                      value={mfaRecoveryForm.currentPassword}
+                      onChange={(event) => setMfaRecoveryForm((current) => ({ ...current, currentPassword: event.target.value }))}
+                      className="mt-1 h-9 w-full rounded-md border border-slate-300 px-3 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="mfa-recovery-code" className="block text-sm font-medium text-slate-700">Código de recuperação</label>
+                    <input
+                      id="mfa-recovery-code"
+                      type="text"
+                      autoComplete="one-time-code"
+                      maxLength={19}
+                      value={mfaRecoveryForm.recoveryCode}
+                      onChange={(event) => setMfaRecoveryForm((current) => ({ ...current, recoveryCode: event.target.value.toUpperCase() }))}
+                      placeholder="XXXX-XXXX-XXXX-XXXX"
+                      className="mt-1 h-9 w-full rounded-md border border-slate-300 px-3 font-mono text-sm"
+                    />
+                  </div>
+                  <p className="text-xs text-slate-600">
+                    Informe sua senha atual e um código de recuperação ainda não usado. O código será consumido após a desativação do MFA.
+                  </p>
+                </div>
+                <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                  <button type="button" onClick={closeMfaRecovery} disabled={isSaving} className="h-9 rounded-md border border-slate-300 px-4 text-sm font-medium text-slate-700 disabled:opacity-50">
+                    Cancelar
+                  </button>
+                  <button type="button" onClick={disableMfaWithRecoveryCode} disabled={isSaving} className="h-9 rounded-md bg-red-600 px-4 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50">
+                    {isSaving ? 'Desativando...' : 'Desativar MFA usando código de recuperação'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

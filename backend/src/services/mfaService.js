@@ -9,6 +9,15 @@ const { JWT_SECRET } = require('../config/security');
 const encryptionKey = crypto.hkdfSync('sha256', Buffer.from(JWT_SECRET), Buffer.alloc(0), Buffer.from('fullpassword-mfa-encryption-v1'), 32);
 authenticator.options = { window: 1 };
 
+class MfaActionError extends Error {
+  constructor(message, code, statusCode = 400) {
+    super(message);
+    this.name = 'MfaActionError';
+    this.code = code;
+    this.statusCode = statusCode;
+  }
+}
+
 const encryptSecret = (secret) => {
   const iv = crypto.randomBytes(12);
   const cipher = crypto.createCipheriv('aes-256-gcm', encryptionKey, iv);
@@ -86,4 +95,73 @@ const useRecoveryCode = async (userId, candidate, queryable = db) => {
   return false;
 };
 
-module.exports = { encryptSecret, decryptSecret, createChallengeToken, verifyChallengeToken, getMfaSettings, ensureMfaSetup, verifyTotp, replaceRecoveryCodes, useRecoveryCode };
+const disableMfaWithFactor = async ({
+  client,
+  userId,
+  currentPassword,
+  mfaMethod,
+  mfaCode,
+  recoveryCode
+}) => {
+  const result = await client.query(
+    `SELECT u.hash_senha_login, m.*
+     FROM users u
+     JOIN user_mfa_settings m ON m.user_id = u.id
+     WHERE u.id = $1 AND m.enabled = TRUE
+     FOR UPDATE OF u, m`,
+    [userId]
+  );
+  const settings = result.rows[0];
+  if (!settings) {
+    throw new MfaActionError('MFA não está habilitado.', 'MFA_NOT_ENABLED', 409);
+  }
+
+  const passwordValid = typeof currentPassword === 'string'
+    && currentPassword.length > 0
+    && currentPassword.length <= 1024
+    && await argon2.verify(settings.hash_senha_login, currentPassword).catch(() => false);
+  if (!passwordValid) {
+    throw new MfaActionError('Senha atual inválida.', 'CURRENT_PASSWORD_INVALID', 403);
+  }
+
+  let factorValid = false;
+  if (mfaMethod === 'totp') {
+    factorValid = /^\d{6}$/.test(String(mfaCode || '').replace(/\s/g, ''))
+      && verifyTotp(settings, mfaCode);
+  } else if (mfaMethod === 'recovery_code') {
+    const candidate = String(recoveryCode || '').trim().toUpperCase();
+    factorValid = /^[A-F0-9]{4}(?:-[A-F0-9]{4}){3}$/.test(candidate)
+      && await useRecoveryCode(userId, candidate, client);
+  } else {
+    throw new MfaActionError('Método MFA inválido.', 'MFA_METHOD_INVALID');
+  }
+
+  if (!factorValid) {
+    throw new MfaActionError('Código MFA inválido ou já utilizado.', 'MFA_FACTOR_INVALID', 403);
+  }
+
+  await client.query('DELETE FROM user_mfa_recovery_codes WHERE user_id = $1', [userId]);
+  const disabled = await client.query(
+    'DELETE FROM user_mfa_settings WHERE user_id = $1 RETURNING user_id',
+    [userId]
+  );
+  if (disabled.rows.length !== 1) {
+    throw new MfaActionError('Não foi possível desativar o MFA.', 'MFA_DISABLE_FAILED', 500);
+  }
+
+  return { mfaMethod };
+};
+
+module.exports = {
+  MfaActionError,
+  encryptSecret,
+  decryptSecret,
+  createChallengeToken,
+  verifyChallengeToken,
+  getMfaSettings,
+  ensureMfaSetup,
+  verifyTotp,
+  replaceRecoveryCodes,
+  useRecoveryCode,
+  disableMfaWithFactor
+};

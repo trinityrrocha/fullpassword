@@ -7,7 +7,9 @@ const {
   ensureMfaSetup,
   verifyTotp,
   replaceRecoveryCodes,
-  useRecoveryCode
+  useRecoveryCode,
+  MfaActionError,
+  disableMfaWithFactor
 } = require('../services/mfaService');
 const { completeLoginSession } = require('./authController');
 const { safeLogError } = require('../utils/safeLogger');
@@ -166,7 +168,7 @@ const confirmProfileSetup = async (req, res) => {
     const settings = await getMfaSettings(req.user.id);
     if (!settings || settings.enabled || !verifyTotp(settings, req.body?.code)) {
       await auditMfaFailure(req, req.user, 'mfa_setup_failed');
-      return res.status(401).json({ error: 'Código MFA inválido ou expirado' });
+      return res.status(403).json({ error: 'Código MFA inválido ou expirado' });
     }
     await client.query('BEGIN');
     await client.query(
@@ -203,7 +205,7 @@ const regenerateRecoveryCodes = async (req, res) => {
   try {
     const settings = await getMfaSettings(req.user.id);
     if (!settings?.enabled || !verifyTotp(settings, req.body?.code)) {
-      return res.status(401).json({ error: 'Código MFA inválido ou expirado' });
+      return res.status(403).json({ error: 'Código MFA inválido ou expirado' });
     }
     await client.query('BEGIN');
     const recoveryCodes = await replaceRecoveryCodes(client, req.user.id);
@@ -227,11 +229,58 @@ const regenerateRecoveryCodes = async (req, res) => {
   }
 };
 
+const disableProfileMfa = async (req, res) => {
+  let client;
+  try {
+    client = await db.pool.connect();
+    await client.query('BEGIN');
+    const result = await disableMfaWithFactor({
+      client,
+      userId: req.user.id,
+      currentPassword: req.body?.current_password,
+      mfaMethod: req.body?.mfa_method,
+      mfaCode: req.body?.mfa_code,
+      recoveryCode: req.body?.recovery_code
+    });
+    await recordAuditEvent({
+      user: req.user,
+      action: 'mfa_disabled',
+      status: 'success',
+      req,
+      metadata: { method: result.mfaMethod, country: getTrustedCountry(req) },
+      queryable: client,
+      throwOnError: true
+    });
+    await client.query('COMMIT');
+    return res.status(200).json({
+      message: 'MFA desativado com sucesso. Agora você pode ativar novamente o MFA e gerar novos códigos de recuperação.',
+      mfa_enabled: false
+    });
+  } catch (error) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
+    await recordAuditEvent({
+      user: req.user,
+      action: 'mfa_disable_failed',
+      status: 'denied',
+      req,
+      metadata: { reason: error?.code || 'mfa_disable_failed' }
+    });
+    if (error instanceof MfaActionError) {
+      return res.status(error.statusCode).json({ error: error.message, code: error.code });
+    }
+    safeLogError('Erro ao desativar MFA.', error);
+    return res.status(500).json({ error: 'Não foi possível desativar o MFA.' });
+  } finally {
+    if (client) client.release();
+  }
+};
+
 module.exports = {
   verifyLogin,
   confirmSetup,
   getProfileStatus,
   startProfileSetup,
   confirmProfileSetup,
-  regenerateRecoveryCodes
+  regenerateRecoveryCodes,
+  disableProfileMfa
 };

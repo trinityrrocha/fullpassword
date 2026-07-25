@@ -3,6 +3,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const argon2 = require('argon2');
+const { authenticator } = require('otplib');
 
 process.env.DB_HOST = 'test';
 process.env.DB_USER = 'test';
@@ -56,6 +57,7 @@ const run = async () => {
 
   const oneTimeCode = 'ABCD-EF01-2345-6789';
   const oneTimeHash = await argon2.hash(oneTimeCode, { type: argon2.argon2id });
+  const validPasswordHash = await argon2.hash('Correct_Password_123!', { type: argon2.argon2id });
   let recoveryCodeAvailable = true;
   const oneTimeStore = {
     async query(sql) {
@@ -74,6 +76,44 @@ const run = async () => {
   };
   assert.equal(await mfaService.useRecoveryCode('user-1', oneTimeCode, oneTimeStore), true);
   assert.equal(await mfaService.useRecoveryCode('user-1', oneTimeCode, oneTimeStore), false);
+
+  const totpSecret = authenticator.generateSecret();
+  const totpCode = authenticator.generate(totpSecret);
+  let totpMfaEnabled = true;
+  let totpRecoveryCodesPresent = true;
+  const totpDisableStore = {
+    async query(sql) {
+      if (sql.includes('FROM users u')) {
+        return {
+          rows: totpMfaEnabled ? [{
+            user_id: 'user-1',
+            enabled: true,
+            hash_senha_login: validPasswordHash,
+            totp_secret_encrypted: mfaService.encryptSecret(totpSecret)
+          }] : []
+        };
+      }
+      if (sql.startsWith('DELETE FROM user_mfa_recovery_codes')) {
+        totpRecoveryCodesPresent = false;
+        return { rows: [], rowCount: 10 };
+      }
+      if (sql.startsWith('DELETE FROM user_mfa_settings')) {
+        totpMfaEnabled = false;
+        return { rows: [{ user_id: 'user-1' }], rowCount: 1 };
+      }
+      throw new Error(`Unexpected TOTP disable query: ${sql}`);
+    }
+  };
+  const totpDisableResult = await mfaService.disableMfaWithFactor({
+    client: totpDisableStore,
+    userId: 'user-1',
+    currentPassword: 'Correct_Password_123!',
+    mfaMethod: 'totp',
+    mfaCode: totpCode
+  });
+  assert.equal(totpDisableResult.mfaMethod, 'totp');
+  assert.equal(totpMfaEnabled, false);
+  assert.equal(totpRecoveryCodesPresent, false);
 
   const mfaControllerPath = require.resolve('../src/controllers/mfaController');
   const mfaServicePath = require.resolve('../src/services/mfaService');
@@ -100,7 +140,11 @@ const run = async () => {
       replaceRecoveryCodes: async () => {
         throw new Error('not used');
       },
-      useRecoveryCode: async (_userId, candidate) => candidate === oneTimeCode
+      useRecoveryCode: async (_userId, candidate) => candidate === oneTimeCode,
+      MfaActionError: class MockMfaActionError extends Error {},
+      disableMfaWithFactor: async () => {
+        throw new Error('not used');
+      }
     }
   };
   require.cache[authControllerPath] = {
@@ -202,7 +246,6 @@ const run = async () => {
   require.cache[ipSecurityServicePath] = {
     exports: { applyAutomaticBlockForLoginFailure: async () => {} }
   };
-  const validPasswordHash = await argon2.hash('Correct_Password_123!', { type: argon2.argon2id });
   db.query = async (sql) => {
     if (sql.includes('FROM users WHERE LOWER(email)')) {
       return {
@@ -240,9 +283,122 @@ const run = async () => {
     require.cache[ipSecurityServicePath] = originalIpSecurityServiceCache;
   }
 
+  const originalConnect = db.pool.connect;
+  let disableState;
+  let disableSnapshot;
+  let failMfaSettingsDelete = false;
+  const disableQueryLog = [];
+  const disableClient = {
+    async query(sql) {
+      disableQueryLog.push(sql);
+      if (sql === 'BEGIN') {
+        disableSnapshot = { ...disableState };
+        return { rows: [], rowCount: 0 };
+      }
+      if (sql === 'COMMIT') {
+        disableSnapshot = null;
+        return { rows: [], rowCount: 0 };
+      }
+      if (sql === 'ROLLBACK') {
+        if (disableSnapshot) disableState = { ...disableSnapshot };
+        disableSnapshot = null;
+        return { rows: [], rowCount: 0 };
+      }
+      if (sql.includes('FROM users u')) {
+        return {
+          rows: disableState.mfaEnabled ? [{
+            user_id: 'user-1',
+            enabled: true,
+            hash_senha_login: validPasswordHash,
+            totp_secret_encrypted: mfaService.encryptSecret(totpSecret)
+          }] : []
+        };
+      }
+      if (sql.startsWith('SELECT id, code_hash')) {
+        return {
+          rows: disableState.recoveryCodeAvailable
+            ? [{ id: 'recovery-disable-1', code_hash: oneTimeHash }]
+            : []
+        };
+      }
+      if (sql.startsWith('UPDATE user_mfa_recovery_codes')) {
+        if (!disableState.recoveryCodeAvailable) return { rows: [], rowCount: 0 };
+        disableState.recoveryCodeAvailable = false;
+        return { rows: [{ id: 'recovery-disable-1' }], rowCount: 1 };
+      }
+      if (sql.startsWith('DELETE FROM user_mfa_recovery_codes')) {
+        disableState.recoveryCodeAvailable = false;
+        return { rows: [], rowCount: 10 };
+      }
+      if (sql.startsWith('DELETE FROM user_mfa_settings')) {
+        if (failMfaSettingsDelete) throw new Error('simulated disable failure');
+        disableState.mfaEnabled = false;
+        return { rows: [{ user_id: 'user-1' }], rowCount: 1 };
+      }
+      if (sql.includes('INSERT INTO system_audit_events')) return { rows: [], rowCount: 1 };
+      throw new Error(`Unexpected transactional disable query: ${sql}`);
+    },
+    release() {}
+  };
+  db.pool.connect = async () => disableClient;
+  db.query = async (sql) => {
+    if (sql.includes('INSERT INTO system_audit_events')) return { rows: [], rowCount: 1 };
+    throw new Error(`Unexpected disable audit query: ${sql}`);
+  };
+
+  try {
+    delete require.cache[mfaControllerPath];
+    const actualMfaController = require(mfaControllerPath);
+    const authenticatedRequest = {
+      user: { id: 'user-1', email: 'user@example.com' },
+      body: {
+        current_password: 'Correct_Password_123!',
+        mfa_method: 'recovery_code',
+        recovery_code: oneTimeCode
+      },
+      ip: '192.0.2.10',
+      get: () => 'test'
+    };
+
+    disableState = { mfaEnabled: true, recoveryCodeAvailable: true };
+    const disableSuccessResponse = makeResponse();
+    await actualMfaController.disableProfileMfa(authenticatedRequest, disableSuccessResponse);
+    assert.equal(disableSuccessResponse.statusCode, 200);
+    assert.equal(disableSuccessResponse.body.mfa_enabled, false);
+    assert.equal(disableState.mfaEnabled, false);
+    assert.equal(disableState.recoveryCodeAvailable, false);
+    assert.equal(await mfaService.useRecoveryCode('user-1', oneTimeCode, disableClient), false);
+    assert.equal(disableQueryLog.some((sql) => /token_version|user_sessions/.test(sql)), false);
+
+    disableState = { mfaEnabled: true, recoveryCodeAvailable: true };
+    const wrongPasswordResponse = makeResponse();
+    await actualMfaController.disableProfileMfa({
+      ...authenticatedRequest,
+      body: { ...authenticatedRequest.body, current_password: 'Wrong_Password_123!' }
+    }, wrongPasswordResponse);
+    assert.equal(wrongPasswordResponse.statusCode, 403);
+    assert.equal(wrongPasswordResponse.body.error, 'Senha atual inválida.');
+    assert.equal(disableState.mfaEnabled, true);
+    assert.equal(disableState.recoveryCodeAvailable, true);
+
+    disableState = { mfaEnabled: true, recoveryCodeAvailable: true };
+    failMfaSettingsDelete = true;
+    const failedTransactionResponse = makeResponse();
+    await actualMfaController.disableProfileMfa(authenticatedRequest, failedTransactionResponse);
+    assert.equal(failedTransactionResponse.statusCode, 500);
+    assert.equal(disableState.mfaEnabled, true);
+    assert.equal(disableState.recoveryCodeAvailable, true);
+  } finally {
+    failMfaSettingsDelete = false;
+    db.pool.connect = originalConnect;
+    db.query = originalDbQuery;
+    delete require.cache[mfaControllerPath];
+  }
+
   const authSource = read('backend/src/controllers/authController.js');
   const mfaControllerSource = read('backend/src/controllers/mfaController.js');
   const mfaServiceSource = read('backend/src/services/mfaService.js');
+  const userRoutesSource = read('backend/src/routes/userRoutes.js');
   const serverSource = read('backend/src/server.js');
   const passwordCheckIndex = authSource.indexOf('if (!isPasswordValid)');
   const challengeIndex = authSource.indexOf("createChallengeToken(sessionUser, 'login')");
@@ -257,6 +413,9 @@ const run = async () => {
   );
   assert.match(mfaServiceSource, /argon2\.hash\(code, \{ type: argon2\.argon2id \}\)/);
   assert.match(mfaServiceSource, /used_at IS NULL RETURNING id/);
+  assert.match(mfaServiceSource, /disableMfaWithFactor/);
+  assert.match(mfaControllerSource, /await client\.query\('BEGIN'\)[\s\S]*disableMfaWithFactor[\s\S]*await client\.query\('COMMIT'\)/);
+  assert.match(userRoutesSource, /router\.use\(verifyToken\)[\s\S]*\/profile\/mfa\/disable/);
   assert.doesNotMatch(mfaControllerSource, /console\.(?:log|warn|error)/);
   assert.match(serverSource, /app\.use\('\/api\/auth\/mfa', mfaLimiter\)/);
   assert.match(serverSource, /Muitas tentativas\. Aguarde alguns minutos e tente novamente\./);
