@@ -4,6 +4,7 @@ const fs = require('fs');
 const http = require('http');
 const path = require('path');
 const express = require('express');
+const argon2 = require('argon2');
 
 process.env.DB_HOST = 'test';
 process.env.DB_USER = 'test';
@@ -139,6 +140,9 @@ const run = async () => {
   const queryLog = [];
   let tokenAvailable = true;
   let requiresMfa = false;
+  const recoveryCode = 'ABCD-EF01-2345-6789';
+  const recoveryCodeHash = await argon2.hash(recoveryCode, { type: argon2.argon2id });
+  let recoveryCodeAvailable = false;
   const mockClient = {
     async query(sql, params = []) {
       queryLog.push({ sql, params });
@@ -164,6 +168,19 @@ const run = async () => {
           }]
         };
       }
+      if (sql.includes('SELECT id, code_hash FROM user_mfa_recovery_codes')) {
+        return {
+          rows: recoveryCodeAvailable
+            ? [{ id: 'recovery-1', code_hash: recoveryCodeHash }]
+            : []
+        };
+      }
+      if (sql.includes('UPDATE user_mfa_recovery_codes SET used_at')) {
+        if (!recoveryCodeAvailable) return { rows: [], rowCount: 0 };
+        recoveryCodeAvailable = false;
+        return { rows: [{ id: 'recovery-1' }], rowCount: 1 };
+      }
+      if (sql.includes('UPDATE user_mfa_settings')) return { rows: [], rowCount: 1 };
       if (sql.includes('UPDATE users')) return { rows: [], rowCount: 1 };
       if (sql.includes('UPDATE user_sessions')) return { rows: [], rowCount: 2 };
       if (sql.includes('DELETE FROM client_key_shares')) return { rows: [], rowCount: 3 };
@@ -197,6 +214,7 @@ const run = async () => {
           token: 'invalid',
           new_password: newPassword,
           confirmation: RESET_CONFIRMATION,
+          recovery_code: recoveryCode,
           ...cryptoPayload
         },
         { valid: true, errors: [] }
@@ -260,6 +278,44 @@ const run = async () => {
       queryLog.slice(queriesBeforeMfaFailure).some(({ sql }) => sql.includes('UPDATE users')),
       false
     );
+
+    tokenAvailable = true;
+    recoveryCodeAvailable = true;
+    const recoveryReset = await completePasswordReset(
+      { ip: '192.0.2.10', get: () => 'test' },
+      {
+        token: rawToken,
+        new_password: newPassword,
+        confirmation: RESET_CONFIRMATION,
+        recovery_code: recoveryCode,
+        ...cryptoPayload
+      },
+      { valid: true, errors: [] }
+    );
+    assert.equal(recoveryReset.mfaMethod, 'recovery_code');
+    assert.equal(recoveryCodeAvailable, false);
+
+    tokenAvailable = true;
+    const queriesBeforeReuse = queryLog.length;
+    await assert.rejects(
+      completePasswordReset(
+        { ip: '192.0.2.10', get: () => 'test' },
+        {
+          token: rawToken,
+          new_password: newPassword,
+          confirmation: RESET_CONFIRMATION,
+          recovery_code: recoveryCode,
+          ...cryptoPayload
+        },
+        { valid: true, errors: [] }
+      ),
+      (error) => error.code === 'PASSWORD_RESET_MFA_INVALID'
+    );
+    assert.equal(
+      queryLog.slice(queriesBeforeReuse).some(({ sql }) => sql.includes('UPDATE users')),
+      false
+    );
+    assert.equal(queryLog.some(({ params }) => params.includes(recoveryCode)), false);
   } finally {
     db.pool.connect = originalConnect;
   }

@@ -60,6 +60,15 @@ const completeReset = async (req, res) => {
       req,
       metadata: auditMetadata
     });
+    if (resetResult.mfaMethod === 'recovery_code') {
+      await recordAuditEvent({
+        user: resetResult.user,
+        action: 'mfa_recovery_code_used',
+        status: 'success',
+        req,
+        metadata: { context: 'password_reset' }
+      });
+    }
     return res.status(200).json({
       message: 'Acesso redefinido com sucesso. Entre novamente com a nova senha.'
     });
@@ -72,6 +81,15 @@ const completeReset = async (req, res) => {
       req,
       metadata: { reason: error?.code || 'reset_processing_failed' }
     });
+    if (isMfaFailure && typeof req.body?.recovery_code === 'string' && req.body.recovery_code.trim()) {
+      await recordAuditEvent({
+        user: error?.resetUser || resetResult?.user,
+        action: 'mfa_recovery_code_failed',
+        status: 'denied',
+        req,
+        metadata: { context: 'password_reset', reason: 'invalid_or_used' }
+      });
+    }
     if (error instanceof PasswordResetError) {
       return res.status(error.statusCode).json({ error: error.message, code: error.code });
     }

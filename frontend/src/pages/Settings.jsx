@@ -45,6 +45,10 @@ const AUDIT_ACTION_OPTIONS = [
   ['password_reset_failed', 'Falha na recuperação de acesso'],
   ['password_reset_mfa_failed', 'Falha de MFA na recuperação'],
   ['password_reset_crypto_identity_rotated', 'Identidade criptográfica renovada'],
+  ['mfa_recovery_code_used', 'Código de recuperação MFA usado'],
+  ['mfa_recovery_code_failed', 'Falha no código de recuperação MFA'],
+  ['mfa_recovery_codes_generated', 'Códigos de recuperação MFA gerados'],
+  ['mfa_recovery_codes_regenerated', 'Códigos de recuperação MFA regenerados'],
   ['ip_access_blocked', 'Acesso bloqueado por IP']
 ];
 

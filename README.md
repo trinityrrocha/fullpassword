@@ -210,6 +210,10 @@ Ao concluir a redefinição, as sessões anteriores são revogadas e os comparti
 
 Os códigos de recuperação são exclusivamente um segundo fator alternativo do MFA. Eles são armazenados com hash Argon2, têm uso único, não substituem a senha mestre e não descriptografam cofres.
 
+No login, um código de recuperação só pode ser informado depois que e-mail e senha corretos gerarem um desafio MFA válido. Na recuperação de acesso, ele só valida o MFA depois que o link recebido por e-mail foi validado e uma nova senha foi informada. O código usado é invalidado atomicamente, nunca autentica sozinho e não recupera a identidade criptográfica anterior.
+
+Os códigos em texto claro são retornados apenas na ativação ou regeneração, para exibição e geração local do PDF. O perfil mostra somente a quantidade restante. A regeneração exige o TOTP atual, invalida todos os códigos anteriores e entrega um novo conjunto uma única vez.
+
 Para impedir rotação de identidade sem prova de posse, administradores não definem uma nova senha no formulário de edição de membros. A recuperação deve ser iniciada pelo próprio usuário em **Esqueceu a senha?** e concluída com token, confirmação explícita e MFA quando habilitado.
 
 ### 🎨 Interface e experiência

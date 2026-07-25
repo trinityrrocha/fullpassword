@@ -75,6 +75,7 @@ export default function Login() {
       } else if (result.mfa) {
         setMfaFlow(result.mfa);
         setMfaCode('');
+        setUseRecoveryCode(false);
       } else {
         setError(result.error || 'Credenciais inválidas. Tente novamente.');
       }
@@ -102,6 +103,13 @@ export default function Login() {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const finishRecoveryCodeReview = () => {
+    setRecoveryCodes([]);
+    setMfaCode('');
+    setMfaFlow(null);
+    navigate('/');
   };
 
   return (
@@ -154,11 +162,20 @@ export default function Login() {
                 </label>
                 <input id="mfa-code" type="text" autoComplete="one-time-code" required autoFocus value={mfaCode}
                   onChange={(e) => setMfaCode(e.target.value)}
+                  inputMode={useRecoveryCode ? 'text' : 'numeric'}
+                  maxLength={useRecoveryCode ? 19 : 12}
                   className="mt-1 appearance-none block w-full px-3 py-2 border border-slate-300 rounded-md shadow-sm" />
                 {!mfaFlow.mfa_setup_required && (
-                  <button type="button" onClick={() => { setUseRecoveryCode((value) => !value); setMfaCode(''); }} className="mt-2 text-sm text-indigo-600 hover:text-indigo-800">
-                    {useRecoveryCode ? 'Usar código do autenticador' : 'Usar código de recuperação'}
-                  </button>
+                  <div className="mt-2 space-y-2">
+                    <p className="text-xs text-slate-600">
+                      {useRecoveryCode
+                        ? 'Use um código de recuperação somente se você perdeu acesso ao aplicativo autenticador. Cada código pode ser usado apenas uma vez.'
+                        : 'Perdeu acesso ao aplicativo autenticador? Use um código de recuperação.'}
+                    </p>
+                    <button type="button" onClick={() => { setUseRecoveryCode((value) => !value); setMfaCode(''); }} className="text-sm font-medium text-indigo-600 hover:text-indigo-800">
+                      {useRecoveryCode ? 'Usar código do aplicativo autenticador' : 'Não tenho acesso ao aplicativo autenticador — usar código de recuperação'}
+                    </button>
+                  </div>
                 )}
               </div>
             )}
@@ -260,7 +277,7 @@ export default function Login() {
             <div>
               <button
                 type={recoveryCodes.length ? 'button' : 'submit'}
-                onClick={recoveryCodes.length ? () => navigate('/') : undefined}
+                onClick={recoveryCodes.length ? finishRecoveryCodeReview : undefined}
                 disabled={isLoading}
                 className={`w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 ${isLoading ? 'opacity-70 cursor-not-allowed' : ''}`}
               >

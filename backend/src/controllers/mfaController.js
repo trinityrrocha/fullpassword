@@ -36,8 +36,16 @@ const auditMfaFailure = (req, user, action) => recordAuditEvent({
   metadata: { reason: 'invalid_or_expired_challenge', country: getTrustedCountry(req) }
 });
 
+const normalizeRecoveryCodeCandidate = (value) => {
+  if (typeof value !== 'string') return '';
+  const candidate = value.trim().toUpperCase();
+  return /^[A-F0-9]{4}(?:-[A-F0-9]{4}){3}$/.test(candidate) ? candidate : '';
+};
+
 const verifyLogin = async (req, res) => {
   let user = null;
+  const attemptedRecoveryCode = typeof req.body?.recovery_code === 'string'
+    && req.body.recovery_code.trim().length > 0;
   try {
     user = await loadChallengeUser(req.body?.challenge_token, 'login');
     const settings = await getMfaSettings(user.id);
@@ -45,12 +53,13 @@ const verifyLogin = async (req, res) => {
 
     let recoveryCodeUsed = false;
     const validTotp = req.body?.code ? verifyTotp(settings, req.body.code) : false;
-    if (!validTotp && req.body?.recovery_code) {
-      recoveryCodeUsed = await useRecoveryCode(user.id, req.body.recovery_code);
+    const recoveryCode = normalizeRecoveryCodeCandidate(req.body?.recovery_code);
+    if (!validTotp && recoveryCode) {
+      recoveryCodeUsed = await useRecoveryCode(user.id, recoveryCode);
     }
     if (!validTotp && !recoveryCodeUsed) {
-      await auditMfaFailure(req, user, 'mfa_login_failed');
-      return res.status(401).json({ error: 'CÃ³digo MFA invÃ¡lido ou expirado' });
+      await auditMfaFailure(req, user, attemptedRecoveryCode ? 'mfa_recovery_code_failed' : 'mfa_login_failed');
+      return res.status(401).json({ error: 'Código MFA inválido ou expirado' });
     }
 
     await db.query('UPDATE user_mfa_settings SET last_used_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE user_id = $1', [user.id]);
@@ -63,8 +72,12 @@ const verifyLogin = async (req, res) => {
     });
     return completeLoginSession(req, res, { ...user, mfa_enabled: true }, { recovery_code_used: recoveryCodeUsed });
   } catch (error) {
-    await auditMfaFailure(req, user, 'mfa_login_failed').catch(() => {});
-    return res.status(401).json({ error: 'Desafio MFA invÃ¡lido ou expirado' });
+    await auditMfaFailure(
+      req,
+      user,
+      attemptedRecoveryCode ? 'mfa_recovery_code_failed' : 'mfa_login_failed'
+    ).catch(() => {});
+    return res.status(401).json({ error: 'Código MFA inválido ou expirado' });
   }
 };
 
@@ -93,6 +106,13 @@ const confirmSetup = async (req, res) => {
     await recordAuditEvent({
       user, action: 'mfa_setup_confirmed', status: 'success', req,
       metadata: { country: getTrustedCountry(req) }
+    });
+    await recordAuditEvent({
+      user,
+      action: 'mfa_recovery_codes_generated',
+      status: 'success',
+      req,
+      metadata: { count: recoveryCodes.length, context: 'mandatory_setup', country: getTrustedCountry(req) }
     });
     return completeLoginSession(req, res, { ...user, mfa_enabled: true }, { recovery_codes: recoveryCodes });
   } catch (error) {
@@ -160,6 +180,13 @@ const confirmProfileSetup = async (req, res) => {
     await recordAuditEvent({
       user: req.user, action: 'mfa_setup_confirmed', status: 'success', req,
       metadata: { country: getTrustedCountry(req) }
+    });
+    await recordAuditEvent({
+      user: req.user,
+      action: 'mfa_recovery_codes_generated',
+      status: 'success',
+      req,
+      metadata: { count: recoveryCodes.length, context: 'profile_setup', country: getTrustedCountry(req) }
     });
     return res.status(200).json({ message: 'MFA habilitado', recovery_codes: recoveryCodes });
   } catch (error) {

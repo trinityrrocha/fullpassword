@@ -53,7 +53,7 @@ const mfaLimiter = rateLimit({
   limit: 10,
   standardHeaders: 'draft-7',
   legacyHeaders: false,
-  message: { error: 'Muitas tentativas MFA. Aguarde alguns minutos e tente novamente.' }
+  message: { error: 'Muitas tentativas. Aguarde alguns minutos e tente novamente.' }
 });
 
 // A API recebe headers via Helmet. O documento estático do frontend recebe sua

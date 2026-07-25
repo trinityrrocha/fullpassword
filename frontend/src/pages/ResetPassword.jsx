@@ -29,8 +29,10 @@ export default function ResetPassword() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const sensitiveCleanupTimerRef = useRef(null);
 
   useEffect(() => {
+    window.clearTimeout(sensitiveCleanupTimerRef.current);
     const token = tokenRef.current;
     if (token) {
       window.history.replaceState(null, '', '/reset-password');
@@ -52,6 +54,10 @@ export default function ResetPassword() {
       });
     return () => {
       active = false;
+      sensitiveCleanupTimerRef.current = window.setTimeout(() => {
+        tokenRef.current = '';
+        clearTransientResetToken();
+      }, 0);
     };
   }, []);
 
@@ -229,6 +235,11 @@ export default function ResetPassword() {
               >
                 {useRecoveryCode ? 'Usar código do autenticador' : 'Usar código de recuperação MFA'}
               </button>
+              <p className="mt-2 text-xs text-slate-600">
+                {useRecoveryCode
+                  ? 'O código de recuperação valida seu MFA. Ele não recupera sua senha antiga e não descriptografa cofres.'
+                  : 'Se você perdeu acesso ao aplicativo autenticador, use um dos códigos de recuperação gerados no PDF ao ativar o MFA.'}
+              </p>
             </div>
           )}
 

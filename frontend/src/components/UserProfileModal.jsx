@@ -241,6 +241,7 @@ export default function UserProfileModal({ isOpen, onClose, forcePasswordChange 
       setRecoveryCodes(data.recovery_codes || []);
       setMfaCode('');
       setMfaStatus((status) => ({ ...status, recovery_codes_remaining: data.recovery_codes?.length || 0 }));
+      setSuccess('Novos códigos gerados. Salve o novo PDF; os códigos anteriores foram invalidados.');
     } catch (err) {
       setError(err.response?.data?.error || 'Não foi possível regenerar os códigos.');
     } finally {
@@ -391,7 +392,15 @@ export default function UserProfileModal({ isOpen, onClose, forcePasswordChange 
                         )}
                         {mfaStatus?.mfa_enabled && (
                           <div className="space-y-2">
-                            <p className="text-xs text-slate-500">Códigos de recuperação disponíveis: {mfaStatus.recovery_codes_remaining ?? 0}</p>
+                            <p className="text-xs text-slate-500">Códigos de recuperação restantes: {mfaStatus.recovery_codes_remaining ?? 0}</p>
+                            {(mfaStatus.recovery_codes_remaining ?? 0) <= 3 && (
+                              <p className="rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800">
+                                Você tem poucos códigos de recuperação restantes. Gere novos códigos usando a opção de regeneração abaixo.
+                              </p>
+                            )}
+                            <p className="text-xs text-slate-500">
+                              Eles substituem o TOTP quando você perde acesso ao aplicativo autenticador, mas não substituem sua senha nem descriptografam cofres.
+                            </p>
                             <input type="text" autoComplete="one-time-code" value={mfaCode} onChange={(e) => setMfaCode(e.target.value)} placeholder="Código atual do autenticador" className="block w-full border border-slate-300 rounded-md py-2 px-3 text-sm" />
                             <button type="button" onClick={regenerateRecoveryCodes} className="text-sm font-medium text-indigo-600 hover:text-indigo-800">Regenerar códigos de recuperação</button>
                           </div>

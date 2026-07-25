@@ -38,10 +38,11 @@ export default function RecoveryCodesPanel({ codes, userEmail }) {
       document.setFont('helvetica', 'normal');
       document.setFontSize(11);
       document.text('Guarde estes códigos em local seguro.', 20, 34);
-      document.text(`Gerado em: ${generatedAt.toLocaleString()}`, 20, 43);
-      if (safeEmail) document.text(`Usuário: ${safeEmail}`, 20, 51);
+      document.text('Use-os apenas se você perder acesso ao aplicativo autenticador.', 20, 41);
+      document.text(`Gerado em: ${generatedAt.toLocaleString()}`, 20, 49);
+      if (safeEmail) document.text(`Usuário: ${safeEmail}`, 20, 57);
 
-      const listStart = safeEmail ? 64 : 56;
+      const listStart = safeEmail ? 70 : 62;
       document.setFont('courier', 'normal');
       document.setFontSize(12);
       codes.forEach((code, index) => {
@@ -55,10 +56,14 @@ export default function RecoveryCodesPanel({ codes, userEmail }) {
       document.setFont('helvetica', 'normal');
       [
         'Cada código pode ser usado apenas uma vez.',
+        'Eles não recuperam sua senha mestre, não descriptografam cofres e não substituem sua senha.',
         'Não compartilhe este arquivo.',
         'Não armazene este PDF junto com sua senha.',
         'Se suspeitar de vazamento, gere novos códigos de recuperação.'
-      ].forEach((warning, index) => document.text(`• ${warning}`, 20, warningStart + 8 + (index * 7)));
+      ].forEach((warning, index) => {
+        const lines = document.splitTextToSize(`• ${warning}`, 170);
+        document.text(lines, 20, warningStart + 8 + (index * 10));
+      });
 
       document.setFontSize(9);
       document.setTextColor(90);
@@ -79,8 +84,13 @@ export default function RecoveryCodesPanel({ codes, userEmail }) {
   return (
     <div className="rounded-md border border-amber-200 bg-amber-50 p-4 space-y-3">
       <div>
-        <p className="font-medium text-amber-900">Guarde estes códigos de recuperação agora</p>
-        <p className="text-xs text-amber-700 mt-1">Eles não serão exibidos novamente. Cada código pode ser usado apenas uma vez.</p>
+        <p className="font-medium text-amber-900">Guarde o PDF em local seguro</p>
+        <p className="mt-1 text-xs text-amber-700">
+          Estes códigos serão necessários se você perder acesso ao aplicativo autenticador. Eles não serão exibidos novamente e cada código pode ser usado apenas uma vez.
+        </p>
+        <p className="mt-1 text-xs text-amber-700">
+          Eles não recuperam sua senha mestre, não descriptografam cofres e não substituem sua senha.
+        </p>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 font-mono text-sm">
         {codes.map((code) => <div key={code} className="rounded bg-white/70 px-3 py-2">{code}</div>)}
