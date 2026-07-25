@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Mail, Send } from 'lucide-react';
 import api from '../services/api';
 import SettingsAccordionCard from './SettingsAccordionCard';
@@ -16,14 +16,41 @@ const INITIAL_SETTINGS = {
   timeout_seconds: 15
 };
 
+const CONFIG_ENCRYPTION_ERROR_CODES = new Set([
+  'CONFIG_ENCRYPTION_KEY_MISSING',
+  'CONFIG_ENCRYPTION_KEY_INVALID',
+  'CONFIG_ENCRYPTION_KEY_PLACEHOLDER'
+]);
+const CONFIG_ENCRYPTION_UI_ERROR = [
+  'A chave de criptografia das configurações não está configurada no servidor.',
+  'Defina CONFIG_ENCRYPTION_KEY no arquivo .env com uma chave base64 de 32 bytes e reinicie o backend.',
+  'Comando sugerido: openssl rand -base64 32'
+].join('\n\n');
+const SMTP_RATE_LIMIT_ERROR = 'Limite de testes SMTP atingido. Aguarde alguns minutos antes de tentar novamente.';
+const LOCAL_COOLDOWN_SECONDS = 60;
 const fieldClass = 'w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500';
 
+const portSecurityWarning = (port, security) => {
+  const numericPort = Number(port);
+  if (numericPort === 465 && security === 'starttls') {
+    return 'Porta 465 normalmente usa SSL/TLS direto. Para STARTTLS, normalmente use 587.';
+  }
+  if (numericPort === 587 && security === 'ssl_tls') {
+    return 'Porta 587 normalmente usa STARTTLS. Para SSL/TLS direto, normalmente use 465.';
+  }
+  return '';
+};
+
 export default function SmtpSettingsCard({ isSuperAdmin }) {
+  const passwordInputRef = useRef(null);
   const [settings, setSettings] = useState(INITIAL_SETTINGS);
   const [testRecipient, setTestRecipient] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [configDirty, setConfigDirty] = useState(false);
+  const [passwordEntered, setPasswordEntered] = useState(false);
+  const [cooldownSeconds, setCooldownSeconds] = useState(0);
   const [message, setMessage] = useState({ type: '', text: '' });
 
   useEffect(() => {
@@ -33,6 +60,8 @@ export default function SmtpSettingsCard({ isSuperAdmin }) {
       .then(({ data }) => {
         if (!active) return;
         setSettings({ ...INITIAL_SETTINGS, ...data });
+        setConfigDirty(false);
+        setPasswordEntered(false);
       })
       .catch((error) => {
         if (!active) return;
@@ -49,23 +78,58 @@ export default function SmtpSettingsCard({ isSuperAdmin }) {
     };
   }, [isSuperAdmin]);
 
+  useEffect(() => {
+    if (cooldownSeconds <= 0) return undefined;
+    const timer = window.setInterval(() => {
+      setCooldownSeconds((current) => Math.max(0, current - 1));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [cooldownSeconds]);
+
   if (!isSuperAdmin) return null;
 
   const updateField = (field, value) => {
     setSettings((current) => ({ ...current, [field]: value }));
+    setConfigDirty(true);
+  };
+
+  const updateSecurity = (security) => {
+    setSettings((current) => {
+      const currentPort = Number(current.port);
+      const usesStandardPort = !current.port || currentPort === 465 || currentPort === 587;
+      const port = usesStandardPort
+        ? security === 'ssl_tls' ? 465 : security === 'starttls' ? 587 : current.port
+        : current.port;
+      return { ...current, security, port };
+    });
+    setConfigDirty(true);
+  };
+
+  const formatSaveError = (error) => {
+    const code = error.response?.data?.code;
+    if (error.response?.status === 503 && CONFIG_ENCRYPTION_ERROR_CODES.has(code)) {
+      return CONFIG_ENCRYPTION_UI_ERROR;
+    }
+    return error.response?.data?.error || 'Não foi possível salvar a configuração SMTP.';
   };
 
   const saveSettings = async (event) => {
     event.preventDefault();
     const form = event.currentTarget;
-    const passwordInput = form.elements.namedItem('password');
     const password = String(new FormData(form).get('password') || '');
-    if (passwordInput) passwordInput.value = '';
+
+    if (settings.enabled && settings.username.trim() && !settings.has_password && !password) {
+      setMessage({
+        type: 'error',
+        text: 'Informe a senha SMTP e salve a configuração antes de enviar um e-mail de teste.'
+      });
+      return;
+    }
 
     setSaving(true);
     setMessage({ type: '', text: '' });
     try {
-      const { data } = await api.put('/system/smtp', {
+      const { data: savedSettings } = await api.put('/system/smtp', {
         enabled: settings.enabled,
         host: settings.host,
         port: Number(settings.port),
@@ -77,19 +141,45 @@ export default function SmtpSettingsCard({ isSuperAdmin }) {
         reply_to: settings.reply_to,
         timeout_seconds: Number(settings.timeout_seconds)
       });
-      setSettings({ ...INITIAL_SETTINGS, ...data });
-      setMessage({ type: 'success', text: 'Configuração SMTP salva com segurança.' });
-    } catch (error) {
+
+      let refreshedSettings = savedSettings;
+      try {
+        refreshedSettings = (await api.get('/system/smtp')).data;
+      } catch {
+        // A resposta sanitizada do PUT já representa a configuração persistida.
+      }
+      setSettings({ ...INITIAL_SETTINGS, ...refreshedSettings });
+      setConfigDirty(false);
+      setPasswordEntered(false);
+      if (passwordInputRef.current) passwordInputRef.current.value = '';
       setMessage({
-        type: 'error',
-        text: error.response?.data?.error || 'Não foi possível salvar a configuração SMTP.'
+        type: 'success',
+        text: password ? 'Senha SMTP salva.' : 'Configuração SMTP salva com segurança.'
       });
+    } catch (error) {
+      setMessage({ type: 'error', text: formatSaveError(error) });
     } finally {
       setSaving(false);
     }
   };
 
+  const hasUnsavedChanges = configDirty || passwordEntered;
+  const getTestBlockedReason = () => {
+    if (!settings.enabled) return 'Ative e salve a configuração SMTP antes de enviar um e-mail de teste.';
+    if (hasUnsavedChanges) return 'Salve as alterações da configuração SMTP antes de enviar o e-mail de teste.';
+    if (!settings.has_password) return 'Salve a configuração SMTP com a senha antes de enviar o e-mail de teste.';
+    if (cooldownSeconds > 0) return `${SMTP_RATE_LIMIT_ERROR} Nova tentativa local em ${cooldownSeconds}s.`;
+    return '';
+  };
+  const testBlockedReason = getTestBlockedReason();
+
   const testEmail = async () => {
+    const blockedReason = getTestBlockedReason();
+    if (blockedReason) {
+      setMessage({ type: 'error', text: blockedReason });
+      return;
+    }
+
     setTesting(true);
     setMessage({ type: '', text: '' });
     try {
@@ -98,14 +188,23 @@ export default function SmtpSettingsCard({ isSuperAdmin }) {
       });
       setMessage({ type: 'success', text: data.message || 'E-mail de teste enviado com sucesso.' });
     } catch (error) {
-      setMessage({
-        type: 'error',
-        text: error.response?.data?.error || 'Não foi possível enviar o e-mail de teste.'
-      });
+      const isRateLimited = error.response?.status === 429
+        || error.response?.data?.code === 'SMTP_TEST_RATE_LIMITED';
+      if (isRateLimited) {
+        setCooldownSeconds(LOCAL_COOLDOWN_SECONDS);
+        setMessage({ type: 'error', text: SMTP_RATE_LIMIT_ERROR });
+      } else {
+        setMessage({
+          type: 'error',
+          text: error.response?.data?.error || 'Não foi possível enviar o e-mail de teste.'
+        });
+      }
     } finally {
       setTesting(false);
     }
   };
+
+  const tlsPortWarning = portSecurityWarning(settings.port, settings.security);
 
   return (
     <SettingsAccordionCard
@@ -160,13 +259,21 @@ export default function SmtpSettingsCard({ isSuperAdmin }) {
               Segurança
               <select
                 value={settings.security}
-                onChange={(event) => updateField('security', event.target.value)}
+                onChange={(event) => updateSecurity(event.target.value)}
                 className={`${fieldClass} mt-1`}
               >
                 <option value="ssl_tls">SSL/TLS direto</option>
                 <option value="starttls">STARTTLS</option>
-                <option value="none">Sem criptografia (somente ambiente local/teste)</option>
+                <option value="none">Sem criptografia</option>
               </select>
+              {tlsPortWarning && (
+                <span className="mt-1 block text-xs font-normal text-amber-700">{tlsPortWarning}</span>
+              )}
+              {settings.security === 'none' && (
+                <span className="mt-1 block text-xs font-normal text-red-700">
+                  Use sem criptografia somente em ambiente local ou de teste.
+                </span>
+              )}
             </label>
             <label className="text-sm font-medium text-slate-700">
               Timeout em segundos
@@ -193,10 +300,12 @@ export default function SmtpSettingsCard({ isSuperAdmin }) {
             <label className="text-sm font-medium text-slate-700">
               Senha SMTP
               <input
+                ref={passwordInputRef}
                 type="password"
                 name="password"
                 maxLength={4096}
                 autoComplete="new-password"
+                onChange={(event) => setPasswordEntered(event.target.value.length > 0)}
                 placeholder="Preencha apenas para alterar a senha SMTP"
                 className={`${fieldClass} mt-1`}
               />
@@ -253,8 +362,8 @@ export default function SmtpSettingsCard({ isSuperAdmin }) {
             <button
               type="button"
               onClick={testEmail}
-              disabled={testing || saving}
-              className="inline-flex items-center rounded-md border border-indigo-600 px-4 py-2 text-sm font-medium text-indigo-700 hover:bg-indigo-50 disabled:opacity-60"
+              disabled={Boolean(testBlockedReason) || testing || saving}
+              className="inline-flex items-center rounded-md border border-indigo-600 px-4 py-2 text-sm font-medium text-indigo-700 hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Send className="mr-2 h-4 w-4" />
               {testing ? 'Enviando...' : 'Enviar e-mail de teste'}
@@ -268,10 +377,12 @@ export default function SmtpSettingsCard({ isSuperAdmin }) {
             </button>
           </div>
 
+          {testBlockedReason && <p className="text-xs text-slate-600">{testBlockedReason}</p>}
+
           {message.text && (
             <p
               role={message.type === 'error' ? 'alert' : 'status'}
-              className={`rounded-md border px-3 py-2 text-sm ${
+              className={`whitespace-pre-line rounded-md border px-3 py-2 text-sm ${
                 message.type === 'error'
                   ? 'border-red-200 bg-red-50 text-red-800'
                   : 'border-green-200 bg-green-50 text-green-800'

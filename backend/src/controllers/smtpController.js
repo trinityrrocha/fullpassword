@@ -10,6 +10,18 @@ const { ConfigEncryptionError } = require('../services/configSecretCrypto');
 const { EmailDeliveryError, sendTestEmail } = require('../services/emailService');
 const { safeLogError } = require('../utils/safeLogger');
 
+const CONFIG_ENCRYPTION_ERROR_MESSAGES = {
+  CONFIG_ENCRYPTION_KEY_MISSING: 'A chave de criptografia das configurações não está configurada no servidor. Execute a atualização/instalação novamente ou defina CONFIG_ENCRYPTION_KEY no .env.',
+  CONFIG_ENCRYPTION_KEY_INVALID: 'A chave de criptografia das configurações é inválida. Defina CONFIG_ENCRYPTION_KEY no .env como uma chave base64 de 32 bytes e reinicie o backend.',
+  CONFIG_ENCRYPTION_KEY_PLACEHOLDER: 'A chave de criptografia das configurações ainda contém um placeholder. Gere uma chave base64 de 32 bytes, defina CONFIG_ENCRYPTION_KEY no .env e reinicie o backend.'
+};
+
+const configEncryptionErrorResponse = (res, error) => res.status(503).json({
+  code: error.code,
+  error: CONFIG_ENCRYPTION_ERROR_MESSAGES[error.code]
+    || 'A chave de criptografia das configurações não está disponível ou é inválida.'
+});
+
 const denySuperAdmin = async (req, res, action) => {
   await recordAuditEvent({
     user: req.user,
@@ -55,10 +67,7 @@ const saveSettings = async (req, res) => {
       return res.status(error.statusCode).json({ code: error.code, error: error.message });
     }
     if (error instanceof ConfigEncryptionError) {
-      return res.status(error.statusCode).json({
-        code: error.code,
-        error: 'A chave de criptografia das configurações não está disponível ou é inválida.'
-      });
+      return configEncryptionErrorResponse(res, error);
     }
     safeLogError('Falha ao salvar configuração SMTP.', error, { includeStack: false });
     return res.status(500).json({ error: 'Não foi possível salvar a configuração SMTP.' });
@@ -94,10 +103,7 @@ const testSettings = async (req, res) => {
       return res.status(error.statusCode).json({ code: error.code, error: error.message });
     }
     if (error instanceof ConfigEncryptionError) {
-      return res.status(error.statusCode).json({
-        code: error.code,
-        error: 'A chave de criptografia das configurações não está disponível ou é inválida.'
-      });
+      return configEncryptionErrorResponse(res, error);
     }
     if (!(error instanceof EmailDeliveryError)) {
       safeLogError('Falha inesperada no teste SMTP.', error, { includeStack: false });

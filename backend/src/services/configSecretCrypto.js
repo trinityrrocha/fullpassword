@@ -3,6 +3,12 @@ const crypto = require('crypto');
 const ENVELOPE_VERSION = 'v1';
 const IV_BYTES = 12;
 const AUTH_TAG_BYTES = 16;
+const CONFIG_KEY_PLACEHOLDERS = new Set([
+  'changeme',
+  'change_me',
+  'change-me',
+  'example'
+]);
 
 class ConfigEncryptionError extends Error {
   constructor(message, code = 'CONFIG_ENCRYPTION_ERROR') {
@@ -31,9 +37,25 @@ const decodeCanonicalBase64 = (value, label, code = 'CONFIG_SECRET_INVALID') => 
   return decoded;
 };
 
-const getConfigEncryptionKey = () => {
+const validateConfigEncryptionKey = (value = process.env.CONFIG_ENCRYPTION_KEY) => {
+  const normalized = String(value || '').trim();
+  if (!normalized) {
+    throw new ConfigEncryptionError(
+      'CONFIG_ENCRYPTION_KEY não está configurada.',
+      'CONFIG_ENCRYPTION_KEY_MISSING'
+    );
+  }
+
+  const lowercase = normalized.toLowerCase();
+  if (lowercase.startsWith('gere_') || CONFIG_KEY_PLACEHOLDERS.has(lowercase)) {
+    throw new ConfigEncryptionError(
+      'CONFIG_ENCRYPTION_KEY ainda contém um placeholder.',
+      'CONFIG_ENCRYPTION_KEY_PLACEHOLDER'
+    );
+  }
+
   const key = decodeCanonicalBase64(
-    process.env.CONFIG_ENCRYPTION_KEY,
+    normalized,
     'CONFIG_ENCRYPTION_KEY',
     'CONFIG_ENCRYPTION_KEY_INVALID'
   );
@@ -46,6 +68,8 @@ const getConfigEncryptionKey = () => {
   }
   return key;
 };
+
+const getConfigEncryptionKey = () => validateConfigEncryptionKey();
 
 const encryptConfigSecret = (plainText) => {
   if (typeof plainText !== 'string' || plainText.length === 0) {
@@ -119,6 +143,7 @@ const decryptConfigSecret = (envelope) => {
 
 module.exports = {
   ConfigEncryptionError,
+  validateConfigEncryptionKey,
   encryptConfigSecret,
   decryptConfigSecret
 };

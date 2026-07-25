@@ -196,7 +196,9 @@ Gere uma chave base64 de 32 bytes com:
 openssl rand -base64 32
 ```
 
-O instalador gera essa chave automaticamente sem imprimi-la. O WebUpdater preserva uma chave existente e, em instalações anteriores sem a variável, gera uma única chave e a adiciona ao `.env` com permissão restrita. Perder ou trocar essa chave impede a leitura de senhas SMTP já salvas.
+O instalador gera essa chave automaticamente sem imprimi-la. O WebUpdater preserva uma chave existente válida e, em instalações anteriores com a variável ausente, vazia, inválida ou ainda preenchida com placeholder, gera uma única chave e atualiza o `.env` com permissão restrita. Perder ou trocar uma chave válida impede a leitura de senhas SMTP já salvas.
+
+Se o painel informar que a chave de criptografia não está configurada, execute novamente o WebUpdater ou defina uma chave válida no `.env` e reinicie o backend. Um erro `429` durante o teste indica o limite de cinco testes SMTP em quinze minutos; aguarde antes de tentar novamente. Na tela, salve a configuração e a senha antes de testar. As combinações usuais são porta `465` com **SSL/TLS direto** e porta `587` com **STARTTLS**; portas personalizadas continuam permitidas com aviso visual.
 
 SMTP não permite recuperar a senha mestre nem descriptografar cofres antigos em uma arquitetura Zero-Knowledge. Links ou tokens por e-mail poderão validar identidade ou iniciar uma futura redefinição de conta, mas não substituem a senha mestre nem recuperam chaves criptográficas sem uma recovery key criada previamente. Esta etapa não implementa recuperação de senha.
 

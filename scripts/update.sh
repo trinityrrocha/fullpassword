@@ -133,15 +133,53 @@ set -a
 . ./.env
 set +a
 
-if [ -z "${CONFIG_ENCRYPTION_KEY:-}" ]; then
+config_encryption_key_is_placeholder() {
+  case "${CONFIG_ENCRYPTION_KEY:-}" in
+    GERE_*|gere_*|changeme|CHANGE_ME|change-me|CHANGE-ME|example|EXAMPLE) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+config_encryption_key_is_valid() {
+  [ -n "${CONFIG_ENCRYPTION_KEY:-}" ] || return 1
+  config_encryption_key_is_placeholder && return 1
+  node -e "
+    const value = String(process.env.CONFIG_ENCRYPTION_KEY || '').trim();
+    const key = Buffer.from(value, 'base64');
+    process.exit(
+      value.length % 4 === 0
+      && /^[A-Za-z0-9+/]+={0,2}$/.test(value)
+      && key.length === 32
+      && key.toString('base64') === value
+        ? 0
+        : 1
+    );
+  " >/dev/null 2>&1
+}
+
+ensure_config_encryption_key() {
+  if config_encryption_key_is_valid; then
+    return
+  fi
+
   CONFIG_ENCRYPTION_KEY="$(node -e "process.stdout.write(require('crypto').randomBytes(32).toString('base64'))")" \
     || fail "CONFIG_ENCRYPTION_KEY ausente. Gere com: openssl rand -base64 32"
-  printf '\n# Criptografia de segredos de configuração (SMTP)\nCONFIG_ENCRYPTION_KEY=%s\n' \
-    "$CONFIG_ENCRYPTION_KEY" >> .env
-  chmod 600 .env
   export CONFIG_ENCRYPTION_KEY
-  log "CONFIG_ENCRYPTION_KEY ausente: uma chave dedicada foi gerada e salva no .env sem ser exibida."
-fi
+
+  env_tmp="$(mktemp .env.config-key.XXXXXX)" || fail "Não foi possível preparar a atualização segura do .env"
+  chmod 600 "$env_tmp"
+  awk '!/^[[:space:]]*(export[[:space:]]+)?CONFIG_ENCRYPTION_KEY[[:space:]]*=/' .env > "$env_tmp" \
+    || { rm -f "$env_tmp"; fail "Não foi possível preservar o .env atual"; }
+  printf '\n# Criptografia de segredos de configuração (SMTP)\nCONFIG_ENCRYPTION_KEY=%s\n' \
+    "$CONFIG_ENCRYPTION_KEY" >> "$env_tmp"
+  mv "$env_tmp" .env
+  chmod 600 .env
+
+  log "CONFIG_ENCRYPTION_KEY ausente; uma nova chave foi gerada no .env."
+  log "Preserve essa chave: trocá-la impede descriptografar senhas SMTP já salvas."
+}
+
+ensure_config_encryption_key
 
 required_vars="DB_HOST DB_USER DB_PASSWORD DB_NAME JWT_SECRET ADMIN_BOOTSTRAP_TOKEN CONFIG_ENCRYPTION_KEY SUPER_ADMIN_EMAIL APP_ORIGIN"
 for var_name in $required_vars; do
@@ -152,11 +190,8 @@ done
 [ "$DB_PASSWORD" != "fullpassword_pass" ] || fail "DB_PASSWORD padrão é proibida"
 [ ${#JWT_SECRET} -ge 64 ] || fail "JWT_SECRET curto demais"
 [ ${#ADMIN_BOOTSTRAP_TOKEN} -ge 48 ] || fail "ADMIN_BOOTSTRAP_TOKEN curto demais"
-node -e "
-  const value = String(process.env.CONFIG_ENCRYPTION_KEY || '').trim();
-  const key = Buffer.from(value, 'base64');
-  process.exit(key.length === 32 && key.toString('base64') === value ? 0 : 1);
-" || fail "CONFIG_ENCRYPTION_KEY inválida. Gere uma chave base64 de 32 bytes com: openssl rand -base64 32"
+config_encryption_key_is_valid \
+  || fail "CONFIG_ENCRYPTION_KEY inválida. Gere uma chave base64 de 32 bytes com: openssl rand -base64 32"
 
 case "$JWT_SECRET" in
   sua_chave_secreta_super_segura_aqui|SEU_JWT_SECRET_GERADO_AQUI|change-me|changeme)

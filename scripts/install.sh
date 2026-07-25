@@ -74,7 +74,33 @@ apt-get install -y curl git ufw fail2ban certbot python3-certbot-nginx apt-trans
 DB_PASSWORD=$(openssl rand -base64 48 | tr -dc 'a-zA-Z0-9' | head -c 40)
 JWT_SECRET=$(openssl rand -hex 64)
 ADMIN_BOOTSTRAP_TOKEN=$(openssl rand -hex 32)
-CONFIG_ENCRYPTION_KEY=$(openssl rand -base64 32 | tr -d '\n')
+
+config_encryption_key_is_placeholder() {
+    case "${CONFIG_ENCRYPTION_KEY:-}" in
+        GERE_*|gere_*|changeme|CHANGE_ME|change-me|CHANGE-ME|example|EXAMPLE) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+config_encryption_key_is_valid() {
+    [ -n "${CONFIG_ENCRYPTION_KEY:-}" ] || return 1
+    config_encryption_key_is_placeholder && return 1
+    decoded_size=$(printf '%s' "$CONFIG_ENCRYPTION_KEY" | openssl base64 -d -A 2>/dev/null | wc -c | tr -d ' ')
+    round_trip=$(printf '%s' "$CONFIG_ENCRYPTION_KEY" | openssl base64 -d -A 2>/dev/null | openssl base64 -A 2>/dev/null)
+    [ "$decoded_size" = "32" ] && [ "$round_trip" = "$CONFIG_ENCRYPTION_KEY" ]
+}
+
+ensure_config_encryption_key() {
+    if config_encryption_key_is_valid; then
+        return
+    fi
+    CONFIG_ENCRYPTION_KEY=$(openssl rand -base64 32 | tr -d '\n')
+    export CONFIG_ENCRYPTION_KEY
+    echo -e "${GREEN}CONFIG_ENCRYPTION_KEY ausente; uma nova chave foi gerada para o .env sem ser exibida.${NC}"
+    echo -e "${YELLOW}Preserve essa chave: trocá-la impede descriptografar senhas SMTP já salvas.${NC}"
+}
+
+ensure_config_encryption_key
 INITIAL_PASSWORD_RANDOM=$(openssl rand -base64 48 | tr -dc 'a-zA-Z0-9' | head -c 28)
 INITIAL_SUPER_ADMIN_PASSWORD="${INITIAL_PASSWORD_RANDOM}Aa1!"
 

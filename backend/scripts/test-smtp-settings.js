@@ -1,7 +1,9 @@
 const assert = require('assert/strict');
 const crypto = require('crypto');
 const fs = require('fs');
+const http = require('http');
 const path = require('path');
+const express = require('express');
 
 process.env.DB_HOST = 'test';
 process.env.DB_USER = 'test';
@@ -17,6 +19,7 @@ const repositoryRoot = path.resolve(__dirname, '../..');
 const read = (relativePath) => fs.readFileSync(path.join(repositoryRoot, relativePath), 'utf8');
 const {
   ConfigEncryptionError,
+  validateConfigEncryptionKey,
   encryptConfigSecret,
   decryptConfigSecret
 } = require('../src/services/configSecretCrypto');
@@ -27,9 +30,36 @@ const {
   getSmtpDeliverySettings
 } = smtpSettingsService;
 const { createTransportOptions, EmailDeliveryError } = require('../src/services/emailService');
+const { smtpTestLimiter } = require('../src/middleware/writeRateLimiters');
 const db = require('../src/config/database');
 
+const post = ({ port, path: requestPath }) => new Promise((resolve, reject) => {
+  const request = http.request({
+    host: '127.0.0.1',
+    port,
+    path: requestPath,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Content-Length': '2' }
+  }, (response) => {
+    let body = '';
+    response.setEncoding('utf8');
+    response.on('data', (chunk) => {
+      body += chunk;
+    });
+    response.on('end', () => resolve({
+      status: response.statusCode,
+      body: body ? JSON.parse(body) : {}
+    }));
+  });
+  request.on('error', reject);
+  request.end('{}');
+});
+
 const run = async () => {
+  const validConfigKey = validateConfigEncryptionKey();
+  assert.equal(validConfigKey.length, 32);
+  validConfigKey.fill(0);
+
   const smtpPassword = 'SMTP_TEST_PASSWORD_123!@#';
   const encryptedPassword = encryptConfigSecret(smtpPassword);
   assert.match(encryptedPassword, /^v1:[A-Za-z0-9+/]+=*:[A-Za-z0-9+/]+=*:[A-Za-z0-9+/]+=*$/);
@@ -95,8 +125,35 @@ const run = async () => {
   const originalEncryptionKey = process.env.CONFIG_ENCRYPTION_KEY;
   delete process.env.CONFIG_ENCRYPTION_KEY;
   assert.throws(
+    () => validateConfigEncryptionKey(),
+    (error) => error instanceof ConfigEncryptionError
+      && error.code === 'CONFIG_ENCRYPTION_KEY_MISSING'
+  );
+  for (const placeholder of [
+    'GERE_COM_OPENSSL_RAND_BASE64_32',
+    'changeme',
+    'CHANGE_ME',
+    'example'
+  ]) {
+    process.env.CONFIG_ENCRYPTION_KEY = placeholder;
+    assert.throws(
+      () => validateConfigEncryptionKey(),
+      (error) => error instanceof ConfigEncryptionError
+        && error.code === 'CONFIG_ENCRYPTION_KEY_PLACEHOLDER'
+    );
+  }
+  process.env.CONFIG_ENCRYPTION_KEY = 'not-canonical-base64';
+  assert.throws(
+    () => validateConfigEncryptionKey(),
+    (error) => error instanceof ConfigEncryptionError
+      && error.code === 'CONFIG_ENCRYPTION_KEY_INVALID'
+  );
+  delete process.env.CONFIG_ENCRYPTION_KEY;
+  assert.throws(
     () => normalizeSmtpSettings({ password: 'new-password' }),
-    (error) => error instanceof ConfigEncryptionError && error.statusCode === 503
+    (error) => error instanceof ConfigEncryptionError
+      && error.code === 'CONFIG_ENCRYPTION_KEY_MISSING'
+      && error.statusCode === 503
   );
   process.env.CONFIG_ENCRYPTION_KEY = originalEncryptionKey;
 
@@ -114,6 +171,25 @@ const run = async () => {
     /porta SMTP/
   );
 
+  const limiterApp = express();
+  limiterApp.post('/smtp-test', smtpTestLimiter, (_req, res) => res.json({ ok: true }));
+  const limiterServer = await new Promise((resolve) => {
+    const server = limiterApp.listen(0, '127.0.0.1', () => resolve(server));
+  });
+  try {
+    const limiterPort = limiterServer.address().port;
+    for (let attempt = 1; attempt <= 5; attempt += 1) {
+      const allowed = await post({ port: limiterPort, path: '/smtp-test' });
+      assert.equal(allowed.status, 200);
+    }
+    const limited = await post({ port: limiterPort, path: '/smtp-test' });
+    assert.equal(limited.status, 429);
+    assert.equal(limited.body.code, 'SMTP_TEST_RATE_LIMITED');
+    assert.match(limited.body.error, /Limite de testes SMTP atingido/);
+  } finally {
+    await new Promise((resolve) => limiterServer.close(resolve));
+  }
+
   const smtpControllerPath = require.resolve('../src/controllers/smtpController');
   const securityPath = require.resolve('../src/config/security');
   const auditPath = require.resolve('../src/services/auditService');
@@ -122,6 +198,7 @@ const run = async () => {
   const configSecretPath = require.resolve('../src/services/configSecretCrypto');
   let settingsReads = 0;
   let settingsWrites = 0;
+  let settingsUpdateError;
   let testRecipient;
   const auditEvents = [];
 
@@ -144,6 +221,7 @@ const run = async () => {
         return sanitized;
       },
       updateSmtpSettings: async () => {
+        if (settingsUpdateError) throw settingsUpdateError;
         settingsWrites += 1;
         return sanitized;
       }
@@ -211,6 +289,18 @@ const run = async () => {
   assert.equal(saveResponse.statusCode, 200);
   assert.equal(settingsWrites, 1);
 
+  settingsUpdateError = new ConfigEncryptionError(
+    'missing',
+    'CONFIG_ENCRYPTION_KEY_MISSING'
+  );
+  const missingKeyResponse = response();
+  await smtpController.saveSettings(adminRequest, missingKeyResponse);
+  assert.equal(missingKeyResponse.statusCode, 503);
+  assert.equal(missingKeyResponse.body.code, 'CONFIG_ENCRYPTION_KEY_MISSING');
+  assert.match(missingKeyResponse.body.error, /não está configurada no servidor/);
+  assert.equal(Object.hasOwn(missingKeyResponse.body, 'stack'), false);
+  settingsUpdateError = undefined;
+
   const testResponse = response();
   await smtpController.testSettings({
     ...adminRequest,
@@ -224,6 +314,8 @@ const run = async () => {
   const controllerSource = read('backend/src/controllers/smtpController.js');
   const emailServiceSource = read('backend/src/services/emailService.js');
   const routesSource = read('backend/src/routes/systemRoutes.js');
+  const rateLimitSource = read('backend/src/middleware/writeRateLimiters.js');
+  const updateScriptSource = read('scripts/update.sh');
   assert.match(routesSource, /router\.use\(verifyToken\)[\s\S]*router\.get\('\/smtp'/);
   assert.match(routesSource, /router\.post\('\/smtp\/test', smtpTestLimiter/);
   assert.doesNotMatch(controllerSource, /res\.[\s\S]{0,80}encrypted_password/);
@@ -232,6 +324,10 @@ const run = async () => {
   assert.doesNotMatch(emailServiceSource, /rejectUnauthorized:\s*false/);
   assert.doesNotMatch(emailServiceSource, /console\.(?:log|warn|error)/);
   assert.match(emailServiceSource, /throw new EmailDeliveryError\(\)/);
+  assert.match(rateLimitSource, /code: 'SMTP_TEST_RATE_LIMITED'/);
+  assert.match(rateLimitSource, /Limite de testes SMTP atingido\. Aguarde alguns minutos/);
+  assert.match(updateScriptSource, /ensure_config_encryption_key/);
+  assert.match(updateScriptSource, /CONFIG_ENCRYPTION_KEY ausente; uma nova chave foi gerada no \.env\./);
 };
 
 run()
