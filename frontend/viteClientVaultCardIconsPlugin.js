@@ -32,11 +32,11 @@ function addVpnConnectionCardFields(code) {
 
   next = next.replace(
     '<div key={connection.id} className="grid grid-cols-1 sm:grid-cols-[160px_1fr_auto] gap-3 items-end rounded-md border border-slate-200 bg-slate-50 p-3">',
-    '<div key={connection.id} className="grid grid-cols-1 sm:grid-cols-[160px_1fr_auto] gap-3 items-end rounded-md border border-slate-200 bg-slate-50 p-3" style={connection.type === \'VPN\' ? { gridTemplateColumns: \'160px 190px minmax(0, 1fr) auto\', alignItems: \'center\' } : undefined}> '
+    '<div key={connection.id} className={`grid grid-cols-1 gap-3 rounded-md border border-slate-200 bg-slate-50 p-3 ${connection.type === \'VPN\' ? \'vpn-connection-grid\' : \'items-end sm:grid-cols-[160px_1fr_auto]\'}`}> '
   )
 
   next = next.replace(
-    /                  <div>\n                    <label className="block text-sm font-medium text-slate-700 mb-1">Conexão<\/label>\n                    (<div className="rounded-md border border-slate-200 bg-white p-2 text-sm text-slate-700 flex items-center gap-2"><ConnectionIcon type=\{connection\.type\} \/>\{getConnectionLabel\(connection, connections\)\}<\/div>)\n                  <\/div>\n                  <div>\n                    <label className="block text-sm font-medium text-slate-700 mb-1">IPv4<\/label>\n                    (<input[\s\S]*?value=\{connection\.ipv4\}[\s\S]*?\/>)[\n\s]*<\/div>/,
+    / {18}<div>\n {20}<label className="block text-sm font-medium text-slate-700 mb-1">Conexão<\/label>\n {20}(<div className="rounded-md border border-slate-200 bg-white p-2 text-sm text-slate-700 flex items-center gap-2"><ConnectionIcon type=\{connection\.type\} \/>\{getConnectionLabel\(connection, connections\)\}<\/div>)\n {18}<\/div>\n {18}<div>\n {20}<label className="block text-sm font-medium text-slate-700 mb-1">IPv4<\/label>\n {20}(<input[\s\S]*?value=\{connection\.ipv4\}[\s\S]*?\/>)[\n\s]*<\/div>/,
     `                  {connection.type === 'VPN' ? (
                     <>
                       <div className="w-full rounded-md border border-slate-200 bg-white p-2 text-sm text-slate-700 flex items-center gap-2"><ConnectionIcon type={connection.type} />{getConnectionLabel(connection, connections)}</div>
@@ -133,19 +133,19 @@ const getPermissionIconConfig = (permission = '') => {
   const normalizedPermission = String(permission || '').toLowerCase();
 
   if (normalizedPermission === 'sistema') {
-    return { Icon: TriangleAlert, className: 'text-amber-500', style: undefined };
+    return { Icon: TriangleAlert, className: 'text-amber-500' };
   }
 
   if (normalizedPermission.includes('admin')) {
-    return { Icon: UserStar, className: '', style: { color: '#ff8a78' } };
+    return { Icon: UserStar, className: 'permission-admin-icon' };
   }
 
-  return { Icon: UserRound, className: 'text-slate-500', style: undefined };
+  return { Icon: UserRound, className: 'text-slate-500' };
 };
 
 function PermissionIcon({ permission }) {
-  const { Icon, className, style } = getPermissionIconConfig(permission);
-  return <Icon className={'h-5 w-5 shrink-0 ' + className} style={style} />;
+  const { Icon, className } = getPermissionIconConfig(permission);
+  return <Icon className={'h-5 w-5 shrink-0 ' + className} />;
 }
 
 function ConnectionIcon({ type }) {
@@ -237,25 +237,23 @@ export default function clientVaultCardIconsPlugin() {
     name: 'client-vault-card-icons-transform',
     enforce: 'pre',
     transform(code, id) {
-      let next = code
-
       if (id.endsWith('WindowsServerManager.jsx')) {
-        next = transformWindowsServerManager(code)
+        const next = transformWindowsServerManager(code)
         return next === code ? null : { code: next, map: null }
       }
 
       if (id.endsWith('LinuxServerManager.jsx')) {
-        next = transformLinuxServerManager(code)
+        const next = transformLinuxServerManager(code)
         return next === code ? null : { code: next, map: null }
       }
 
       if (id.endsWith('CpanelWebManager.jsx')) {
-        next = transformCpanelWebManager(code)
+        const next = transformCpanelWebManager(code)
         return next === code ? null : { code: next, map: null }
       }
 
       if (id.endsWith('VpnManager.jsx')) {
-        next = transformVpnManager(code)
+        const next = transformVpnManager(code)
         return next === code ? null : { code: next, map: null }
       }
 

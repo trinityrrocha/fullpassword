@@ -8,6 +8,48 @@
   }
 }
 
+.csp-progress {
+  display: block;
+  width: 100%;
+  height: 0.375rem;
+  overflow: hidden;
+  -webkit-appearance: none;
+  appearance: none;
+  border: 0;
+  border-radius: 9999px;
+  background: #e0e7ff;
+  color: #4f46e5;
+}
+
+.csp-progress::-webkit-progress-bar {
+  border-radius: 9999px;
+  background: #e0e7ff;
+}
+
+.csp-progress::-webkit-progress-value {
+  border-radius: 9999px;
+  background: #4f46e5;
+}
+
+.csp-progress::-moz-progress-bar {
+  border-radius: 9999px;
+  background: #4f46e5;
+}
+
+.vpn-connection-grid {
+  align-items: center;
+}
+
+@media (min-width: 640px) {
+  .vpn-connection-grid {
+    grid-template-columns: 160px 190px minmax(0, 1fr) auto;
+  }
+}
+
+.permission-admin-icon {
+  color: #ff8a78;
+}
+
 .protected-app-content {
   min-height: 100vh;
   transition: filter 120ms ease;

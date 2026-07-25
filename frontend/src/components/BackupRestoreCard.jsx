@@ -200,9 +200,12 @@ export default function BackupRestoreCard() {
           <span className="flex-1">
             {feedback.message}
             {feedback.type === 'progress' && uploadProgress !== null && (
-              <span className="mt-1 block h-1.5 overflow-hidden rounded-full bg-indigo-100">
-                <span className="block h-full bg-indigo-600" style={{ width: `${uploadProgress}%` }} />
-              </span>
+              <progress
+                className="csp-progress mt-1"
+                value={uploadProgress}
+                max="100"
+                aria-label={`Progresso do upload: ${uploadProgress}%`}
+              />
             )}
           </span>
         </div>

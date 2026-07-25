@@ -15,14 +15,34 @@ function VaultAwareDashboardLayout() {
   return <DashboardLayout key={vaultStateEpoch} />;
 }
 
+function RouteErrorFallback() {
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
+      <section role="alert" className="w-full max-w-lg rounded-lg border border-red-200 bg-white p-6 text-center shadow">
+        <h1 className="text-xl font-semibold text-slate-900">Não foi possível abrir esta página</h1>
+        <p className="mt-2 text-sm text-slate-600">
+          Recarregue a aplicação. Se o problema continuar, entre em contato com o administrador.
+        </p>
+        <button
+          type="button"
+          onClick={() => window.location.assign('/')}
+          className="mt-5 rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+        >
+          Voltar ao início
+        </button>
+      </section>
+    </main>
+  );
+}
+
 function App() {
   return (
     <Router>
       <Routes>
-        <Route path="/login" element={<Login />} />
+        <Route path="/login" element={<Login />} errorElement={<RouteErrorFallback />} />
         
         {/* Rotas Protegidas com AuthGuard */}
-        <Route element={<VaultAwareDashboardLayout />}>
+        <Route element={<VaultAwareDashboardLayout />} errorElement={<RouteErrorFallback />}>
           {/* Rotas para todos os usuários logados */}
           <Route element={<ProtectedRoute />}>
             <Route path="/" element={<ClientsList />} />

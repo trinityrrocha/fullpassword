@@ -606,9 +606,12 @@ export default function Settings() {
                   >
                     {backupProgress.message}
                     {backupProgress.type === 'progress' && backupProgress.percent !== null && (
-                      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-indigo-100">
-                        <div className="h-full bg-indigo-600" style={{ width: `${backupProgress.percent}%` }} />
-                      </div>
+                      <progress
+                        className="csp-progress mt-2"
+                        value={backupProgress.percent}
+                        max="100"
+                        aria-label={`Progresso do backup: ${backupProgress.percent}%`}
+                      />
                     )}
                   </div>
                 )}
