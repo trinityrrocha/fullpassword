@@ -25,14 +25,17 @@ const {
   RSA_KEY_PARAMS,
   resolveKdfParams,
   unwrapMasterKey,
+  unwrapMasterKeyForTransientUse,
   wrapMasterKey
 } = await import('../src/services/cryptoService.js');
 
 const {
   decryptVaultKeyShare,
   encryptVaultKeyForPublicKey,
+  encryptVaultKeyForPublicKeys,
   exportClientVaultKey,
-  importClientVaultKey
+  importClientVaultKey,
+  reencryptVaultKeyShareForPublicKeys
 } = await import('../src/services/clientVaultKeyService.js');
 
 const expectExportRejected = async (format, key) => {
@@ -73,7 +76,8 @@ const generatedMasterKey = await generateMasterKey();
 assert.equal(generatedMasterKey.extractable, true);
 const wrappedMasterKey = await wrapMasterKey(generatedMasterKey, kek);
 const operationalMasterKey = await unwrapMasterKey(wrappedMasterKey, kek);
-assert.equal(operationalMasterKey.extractable, true);
+assert.equal(operationalMasterKey.extractable, false);
+await expectExportRejected('raw', operationalMasterKey);
 const encryptedPayload = await encryptData({ compatibility: true }, operationalMasterKey);
 assert.deepEqual(await decryptData(encryptedPayload, operationalMasterKey), { compatibility: true });
 
@@ -86,9 +90,17 @@ const replacementKek = await deriveMasterKey(
 );
 const currentKdfDurationMs = performance.now() - currentKdfStartedAt;
 assert.ok(currentKdfDurationMs < 10000, `PBKDF2 atual demorou ${currentKdfDurationMs.toFixed(0)} ms`);
-const rewrappedMasterKey = await wrapMasterKey(operationalMasterKey, replacementKek);
+const transientRewrapMasterKey = await unwrapMasterKeyForTransientUse(wrappedMasterKey, kek, 'rewrap');
+assert.equal(transientRewrapMasterKey.extractable, true);
+const rewrappedMasterKey = await wrapMasterKey(transientRewrapMasterKey, replacementKek);
 const reUnlockedMasterKey = await unwrapMasterKey(rewrappedMasterKey, replacementKek);
+assert.equal(reUnlockedMasterKey.extractable, false);
+await expectExportRejected('raw', reUnlockedMasterKey);
 assert.deepEqual(await decryptData(encryptedPayload, reUnlockedMasterKey), { compatibility: true });
+await assert.rejects(
+  unwrapMasterKeyForTransientUse(wrappedMasterKey, kek, 'runtime'),
+  /Finalidade transitória/
+);
 
 const rsaKeyPair = await generateRSAKeyPair();
 assert.equal(rsaKeyPair.publicKey.algorithm.modulusLength, RSA_KEY_PARAMS.modulusLength);
@@ -161,14 +173,53 @@ await expectExportRejected('raw', sharedOperationalVaultKey);
 const sharedPayload = await encryptData({ shared: true }, sharedOperationalVaultKey);
 assert.deepEqual(await decryptData(sharedPayload, sharedOperationalVaultKey), { shared: true });
 
-const shareableVaultKey = await decryptVaultKeyShare(
+const legacyEncryptedVaultKey = await encryptVaultKeyForPublicKey(
+  generatedMasterKey,
+  legacyPublicKeyBase64
+);
+const legacySharedOperationalVaultKey = await decryptVaultKeyShare(
+  legacyEncryptedVaultKey,
+  encryptedLegacyPrivateKey,
+  operationalMasterKey
+);
+assert.equal(legacySharedOperationalVaultKey.extractable, false);
+await expectExportRejected('raw', legacySharedOperationalVaultKey);
+assert.deepEqual(
+  await decryptData(sharedPayload, legacySharedOperationalVaultKey),
+  { shared: true }
+);
+
+const reencryptedVaultKeys = await reencryptVaultKeyShareForPublicKeys(
   encryptedVaultKey,
   encryptedPrivateKey,
   operationalMasterKey,
-  { allowExportForSharing: true }
+  [publicKeyBase64]
 );
-assert.equal(shareableVaultKey.extractable, true);
-await encryptVaultKeyForPublicKey(shareableVaultKey, publicKeyBase64);
+assert.equal(reencryptedVaultKeys.length, 1);
+const resharedOperationalVaultKey = await decryptVaultKeyShare(
+  reencryptedVaultKeys[0],
+  encryptedPrivateKey,
+  operationalMasterKey
+);
+assert.equal(resharedOperationalVaultKey.extractable, false);
+await expectExportRejected('raw', resharedOperationalVaultKey);
+assert.deepEqual(await decryptData(sharedPayload, resharedOperationalVaultKey), { shared: true });
+
+const transientShareMasterKey = await unwrapMasterKeyForTransientUse(wrappedMasterKey, kek, 'share');
+const ownerEncryptedKeys = await encryptVaultKeyForPublicKeys(
+  transientShareMasterKey,
+  [publicKeyBase64]
+);
+assert.equal(ownerEncryptedKeys.length, 1);
+await encryptVaultKeyForPublicKey(transientShareMasterKey, publicKeyBase64);
+const ownerSharedOperationalKey = await decryptVaultKeyShare(
+  ownerEncryptedKeys[0],
+  encryptedPrivateKey,
+  operationalMasterKey
+);
+assert.equal(ownerSharedOperationalKey.extractable, false);
+await expectExportRejected('raw', ownerSharedOperationalKey);
+assert.deepEqual(await decryptData(encryptedPayload, ownerSharedOperationalKey), { compatibility: true });
 
 stdout.write(
   `Crypto parameter, extractability and compatibility tests passed ` +

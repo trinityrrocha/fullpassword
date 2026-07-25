@@ -16,7 +16,10 @@ const copyButton = read('src/components/CopyButton.jsx');
 const app = read('src/App.jsx');
 
 assert.match(authContext, /vaultLockCleanupsRef = useRef\(new Set\(\)\)/);
-assert.match(authContext, /notifyVaultLockCleanups\(\);\s+setMasterKey\(null\)/);
+assert.match(authContext, /masterKeyKekRef = useRef\(null\)/);
+assert.match(authContext, /notifyVaultLockCleanups\(\);\s+masterKeyKekRef\.current = null;\s+setMasterKey\(null\)/);
+assert.match(authContext, /const key = await unwrapMasterKey\(wrappedKeyStr, kek\);\s+masterKeyKekRef\.current = kek;\s+setMasterKey\(key\)/);
+assert.doesNotMatch(authContext, /setMasterKey\(transientMasterKey\)/);
 assert.match(authContext, /navigator\.clipboard\?\.writeText/);
 assert.match(authContext, /setVaultStateEpoch\(\(current\) => current \+ 1\)/);
 assert.match(clearHook, /registerVaultLockCleanup\(\(\) => clearCallbackRef\.current\(\)\)/);
@@ -30,6 +33,7 @@ for (const reset of [
   'setDevicesForm({ devices: [], deviceLogins: [] })',
   'setSavedItems([])',
   'setVaultDataKey(null)',
+  'setEncryptedVaultKeyShare(null)',
   "setUnlockPassword('')"
 ]) {
   assert.ok(clientVault.includes(reset), `ClientVault não limpa ${reset}`);

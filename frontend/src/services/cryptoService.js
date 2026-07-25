@@ -139,9 +139,10 @@ export const generateMasterKey = async () => {
   return await window.crypto.subtle.generateKey(
     { name: 'AES-GCM', length: 256 },
     /*
-     * Esta chave recém-gerada precisa ser extractable para ser persistida com
-     * wrapKey e para inicializar compartilhamentos. Não mantê-la além desses
-     * fluxos controlados sem a proteção de auto-lock.
+     * extractable=true é necessário somente no bootstrap: a chave recém-criada
+     * precisa ser serializada por wrapKey e, quando aplicável, compartilhada.
+     * O chamador deve persistir o wrap e usar uma cópia operacional
+     * non-extractable; esta chave não deve entrar em state/context/ref.
      */
     true,
     ['encrypt', 'decrypt']
@@ -181,7 +182,9 @@ export const wrapMasterKey = async (masterKey, kek) => {
  * @param {CryptoKey} kek - A chave derivada da senha do usuário
  * @returns {Promise<CryptoKey>} - A Master Key original
  */
-export const unwrapMasterKey = async (wrappedKeyStr, kek) => {
+const TRANSIENT_MASTER_KEY_PURPOSES = new Set(['rewrap', 'share']);
+
+const unwrapMasterKeyInternal = async (wrappedKeyStr, kek, extractable) => {
   try {
     if (!wrappedKeyStr || !wrappedKeyStr.includes(':')) {
       throw new Error('Formato de chave envelopada inválido');
@@ -197,19 +200,33 @@ export const unwrapMasterKey = async (wrappedKeyStr, kek) => {
       kek,
       { name: 'AES-GCM', iv: new Uint8Array(iv) },
       { name: 'AES-GCM', length: 256 },
-      /*
-       * O modelo atual usa esta mesma chave como chave do cofre do proprietário.
-       * Ela precisa permanecer exportável para compartilhamento RSA e rewrap na
-       * troca de senha. Torná-la non-extractable exige separar a chave do usuário
-       * da chave por cofre e migrar os dados persistidos.
-       */
-      true,
+      extractable,
       ['encrypt', 'decrypt']
     );
   } catch {
     console.warn('Não foi possível desenvelopar a Master Key com a credencial informada.');
     throw new Error('Senha mestre incorreta'); 
   }
+};
+
+/**
+ * Desenvelopa a Master Key operacional. Esta é a única variante que deve ser
+ * armazenada no AuthContext e ela nunca pode ser exportada.
+ */
+export const unwrapMasterKey = async (wrappedKeyStr, kek) => (
+  unwrapMasterKeyInternal(wrappedKeyStr, kek, false)
+);
+
+/**
+ * Variante restrita aos fluxos transitórios de rewrap e compartilhamento.
+ * A chave retornada não pode ser armazenada em state/ref/context e deve perder
+ * todas as referências assim que a operação terminar.
+ */
+export const unwrapMasterKeyForTransientUse = async (wrappedKeyStr, kek, purpose) => {
+  if (!TRANSIENT_MASTER_KEY_PURPOSES.has(purpose)) {
+    throw new Error('Finalidade transitória de Master Key inválida');
+  }
+  return unwrapMasterKeyInternal(wrappedKeyStr, kek, true);
 };
 
 /**
@@ -417,22 +434,27 @@ export const importPublicKey = async (pemStr) => {
 export const encryptPrivateKey = async (privateKey, masterKey) => {
   // 1. Exporta a chave privada para formato PKCS8
   const exported = await window.crypto.subtle.exportKey("pkcs8", privateKey);
-  
-  // 2. Criptografa o buffer exportado com a Master Key
-  const iv = window.crypto.getRandomValues(new Uint8Array(12));
-  const ciphertext = await window.crypto.subtle.encrypt(
-    {
-      name: "AES-GCM",
-      iv: iv
-    },
-    masterKey,
-    exported
-  );
+  const exportedBytes = new Uint8Array(exported);
 
-  // 3. Retorna no formato iv:ciphertext em Base64
-  const ivB64 = window.btoa(String.fromCharCode.apply(null, iv));
-  const ciphertextB64 = window.btoa(String.fromCharCode.apply(null, new Uint8Array(ciphertext)));
-  return `${ivB64}:${ciphertextB64}`;
+  try {
+    // 2. Criptografa o buffer exportado com a Master Key
+    const iv = window.crypto.getRandomValues(new Uint8Array(12));
+    const ciphertext = await window.crypto.subtle.encrypt(
+      {
+        name: "AES-GCM",
+        iv: iv
+      },
+      masterKey,
+      exportedBytes
+    );
+
+    // 3. Retorna no formato iv:ciphertext em Base64
+    const ivB64 = window.btoa(String.fromCharCode.apply(null, iv));
+    const ciphertextB64 = window.btoa(String.fromCharCode.apply(null, new Uint8Array(ciphertext)));
+    return `${ivB64}:${ciphertextB64}`;
+  } finally {
+    exportedBytes.fill(0);
+  }
 };
 
 // Descriptografa a chave privada RSA usando a Master Key e a importa
@@ -450,16 +472,21 @@ export const decryptPrivateKey = async (encryptedPrivateKeyStr, masterKey) => {
     masterKey,
     ciphertext
   );
+  const decryptedBytes = new Uint8Array(decryptedBuffer);
 
-  // 2. Importa a chave privada
-  return await window.crypto.subtle.importKey(
-    "pkcs8",
-    decryptedBuffer,
-    {
-      name: "RSA-OAEP",
-      hash: "SHA-256",
-    },
-    false,
-    ["decrypt"]
-  );
+  try {
+    // 2. Importa a chave privada operacional como non-extractable.
+    return await window.crypto.subtle.importKey(
+      "pkcs8",
+      decryptedBytes,
+      {
+        name: "RSA-OAEP",
+        hash: "SHA-256",
+      },
+      false,
+      ["decrypt"]
+    );
+  } finally {
+    decryptedBytes.fill(0);
+  }
 };

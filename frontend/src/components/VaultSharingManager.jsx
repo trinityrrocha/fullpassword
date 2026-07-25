@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from 'react';
 import { Plus, RefreshCw, Save, Trash2, Users, ShieldCheck } from 'lucide-react';
 import api from '../services/api';
 import { safeLogError } from '../utils/safeLogger';
-import { encryptVaultKeyForPublicKey } from '../services/clientVaultKeyService';
 
 const permissionLabels = [
   { key: 'can_view', label: 'Visualizar' },
@@ -29,7 +28,7 @@ const getPermissionSummary = (group = {}) => {
   return permissions.length ? permissions.join(', ') : 'Sem permissão definida';
 };
 
-export default function VaultSharingManager({ clientId, clientVaultKey, compact = false }) {
+export default function VaultSharingManager({ clientId, prepareKeyShares, compact = false }) {
   const [groups, setGroups] = useState([]);
   const [shares, setShares] = useState([]);
   const [selectedGroupId, setSelectedGroupId] = useState('');
@@ -100,7 +99,7 @@ export default function VaultSharingManager({ clientId, clientVaultKey, compact 
   };
 
   const syncKeyShares = async (groupIds) => {
-    if (!clientVaultKey) {
+    if (typeof prepareKeyShares !== 'function') {
       throw new Error('A chave do cofre ainda não foi carregada. Desbloqueie o cofre novamente antes de compartilhar.');
     }
 
@@ -114,20 +113,7 @@ export default function VaultSharingManager({ clientId, clientVaultKey, compact 
       item.groups.some((group) => selected.has(group.id))
     ));
 
-    const prepared = [];
-    const pending = [];
-
-    for (const item of targetUsers) {
-      if (!item.public_key) {
-        pending.push(item);
-        continue;
-      }
-
-      prepared.push({
-        user_id: item.id,
-        encrypted_client_key: await encryptVaultKeyForPublicKey(clientVaultKey, item.public_key)
-      });
-    }
+    const pending = targetUsers.filter((item) => !item.public_key);
 
     if (pending.length > 0) {
       const names = pending
@@ -135,6 +121,18 @@ export default function VaultSharingManager({ clientId, clientVaultKey, compact 
         .join(', ');
       throw new Error(`Nenhuma chave foi alterada. Usuários sem chave pública: ${names}. Eles precisam entrar e desbloquear o cofre uma vez.`);
     }
+
+    const encryptedKeys = targetUsers.length > 0
+      ? await prepareKeyShares(targetUsers.map((item) => item.public_key))
+      : [];
+    if (!Array.isArray(encryptedKeys) || encryptedKeys.length !== targetUsers.length) {
+      throw new Error('Não foi possível preparar todas as chaves do compartilhamento.');
+    }
+
+    const prepared = targetUsers.map((item, index) => ({
+      user_id: item.id,
+      encrypted_client_key: encryptedKeys[index]
+    }));
 
     await api.put(`/vault-items/${clientId}/key-shares`, { shares: prepared });
   };

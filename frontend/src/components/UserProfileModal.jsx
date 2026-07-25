@@ -9,7 +9,7 @@ import {
   deriveMasterKey,
   isValidCryptoSalt,
   resolveKdfParams,
-  unwrapMasterKey,
+  unwrapMasterKeyForTransientUse,
   wrapMasterKey
 } from '../services/cryptoService';
 import { safeLogError } from '../utils/safeLogger';
@@ -138,22 +138,32 @@ export default function UserProfileModal({ isOpen, onClose, forcePasswordChange 
           resolveKdfParams(user)
         );
 
-        let masterKey;
+        let transientMasterKey = null;
         try {
-          masterKey = await unwrapMasterKey(currentWrappedKey, currentKek);
+          /*
+           * A chave exportável existe somente durante o rewrap da troca de
+           * senha. Ela nunca é armazenada em state/context/ref.
+           */
+          transientMasterKey = await unwrapMasterKeyForTransientUse(
+            currentWrappedKey,
+            currentKek,
+            'rewrap'
+          );
         } catch (err) {
           throw new Error('Senha atual incorreta. Não foi possível acessar a chave mestra.', { cause: err });
         }
 
-        const newKek = await deriveMasterKey(formData.newPassword, currentSalt, KDF_PARAMS);
-        const newWrappedKey = await wrapMasterKey(masterKey, newKek);
-
-        payload.new_password = formData.newPassword;
-        payload.wrapped_key = newWrappedKey;
-        payload.kdf_version = KDF_PARAMS.version;
-        payload.kdf_name = KDF_PARAMS.name;
-        payload.kdf_hash = KDF_PARAMS.hash;
-        payload.kdf_iterations = KDF_PARAMS.iterations;
+        try {
+          const newKek = await deriveMasterKey(formData.newPassword, currentSalt, KDF_PARAMS);
+          payload.new_password = formData.newPassword;
+          payload.wrapped_key = await wrapMasterKey(transientMasterKey, newKek);
+          payload.kdf_version = KDF_PARAMS.version;
+          payload.kdf_name = KDF_PARAMS.name;
+          payload.kdf_hash = KDF_PARAMS.hash;
+          payload.kdf_iterations = KDF_PARAMS.iterations;
+        } finally {
+          transientMasterKey = null;
+        }
       }
 
       const response = await api.put('/users/profile', payload);

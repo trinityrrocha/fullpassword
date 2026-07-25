@@ -22,49 +22,73 @@ export const generateClientVaultKey = async () => generateMasterKey();
 
 export const exportClientVaultKey = async (clientVaultKey) => {
   /*
-   * Exportação controlada usada somente para serializar uma chave recém-criada.
-   * Chaves importadas por importClientVaultKey são non-extractable.
+   * extractable=true é aceito somente para uma chave recém-criada e ainda
+   * transitória. Chaves importadas por importClientVaultKey são operacionais,
+   * non-extractable e nunca passam por este helper.
    */
-  const rawKey = await window.crypto.subtle.exportKey('raw', clientVaultKey);
-  return bufferToBase64(rawKey);
+  const rawKeyBytes = new Uint8Array(await window.crypto.subtle.exportKey('raw', clientVaultKey));
+  try {
+    return bufferToBase64(rawKeyBytes);
+  } finally {
+    rawKeyBytes.fill(0);
+  }
 };
 
 export const importClientVaultKey = async (base64Key) => {
-  const rawKey = base64ToBuffer(base64Key);
-  return await window.crypto.subtle.importKey(
-    'raw',
-    rawKey,
-    { name: 'AES-GCM', length: 256 },
-    false,
-    ['encrypt', 'decrypt']
-  );
+  const rawKeyBytes = new Uint8Array(base64ToBuffer(base64Key));
+  try {
+    return await window.crypto.subtle.importKey(
+      'raw',
+      rawKeyBytes,
+      { name: 'AES-GCM', length: 256 },
+      false,
+      ['encrypt', 'decrypt']
+    );
+  } finally {
+    rawKeyBytes.fill(0);
+  }
 };
 
-export const encryptVaultKeyForPublicKey = async (clientVaultKey, publicKeyBase64) => {
-  if (!clientVaultKey || !publicKeyBase64) {
-    throw new Error('Chave do cofre e chave pública são obrigatórias');
+const encryptRawVaultKeyForPublicKeys = async (rawKeyBytes, publicKeysBase64) => {
+  if (!Array.isArray(publicKeysBase64) || publicKeysBase64.some((key) => !key)) {
+    throw new Error('Chaves públicas dos destinatários são obrigatórias');
   }
 
-  const publicKey = await importPublicKey(publicKeyBase64);
-  /*
-   * O RSA-OAEP precisa receber os bytes da chave AES. Esta exportação só pode
-   * ocorrer para proprietários/administradores em um fluxo de compartilhamento.
-   */
-  const rawKey = await window.crypto.subtle.exportKey('raw', clientVaultKey);
-  const encryptedKey = await window.crypto.subtle.encrypt(
-    { name: 'RSA-OAEP' },
-    publicKey,
-    rawKey
-  );
-
-  return bufferToBase64(encryptedKey);
+  return Promise.all(publicKeysBase64.map(async (publicKeyBase64) => {
+    const publicKey = await importPublicKey(publicKeyBase64);
+    const encryptedKey = await window.crypto.subtle.encrypt(
+      { name: 'RSA-OAEP' },
+      publicKey,
+      rawKeyBytes
+    );
+    return bufferToBase64(encryptedKey);
+  }));
 };
+
+export const encryptVaultKeyForPublicKeys = async (clientVaultKey, publicKeysBase64) => {
+  if (!clientVaultKey) throw new Error('Chave do cofre é obrigatória');
+
+  /*
+   * A exportação existe somente no escopo transitório de criação/rewrap/share.
+   * O CryptoKey recebido aqui nunca deve ser armazenado no React state; os bytes
+   * são sobrescritos imediatamente depois de cifrados para os destinatários.
+   */
+  const rawKeyBytes = new Uint8Array(await window.crypto.subtle.exportKey('raw', clientVaultKey));
+  try {
+    return await encryptRawVaultKeyForPublicKeys(rawKeyBytes, publicKeysBase64);
+  } finally {
+    rawKeyBytes.fill(0);
+  }
+};
+
+export const encryptVaultKeyForPublicKey = async (clientVaultKey, publicKeyBase64) => (
+  (await encryptVaultKeyForPublicKeys(clientVaultKey, [publicKeyBase64]))[0]
+);
 
 export const decryptVaultKeyShare = async (
   encryptedClientKey,
   encryptedPrivateKey,
-  masterKey,
-  { allowExportForSharing = false } = {}
+  masterKey
 ) => {
   if (!encryptedClientKey || !encryptedPrivateKey || !masterKey) {
     throw new Error('Chave compartilhada, chave privada e master key são obrigatórias');
@@ -72,22 +96,50 @@ export const decryptVaultKeyShare = async (
 
   const privateKey = await decryptPrivateKey(encryptedPrivateKey, masterKey);
   const encryptedKeyBuffer = base64ToBuffer(encryptedClientKey);
-  const rawKey = await window.crypto.subtle.decrypt(
+  const rawKeyBytes = new Uint8Array(await window.crypto.subtle.decrypt(
     { name: 'RSA-OAEP' },
     privateKey,
     encryptedKeyBuffer
-  );
+  ));
 
-  return await window.crypto.subtle.importKey(
-    'raw',
-    rawKey,
-    { name: 'AES-GCM', length: 256 },
+  try {
+    return await window.crypto.subtle.importKey(
+      'raw',
+      rawKeyBytes,
+      { name: 'AES-GCM', length: 256 },
+      false,
+      ['encrypt', 'decrypt']
+    );
+  } finally {
+    rawKeyBytes.fill(0);
+  }
+};
+
+export const reencryptVaultKeyShareForPublicKeys = async (
+  encryptedClientKey,
+  encryptedPrivateKey,
+  operationalMasterKey,
+  publicKeysBase64
+) => {
+  if (!encryptedClientKey || !encryptedPrivateKey || !operationalMasterKey) {
+    throw new Error('Material criptográfico do compartilhamento é obrigatório');
+  }
+
+  const privateKey = await decryptPrivateKey(encryptedPrivateKey, operationalMasterKey);
+  const rawKeyBytes = new Uint8Array(await window.crypto.subtle.decrypt(
+    { name: 'RSA-OAEP' },
+    privateKey,
+    base64ToBuffer(encryptedClientKey)
+  ));
+
+  try {
     /*
-     * Somente proprietários/administradores que podem redistribuir a chave
-     * recebem uma chave exportável. Para visualização e edição normais, a chave
-     * compartilhada é importada como non-extractable.
+     * O plaintext da chave compartilhada existe apenas neste escopo local para
+     * redistribuição RSA. Ele não vira CryptoKey extractable nem entra em state,
+     * context, ref ou storage e é sobrescrito no finally.
      */
-    allowExportForSharing === true,
-    ['encrypt', 'decrypt']
-  );
+    return await encryptRawVaultKeyForPublicKeys(rawKeyBytes, publicKeysBase64);
+  } finally {
+    rawKeyBytes.fill(0);
+  }
 };

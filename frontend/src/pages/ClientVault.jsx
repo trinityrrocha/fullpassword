@@ -9,7 +9,10 @@ import { useAuth } from '../context/AuthContext';
 import useClearOnVaultLock from '../hooks/useClearOnVaultLock';
 import { safeLogError } from '../utils/safeLogger';
 import { encryptData, encryptFile, decryptData, base64ToBlob, downloadBlob, isValidCryptoSalt } from '../services/cryptoService';
-import { decryptVaultKeyShare } from '../services/clientVaultKeyService';
+import {
+  decryptVaultKeyShare,
+  reencryptVaultKeyShareForPublicKeys
+} from '../services/clientVaultKeyService';
 import api from '../services/api';
 import {
   MAX_VAULT_ATTACHMENT_BYTES,
@@ -208,13 +211,15 @@ export default function ClientVault() {
     isVaultUnlocked,
     vaultLockReason,
     lockVault,
-    unlockVault
+    unlockVault,
+    encryptOwnerVaultKeyForPublicKeys
   } = useAuth();
   const [unlockPassword, setUnlockPassword] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [savedItems, setSavedItems] = useState([]);
   const [vaultDataKey, setVaultDataKey] = useState(null);
+  const [encryptedVaultKeyShare, setEncryptedVaultKeyShare] = useState(null);
   const [vaultPermissions, setVaultPermissions] = useState(null);
   const [vaultKeyError, setVaultKeyError] = useState('');
   const [isSharingModalOpen, setIsSharingModalOpen] = useState(false);
@@ -227,6 +232,7 @@ export default function ClientVault() {
     setDevicesForm({ devices: [], deviceLogins: [] });
     setSavedItems([]);
     setVaultDataKey(null);
+    setEncryptedVaultKeyShare(null);
     setVaultPermissions(null);
     setVaultKeyError('');
     setUnlockPassword('');
@@ -333,6 +339,7 @@ export default function ClientVault() {
     let cancelled = false;
     const loadVaultAccess = async () => {
       setVaultDataKey(null);
+      setEncryptedVaultKeyShare(null);
       setVaultKeyError('');
       try {
         const permissionsResponse = await api.get(`/vault-items/${id}/permissions`);
@@ -355,15 +362,16 @@ export default function ClientVault() {
             throw new Error('Sua chave privada ainda não está disponível. Desbloqueie o cofre novamente.');
           }
 
+          const encryptedClientKey = keyResponse.data.encrypted_client_key;
           const sharedKey = await decryptVaultKeyShare(
-            keyResponse.data.encrypted_client_key,
+            encryptedClientKey,
             user.encrypted_private_key,
-            masterKey,
-            {
-              allowExportForSharing: normalizedPermissions.is_owner || normalizedPermissions.is_admin
-            }
+            masterKey
           );
-          if (!cancelled) setVaultDataKey(sharedKey);
+          if (!cancelled) {
+            setEncryptedVaultKeyShare(encryptedClientKey);
+            setVaultDataKey(sharedKey);
+          }
           return;
         }
 
@@ -384,6 +392,27 @@ export default function ClientVault() {
     loadVaultAccess();
     return () => { cancelled = true; };
   }, [id, isVaultUnlocked, masterKey, user]);
+
+  const prepareVaultKeyShares = async (publicKeysBase64) => {
+    if (!effectiveVaultPermissions || (!effectiveVaultPermissions.is_owner && !effectiveVaultPermissions.is_admin)) {
+      throw new Error('Você não possui permissão para redistribuir a chave deste cofre.');
+    }
+
+    if (encryptedVaultKeyShare) {
+      return reencryptVaultKeyShareForPublicKeys(
+        encryptedVaultKeyShare,
+        user?.encrypted_private_key,
+        masterKey,
+        publicKeysBase64
+      );
+    }
+
+    if (effectiveVaultPermissions.is_owner) {
+      return encryptOwnerVaultKeyForPublicKeys(publicKeysBase64);
+    }
+
+    throw new Error('A chave criptográfica deste cofre não está disponível para compartilhamento.');
+  };
 
   useEffect(() => {
     if (vaultDataKey) loadVaultItems();
@@ -1224,7 +1253,7 @@ export default function ClientVault() {
               </button>
             </div>
             <div className="p-6">
-              <VaultSharingManager clientId={id} clientVaultKey={vaultDataKey} compact />
+              <VaultSharingManager clientId={id} prepareKeyShares={prepareVaultKeyShares} compact />
             </div>
           </div>
         </div>
