@@ -1,4 +1,9 @@
-import { generateMasterKey, importPublicKey, decryptPrivateKey } from './cryptoService.js';
+import {
+  decryptPrivateKey,
+  generateMasterKey,
+  importPublicKey,
+  unwrapMasterKeyForTransientUse
+} from './cryptoService.js';
 
 const bufferToBase64 = (buffer) => {
   const bytes = new Uint8Array(buffer);
@@ -84,6 +89,31 @@ export const encryptVaultKeyForPublicKeys = async (clientVaultKey, publicKeysBas
 export const encryptVaultKeyForPublicKey = async (clientVaultKey, publicKeyBase64) => (
   (await encryptVaultKeyForPublicKeys(clientVaultKey, [publicKeyBase64]))[0]
 );
+
+export const encryptWrappedVaultKeyForPublicKeys = async (
+  wrappedVaultKey,
+  kek,
+  publicKeysBase64
+) => {
+  if (!wrappedVaultKey || !kek) {
+    throw new Error('Material criptográfico transitório do compartilhamento é obrigatório');
+  }
+
+  const transientVaultKeys = [];
+  try {
+    /*
+     * A chave exportável é recriada a partir do mesmo par wrapped key/KEK que
+     * concluiu o desbloqueio. Ela existe apenas nesta chamada e nunca entra em
+     * state, context, ref ou storage.
+     */
+    transientVaultKeys.push(
+      await unwrapMasterKeyForTransientUse(wrappedVaultKey, kek, 'share')
+    );
+    return await encryptVaultKeyForPublicKeys(transientVaultKeys[0], publicKeysBase64);
+  } finally {
+    transientVaultKeys.length = 0;
+  }
+};
 
 export const decryptVaultKeyShare = async (
   encryptedClientKey,

@@ -31,6 +31,7 @@ const {
 
 const {
   decryptVaultKeyShare,
+  encryptWrappedVaultKeyForPublicKeys,
   encryptVaultKeyForPublicKey,
   encryptVaultKeyForPublicKeys,
   exportClientVaultKey,
@@ -220,6 +221,45 @@ const ownerSharedOperationalKey = await decryptVaultKeyShare(
 assert.equal(ownerSharedOperationalKey.extractable, false);
 await expectExportRejected('raw', ownerSharedOperationalKey);
 assert.deepEqual(await decryptData(encryptedPayload, ownerSharedOperationalKey), { compatibility: true });
+
+// Regressão: o share usa o wrapped key exato pareado com a KEK no desbloqueio,
+// persiste as chaves e permissões e continua utilizável após recarregar o estado.
+const persistedSharing = { keyShares: new Map(), groupShares: [] };
+const recipientKeyPair = await generateRSAKeyPair();
+const recipientPublicKey = await exportPublicKey(recipientKeyPair.publicKey);
+const recipientKek = await deriveMasterKey(
+  'TEST_RECIPIENT_PASSWORD_NOT_A_SECRET',
+  'recipient-salt-0123456789abcdef'
+);
+const recipientGeneratedMasterKey = await generateMasterKey();
+const recipientWrappedMasterKey = await wrapMasterKey(recipientGeneratedMasterKey, recipientKek);
+const recipientOperationalMasterKey = await unwrapMasterKey(
+  recipientWrappedMasterKey,
+  recipientKek
+);
+const recipientEncryptedPrivateKey = await encryptPrivateKey(
+  recipientKeyPair.privateKey,
+  recipientOperationalMasterKey
+);
+const transientEncryptedKeys = await encryptWrappedVaultKeyForPublicKeys(
+  wrappedMasterKey,
+  kek,
+  [recipientPublicKey]
+);
+persistedSharing.keyShares.set('recipient-user', transientEncryptedKeys[0]);
+persistedSharing.groupShares = [{ group_id: 'shared-group', can_view: true }];
+
+const reloadedGroupShares = structuredClone(persistedSharing.groupShares);
+const reloadedEncryptedKey = persistedSharing.keyShares.get('recipient-user');
+assert.deepEqual(reloadedGroupShares, [{ group_id: 'shared-group', can_view: true }]);
+const reloadedSharedKey = await decryptVaultKeyShare(
+  reloadedEncryptedKey,
+  recipientEncryptedPrivateKey,
+  recipientOperationalMasterKey
+);
+assert.equal(reloadedSharedKey.extractable, false);
+await expectExportRejected('raw', reloadedSharedKey);
+assert.deepEqual(await decryptData(encryptedPayload, reloadedSharedKey), { compatibility: true });
 
 stdout.write(
   `Crypto parameter, extractability and compatibility tests passed ` +

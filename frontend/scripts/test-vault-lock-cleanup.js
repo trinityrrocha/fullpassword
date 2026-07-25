@@ -16,10 +16,11 @@ const copyButton = read('src/components/CopyButton.jsx');
 const app = read('src/App.jsx');
 
 assert.match(authContext, /vaultLockCleanupsRef = useRef\(new Set\(\)\)/);
-assert.match(authContext, /masterKeyKekRef = useRef\(null\)/);
-assert.match(authContext, /notifyVaultLockCleanups\(\);\s+masterKeyKekRef\.current = null;\s+setMasterKey\(null\)/);
-assert.match(authContext, /const key = await unwrapMasterKey\(wrappedKeyStr, kek\);\s+masterKeyKekRef\.current = kek;\s+setMasterKey\(key\)/);
+assert.match(authContext, /transientMasterKeySourceRef = useRef\(null\)/);
+assert.match(authContext, /notifyVaultLockCleanups\(\);\s+transientMasterKeySourceRef\.current = null;\s+setMasterKey\(null\)/);
+assert.match(authContext, /const key = await unwrapMasterKey\(wrappedKeyStr, kek\);\s+transientMasterKeySourceRef\.current = \{ kek, wrappedKey: wrappedKeyStr \};\s+setMasterKey\(key\)/);
 assert.doesNotMatch(authContext, /setMasterKey\(transientMasterKey\)/);
+assert.doesNotMatch(authContext, /user\?\.wrapped_key[\s\S]{0,300}encryptWrappedVaultKeyForPublicKeys/);
 assert.match(authContext, /navigator\.clipboard\?\.writeText/);
 assert.match(authContext, /setVaultStateEpoch\(\(current\) => current \+ 1\)/);
 assert.match(clearHook, /registerVaultLockCleanup\(\(\) => clearCallbackRef\.current\(\)\)/);

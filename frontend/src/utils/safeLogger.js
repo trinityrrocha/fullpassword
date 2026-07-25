@@ -3,11 +3,16 @@ const normalizeLogValue = (value, maxLength = 120) => {
   return String(value).replace(/[\r\n\t]+/g, ' ').slice(0, maxLength);
 };
 
-const sanitizeErrorForLog = (error) => {
+const sanitizeErrorForLog = (error, options = {}) => {
   const details = {
     name: normalizeLogValue(error?.name || 'Error'),
     code: normalizeLogValue(error?.code),
-    status: Number(error?.response?.status || error?.status || 0) || undefined
+    status: Number(error?.response?.status || error?.status || 0) || undefined,
+    stage: normalizeLogValue(options.stage),
+    message: options.includeMessage ? normalizeLogValue(error?.message, 240) : undefined,
+    apiError: options.includeApiError
+      ? normalizeLogValue(error?.response?.data?.error, 240)
+      : undefined
   };
 
   if (import.meta.env.DEV && typeof error?.stack === 'string') {
@@ -17,8 +22,11 @@ const sanitizeErrorForLog = (error) => {
   return Object.fromEntries(Object.entries(details).filter(([, value]) => value !== undefined));
 };
 
-export const safeLogError = (context, error) => {
-  console.error(normalizeLogValue(context, 200) || 'Erro interno no frontend.', sanitizeErrorForLog(error));
+export const safeLogError = (context, error, options = {}) => {
+  console.error(
+    normalizeLogValue(context, 200) || 'Erro interno no frontend.',
+    sanitizeErrorForLog(error, options)
+  );
 };
 
 export const safeLogInfo = (message) => {

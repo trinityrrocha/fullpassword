@@ -3,7 +3,6 @@ import api from '../services/api';
 import { 
   deriveMasterKey, 
   unwrapMasterKey, 
-  unwrapMasterKeyForTransientUse,
   generateRSAKeyPair, 
   exportPublicKey, 
   encryptPrivateKey,
@@ -12,7 +11,7 @@ import {
   isValidCryptoSalt,
   resolveKdfParams
 } from '../services/cryptoService';
-import { encryptVaultKeyForPublicKeys } from '../services/clientVaultKeyService';
+import { encryptWrappedVaultKeyForPublicKeys } from '../services/clientVaultKeyService';
 import { safeLogError, safeLogInfo } from '../utils/safeLogger';
 
 const AuthContext = createContext(null);
@@ -26,9 +25,9 @@ export const AuthProvider = ({ children }) => {
   const [vaultStateEpoch, setVaultStateEpoch] = useState(0);
   const [loading, setLoading] = useState(true);
   const lastActivityRef = useRef(null);
-  // KEK non-extractable mantida fora do valor público do contexto. Ela permite
-  // reabrir uma Master Key exportável apenas dentro do fluxo transitório de share.
-  const masterKeyKekRef = useRef(null);
+  // O par cifrado/KEK exato que concluiu o desbloqueio fica fora do valor
+  // público do contexto. Nenhuma chave exportável é mantida nesta referência.
+  const transientMasterKeySourceRef = useRef(null);
   const vaultLockCleanupsRef = useRef(new Set());
 
   const registerVaultLockCleanup = useCallback((cleanup) => {
@@ -128,10 +127,10 @@ export const AuthProvider = ({ children }) => {
   };
 
   const clearSensitiveVaultState = useCallback((reason = 'manual') => {
-    const hadSensitiveKey = Boolean(masterKey || masterKeyKekRef.current);
+    const hadSensitiveKey = Boolean(masterKey || transientMasterKeySourceRef.current);
     if (!hadSensitiveKey) return false;
     notifyVaultLockCleanups();
-    masterKeyKekRef.current = null;
+    transientMasterKeySourceRef.current = null;
     setMasterKey(null);
     setVaultLockReason(reason);
     setVaultStateEpoch((current) => current + 1);
@@ -181,7 +180,7 @@ export const AuthProvider = ({ children }) => {
       safeLogError('Erro ao encerrar sessão no servidor.', error);
     } finally {
       notifyVaultLockCleanups();
-      masterKeyKekRef.current = null;
+      transientMasterKeySourceRef.current = null;
       setUser(null);
       setMasterKey(null);
       setVaultLockReason(null);
@@ -193,7 +192,7 @@ export const AuthProvider = ({ children }) => {
     try {
       const kek = await deriveMasterKey(password, saltStr, resolveKdfParams(user || {}));
       const key = await unwrapMasterKey(wrappedKeyStr, kek);
-      masterKeyKekRef.current = kek;
+      transientMasterKeySourceRef.current = { kek, wrappedKey: wrappedKeyStr };
       setMasterKey(key);
       setVaultLockReason(null);
 
@@ -247,20 +246,19 @@ export const AuthProvider = ({ children }) => {
   };
 
   const encryptOwnerVaultKeyForPublicKeys = useCallback(async (publicKeysBase64) => {
-    const kek = masterKeyKekRef.current;
-    const wrappedKey = user?.wrapped_key;
-    if (!masterKey || !kek || !wrappedKey) {
-      throw new Error('Cofre bloqueado. Desbloqueie novamente antes de compartilhar.');
+    const source = transientMasterKeySourceRef.current;
+    if (!masterKey || !source?.kek || !source?.wrappedKey) {
+      const error = new Error('Cofre bloqueado. Desbloqueie novamente antes de compartilhar.');
+      error.code = 'VAULT_LOCKED';
+      throw error;
     }
 
-    /*
-     * A variante extractable nasce somente para cifrar a chave do proprietário
-     * aos destinatários. Ela fica restrita a este escopo léxico, não entra em
-     * state/context/ref e perde sua única referência quando a operação termina.
-     */
-    const transientMasterKey = await unwrapMasterKeyForTransientUse(wrappedKey, kek, 'share');
-    return encryptVaultKeyForPublicKeys(transientMasterKey, publicKeysBase64);
-  }, [masterKey, user?.wrapped_key]);
+    return encryptWrappedVaultKeyForPublicKeys(
+      source.wrappedKey,
+      source.kek,
+      publicKeysBase64
+    );
+  }, [masterKey]);
 
   const value = {
     user,

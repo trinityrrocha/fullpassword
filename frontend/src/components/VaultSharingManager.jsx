@@ -28,6 +28,16 @@ const getPermissionSummary = (group = {}) => {
   return permissions.length ? permissions.join(', ') : 'Sem permissão definida';
 };
 
+const getSharingErrorMessage = (error) => {
+  if (error?.code === 'VAULT_LOCKED') {
+    return 'Desbloqueie o cofre antes de compartilhar.';
+  }
+  if (String(error?.message || '').startsWith('Nenhuma chave foi alterada.')) {
+    return error.message;
+  }
+  return 'Não foi possível salvar o compartilhamento do cofre. Atualize a página, desbloqueie o cofre e tente novamente.';
+};
+
 export default function VaultSharingManager({ clientId, prepareKeyShares, compact = false }) {
   const [groups, setGroups] = useState([]);
   const [shares, setShares] = useState([]);
@@ -100,7 +110,9 @@ export default function VaultSharingManager({ clientId, prepareKeyShares, compac
 
   const syncKeyShares = async (groupIds) => {
     if (typeof prepareKeyShares !== 'function') {
-      throw new Error('A chave do cofre ainda não foi carregada. Desbloqueie o cofre novamente antes de compartilhar.');
+      const error = new Error('A chave do cofre ainda não foi carregada.');
+      error.code = 'VAULT_LOCKED';
+      throw error;
     }
 
     const usersResponse = await api.get('/users');
@@ -155,15 +167,21 @@ export default function VaultSharingManager({ clientId, prepareKeyShares, compac
     }
 
     setIsSaving(true);
+    let stage = 'prepare_key_shares';
     try {
       await syncKeyShares([...uniqueGroupIds]);
+      stage = 'persist_group_shares';
       await api.put(`/vault-items/${clientId}/shares`, { shares: cleanedShares });
-      alert('Compartilhamento do cofre atualizado com sucesso.');
-
+      stage = 'reload_group_shares';
       await loadSharingData();
+      alert('Compartilhamento do cofre atualizado com sucesso.');
     } catch (err) {
-      safeLogError('Erro ao salvar compartilhamento.', err);
-      alert(err.message || err.response?.data?.error || 'Erro ao salvar compartilhamento do cofre.');
+      safeLogError('Erro ao salvar compartilhamento.', err, {
+        stage,
+        includeMessage: true,
+        includeApiError: true
+      });
+      alert(getSharingErrorMessage(err));
     } finally {
       setIsSaving(false);
     }
@@ -171,16 +189,22 @@ export default function VaultSharingManager({ clientId, prepareKeyShares, compac
 
   const resyncKeyShares = async () => {
     setIsSyncing(true);
+    let stage = 'load_group_shares';
     try {
       const sharesResponse = await api.get(`/vault-items/${clientId}/shares`);
       const currentShares = (sharesResponse.data || []).map(normalizeShare);
       const currentGroupIds = currentShares.map((share) => share.group_id).filter(Boolean);
       setShares(currentShares);
+      stage = 'prepare_key_shares';
       await syncKeyShares(currentGroupIds);
       alert('Chaves do compartilhamento ressincronizadas com sucesso.');
     } catch (err) {
-      safeLogError('Erro ao ressincronizar chaves do compartilhamento.', err);
-      alert(err.message || err.response?.data?.error || 'Erro ao ressincronizar chaves do compartilhamento.');
+      safeLogError('Erro ao ressincronizar chaves do compartilhamento.', err, {
+        stage,
+        includeMessage: true,
+        includeApiError: true
+      });
+      alert(getSharingErrorMessage(err));
     } finally {
       setIsSyncing(false);
     }
