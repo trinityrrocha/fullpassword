@@ -6,8 +6,10 @@ import {
   generateRSAKeyPair, 
   exportPublicKey, 
   encryptPrivateKey,
+  CRYPTO_KDF_PARAMS_INVALID_ERROR,
   CRYPTO_SALT_REQUIRED_ERROR,
-  isValidCryptoSalt
+  isValidCryptoSalt,
+  resolveKdfParams
 } from '../services/cryptoService';
 import { safeLogError, safeLogInfo } from '../utils/safeLogger';
 
@@ -33,6 +35,15 @@ export const AuthProvider = ({ children }) => {
       return {
         success: false,
         error: 'Não foi possível inicializar a chave criptográfica do usuário. Entre em contato com o administrador.'
+      };
+    }
+    try {
+      resolveKdfParams(data.user);
+    } catch (error) {
+      safeLogError('Resposta de autenticação com parâmetros KDF inválidos.', error);
+      return {
+        success: false,
+        error: 'Não foi possível validar os parâmetros criptográficos do usuário. Entre em contato com o administrador.'
       };
     }
     setUser(data.user);
@@ -147,7 +158,7 @@ export const AuthProvider = ({ children }) => {
 
   const unlockVault = async (password, wrappedKeyStr, saltStr) => {
     try {
-      const kek = await deriveMasterKey(password, saltStr);
+      const kek = await deriveMasterKey(password, saltStr, resolveKdfParams(user || {}));
       const key = await unwrapMasterKey(wrappedKeyStr, kek);
       setMasterKey(key);
       setVaultLockReason(null);
@@ -161,20 +172,23 @@ export const AuthProvider = ({ children }) => {
           const publicKeyStr = await exportPublicKey(keyPair.publicKey);
           const encryptedPrivateKeyStr = await encryptPrivateKey(keyPair.privateKey, key);
           
-          await api.put('/users/keys', {
+          const keysResponse = await api.put('/users/keys', {
             public_key: publicKeyStr,
             encrypted_private_key: encryptedPrivateKeyStr
           });
+          const rsaMetadata = keysResponse.data?.key_metadata || {};
           
           unlockedUser = {
             ...currentUser,
             public_key: publicKeyStr,
-            encrypted_private_key: encryptedPrivateKeyStr
+            encrypted_private_key: encryptedPrivateKeyStr,
+            ...rsaMetadata
           };
           setUser((existingUser) => ({
             ...existingUser,
             public_key: publicKeyStr,
-            encrypted_private_key: encryptedPrivateKeyStr
+            encrypted_private_key: encryptedPrivateKeyStr,
+            ...rsaMetadata
           }));
           safeLogInfo('Chaves RSA salvas para compartilhamento de cofres.');
         } catch (rsaError) {
@@ -184,11 +198,13 @@ export const AuthProvider = ({ children }) => {
 
       return { success: true, key, user: unlockedUser };
     } catch (error) {
-      if (error?.code === CRYPTO_SALT_REQUIRED_ERROR) {
+      if ([CRYPTO_SALT_REQUIRED_ERROR, CRYPTO_KDF_PARAMS_INVALID_ERROR].includes(error?.code)) {
         safeLogError('Não foi possível inicializar a chave criptográfica do usuário.', error);
         return {
           success: false,
-          error: 'Não foi possível inicializar a chave criptográfica do usuário. Entre em contato com o administrador.'
+          error: error.code === CRYPTO_KDF_PARAMS_INVALID_ERROR
+            ? 'Os parâmetros criptográficos do usuário são inválidos. Entre em contato com o administrador.'
+            : 'Não foi possível inicializar a chave criptográfica do usuário. Entre em contato com o administrador.'
         };
       }
       console.warn('Não foi possível validar a senha mestre informada.');

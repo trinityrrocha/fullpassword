@@ -36,7 +36,17 @@ const { encryptBackupPayload } = require('../src/controllers/systemController');
 const passphrase = 'TEST_BACKUP_PASSPHRASE_1234567890';
 const makeEmptyTables = () => Object.fromEntries(BACKUP_TABLES.map((table) => [table, []]));
 let tables = makeEmptyTables();
-tables.users.push({ id: 1, email: 'admin@example.com', password_hash: 'argon2-test-hash' });
+tables.users.push({
+  id: 1,
+  email: 'admin@example.com',
+  password_hash: 'argon2-test-hash',
+  kdf_version: 2,
+  kdf_name: 'PBKDF2',
+  kdf_hash: 'SHA-256',
+  kdf_iterations: 310000,
+  rsa_key_size: 3072,
+  rsa_key_version: 2
+});
 tables.groups.push({ id: 1, name: 'Test group' });
 tables.user_groups.push({ id: 1, user_id: 1, group_id: 1 });
 tables.clients.push({ id: 1, name: 'Large attachment client', encrypted_data: 'client-ciphertext' });

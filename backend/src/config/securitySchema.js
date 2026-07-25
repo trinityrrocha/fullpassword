@@ -42,6 +42,12 @@ const ensureSecuritySchema = async () => {
     await client.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS mfa_required BOOLEAN NOT NULL DEFAULT FALSE');
     await client.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS password_changed_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP');
     await client.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS password_change_notice_dismissed_at TIMESTAMP WITH TIME ZONE');
+    await client.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS kdf_version INTEGER NOT NULL DEFAULT 1');
+    await client.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS kdf_name TEXT NOT NULL DEFAULT 'PBKDF2'");
+    await client.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS kdf_hash TEXT NOT NULL DEFAULT 'SHA-256'");
+    await client.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS kdf_iterations INTEGER NOT NULL DEFAULT 100000');
+    await client.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS rsa_key_size INTEGER NOT NULL DEFAULT 2048');
+    await client.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS rsa_key_version INTEGER NOT NULL DEFAULT 1');
     await client.query('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_lower_unique ON users (LOWER(email))');
     await client.query(`
       CREATE TABLE IF NOT EXISTS password_policy_settings (

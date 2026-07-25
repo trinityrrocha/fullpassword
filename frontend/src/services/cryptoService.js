@@ -37,24 +37,76 @@ const base64ToBuffer = (base64) => {
 };
 
 /**
- * Deriva uma chave mestra (Master Key) a partir da senha do usuário.
- * Utiliza PBKDF2 com SHA-256 e 100.000 iterações.
+ * Deriva uma Key Encryption Key (KEK) a partir da senha do usuário.
+ * Novos wraps usam PBKDF2-SHA-256 com 310.000 iterações. O fallback de
+ * 100.000 iterações existe somente para dados legados sem metadados.
  * @param {string} password - A senha em texto claro
  * @param {string} saltString - O salt criptográfico único do usuário
- * @returns {Promise<CryptoKey>} - A chave criptográfica utilizável para AES-GCM
+ * @returns {Promise<CryptoKey>} - A KEK usada apenas para wrap/unwrap da Master Key
  */
 export const CRYPTO_SALT_REQUIRED_ERROR = 'CRYPTO_SALT_REQUIRED';
+export const CRYPTO_KDF_PARAMS_INVALID_ERROR = 'CRYPTO_KDF_PARAMS_INVALID';
+export const LEGACY_KDF_PARAMS = Object.freeze({
+  version: 1,
+  name: 'PBKDF2',
+  hash: 'SHA-256',
+  iterations: 100000
+});
+export const KDF_PARAMS = Object.freeze({
+  version: 2,
+  name: 'PBKDF2',
+  hash: 'SHA-256',
+  iterations: 310000
+});
+export const LEGACY_RSA_KEY_PARAMS = Object.freeze({
+  version: 1,
+  modulusLength: 2048
+});
+export const RSA_KEY_PARAMS = Object.freeze({
+  version: 2,
+  modulusLength: 3072
+});
+
 export const isValidCryptoSalt = (saltString) => (
   typeof saltString === 'string' && saltString.trim().length >= 16
 );
 
-export const deriveMasterKey = async (password, saltString) => {
+export const resolveKdfParams = (options = {}) => {
+  const hasStoredIterations = options?.kdf_iterations !== undefined || options?.iterations !== undefined;
+  if (!hasStoredIterations) return LEGACY_KDF_PARAMS;
+
+  const params = {
+    version: Number(options.kdf_version ?? options.version),
+    name: options.kdf_name ?? options.name,
+    hash: options.kdf_hash ?? options.hash,
+    iterations: Number(options.kdf_iterations ?? options.iterations)
+  };
+
+  if (
+    !Number.isInteger(params.version)
+    || params.version < LEGACY_KDF_PARAMS.version
+    || params.name !== 'PBKDF2'
+    || params.hash !== 'SHA-256'
+    || !Number.isInteger(params.iterations)
+    || params.iterations < LEGACY_KDF_PARAMS.iterations
+    || params.iterations > 2000000
+  ) {
+    const error = new Error('Parâmetros KDF inválidos');
+    error.code = CRYPTO_KDF_PARAMS_INVALID_ERROR;
+    throw error;
+  }
+
+  return params;
+};
+
+export const deriveMasterKey = async (password, saltString, options = {}) => {
   if (!isValidCryptoSalt(saltString)) {
     const error = new Error('Salt criptográfico único por usuário é obrigatório');
     error.code = CRYPTO_SALT_REQUIRED_ERROR;
     throw error;
   }
 
+  const params = resolveKdfParams(options);
   const enc = new TextEncoder();
   const keyMaterial = await window.crypto.subtle.importKey(
     'raw',
@@ -70,8 +122,8 @@ export const deriveMasterKey = async (password, saltString) => {
     {
       name: 'PBKDF2',
       salt: salt,
-      iterations: 100000,
-      hash: 'SHA-256'
+      iterations: params.iterations,
+      hash: params.hash
     },
     keyMaterial,
     { name: 'AES-GCM', length: 256 },
@@ -316,12 +368,12 @@ export const downloadBlob = (blob, fileName) => {
  * Usado para compartilhamento seguro de cofres
  */
 
-// Gera um par de chaves RSA-OAEP (2048 bits)
+// Novos pares usam RSA-3072; importPublicKey/decryptPrivateKey mantêm RSA-2048 legado.
 export const generateRSAKeyPair = async () => {
   return await window.crypto.subtle.generateKey(
     {
       name: "RSA-OAEP",
-      modulusLength: 2048,
+      modulusLength: RSA_KEY_PARAMS.modulusLength,
       publicExponent: new Uint8Array([1, 0, 1]), // 65537
       hash: "SHA-256",
     },

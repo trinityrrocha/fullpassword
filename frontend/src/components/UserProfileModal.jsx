@@ -2,7 +2,16 @@ import { useState, useEffect } from 'react';
 import { User, Lock, Loader2, AlertTriangle, ShieldCheck } from 'lucide-react';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
-import { CRYPTO_SALT_REQUIRED_ERROR, deriveMasterKey, isValidCryptoSalt, unwrapMasterKey, wrapMasterKey } from '../services/cryptoService';
+import {
+  CRYPTO_KDF_PARAMS_INVALID_ERROR,
+  CRYPTO_SALT_REQUIRED_ERROR,
+  KDF_PARAMS,
+  deriveMasterKey,
+  isValidCryptoSalt,
+  resolveKdfParams,
+  unwrapMasterKey,
+  wrapMasterKey
+} from '../services/cryptoService';
 import { safeLogError } from '../utils/safeLogger';
 import SecurePasswordInput from './SecurePasswordInput';
 import RecoveryCodesPanel from './RecoveryCodesPanel';
@@ -105,7 +114,11 @@ export default function UserProfileModal({ isOpen, onClose, forcePasswordChange 
           throw cryptoError;
         }
 
-        const currentKek = await deriveMasterKey(formData.currentPassword, currentSalt);
+        const currentKek = await deriveMasterKey(
+          formData.currentPassword,
+          currentSalt,
+          resolveKdfParams(user)
+        );
 
         let masterKey;
         try {
@@ -114,11 +127,15 @@ export default function UserProfileModal({ isOpen, onClose, forcePasswordChange 
           throw new Error('Senha atual incorreta. Não foi possível acessar a chave mestra.', { cause: err });
         }
 
-        const newKek = await deriveMasterKey(formData.newPassword, currentSalt);
+        const newKek = await deriveMasterKey(formData.newPassword, currentSalt, KDF_PARAMS);
         const newWrappedKey = await wrapMasterKey(masterKey, newKek);
 
         payload.new_password = formData.newPassword;
         payload.wrapped_key = newWrappedKey;
+        payload.kdf_version = KDF_PARAMS.version;
+        payload.kdf_name = KDF_PARAMS.name;
+        payload.kdf_hash = KDF_PARAMS.hash;
+        payload.kdf_iterations = KDF_PARAMS.iterations;
       }
 
       const response = await api.put('/users/profile', payload);
@@ -148,7 +165,7 @@ export default function UserProfileModal({ isOpen, onClose, forcePasswordChange 
     } catch (err) {
       safeLogError('Falha ao atualizar o perfil.', err);
       setError(
-        err?.code === CRYPTO_SALT_REQUIRED_ERROR
+        [CRYPTO_SALT_REQUIRED_ERROR, CRYPTO_KDF_PARAMS_INVALID_ERROR].includes(err?.code)
           ? 'Não foi possível inicializar a chave criptográfica do usuário. Entre em contato com o administrador.'
           : err.message || err.response?.data?.error || 'Erro ao atualizar perfil.'
       );

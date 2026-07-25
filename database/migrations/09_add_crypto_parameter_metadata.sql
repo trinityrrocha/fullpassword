@@ -1,0 +1,12 @@
+BEGIN;
+
+-- Defaults legados classificam com segurança as linhas existentes.
+-- Novos usuários recebem os parâmetros atuais explicitamente nos INSERT/UPDATE.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS kdf_version INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS kdf_name TEXT NOT NULL DEFAULT 'PBKDF2';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS kdf_hash TEXT NOT NULL DEFAULT 'SHA-256';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS kdf_iterations INTEGER NOT NULL DEFAULT 100000;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS rsa_key_size INTEGER NOT NULL DEFAULT 2048;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS rsa_key_version INTEGER NOT NULL DEFAULT 1;
+
+COMMIT;

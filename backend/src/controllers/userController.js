@@ -6,6 +6,13 @@ const { isSuperAdmin, normalizeEmail } = require('../config/security');
 const { recordAuditEvent } = require('../services/auditService');
 const { rejectWeakPassword } = require('../services/passwordPolicyService');
 const { safeLogError } = require('../utils/safeLogger');
+const {
+  CURRENT_KDF_PARAMS,
+  CURRENT_RSA_PARAMS,
+  deriveKek,
+  matchesCurrentKdfMetadata,
+  getRsaPublicKeySize
+} = require('../config/cryptoParameters');
 const VALID_ROLES = new Set(['admin', 'user']);
 
 const getValidGroupIds = async (groupIds = []) => {
@@ -65,7 +72,7 @@ const getUsers = async (req, res) => {
 
     const result = await db.query(
       `SELECT id, name, email, role, is_active, is_super_admin, must_change_password, mfa_required,
-              public_key, created_at,
+              public_key, rsa_key_size, rsa_key_version, created_at,
               EXISTS(SELECT 1 FROM user_mfa_settings m WHERE m.user_id = users.id AND m.enabled = TRUE) AS mfa_enabled
        FROM users
        ORDER BY name ASC`
@@ -118,7 +125,7 @@ const createUser = async (req, res) => {
     const hashSenhaLogin = await argon2.hash(password);
     const cryptoSalt = crypto.randomBytes(32).toString('hex');
     const masterKeyBuffer = crypto.randomBytes(32);
-    const kekBuffer = crypto.pbkdf2Sync(password, cryptoSalt, 100000, 32, 'sha256');
+    const kekBuffer = await deriveKek(password, cryptoSalt, CURRENT_KDF_PARAMS);
 
     const iv = crypto.randomBytes(12);
     const cipher = crypto.createCipheriv('aes-256-gcm', kekBuffer, iv);
@@ -131,9 +138,28 @@ const createUser = async (req, res) => {
     await client.query('BEGIN');
 
     const result = await client.query(
-      `INSERT INTO users (name, email, hash_senha_login, role, wrapped_key, crypto_salt, mfa_required)
-       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, name, email, role, is_active, mfa_required, created_at`,
-      [name, normalizedEmail, hashSenhaLogin, role || 'user', wrappedKey, cryptoSalt, mfa_required === true]
+      `INSERT INTO users (
+         name, email, hash_senha_login, role, wrapped_key, crypto_salt, mfa_required,
+         kdf_version, kdf_name, kdf_hash, kdf_iterations, rsa_key_size, rsa_key_version
+       )
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+       RETURNING id, name, email, role, is_active, mfa_required, kdf_version, kdf_name,
+                 kdf_hash, kdf_iterations, rsa_key_size, rsa_key_version, created_at`,
+      [
+        name,
+        normalizedEmail,
+        hashSenhaLogin,
+        role || 'user',
+        wrappedKey,
+        cryptoSalt,
+        mfa_required === true,
+        CURRENT_KDF_PARAMS.version,
+        CURRENT_KDF_PARAMS.name,
+        CURRENT_KDF_PARAMS.hash,
+        CURRENT_KDF_PARAMS.iterations,
+        CURRENT_RSA_PARAMS.modulusLength,
+        CURRENT_RSA_PARAMS.version
+      ]
     );
 
     const newUser = result.rows[0];
@@ -185,6 +211,12 @@ const updateProfile = async (req, res) => {
     if (Boolean(new_password) !== Boolean(wrapped_key)) {
       return res.status(400).json({ error: 'Nova senha e chave envelopada devem ser enviadas juntas' });
     }
+    if (new_password && !matchesCurrentKdfMetadata(req.body)) {
+      return res.status(409).json({
+        error: 'Atualize a aplicação antes de trocar a senha.',
+        code: 'CURRENT_KDF_METADATA_REQUIRED'
+      });
+    }
 
     await client.query('BEGIN');
     const currentResult = await client.query(
@@ -214,9 +246,20 @@ const updateProfile = async (req, res) => {
       
       await client.query(
         `UPDATE users SET name = $1, email = $2, hash_senha_login = $3, wrapped_key = $4,
+                          kdf_version = $5, kdf_name = $6, kdf_hash = $7, kdf_iterations = $8,
                           token_version = token_version + 1, updated_at = CURRENT_TIMESTAMP
-         WHERE id = $5`,
-        [name, normalizedEmail, hashSenhaLogin, wrapped_key, userId]
+         WHERE id = $9`,
+        [
+          name,
+          normalizedEmail,
+          hashSenhaLogin,
+          wrapped_key,
+          CURRENT_KDF_PARAMS.version,
+          CURRENT_KDF_PARAMS.name,
+          CURRENT_KDF_PARAMS.hash,
+          CURRENT_KDF_PARAMS.iterations,
+          userId
+        ]
       );
     } else {
       await client.query(
@@ -234,7 +277,10 @@ const updateProfile = async (req, res) => {
     }
 
     const result = await client.query(
-      'SELECT id, name, email, role, wrapped_key, crypto_salt FROM users WHERE id = $1',
+      `SELECT id, name, email, role, wrapped_key, crypto_salt,
+              kdf_version, kdf_name, kdf_hash, kdf_iterations,
+              public_key, encrypted_private_key, rsa_key_size, rsa_key_version
+       FROM users WHERE id = $1`,
       [userId]
     );
 
@@ -354,7 +400,7 @@ const updateUser = async (req, res) => {
 
       const cryptoSalt = crypto.randomBytes(32).toString('hex');
       const masterKeyBuffer = crypto.randomBytes(32);
-      const kekBuffer = crypto.pbkdf2Sync(password, cryptoSalt, 100000, 32, 'sha256');
+      const kekBuffer = await deriveKek(password, cryptoSalt, CURRENT_KDF_PARAMS);
 
       const iv = crypto.randomBytes(12);
       const cipher = crypto.createCipheriv('aes-256-gcm', kekBuffer, iv);
@@ -372,6 +418,18 @@ const updateUser = async (req, res) => {
       values.push(null);
       updates.push(`encrypted_private_key = $${paramIndex++}`);
       values.push(null);
+      updates.push(`kdf_version = $${paramIndex++}`);
+      values.push(CURRENT_KDF_PARAMS.version);
+      updates.push(`kdf_name = $${paramIndex++}`);
+      values.push(CURRENT_KDF_PARAMS.name);
+      updates.push(`kdf_hash = $${paramIndex++}`);
+      values.push(CURRENT_KDF_PARAMS.hash);
+      updates.push(`kdf_iterations = $${paramIndex++}`);
+      values.push(CURRENT_KDF_PARAMS.iterations);
+      updates.push(`rsa_key_size = $${paramIndex++}`);
+      values.push(CURRENT_RSA_PARAMS.modulusLength);
+      updates.push(`rsa_key_version = $${paramIndex++}`);
+      values.push(CURRENT_RSA_PARAMS.version);
     }
 
     if (password || role !== undefined || is_active !== undefined || email !== undefined) {
@@ -387,12 +445,14 @@ const updateUser = async (req, res) => {
     let updatedUser = null;
     if (updates.length > 0) {
       values.push(id);
-      const query = `UPDATE users SET ${updates.join(', ')} WHERE id = $${paramIndex} RETURNING id, name, email, role, is_active, is_super_admin, must_change_password, mfa_required`;
+      const query = `UPDATE users SET ${updates.join(', ')} WHERE id = $${paramIndex} RETURNING id, name, email, role, is_active, is_super_admin, must_change_password, mfa_required, kdf_version, kdf_name, kdf_hash, kdf_iterations, rsa_key_size, rsa_key_version`;
       const result = await client.query(query, values);
       updatedUser = result.rows[0];
     } else {
       const result = await client.query(
-        'SELECT id, name, email, role, is_active, is_super_admin, must_change_password, mfa_required FROM users WHERE id = $1',
+        `SELECT id, name, email, role, is_active, is_super_admin, must_change_password, mfa_required,
+                kdf_version, kdf_name, kdf_hash, kdf_iterations, rsa_key_size, rsa_key_version
+         FROM users WHERE id = $1`,
         [id]
       );
       updatedUser = result.rows[0];
@@ -586,12 +646,38 @@ const updateKeys = async (req, res) => {
       return res.status(400).json({ error: 'Chaves pública e privada são obrigatórias' });
     }
 
-    await db.query(
-      'UPDATE users SET public_key = $1, encrypted_private_key = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3',
-      [public_key, encrypted_private_key, userId]
+    let modulusLength;
+    try {
+      modulusLength = getRsaPublicKeySize(public_key);
+    } catch {
+      return res.status(400).json({ error: 'Chave pública RSA inválida' });
+    }
+
+    if (modulusLength !== CURRENT_RSA_PARAMS.modulusLength) {
+      return res.status(400).json({
+        error: `Novos pares de chaves devem usar RSA-${CURRENT_RSA_PARAMS.modulusLength}`
+      });
+    }
+
+    const result = await db.query(
+      `UPDATE users
+       SET public_key = $1, encrypted_private_key = $2, rsa_key_size = $3, rsa_key_version = $4,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $5
+       RETURNING rsa_key_size, rsa_key_version`,
+      [
+        public_key,
+        encrypted_private_key,
+        CURRENT_RSA_PARAMS.modulusLength,
+        CURRENT_RSA_PARAMS.version,
+        userId
+      ]
     );
 
-    res.status(200).json({ message: 'Chaves criptográficas salvas com sucesso' });
+    res.status(200).json({
+      message: 'Chaves criptográficas salvas com sucesso',
+      key_metadata: result.rows[0]
+    });
   } catch (error) {
     safeLogError('Erro ao salvar chaves RSA.', error);
     res.status(500).json({ error: 'Erro interno ao salvar chaves' });

@@ -9,8 +9,14 @@ CREATE TABLE IF NOT EXISTS users (
     hash_senha_login VARCHAR(255) NOT NULL,
     wrapped_key TEXT, -- Master Key envelopada com a KEK derivada da senha
     crypto_salt VARCHAR(255), -- Salt usado para derivar a KEK
+    kdf_version INTEGER NOT NULL DEFAULT 1,
+    kdf_name TEXT NOT NULL DEFAULT 'PBKDF2',
+    kdf_hash TEXT NOT NULL DEFAULT 'SHA-256',
+    kdf_iterations INTEGER NOT NULL DEFAULT 100000,
     public_key TEXT, -- Chave pública RSA-OAEP (SPKI/Base64)
     encrypted_private_key TEXT, -- Chave privada RSA-OAEP criptografada com a Master Key
+    rsa_key_size INTEGER NOT NULL DEFAULT 2048,
+    rsa_key_version INTEGER NOT NULL DEFAULT 1,
     role VARCHAR(50) NOT NULL DEFAULT 'user',
     is_active BOOLEAN DEFAULT TRUE,
     is_super_admin BOOLEAN NOT NULL DEFAULT FALSE,
@@ -125,6 +131,12 @@ ALTER TABLE client_group_access ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WI
 ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS is_super_admin BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS kdf_version INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS kdf_name TEXT NOT NULL DEFAULT 'PBKDF2';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS kdf_hash TEXT NOT NULL DEFAULT 'SHA-256';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS kdf_iterations INTEGER NOT NULL DEFAULT 100000;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS rsa_key_size INTEGER NOT NULL DEFAULT 2048;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS rsa_key_version INTEGER NOT NULL DEFAULT 1;
 
 -- Protege o Super Admin permanente contra desativação ou rebaixamento de papel.
 CREATE OR REPLACE FUNCTION protect_super_admin_user()

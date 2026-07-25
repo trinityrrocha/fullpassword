@@ -10,6 +10,11 @@ const { ABSOLUTE_SESSION_MS, createUserSession, revokeTokenSession } = require('
 const { rejectWeakPassword } = require('../services/passwordPolicyService');
 const { safeLogError } = require('../utils/safeLogger');
 const {
+  CURRENT_KDF_PARAMS,
+  CURRENT_RSA_PARAMS,
+  deriveKek
+} = require('../config/cryptoParameters');
+const {
   ADMIN_BOOTSTRAP_TOKEN,
   SUPER_ADMIN_EMAIL,
   normalizeEmail,
@@ -63,8 +68,14 @@ const serializeUser = (user, groups = []) => ({
   password_change_recommended: isPasswordChangeRecommended(user),
   wrapped_key: user.wrapped_key,
   crypto_salt: user.crypto_salt,
+  kdf_version: user.kdf_version,
+  kdf_name: user.kdf_name,
+  kdf_hash: user.kdf_hash,
+  kdf_iterations: user.kdf_iterations,
   public_key: user.public_key,
   encrypted_private_key: user.encrypted_private_key,
+  rsa_key_size: user.rsa_key_size,
+  rsa_key_version: user.rsa_key_version,
   groups
 });
 
@@ -150,20 +161,47 @@ const bootstrapAdmin = async (req, res) => {
         `UPDATE users
          SET name = $1, email = $2, hash_senha_login = $3, wrapped_key = NULL,
              crypto_salt = NULL, public_key = NULL, encrypted_private_key = NULL,
+             kdf_version = $4, kdf_name = $5, kdf_hash = $6, kdf_iterations = $7,
+             rsa_key_size = $8, rsa_key_version = $9,
              role = 'admin', is_active = TRUE, is_super_admin = TRUE, must_change_password = FALSE,
              token_version = token_version + 1,
              updated_at = CURRENT_TIMESTAMP
-         WHERE email = $4 AND hash_senha_login = $5
+         WHERE email = $10 AND hash_senha_login = $11
          RETURNING id, name, email, role, is_active, is_super_admin, must_change_password`,
-        [String(name).trim(), adminEmail, passwordHash, LEGACY_ADMIN_EMAIL, LEGACY_ADMIN_HASH]
+        [
+          String(name).trim(),
+          adminEmail,
+          passwordHash,
+          CURRENT_KDF_PARAMS.version,
+          CURRENT_KDF_PARAMS.name,
+          CURRENT_KDF_PARAMS.hash,
+          CURRENT_KDF_PARAMS.iterations,
+          CURRENT_RSA_PARAMS.modulusLength,
+          CURRENT_RSA_PARAMS.version,
+          LEGACY_ADMIN_EMAIL,
+          LEGACY_ADMIN_HASH
+        ]
       );
       user = updated.rows[0];
     } else {
       const inserted = await client.query(
-        `INSERT INTO users (name, email, hash_senha_login, role, is_super_admin, must_change_password)
-         VALUES ($1, $2, $3, 'admin', TRUE, FALSE)
+        `INSERT INTO users (
+           name, email, hash_senha_login, role, is_super_admin, must_change_password,
+           kdf_version, kdf_name, kdf_hash, kdf_iterations, rsa_key_size, rsa_key_version
+         )
+         VALUES ($1, $2, $3, 'admin', TRUE, FALSE, $4, $5, $6, $7, $8, $9)
          RETURNING id, name, email, role, is_active, is_super_admin, must_change_password`,
-        [String(name).trim(), adminEmail, passwordHash]
+        [
+          String(name).trim(),
+          adminEmail,
+          passwordHash,
+          CURRENT_KDF_PARAMS.version,
+          CURRENT_KDF_PARAMS.name,
+          CURRENT_KDF_PARAMS.hash,
+          CURRENT_KDF_PARAMS.iterations,
+          CURRENT_RSA_PARAMS.modulusLength,
+          CURRENT_RSA_PARAMS.version
+        ]
       );
       user = inserted.rows[0];
     }
@@ -204,8 +242,10 @@ const login = async (req, res) => {
 
     const result = await db.query(
       `SELECT id, name, email, hash_senha_login, role, wrapped_key, crypto_salt,
+              kdf_version, kdf_name, kdf_hash, kdf_iterations,
               is_active, is_super_admin, must_change_password, mfa_required,
-              public_key, encrypted_private_key, token_version, password_changed_at,
+              public_key, encrypted_private_key, rsa_key_size, rsa_key_version,
+              token_version, password_changed_at,
               (SELECT password_change_notice_months FROM password_policy_settings WHERE id = 1) AS password_change_notice_months
        FROM users WHERE LOWER(email) = $1`,
       [email]
@@ -237,14 +277,26 @@ const login = async (req, res) => {
     if (!user.wrapped_key) {
       finalCryptoSalt = crypto.randomBytes(32).toString('hex');
       const masterKeyBuffer = crypto.randomBytes(32);
-      const kekBuffer = crypto.pbkdf2Sync(password, finalCryptoSalt, 100000, 32, 'sha256');
+      const kekBuffer = await deriveKek(password, finalCryptoSalt, CURRENT_KDF_PARAMS);
       const iv = crypto.randomBytes(12);
       const cipher = crypto.createCipheriv('aes-256-gcm', kekBuffer, iv);
       const ciphertext = Buffer.concat([cipher.update(masterKeyBuffer), cipher.final(), cipher.getAuthTag()]);
       finalWrappedKey = `${iv.toString('base64')}:${ciphertext.toString('base64')}`;
       await db.query(
-        'UPDATE users SET wrapped_key = $1, crypto_salt = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3',
-        [finalWrappedKey, finalCryptoSalt, user.id]
+        `UPDATE users
+         SET wrapped_key = $1, crypto_salt = $2,
+             kdf_version = $3, kdf_name = $4, kdf_hash = $5, kdf_iterations = $6,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $7`,
+        [
+          finalWrappedKey,
+          finalCryptoSalt,
+          CURRENT_KDF_PARAMS.version,
+          CURRENT_KDF_PARAMS.name,
+          CURRENT_KDF_PARAMS.hash,
+          CURRENT_KDF_PARAMS.iterations,
+          user.id
+        ]
       );
     }
 
@@ -257,7 +309,17 @@ const login = async (req, res) => {
       });
     }
 
-    const sessionUser = { ...user, wrapped_key: finalWrappedKey, crypto_salt: finalCryptoSalt };
+    const sessionUser = {
+      ...user,
+      wrapped_key: finalWrappedKey,
+      crypto_salt: finalCryptoSalt,
+      ...(!user.wrapped_key ? {
+        kdf_version: CURRENT_KDF_PARAMS.version,
+        kdf_name: CURRENT_KDF_PARAMS.name,
+        kdf_hash: CURRENT_KDF_PARAMS.hash,
+        kdf_iterations: CURRENT_KDF_PARAMS.iterations
+      } : {})
+    };
     const mfaSettings = await getMfaSettings(user.id);
     if (mfaSettings?.enabled) {
       await recordAuditEvent({
@@ -295,7 +357,8 @@ const me = async (req, res) => {
   try {
     const result = await db.query(
       `SELECT id, name, email, role, is_active, is_super_admin, must_change_password, mfa_required,
-              wrapped_key, crypto_salt, public_key, encrypted_private_key, password_changed_at,
+              wrapped_key, crypto_salt, kdf_version, kdf_name, kdf_hash, kdf_iterations,
+              public_key, encrypted_private_key, rsa_key_size, rsa_key_version, password_changed_at,
               (SELECT password_change_notice_months FROM password_policy_settings WHERE id = 1) AS password_change_notice_months,
               EXISTS(SELECT 1 FROM user_mfa_settings m WHERE m.user_id = users.id AND m.enabled = TRUE) AS mfa_enabled
        FROM users WHERE id = $1 LIMIT 1`,

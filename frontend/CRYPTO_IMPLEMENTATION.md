@@ -11,12 +11,12 @@ O FullPassword implementa uma arquitetura **Zero-Knowledge** onde toda a criptog
 Quando o usuário faz login:
 
 ```
-1. Email + Senha (texto claro) → API Login
-2. Backend valida credenciais e retorna JWT
-3. Frontend recebe JWT e a senha em texto claro
-4. Frontend deriva a Master Key usando PBKDF2 (100.000 iterações)
-5. Master Key fica APENAS na memória do React (AuthContext)
-6. JWT fica no localStorage para manter a sessão
+1. Email + Senha (texto claro) → API Login por HTTPS
+2. Backend valida credenciais e cria a sessão em cookie HttpOnly
+3. Frontend recebe wrapped_key, salt único e metadados KDF do usuário
+4. Frontend deriva a KEK com PBKDF2-SHA-256 e desenvelopa a Master Key
+5. Dados legados sem metadados usam 100.000 iterações; novos wraps usam 310.000
+6. Master Key fica APENAS na memória do React (AuthContext)
 ```
 
 **Crítico**: A Master Key **nunca** é salva no localStorage. Se a página for recarregada (F5), o usuário precisa redigitar a senha para derivar a chave novamente.
@@ -57,7 +57,7 @@ Quando o usuário acessa o cofre:
 
 Serviço principal de criptografia usando Web Crypto API nativa:
 
-- **`deriveMasterKey(password)`**: Deriva a chave mestra usando PBKDF2
+- **`deriveMasterKey(password, salt, params)`**: Deriva a KEK usando PBKDF2 versionado
 - **`encryptData(jsonObject, masterKey)`**: Criptografa objeto JSON com AES-256-GCM
 - **`decryptData(encryptedText, masterKey)`**: Descriptografa dados
 - **`encryptFile(file, masterKey)`**: Criptografa arquivo anexado
@@ -69,7 +69,7 @@ Serviço principal de criptografia usando Web Crypto API nativa:
 Contexto React que gerencia:
 
 - **`user`**: Dados do usuário (não sensível)
-- **`token`**: JWT para autenticação na API
+- **Sessão**: Mantida pelo cookie HttpOnly, não por storage do navegador
 - **`masterKey`**: Chave criptográfica (APENAS na memória)
 - **`isVaultUnlocked`**: Indica se a Master Key está disponível
 - **`login(email, password)`**: Autentica e deriva a Master Key
@@ -166,7 +166,9 @@ Página principal do cofre com:
 - **Dados em repouso**: Armazenados criptografados no banco de dados
 - **Dados em trânsito**: Enviados via HTTPS (em produção)
 - **Dados em memória**: Master Key fica apenas no React, não em localStorage
-- **Chaves derivadas**: PBKDF2 com 100.000 iterações (resistente a força bruta)
+- **Chaves derivadas**: PBKDF2-SHA-256 versionado; 310.000 iterações para novos wraps
+- **Compatibilidade**: PBKDF2-100.000 e RSA-2048 legados continuam utilizáveis
+- **Novas chaves RSA**: RSA-OAEP 3072 bits
 - **Criptografia**: AES-256-GCM com IV aleatório (autenticação incluída)
 
 ### ⚠️ Limitações e Considerações
@@ -175,14 +177,13 @@ Página principal do cofre com:
 2. **Logout**: Master Key é limpa da memória.
 3. **Múltiplas abas**: Cada aba tem seu próprio contexto React (não sincronizam).
 4. **Navegador comprometido**: Se o navegador for hackeado, a Master Key pode ser exposta.
-5. **Salt fixo**: Atualmente usa salt fixo. Em produção, deve ser único por usuário.
+5. **KDF no navegador**: PBKDF2 permanece em uso; Argon2id client-side exige avaliação futura de bundle e desempenho.
 
 ## Próximas Melhorias
 
-1. **Salt Dinâmico**: Cada usuário deve ter um salt único salvo no banco
+1. **Argon2id client-side**: Avaliar em etapa separada com benchmark de navegadores
 2. **Biometria**: Usar WebAuthn/FIDO2 para autenticação sem senha
 3. **Sincronização entre abas**: Usar SharedWorker ou BroadcastChannel
-4. **Timeout de sessão**: Auto-logout após inatividade
 5. **Auditoria**: Log de acessos ao cofre
 6. **Backup criptografado**: Permitir exportar dados criptografados
 

@@ -16,7 +16,8 @@ const loadChallengeUser = async (challengeToken, purpose) => {
   const challenge = verifyChallengeToken(challengeToken, purpose);
   const result = await db.query(
     `SELECT id, name, email, role, is_active, is_super_admin, must_change_password,
-            mfa_required, wrapped_key, crypto_salt, public_key, encrypted_private_key, token_version,
+            mfa_required, wrapped_key, crypto_salt, kdf_version, kdf_name, kdf_hash, kdf_iterations,
+            public_key, encrypted_private_key, rsa_key_size, rsa_key_version, token_version,
             password_changed_at,
             (SELECT password_change_notice_months FROM password_policy_settings WHERE id = 1) AS password_change_notice_months
      FROM users WHERE id = $1 AND token_version = $2 LIMIT 1`,

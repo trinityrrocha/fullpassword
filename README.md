@@ -322,6 +322,14 @@ Fluxo resumido:
 
 **Resultado**: o back-end não manipula credenciais em texto claro e o compartilhamento respeita as permissões definidas nos grupos.
 
+### Parâmetros criptográficos versionados
+
+- Usuários e wraps legados sem metadados continuam usando PBKDF2-SHA-256 com 100.000 iterações.
+- Novos usuários, bootstrap e trocas de senha usam PBKDF2-SHA-256 versão 2 com 310.000 iterações.
+- Novos pares de compartilhamento usam RSA-OAEP 3072 bits; chaves RSA-2048 existentes continuam importáveis.
+- Salt criptográfico único por usuário permanece obrigatório em todas as versões.
+- Argon2id no navegador é uma possibilidade futura e não faz parte da implementação atual.
+
 ## 🛡️ Segurança implementada
 
 - ✅ Criptografia AES-256-GCM no navegador.
