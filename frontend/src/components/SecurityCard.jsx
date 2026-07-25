@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertTriangle, RefreshCw, ShieldCheck } from 'lucide-react';
 import api from '../services/api';
 import { formatDateTimeShort } from '../utils/formatDateTimeShort';
@@ -21,19 +21,25 @@ const failureStatus = (status) => {
 
 export default function SecurityCard() {
   const [policy, setPolicy] = useState(defaultPolicy);
+  const persistedPolicyRef = useRef(defaultPolicy);
   const [failures, setFailures] = useState([]);
   const [failurePagination, setFailurePagination] = useState({ page: 1, limit: 10, total_pages: 0 });
   const [failureLimit, setFailureLimit] = useState(10);
   const [isLoading, setIsLoading] = useState(false);
+  const [isSavingLoginPolicyToggle, setIsSavingLoginPolicyToggle] = useState(false);
+  const [isSavingScreenProtection, setIsSavingScreenProtection] = useState(false);
   const [message, setMessage] = useState(null);
   const screenProtectionEnabled = policy.screen_protection_enabled !== false;
+  const isLoginPolicyBusy = isLoading || isSavingLoginPolicyToggle;
 
   const showError = (error) => setMessage({ type: 'error', text: error.response?.data?.error || 'Não foi possível concluir a operação.' });
   const updatePolicyField = (field, value) => setPolicy((current) => ({ ...current, [field]: value }));
 
   const loadPolicy = useCallback(async () => {
     const response = await api.get('/system/login-security-policy');
-    setPolicy({ ...defaultPolicy, ...(response.data.policy || {}) });
+    const loadedPolicy = { ...defaultPolicy, ...(response.data.policy || {}) };
+    persistedPolicyRef.current = loadedPolicy;
+    setPolicy(loadedPolicy);
   }, []);
 
   const loadFailures = useCallback(async (page = 1) => {
@@ -56,15 +62,58 @@ export default function SecurityCard() {
   const savePolicy = async () => {
     setIsLoading(true); setMessage(null);
     try {
-      const response = await api.put('/system/login-security-policy', policy);
-      setPolicy(response.data.policy);
+      const response = await api.put('/system/login-security-policy', {
+        auto_block_enabled: persistedPolicyRef.current.auto_block_enabled,
+        failed_attempts_threshold: policy.failed_attempts_threshold,
+        observation_window_minutes: policy.observation_window_minutes,
+        block_duration_minutes: policy.block_duration_minutes
+      });
+      const savedPolicy = { ...defaultPolicy, ...(response.data.policy || {}) };
+      persistedPolicyRef.current = savedPolicy;
+      setPolicy(savedPolicy);
       setMessage({ type: 'success', text: 'Política de login atualizada.' });
     } catch (error) { showError(error); } finally { setIsLoading(false); }
   };
 
-  const toggleScreenProtection = async () => {
+  const toggleLoginPolicy = async (event) => {
+    event.stopPropagation();
+    const previousValue = policy.auto_block_enabled === true;
+    const nextValue = !previousValue;
+    const persistedPolicy = persistedPolicyRef.current;
+
+    updatePolicyField('auto_block_enabled', nextValue);
+    setIsSavingLoginPolicyToggle(true);
+    setMessage(null);
+
+    try {
+      const response = await api.put('/system/login-security-policy', {
+        auto_block_enabled: nextValue,
+        failed_attempts_threshold: persistedPolicy.failed_attempts_threshold,
+        observation_window_minutes: persistedPolicy.observation_window_minutes,
+        block_duration_minutes: persistedPolicy.block_duration_minutes
+      });
+      const savedPolicy = { ...defaultPolicy, ...(response.data.policy || {}) };
+      persistedPolicyRef.current = savedPolicy;
+      setPolicy((current) => ({ ...current, auto_block_enabled: savedPolicy.auto_block_enabled }));
+      setMessage({
+        type: 'success',
+        text: `Política de login ${savedPolicy.auto_block_enabled ? 'ativada' : 'desativada'}.`
+      });
+    } catch (error) {
+      updatePolicyField('auto_block_enabled', previousValue);
+      setMessage({
+        type: 'error',
+        text: error.response?.data?.error || 'Não foi possível salvar a Política de Login.'
+      });
+    } finally {
+      setIsSavingLoginPolicyToggle(false);
+    }
+  };
+
+  const toggleScreenProtection = async (event) => {
+    event.stopPropagation();
     const enabled = !screenProtectionEnabled;
-    setIsLoading(true);
+    setIsSavingScreenProtection(true);
     setMessage(null);
     try {
       const response = await api.put('/system/screen-protection', { enabled });
@@ -80,7 +129,7 @@ export default function SecurityCard() {
     } catch (error) {
       showError(error);
     } finally {
-      setIsLoading(false);
+      setIsSavingScreenProtection(false);
     }
   };
 
@@ -121,7 +170,8 @@ export default function SecurityCard() {
             aria-label="Proteção contra impressão e captura de tela"
             title={screenProtectionEnabled ? 'Desativar proteção de tela' : 'Ativar proteção de tela'}
             onClick={toggleScreenProtection}
-            disabled={isLoading}
+            onMouseDown={(event) => event.stopPropagation()}
+            disabled={isLoading || isSavingScreenProtection}
             className={`relative mt-0.5 inline-flex h-5 w-9 shrink-0 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${screenProtectionEnabled ? 'bg-indigo-600' : 'bg-slate-300'}`}
           >
             <span className={`mt-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${screenProtectionEnabled ? 'translate-x-4' : 'translate-x-0.5'}`} />
@@ -137,19 +187,20 @@ export default function SecurityCard() {
               aria-checked={policy.auto_block_enabled}
               aria-label="Bloqueio automático da política de login"
               title={policy.auto_block_enabled ? 'Desativar bloqueio automático' : 'Ativar bloqueio automático'}
-              onClick={() => updatePolicyField('auto_block_enabled', !policy.auto_block_enabled)}
-              disabled={isLoading}
+              onClick={toggleLoginPolicy}
+              onMouseDown={(event) => event.stopPropagation()}
+              disabled={isLoginPolicyBusy}
               className={`relative inline-flex h-5 w-9 shrink-0 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${policy.auto_block_enabled ? 'bg-indigo-600' : 'bg-slate-300'}`}
             >
               <span className={`mt-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${policy.auto_block_enabled ? 'translate-x-4' : 'translate-x-0.5'}`} />
             </button>
           </div>
           <div className="grid w-full grid-cols-1 gap-3 md:grid-cols-3">
-            <label className="min-w-0 text-xs font-medium text-slate-600">Tentativas falhadas para bloquear<select disabled={!policy.auto_block_enabled || isLoading} value={policy.failed_attempts_threshold} onChange={(e) => updatePolicyField('failed_attempts_threshold', Number(e.target.value))} className={`${selectClass} mt-1 h-[35px] w-full disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500 disabled:opacity-60`}>{[5, 10, 15].map((v) => <option key={v}>{v}</option>)}</select></label>
-            <label className="min-w-0 text-xs font-medium text-slate-600">Janela de contagem<select disabled={!policy.auto_block_enabled || isLoading} value={policy.observation_window_minutes} onChange={(e) => updatePolicyField('observation_window_minutes', Number(e.target.value))} className={`${selectClass} mt-1 h-[35px] w-full disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500 disabled:opacity-60`}>{[10, 15, 30, 60].map((v) => <option key={v} value={v}>{v} minutos</option>)}</select></label>
-            <label className="min-w-0 text-xs font-medium text-slate-600">Tempo de bloqueio automático<select disabled={!policy.auto_block_enabled || isLoading} value={policy.block_duration_minutes} onChange={(e) => updatePolicyField('block_duration_minutes', Number(e.target.value))} className={`${selectClass} mt-1 h-[35px] w-full disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500 disabled:opacity-60`}>{[[10, '10 minutos'], [15, '15 minutos'], [30, '30 minutos'], [60, '60 minutos'], [120, '2 horas'], [240, '4 horas'], [360, '6 horas'], [720, '12 horas'], [1440, '24 horas']].map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
+            <label className="min-w-0 text-xs font-medium text-slate-600">Tentativas falhadas para bloquear<select disabled={!policy.auto_block_enabled || isLoginPolicyBusy} value={policy.failed_attempts_threshold} onChange={(e) => updatePolicyField('failed_attempts_threshold', Number(e.target.value))} className={`${selectClass} mt-1 h-[35px] w-full disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500 disabled:opacity-60`}>{[5, 10, 15].map((v) => <option key={v}>{v}</option>)}</select></label>
+            <label className="min-w-0 text-xs font-medium text-slate-600">Janela de contagem<select disabled={!policy.auto_block_enabled || isLoginPolicyBusy} value={policy.observation_window_minutes} onChange={(e) => updatePolicyField('observation_window_minutes', Number(e.target.value))} className={`${selectClass} mt-1 h-[35px] w-full disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500 disabled:opacity-60`}>{[10, 15, 30, 60].map((v) => <option key={v} value={v}>{v} minutos</option>)}</select></label>
+            <label className="min-w-0 text-xs font-medium text-slate-600">Tempo de bloqueio automático<select disabled={!policy.auto_block_enabled || isLoginPolicyBusy} value={policy.block_duration_minutes} onChange={(e) => updatePolicyField('block_duration_minutes', Number(e.target.value))} className={`${selectClass} mt-1 h-[35px] w-full disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500 disabled:opacity-60`}>{[[10, '10 minutos'], [15, '15 minutos'], [30, '30 minutos'], [60, '60 minutos'], [120, '2 horas'], [240, '4 horas'], [360, '6 horas'], [720, '12 horas'], [1440, '24 horas']].map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
           </div>
-          <button type="button" onClick={savePolicy} disabled={isLoading} className="px-4 py-2 bg-indigo-600 text-white rounded-md text-sm disabled:opacity-50">Salvar política</button>
+          <button type="button" onClick={savePolicy} disabled={isLoginPolicyBusy} className="px-4 py-2 bg-indigo-600 text-white rounded-md text-sm disabled:opacity-50">Salvar política</button>
         </section>
 
         <section className="space-y-3">

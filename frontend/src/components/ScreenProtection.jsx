@@ -65,8 +65,6 @@ export default function ScreenProtection({ children, enabled = true }) {
     };
   }, [enabled]);
 
-  if (!enabled) return children;
-
   return (
     <>
       <div className="protected-app-content">{children}</div>
