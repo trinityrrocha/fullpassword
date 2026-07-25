@@ -162,6 +162,16 @@ esac
 log "Validando estado do repositório"
 git config --global --add safe.directory "$APP_DIR" 2>/dev/null || true
 
+origin_url="$(git remote get-url origin 2>/dev/null)" \
+  || fail "Remote origin não configurado"
+case "$origin_url" in
+  https://github.com/trinityrrocha/fullpassword|https://github.com/trinityrrocha/fullpassword.git|git@github.com:trinityrrocha/fullpassword.git)
+    ;;
+  *)
+    fail "Remote origin não autorizado para o WebUpdater"
+    ;;
+esac
+
 dirty_tracked="$(git status --porcelain --untracked-files=no)"
 if [ -n "$dirty_tracked" ]; then
   printf '%s\n' "$dirty_tracked"
@@ -172,6 +182,11 @@ log "Atualizando código-fonte a partir da branch main"
 git fetch origin main
 git checkout main
 git pull --ff-only origin main
+
+[ "$(git branch --show-current)" = "main" ] \
+  || fail "O WebUpdater somente pode executar na branch main"
+[ "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" ] \
+  || fail "O commit local não corresponde ao commit publicado em origin/main"
 
 APP_COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
 export VITE_APP_COMMIT="$APP_COMMIT"
@@ -188,8 +203,16 @@ log "Reconstruindo e reiniciando containers"
 if [ -n "${UPDATE_SERVICES:-}" ]; then
   # O daemon não recria o próprio container durante uma solicitação em andamento.
   # A lista é definida internamente pelo updater, não por entrada HTTP.
+  set -f
+  for service in $UPDATE_SERVICES; do
+    case "$service" in
+      db|backend|frontend|nginx) ;;
+      *) fail "Serviço não autorizado para atualização: $service" ;;
+    esac
+  done
   # shellcheck disable=SC2086
   compose up -d --build --remove-orphans $UPDATE_SERVICES
+  set +f
 else
   compose up -d --build --remove-orphans
 fi

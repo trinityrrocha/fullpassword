@@ -18,6 +18,7 @@ const {
   isBackupPackageV2Filename
 } = require('../services/backupPackageV2Service');
 const { BACKUP_TEMP_DIR } = require('../config/backupConfig');
+const { safeLogError } = require('../utils/safeLogger');
 
 const BACKUP_ARCHIVE_DIR = process.env.BACKUP_ARCHIVE_DIR || '/var/lib/fullpassword-backups';
 const BACKUP_VALIDATION_CODES = new Set([
@@ -33,20 +34,6 @@ const sendRestoreError = (res, status, error, message, details) => {
     ...(details ? { details } : {})
   });
 };
-
-const getSafeErrorDetails = (error, fallback) => {
-  const details = String(error?.message || fallback || '')
-    .replace(/[\r\n\t]+/g, ' ')
-    .trim()
-    .slice(0, 500);
-  return details || fallback;
-};
-
-const getUploadMetadata = (file) => ({
-  extension: path.extname(String(file?.originalname || '')).toLowerCase().slice(0, 20),
-  size: Number(file?.size || 0),
-  storedOnDisk: Boolean(file?.path)
-});
 
 const getBackupValidationResponse = (error, fallbackMessage) => {
   if (
@@ -203,12 +190,7 @@ const dryRun = async (req, res) => {
       req,
       metadata: { reason: 'validation_failed' }
     });
-    console.warn('Validação de backup recusada.', {
-      stage: 'dry-run',
-      code: response.error,
-      upload: getUploadMetadata(req.file),
-      reason: getSafeErrorDetails(error, response.message)
-    });
+    safeLogError('Validação de backup recusada no dry-run.', error, { includeStack: false });
     return sendRestoreError(
       res,
       getValidationStatus(error),
@@ -309,12 +291,7 @@ const restore = async (req, res) => {
         req,
         metadata: { reason: 'validation_failed' }
       });
-      console.warn('Backup recusado antes da restauração.', {
-        stage: 'restore',
-        code: response.error,
-        upload: getUploadMetadata(req.file),
-        reason: getSafeErrorDetails(error, response.message)
-      });
+      safeLogError('Backup recusado antes da restauração.', error, { includeStack: false });
       return sendRestoreError(
         res,
         getValidationStatus(error),
@@ -336,10 +313,7 @@ const restore = async (req, res) => {
         metadata: { archive_created: true, version: summary.version }
       });
     } catch (error) {
-      console.error('Falha ao criar backup automático pré-restore:', {
-        code: String(error?.code || '').slice(0, 80) || null,
-        name: error?.name || 'Error'
-      });
+      safeLogError('Falha ao criar backup automático pré-restore.', error, { includeStack: false });
       await recordAuditEvent({
         user: req.user,
         action: 'backup_pre_restore_export_failed',
@@ -366,7 +340,7 @@ const restore = async (req, res) => {
       }
     } catch (error) {
       const failure = getRestoreFailureResponse(error);
-      console.error('Falha transacional ao restaurar backup.', failure.metadata);
+      safeLogError('Falha transacional ao restaurar backup.', error, { includeStack: false });
       await recordAuditEvent({
         user: req.user,
         action: 'backup_restore_failed',

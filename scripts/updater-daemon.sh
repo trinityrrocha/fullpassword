@@ -1,6 +1,7 @@
 #!/bin/sh
 
 set -u
+umask 077
 
 REQUEST_ROOT="${UPDATER_REQUEST_DIR:-/var/lib/fullpassword-updater}"
 REQUEST_DIR="$REQUEST_ROOT/requests"
@@ -14,7 +15,12 @@ log() {
   printf '%s [FullPassword Updater Daemon] %s\n' "$(date -Is)" "$*"
 }
 
+validate_request() {
+  node "$APP_DIR/scripts/validate-updater-request.js" "$1" "$2"
+}
+
 mkdir -p "$REQUEST_DIR" "$PROCESSING_DIR" "$PROCESSED_DIR" "$FAILED_DIR"
+chmod 700 "$REQUEST_ROOT" "$REQUEST_DIR" "$PROCESSING_DIR" "$PROCESSED_DIR" "$FAILED_DIR"
 rmdir "$LOCK_DIR" 2>/dev/null || true
 
 # Recupera solicitações interrompidas por reinício do container.
@@ -48,16 +54,24 @@ while true; do
   log_file="$PROCESSING_DIR/${name%.json}.log"
   mv "$request" "$processing"
 
-  log "Processando solicitação $name."
+  request_id="${name%.json}"
+  if ! validate_request "$processing" "$request_id"; then
+    mv "$processing" "$FAILED_DIR/$name"
+    log "Solicitação inválida recusada."
+    rmdir "$LOCK_DIR" 2>/dev/null || true
+    continue
+  fi
+
+  log "Processando solicitação $request_id."
   if APP_DIR="$APP_DIR" UPDATE_SERVICES="db backend frontend nginx" sh "$APP_DIR/scripts/update.sh" >"$log_file" 2>&1; then
     mv "$processing" "$PROCESSED_DIR/$name"
     mv "$log_file" "$PROCESSED_DIR/${name%.json}.log"
-    log "Solicitação $name concluída com sucesso."
+    log "Solicitação $request_id concluída com sucesso."
   else
     status=$?
     mv "$processing" "$FAILED_DIR/$name"
     mv "$log_file" "$FAILED_DIR/${name%.json}.log"
-    log "Solicitação $name falhou com status $status."
+    log "Solicitação $request_id falhou com status $status."
   fi
 
   rmdir "$LOCK_DIR" 2>/dev/null || true

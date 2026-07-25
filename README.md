@@ -251,7 +251,7 @@ O acesso por SSH faz parte apenas da primeira instalação. Depois que o instala
 5. Confirme a atualização pelo painel.
 6. Aguarde o processo concluir e pressione `Ctrl + F5` no navegador.
 
-Não use `git pull`, rebuild manual ou configuração recorrente por terminal como rotina operacional. O WebUpdater executa a sincronização do código, reconstrução dos containers e reinício dos serviços necessários.
+Não use `git pull`, rebuild manual ou configuração recorrente por terminal como rotina operacional. O WebUpdater executa a sincronização do código, reconstrução dos containers e reinício dos serviços necessários. O fluxo aceita apenas solicitações internas com formato validado e atualiza exclusivamente a branch `main` do repositório oficial configurado; URL remota, branch e comandos não são recebidos do navegador.
 
 ## 📚 Documentação
 
@@ -330,14 +330,18 @@ Fluxo resumido:
 - ✅ Chave própria por cofre.
 - ✅ Hash de senha com Argon2id.
 - ✅ Autenticação JWT.
+- ✅ Sessão em cookie `HttpOnly`, `SameSite=Strict` e `Secure` em produção, validada e revogável no banco.
 - ✅ MFA e códigos de recuperação.
 - ✅ Política de login com bloqueio por tentativas falhadas.
 - ✅ Política global de senhas.
 - ✅ Sessões ativas e encerradas com histórico limitado.
 - ✅ Blacklist / Whitelist manual por IPv4/CIDR.
 - ✅ Controle de acesso no back-end por cofre, grupo e permissão.
+- ✅ Operações de compartilhamento validadas e auditadas no back-end.
 - ✅ Bloqueios visuais no front-end conforme permissões.
 - ✅ Backup e restauração criptografados com validação e rollback.
+- ✅ Logs de backup/restauração sanitizados, sem registrar passphrase ou conteúdo do backup.
+- ✅ WebUpdater restrito ao Super Admin, à branch `main`, ao repositório oficial e a serviços permitidos.
 - ✅ Screen protection best-effort sem promessa de bloqueio absoluto de screenshot.
 - ✅ Suporte a SSL/TLS com Let's Encrypt.
 

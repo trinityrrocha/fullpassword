@@ -110,7 +110,8 @@ const updateSystem = async (req, res) => {
       user_agent: String(req.get('user-agent') || '').slice(0, 1000) || null
     };
 
-    await fs.mkdir(UPDATER_REQUEST_DIR, { recursive: true });
+    await fs.mkdir(UPDATER_REQUEST_DIR, { recursive: true, mode: 0o700 });
+    await fs.chmod(UPDATER_REQUEST_DIR, 0o700);
     const finalPath = path.join(UPDATER_REQUEST_DIR, `${requestId}.json`);
     const temporaryPath = `${finalPath}.tmp`;
     await fs.writeFile(temporaryPath, JSON.stringify(request), { encoding: 'utf8', flag: 'wx', mode: 0o600 });
@@ -210,10 +211,7 @@ const downloadBackup = async (req, res) => {
     return res.status(200).send(content);
 
   } catch (error) {
-    console.error('Erro ao gerar backup:', {
-      code: String(error?.code || '').slice(0, 80) || null,
-      name: error?.name || 'Error'
-    });
+    safeLogError('Erro ao gerar backup.', error, { includeStack: false });
     await recordAuditEvent({ user: req.user, action: 'backup_export_failed', status: 'failed', req });
     if (res.headersSent) {
       res.destroy();

@@ -168,9 +168,8 @@ const canManageClientShares = async (clientId, user) => {
 };
 
 const logVaultAccess = async (clientId, actorUserId, action, details = {}) => {
-  await ensureSharingSchema();
-
   try {
+    await ensureSharingSchema();
     await db.query(
       'INSERT INTO vault_access_audit (client_id, actor_user_id, action, details) VALUES ($1, $2, $3, $4)',
       [clientId, actorUserId || null, action, details]

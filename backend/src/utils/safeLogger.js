@@ -17,8 +17,10 @@ const sanitizeErrorForLog = (error) => {
   return Object.fromEntries(Object.entries(details).filter(([, value]) => value !== undefined));
 };
 
-const safeLogError = (context, error) => {
-  console.error(normalizeLogValue(context, 200) || 'Erro interno no backend.', sanitizeErrorForLog(error));
+const safeLogError = (context, error, { includeStack = true } = {}) => {
+  const details = sanitizeErrorForLog(error);
+  if (!includeStack) delete details.stack;
+  console.error(normalizeLogValue(context, 200) || 'Erro interno no backend.', details);
 };
 
 module.exports = { safeLogError, sanitizeErrorForLog };

@@ -95,6 +95,7 @@ const getClientShares = async (req, res) => {
     const canManage = await canManageClientShares(clientId, req.user);
 
     if (!canManage) {
+      await logVaultAccess(clientId, req.user.id, 'vault_share_view_denied');
       return res.status(403).json({ error: 'Apenas o dono do cofre ou admin pode gerenciar compartilhamentos' });
     }
 
@@ -117,6 +118,7 @@ const getClientShares = async (req, res) => {
       [clientId]
     );
 
+    await logVaultAccess(clientId, req.user.id, 'vault_share_view');
     res.status(200).json(result.rows);
   } catch (error) {
     safeLogError('Erro ao buscar compartilhamentos do cofre.', error);
@@ -136,6 +138,7 @@ const updateClientShares = async (req, res) => {
 
     const canManage = await canManageClientShares(clientId, req.user);
     if (!canManage) {
+      await logVaultAccess(clientId, req.user.id, 'vault_share_update_denied');
       return res.status(403).json({ error: 'Apenas o dono do cofre ou admin pode gerenciar compartilhamentos' });
     }
 
@@ -188,7 +191,7 @@ const shareVaultItem = async (req, res) => {
     }
 
     const itemCheck = await db.query(
-      'SELECT id, client_id, created_by FROM vault_items WHERE id = $1',
+      'SELECT id, client_id FROM vault_items WHERE id = $1',
       [id]
     );
 
@@ -196,9 +199,11 @@ const shareVaultItem = async (req, res) => {
       return res.status(404).json({ error: 'Item do cofre não encontrado' });
     }
 
-    const canManage = await canManageClientShares(itemCheck.rows[0].client_id, req.user);
-    if (!canManage && itemCheck.rows[0].created_by !== req.user.id) {
-      return res.status(403).json({ error: 'Apenas o criador, dono do cofre ou admin pode compartilhar este item' });
+    const clientId = itemCheck.rows[0].client_id;
+    const canManage = await canManageClientShares(clientId, req.user);
+    if (!canManage) {
+      await logVaultAccess(clientId, req.user.id, 'vault_item_share_denied', { item_id: id });
+      return res.status(403).json({ error: 'Apenas o dono do cofre ou admin pode compartilhar este item' });
     }
 
     await db.query('BEGIN');
@@ -214,6 +219,10 @@ const shareVaultItem = async (req, res) => {
     }
 
     await db.query('COMMIT');
+    await logVaultAccess(clientId, req.user.id, 'vault_item_share_update', {
+      item_id: id,
+      shares: shares.length
+    });
     res.status(200).json({ message: 'Cofre compartilhado com sucesso' });
   } catch (error) {
     await db.query('ROLLBACK');

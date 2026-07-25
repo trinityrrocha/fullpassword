@@ -46,6 +46,7 @@ const updateClientKeyShares = async (req, res) => {
 
     const canManage = await canManageClientShares(clientId, req.user);
     if (!canManage) {
+      await logVaultAccess(clientId, req.user.id, 'client_key_share_update_denied');
       return res.status(403).json({ error: 'Apenas o dono do cofre ou admin pode atualizar chaves de compartilhamento' });
     }
 

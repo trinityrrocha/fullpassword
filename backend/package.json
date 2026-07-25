@@ -4,7 +4,7 @@
   "description": "Backend para o projeto FullPassword",
   "main": "src/server.js",
   "scripts": {
-    "test": "node scripts/test-backup-v2.js && node scripts/test-ip-cidr.js && node scripts/test-request-limits.js",
+    "test": "node scripts/test-backup-v2.js && node scripts/test-ip-cidr.js && node scripts/test-request-limits.js && node scripts/test-operational-hardening.js",
     "start": "node src/server.js",
     "dev": "nodemon src/server.js"
   },
@@ -26,6 +26,9 @@
     "qrcode": "^1.5.4",
     "ua-parser-js": "^2.0.6",
     "yauzl": "^3.4.0"
+  },
+  "overrides": {
+    "brace-expansion@5.0.7": "5.0.8"
   },
   "devDependencies": {
     "nodemon": "^3.1.0"
