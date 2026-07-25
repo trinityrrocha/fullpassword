@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { PAYLOAD_TOO_LARGE_MESSAGE } from '../utils/requestLimits';
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || 'http://localhost:3000/api',
@@ -35,6 +36,23 @@ api.interceptors.response.use(
     return response;
   },
   (error) => {
+    if (error.response?.status === 413) {
+      const responseData = error.response.data;
+      if (responseData && typeof responseData === 'object') {
+        error.response.data = {
+          ...responseData,
+          error: responseData.error || PAYLOAD_TOO_LARGE_MESSAGE,
+          message: responseData.message || PAYLOAD_TOO_LARGE_MESSAGE
+        };
+      } else {
+        error.response.data = {
+          code: 'PAYLOAD_TOO_LARGE',
+          error: PAYLOAD_TOO_LARGE_MESSAGE,
+          message: PAYLOAD_TOO_LARGE_MESSAGE
+        };
+      }
+      error.message = error.response.data?.message || PAYLOAD_TOO_LARGE_MESSAGE;
+    }
     if (error.response && error.response.status === 401) {
       const url = error.config?.url || '';
       if (!url.includes('/auth/login') && !url.includes('/auth/me')) {

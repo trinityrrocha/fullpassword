@@ -2,8 +2,11 @@ import { useRef, useState } from 'react';
 import { Download, Upload } from 'lucide-react';
 import { normalizeVaultAttachments } from '../utils/vaultAttachments';
 import { downloadAttachment } from '../utils/attachments';
-
-const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
+import {
+  MAX_VAULT_ATTACHMENT_BYTES,
+  MAX_VAULT_ATTACHMENTS,
+  validateVaultAttachmentSelection
+} from '../utils/requestLimits';
 
 const makeId = () => {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
@@ -21,7 +24,7 @@ const readFileAsAttachment = (file, allowedExtensions) => new Promise((resolve, 
     reject(new Error(`Tipo de arquivo não permitido. Use: ${allowedExtensions.join(', ')}.`));
     return;
   }
-  if (file.size > MAX_ATTACHMENT_BYTES) {
+  if (file.size > MAX_VAULT_ATTACHMENT_BYTES) {
     reject(new Error('O arquivo deve ter no máximo 5 MB.'));
     return;
   }
@@ -51,10 +54,10 @@ export default function VaultAttachmentsField({ title, helpText, attachments, al
   const handleFiles = async (fileList) => {
     const files = Array.from(fileList || []);
     if (!files.length) return;
-    const currentSize = normalizedAttachments.reduce((total, attachment) => total + Number(attachment.size || 0), 0);
-    const selectedSize = files.reduce((total, file) => total + Number(file.size || 0), 0);
-    if (currentSize + selectedSize > MAX_ATTACHMENT_BYTES) {
-      setMessage({ type: 'error', text: 'O total de arquivos deste registro deve ter no máximo 5 MB.' });
+    try {
+      validateVaultAttachmentSelection(files, normalizedAttachments);
+    } catch (error) {
+      setMessage({ type: 'error', text: error.message });
       return;
     }
     setIsLoading(true);
@@ -74,7 +77,7 @@ export default function VaultAttachmentsField({ title, helpText, attachments, al
   return (
     <div className="border-t border-slate-200 pt-4 sm:col-span-2">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div><h4 className="text-sm font-semibold text-slate-900">{title}</h4><p className="text-xs text-slate-500">{helpText} Máximo de 5 MB por arquivo.</p></div>
+        <div><h4 className="text-sm font-semibold text-slate-900">{title}</h4><p className="text-xs text-slate-500">{helpText} Máximo de 5 MB no total e {MAX_VAULT_ATTACHMENTS} arquivos.</p></div>
         <button type="button" disabled={isLoading} onClick={() => inputRef.current?.click()} className="inline-flex shrink-0 items-center justify-center rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50"><Upload className="mr-2 h-4 w-4" /> {isLoading ? 'Adicionando...' : 'Enviar arquivo'}</button>
         <input ref={inputRef} type="file" multiple={multiple} className="sr-only" accept={allowedExtensions.join(',')} onChange={(event) => handleFiles(event.target.files)} />
       </div>

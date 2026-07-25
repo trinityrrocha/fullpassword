@@ -9,6 +9,20 @@ require('./config/security');
 const { ensureSecuritySchema } = require('./config/securitySchema');
 const { ipSecurityMiddleware } = require('./middleware/ipSecurityMiddleware');
 const { csrfProtection } = require('./middleware/csrfMiddleware');
+const {
+  DEFAULT_JSON_LIMIT_BYTES,
+  VAULT_JSON_LIMIT_BYTES,
+  defaultJsonParser,
+  vaultJsonParser,
+  enforceContentLength,
+  validateEncryptedVaultPayload,
+  payloadTooLargeErrorHandler
+} = require('./middleware/requestLimits');
+const {
+  generalWriteLimiter,
+  vaultWriteLimiter,
+  sensitiveOperationLimiter
+} = require('./middleware/writeRateLimiters');
 const { safeLogError } = require('./utils/safeLogger');
 
 // Importação das rotas (serão criadas nos próximos passos)
@@ -70,7 +84,6 @@ const allowedOrigin = process.env.APP_ORIGIN;
 if (!allowedOrigin) throw new Error('Variável obrigatória ausente: APP_ORIGIN');
 app.use(cors({ origin: allowedOrigin, credentials: true }));
 app.use(cookieParser());
-app.use(express.json({ limit: '12mb' })); // Inclui anexos criptografados de cofres (máximo de 5 MB antes da criptografia)
 app.use('/api/auth/login', authenticationLimiter);
 app.use('/api/auth/bootstrap', authenticationLimiter);
 app.use('/api/auth/mfa', mfaLimiter);
@@ -84,13 +97,32 @@ app.get('/api/health', (req, res) => {
 app.use('/api', ipSecurityMiddleware);
 app.use('/api', csrfProtection);
 
+// Limites de escrita são aplicados antes da leitura e do parsing do corpo.
+// Backup, restore e atualização recebem uma contenção ainda mais restritiva.
+app.use('/api/system/backup', sensitiveOperationLimiter);
+app.use('/api/system/update', sensitiveOperationLimiter);
+app.use(['/api/clients', '/api/users', '/api/system', '/api/groups'], generalWriteLimiter);
+
+// O vault transporta anexos já criptografados no navegador e precisa de uma
+// exceção controlada. Todas as demais rotas JSON permanecem no limite padrão.
+app.use(
+  '/api/vault-items',
+  vaultWriteLimiter,
+  enforceContentLength(VAULT_JSON_LIMIT_BYTES, { jsonOnly: true }),
+  vaultJsonParser,
+  validateEncryptedVaultPayload,
+  vaultRoutes
+);
+app.use('/api', enforceContentLength(DEFAULT_JSON_LIMIT_BYTES, { jsonOnly: true }), defaultJsonParser);
+
 // Configuração das rotas da API
 app.use('/api/auth', authRoutes);
 app.use('/api/clients', clientRoutes);
-app.use('/api/vault-items', vaultRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/system', systemRoutes);
 app.use('/api/groups', groupRoutes);
+
+app.use(payloadTooLargeErrorHandler);
 
 // Middleware para tratamento de erros não capturados
 app.use((err, req, res, next) => {

@@ -10,6 +10,10 @@ import { safeLogError } from '../utils/safeLogger';
 import { encryptData, encryptFile, decryptData, base64ToBlob, downloadBlob, isValidCryptoSalt } from '../services/cryptoService';
 import { decryptVaultKeyShare } from '../services/clientVaultKeyService';
 import api from '../services/api';
+import {
+  MAX_VAULT_ATTACHMENT_BYTES,
+  PAYLOAD_TOO_LARGE_MESSAGE
+} from '../utils/requestLimits';
 
 const normalizeVaultPermissions = (permissions) => {
   const isOwner = Boolean(permissions?.is_owner ?? permissions?.isOwner ?? false);
@@ -369,6 +373,10 @@ export default function ClientVault() {
       let dataToEncrypt = { ...normalizedData };
 
       if (category === 'Servidores Diversos' && normalizedData.attachment) {
+        if (Number(normalizedData.attachment.size || 0) > MAX_VAULT_ATTACHMENT_BYTES) {
+          alert('O arquivo deve ter no máximo 5 MB.');
+          return false;
+        }
         encryptedAttachment = await encryptFile(normalizedData.attachment, vaultDataKey);
         delete dataToEncrypt.attachment;
         dataToEncrypt.hasAttachment = true;
@@ -392,7 +400,11 @@ export default function ClientVault() {
       return true;
     } catch (error) {
       safeLogError('Erro ao salvar no cofre.', error);
-      alert('Erro ao salvar os dados. Verifique o console.');
+      alert(
+        error.response?.status === 413
+          ? error.response?.data?.message || PAYLOAD_TOO_LARGE_MESSAGE
+          : error.response?.data?.error || 'Erro ao salvar os dados.'
+      );
       return false;
     } finally {
       setIsSaving(false);

@@ -13,7 +13,7 @@ const readInteger = (name, fallback, minimum, maximum) => {
 };
 
 const BACKUP_CHUNK_SIZE_MB = readInteger('BACKUP_CHUNK_SIZE_MB', 50, 1, 512);
-const BACKUP_MAX_UPLOAD_MB = readInteger('BACKUP_MAX_UPLOAD_MB', 2048, 1, 10240);
+const BACKUP_MAX_UPLOAD_MB = readInteger('BACKUP_MAX_UPLOAD_MB', 200, 1, 512);
 const BACKUP_RESTORE_TIMEOUT_MS = readInteger('BACKUP_RESTORE_TIMEOUT_MS', 1800000, 60000, 14400000);
 const BACKUP_TEMP_DIR = path.resolve(
   process.env.BACKUP_TEMP_DIR || path.join(os.tmpdir(), 'fullpassword-backups')

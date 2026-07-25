@@ -8,6 +8,7 @@ import CopyButton from './CopyButton';
 import IpCidrInput from './IpCidrInput';
 import Ipv4Input from './Ipv4Input';
 import { sanitizeIpv4Input, validateIpv4, validateIpv4Cidr } from '../utils/ipCidr';
+import { validateVaultAttachmentSelection } from '../utils/requestLimits';
 
 const systemOptions = [
   'Ubuntu',
@@ -244,8 +245,8 @@ const readFileAsAttachment = (file) => new Promise((resolve, reject) => {
   reader.readAsDataURL(file);
 });
 
-const readFilesAsAttachments = async (files) => {
-  const selectedFiles = Array.from(files || []);
+const readFilesAsAttachments = async (files, existingAttachments = []) => {
+  const selectedFiles = validateVaultAttachmentSelection(files, existingAttachments);
   const attachments = await Promise.all(selectedFiles.map((file) => readFileAsAttachment(file)));
   return attachments.filter(Boolean);
 };
@@ -702,16 +703,21 @@ function LinuxServerModal({ title, server, setServer, isSaving, onCancel, onSave
   };
 
   const addProxmoxAttachments = async (files) => {
-    const attachments = await readFilesAsAttachments(files);
-    if (!attachments.length) return;
+    try {
+      const currentAttachments = normalizeAttachments(proxmoxApi.attachments);
+      const attachments = await readFilesAsAttachments(files, currentAttachments);
+      if (!attachments.length) return;
 
-    setServer({
-      ...server,
-      proxmoxApi: {
-        ...proxmoxApi,
-        attachments: [...normalizeAttachments(proxmoxApi.attachments), ...attachments]
-      }
-    });
+      setServer({
+        ...server,
+        proxmoxApi: {
+          ...proxmoxApi,
+          attachments: [...currentAttachments, ...attachments]
+        }
+      });
+    } catch (error) {
+      window.alert(error.message || 'Não foi possível adicionar o arquivo.');
+    }
   };
 
   const removeProxmoxAttachment = (attachmentId) => {
@@ -933,9 +939,13 @@ function LinuxServerModal({ title, server, setServer, isSaving, onCancel, onSave
 
 function SshCredentialModal({ title, credential, setCredential, servers, getServerLabel, isSaving, onCancel, onSave, onDelete, deleteConfirmation, setDeleteConfirmation }) {
   const updateAttachment = async (field, files) => {
-    const [attachment] = await readFilesAsAttachments(files);
-    if (!attachment) return;
-    setCredential({ ...credential, [field]: attachment });
+    try {
+      const [attachment] = await readFilesAsAttachments(files);
+      if (!attachment) return;
+      setCredential({ ...credential, [field]: attachment });
+    } catch (error) {
+      window.alert(error.message || 'Não foi possível adicionar o arquivo.');
+    }
   };
 
   return (

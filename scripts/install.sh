@@ -48,7 +48,7 @@ SUPER_ADMIN_EMAIL="$LETSENCRYPT_EMAIL"
 REPO_URL="https://github.com/trinityrrocha/fullpassword.git"
 RUNTIME_NGINX_CONF="./docker/nginx.runtime.conf"
 BACKUP_CHUNK_SIZE_MB=50
-BACKUP_MAX_UPLOAD_MB=2048
+BACKUP_MAX_UPLOAD_MB=200
 BACKUP_TEMP_DIR=/tmp/fullpassword-backups
 BACKUP_RESTORE_TIMEOUT_MS=1800000
 
@@ -252,9 +252,23 @@ server {
         proxy_set_header X-Forwarded-Proto \$scheme;
     }
 
-    # Backend API (Node.js)
+    # Restore usa streaming para disco e possui limite dedicado.
+    location ^~ /api/system/backup/restore {
+        client_max_body_size $((BACKUP_MAX_UPLOAD_MB + 1))m;
+        proxy_read_timeout $((BACKUP_RESTORE_TIMEOUT_MS / 1000))s;
+        proxy_send_timeout $((BACKUP_RESTORE_TIMEOUT_MS / 1000))s;
+        proxy_pass http://backend:3000;
+        proxy_request_buffering off;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+
+    # Backend API (Node.js). O backend aplica 2 MB por padrão e 10 MB no vault.
     location /api/ {
-        client_max_body_size ${BACKUP_MAX_UPLOAD_MB}m;
+        client_max_body_size 12m;
         proxy_read_timeout $((BACKUP_RESTORE_TIMEOUT_MS / 1000))s;
         proxy_send_timeout $((BACKUP_RESTORE_TIMEOUT_MS / 1000))s;
         proxy_pass http://backend:3000;

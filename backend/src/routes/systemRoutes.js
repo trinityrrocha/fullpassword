@@ -18,6 +18,7 @@ const {
   BACKUP_RESTORE_TIMEOUT_MS,
   BACKUP_TEMP_DIR
 } = require('../config/backupConfig');
+const { MEBIBYTE, enforceContentLength, PAYLOAD_TOO_LARGE_MESSAGE } = require('../middleware/requestLimits');
 const asyncRoute = (handler) => (req, res, next) => Promise.resolve(handler(req, res, next)).catch(next);
 const restoreUploadDirectory = path.join(BACKUP_TEMP_DIR, 'uploads');
 fs.mkdirSync(restoreUploadDirectory, { recursive: true, mode: 0o700 });
@@ -56,14 +57,21 @@ const receiveRestoreFile = (req, res, next) => {
     const tooLarge = error.code === 'LIMIT_FILE_SIZE';
     const invalidExtension = error.code === 'BACKUP_INVALID_EXTENSION';
     return res.status(tooLarge ? 413 : 400).json({
-      error: tooLarge
+      code: tooLarge
         ? 'BACKUP_RESTORE_FILE_TOO_LARGE'
         : invalidExtension
           ? 'BACKUP_INVALID_EXTENSION'
           : 'BACKUP_RESTORE_INVALID_UPLOAD',
+      error: tooLarge
+        ? PAYLOAD_TOO_LARGE_MESSAGE
+        : invalidExtension
+          ? 'A extensão do arquivo precisa ser .enc.json ou .zip.'
+          : 'O arquivo de backup não pôde ser enviado.',
       message: invalidExtension
         ? 'A extensão do arquivo precisa ser .enc.json ou .zip.'
-        : 'O arquivo de backup não pôde ser enviado.',
+        : tooLarge
+          ? PAYLOAD_TOO_LARGE_MESSAGE
+          : 'O arquivo de backup não pôde ser enviado.',
       details: tooLarge
         ? `O backup excede o limite configurado de ${BACKUP_MAX_UPLOAD_MB} MB.`
         : invalidExtension
@@ -95,7 +103,17 @@ router.get('/security-notifications', asyncRoute(securityController.getSecurityN
 router.post('/update', systemController.updateSystem);
 router.get('/backup', systemController.rejectLegacyBackupDownload);
 router.post('/backup', systemController.downloadBackup);
-router.post('/backup/restore/dry-run', receiveRestoreFile, backupRestoreController.dryRun);
-router.post('/backup/restore', receiveRestoreFile, backupRestoreController.restore);
+router.post(
+  '/backup/restore/dry-run',
+  enforceContentLength(BACKUP_MAX_UPLOAD_BYTES + MEBIBYTE),
+  receiveRestoreFile,
+  backupRestoreController.dryRun
+);
+router.post(
+  '/backup/restore',
+  enforceContentLength(BACKUP_MAX_UPLOAD_BYTES + MEBIBYTE),
+  receiveRestoreFile,
+  backupRestoreController.restore
+);
 
 module.exports = router;

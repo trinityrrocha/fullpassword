@@ -32,7 +32,7 @@ compose() {
 write_runtime_nginx_conf() {
   runtime_conf_path="${NGINX_CONF_PATH:-./docker/nginx.runtime.conf}"
   domain="$(printf '%s' "$APP_ORIGIN" | sed 's#^https://##;s#/$##')"
-  backup_max_upload_mb="${BACKUP_MAX_UPLOAD_MB:-2048}"
+  backup_max_upload_mb="${BACKUP_MAX_UPLOAD_MB:-200}"
   backup_restore_timeout_ms="${BACKUP_RESTORE_TIMEOUT_MS:-1800000}"
 
   [ -n "$domain" ] || fail "Não foi possível derivar o domínio a partir de APP_ORIGIN"
@@ -40,11 +40,18 @@ write_runtime_nginx_conf() {
   log "Regenerando configuração runtime do Nginx para frontend estático em $runtime_conf_path"
   case "$backup_max_upload_mb" in ''|*[!0-9]*) fail "BACKUP_MAX_UPLOAD_MB inválido no .env" ;; esac
   case "$backup_restore_timeout_ms" in ''|*[!0-9]*) fail "BACKUP_RESTORE_TIMEOUT_MS inválido no .env" ;; esac
-  [ "$backup_max_upload_mb" -ge 1 ] && [ "$backup_max_upload_mb" -le 10240 ] \
-    || fail "BACKUP_MAX_UPLOAD_MB deve estar entre 1 e 10240"
+  if [ "$backup_max_upload_mb" -gt 512 ]; then
+    log "BACKUP_MAX_UPLOAD_MB legado acima do limite seguro; usando 200 MB nesta atualização"
+    backup_max_upload_mb=200
+    BACKUP_MAX_UPLOAD_MB=$backup_max_upload_mb
+    export BACKUP_MAX_UPLOAD_MB
+  fi
+  [ "$backup_max_upload_mb" -ge 1 ] && [ "$backup_max_upload_mb" -le 512 ] \
+    || fail "BACKUP_MAX_UPLOAD_MB deve estar entre 1 e 512"
   [ "$backup_restore_timeout_ms" -ge 60000 ] && [ "$backup_restore_timeout_ms" -le 14400000 ] \
     || fail "BACKUP_RESTORE_TIMEOUT_MS deve estar entre 60000 e 14400000"
   backup_restore_timeout_seconds=$((backup_restore_timeout_ms / 1000))
+  backup_nginx_max_upload_mb=$((backup_max_upload_mb + 1))
 
   mkdir -p "$(dirname "$runtime_conf_path")"
 
@@ -83,9 +90,23 @@ server {
         proxy_set_header X-Forwarded-Proto \$scheme;
     }
 
-    # Backend API (Node.js)
+    # Restore usa streaming para disco e possui limite dedicado.
+    location ^~ /api/system/backup/restore {
+        client_max_body_size ${backup_nginx_max_upload_mb}m;
+        proxy_read_timeout ${backup_restore_timeout_seconds}s;
+        proxy_send_timeout ${backup_restore_timeout_seconds}s;
+        proxy_pass http://backend:3000;
+        proxy_request_buffering off;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+
+    # Backend API (Node.js). O backend aplica 2 MB por padrão e 10 MB no vault.
     location /api/ {
-        client_max_body_size ${backup_max_upload_mb}m;
+        client_max_body_size 12m;
         proxy_read_timeout ${backup_restore_timeout_seconds}s;
         proxy_send_timeout ${backup_restore_timeout_seconds}s;
         proxy_pass http://backend:3000;
