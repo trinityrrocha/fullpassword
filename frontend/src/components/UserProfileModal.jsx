@@ -16,6 +16,7 @@ import { safeLogError } from '../utils/safeLogger';
 import SecurePasswordInput from './SecurePasswordInput';
 import RecoveryCodesPanel from './RecoveryCodesPanel';
 import ActiveSessionsCard from './ActiveSessionsCard';
+import useClearOnVaultLock from '../hooks/useClearOnVaultLock';
 
 export default function UserProfileModal({ isOpen, onClose, forcePasswordChange = false }) {
   const { user, logout } = useAuth();
@@ -33,6 +34,23 @@ export default function UserProfileModal({ isOpen, onClose, forcePasswordChange 
     currentPassword: '',
     newPassword: '',
     confirmNewPassword: ''
+  });
+
+  useClearOnVaultLock(() => {
+    setFormData({
+      name: '',
+      email: '',
+      currentPassword: '',
+      newPassword: '',
+      confirmNewPassword: ''
+    });
+    setMfaStatus(null);
+    setMfaSetup(null);
+    setMfaCode('');
+    setRecoveryCodes([]);
+    setError('');
+    setSuccess('');
+    setIsSaving(false);
   });
 
   useEffect(() => {

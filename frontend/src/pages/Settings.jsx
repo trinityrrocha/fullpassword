@@ -12,6 +12,7 @@ import PasswordPolicyCard from '../components/PasswordPolicyCard';
 import BackupRestoreCard from '../components/BackupRestoreCard';
 import ManualIpRulesCard from '../components/ManualIpRulesCard';
 import { formatDateTimeShort } from '../utils/formatDateTimeShort';
+import useClearOnVaultLock from '../hooks/useClearOnVaultLock';
 
 const APP_COMMIT = typeof __APP_COMMIT__ !== 'undefined' ? __APP_COMMIT__ : 'unknown';
 const APP_COMMIT_LABEL = /^[0-9a-f]{7,40}$/i.test(String(APP_COMMIT || '').trim()) ? APP_COMMIT : 'não identificado';
@@ -54,6 +55,13 @@ export default function Settings() {
   const [auditFilters, setAuditFilters] = useState({ action: '', status: '', user_email: '', date_from: '', date_to: '' });
   const [isLoadingAudit, setIsLoadingAudit] = useState(false);
   const [auditError, setAuditError] = useState('');
+
+  useClearOnVaultLock(() => {
+    setBackupConfirmation('');
+    setBackupPassphrase('');
+    setBackupProgress({ type: '', message: '', percent: null });
+    setIsDownloadingBackup(false);
+  });
 
   const canManageSystem = systemPermissions?.can_manage_system === true && systemPermissions?.is_super_admin === true;
   const currentUserEmail = systemPermissions?.email || user?.email || 'e-mail não identificado';

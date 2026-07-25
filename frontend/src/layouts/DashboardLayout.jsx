@@ -6,6 +6,7 @@ import UserProfileModal from '../components/UserProfileModal';
 import ScreenProtection from '../components/ScreenProtection';
 import api from '../services/api';
 import { SCREEN_PROTECTION_CHANGED_EVENT } from '../utils/screenProtection';
+import useClearOnVaultLock from '../hooks/useClearOnVaultLock';
 
 export default function DashboardLayout() {
   const location = useLocation();
@@ -18,6 +19,12 @@ export default function DashboardLayout() {
 
   const { user, logout } = useAuth();
   const mustChangePassword = user?.must_change_password === true;
+
+  useClearOnVaultLock(() => {
+    setIsMobileMenuOpen(false);
+    setIsProfileModalOpen(false);
+    setIsNotificationsOpen(false);
+  });
 
   useEffect(() => {
     if (!user?.is_super_admin) return;

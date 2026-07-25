@@ -6,6 +6,7 @@ import DeleteConfirmationControl from '../components/DeleteConfirmationControl';
 import VaultSharingManager from '../components/VaultSharingManager';
 import VaultReadOnlyGuard from '../components/VaultReadOnlyGuard';
 import { useAuth } from '../context/AuthContext';
+import useClearOnVaultLock from '../hooks/useClearOnVaultLock';
 import { safeLogError } from '../utils/safeLogger';
 import { encryptData, encryptFile, decryptData, base64ToBlob, downloadBlob, isValidCryptoSalt } from '../services/cryptoService';
 import { decryptVaultKeyShare } from '../services/clientVaultKeyService';
@@ -184,6 +185,9 @@ export default function ClientVault() {
   });
 
   const [tsForm, setTsForm] = useState({ servers: [], users: [] });
+  // O plugin de build injeta o DevicesManager, que consome o valor deste estado.
+  // eslint-disable-next-line no-unused-vars
+  const [devicesForm, setDevicesForm] = useState({ devices: [], deviceLogins: [] });
   const [serverDraft, setServerDraft] = useState(emptyServer());
   const [userDraft, setUserDraft] = useState(emptyTsUser());
   const [editingServer, setEditingServer] = useState(null);
@@ -214,6 +218,36 @@ export default function ClientVault() {
   const [vaultPermissions, setVaultPermissions] = useState(null);
   const [vaultKeyError, setVaultKeyError] = useState('');
   const [isSharingModalOpen, setIsSharingModalOpen] = useState(false);
+
+  useClearOnVaultLock(() => {
+    setCpanelForm({ cpanels: [], users: [] });
+    setVpnForm({ servers: [], users: [] });
+    setTsForm({ servers: [], users: [] });
+    setServerForm({ servers: [], sshCredentials: [] });
+    setDevicesForm({ devices: [], deviceLogins: [] });
+    setSavedItems([]);
+    setVaultDataKey(null);
+    setVaultPermissions(null);
+    setVaultKeyError('');
+    setUnlockPassword('');
+    setServerDraft(emptyServer());
+    setUserDraft(emptyTsUser());
+    setEditingServer(null);
+    setEditingUser(null);
+    setDeleteConfirmation('');
+    setDeleteUserConfirmation('');
+    setUserSearch('');
+    setIsSharingModalOpen(false);
+    setIsAddModuleOpen(false);
+    setModulePendingDeletion(null);
+    setModuleDeleteConfirmation('');
+    setModulesLoaded(false);
+    setIsSaving(false);
+    setIsLoading(false);
+    setIsSavingModules(false);
+    setIsDeletingModule(false);
+  });
+
   const effectiveVaultPermissions = vaultPermissions
     ? normalizeVaultPermissions(vaultPermissions)
     : null;

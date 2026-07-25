@@ -9,6 +9,7 @@ import SecurePasswordInput from './SecurePasswordInput';
 import VaultAttachmentsField from './VaultAttachmentsField';
 import { sanitizeIpv4Input, validateIpv4, validateIpv4Cidr } from '../utils/ipCidr';
 import { normalizeVaultAttachments } from '../utils/vaultAttachments';
+import useClearOnVaultLock from '../hooks/useClearOnVaultLock';
 
 const DEVICE_FILE_EXTENSIONS = ['.txt', '.conf', '.json', '.xml', '.log', '.zip', '.rar', '.pdf', '.png', '.jpg', '.jpeg'];
 const DEVICE_TYPES = ['VOIP', 'NAS', 'DVR', 'IMPRESSORA', 'NAS STORAGE', 'PABX', 'ROTEADOR'];
@@ -199,6 +200,21 @@ export default function DevicesManager({ devicesForm, setDevicesForm, handleSave
   const [showLoginCreateModal, setShowLoginCreateModal] = useState(false);
   const [loginSearch, setLoginSearch] = useState('');
   const [loginDeviceFilter, setLoginDeviceFilter] = useState('');
+
+  useClearOnVaultLock(() => {
+    setDeviceDraft(emptyDevice());
+    setEditingDevice(null);
+    setViewingDevice(null);
+    setDeleteConfirmation('');
+    setShowCreateModal(false);
+    setLoginDraft(emptyDeviceLogin());
+    setEditingLogin(null);
+    setViewingLogin(null);
+    setLoginDeleteConfirmation('');
+    setShowLoginCreateModal(false);
+    setLoginSearch('');
+    setLoginDeviceFilter('');
+  });
 
   const persistDevices = async (nextForm, successMessage) => {
     const saved = await handleSaveData('Dispositivos', nextForm, { successMessage });

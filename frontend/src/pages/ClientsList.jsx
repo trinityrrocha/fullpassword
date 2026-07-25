@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { Building2, Search, Plus, Pencil, Eye, Trash2, X, Loader2 } from 'lucide-react';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import useClearOnVaultLock from '../hooks/useClearOnVaultLock';
 import { safeLogError } from '../utils/safeLogger';
 import { decryptData, isValidCryptoSalt } from '../services/cryptoService';
 import { decryptVaultKeyShare } from '../services/clientVaultKeyService';
@@ -71,6 +72,15 @@ export default function ClientsList() {
     address: '',
     phone: '',
     email: ''
+  });
+
+  useClearOnVaultLock(() => {
+    setViewClient(null);
+    setViewSummary({ loading: false, lines: [], error: '' });
+    setUnlockClient(null);
+    setUnlockPassword('');
+    setUnlockError('');
+    setIsUnlocking(false);
   });
 
   const loadClients = async () => {

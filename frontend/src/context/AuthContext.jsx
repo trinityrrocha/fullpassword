@@ -24,6 +24,29 @@ export const AuthProvider = ({ children }) => {
   const [vaultStateEpoch, setVaultStateEpoch] = useState(0);
   const [loading, setLoading] = useState(true);
   const lastActivityRef = useRef(null);
+  const vaultLockCleanupsRef = useRef(new Set());
+
+  const registerVaultLockCleanup = useCallback((cleanup) => {
+    if (typeof cleanup !== 'function') return () => undefined;
+    vaultLockCleanupsRef.current.add(cleanup);
+    return () => {
+      vaultLockCleanupsRef.current.delete(cleanup);
+    };
+  }, []);
+
+  const notifyVaultLockCleanups = useCallback(() => {
+    for (const cleanup of [...vaultLockCleanupsRef.current]) {
+      try {
+        cleanup();
+      } catch {
+        // Uma falha local não deve impedir a remoção das chaves e dos demais estados.
+      }
+    }
+
+    if (navigator.clipboard?.writeText) {
+      void navigator.clipboard.writeText('').catch(() => undefined);
+    }
+  }, []);
 
   const finishAuthentication = (data) => {
     if (!data?.user) return { success: false, error: 'Resposta de autenticação inválida' };
@@ -101,11 +124,12 @@ export const AuthProvider = ({ children }) => {
 
   const clearSensitiveVaultState = useCallback((reason = 'manual') => {
     if (!masterKey) return false;
+    notifyVaultLockCleanups();
     setMasterKey(null);
     setVaultLockReason(reason);
     setVaultStateEpoch((current) => current + 1);
     return true;
-  }, [masterKey]);
+  }, [masterKey, notifyVaultLockCleanups]);
   const lockVault = clearSensitiveVaultState;
 
   useEffect(() => {
@@ -149,6 +173,7 @@ export const AuthProvider = ({ children }) => {
     } catch (error) {
       safeLogError('Erro ao encerrar sessão no servidor.', error);
     } finally {
+      notifyVaultLockCleanups();
       setUser(null);
       setMasterKey(null);
       setVaultLockReason(null);
@@ -225,6 +250,7 @@ export const AuthProvider = ({ children }) => {
     logout,
     lockVault,
     unlockVault,
+    registerVaultLockCleanup,
     loading
   };
 

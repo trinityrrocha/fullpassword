@@ -9,6 +9,7 @@ import IpCidrInput from './IpCidrInput';
 import Ipv4Input from './Ipv4Input';
 import { sanitizeIpv4Input, validateIpv4, validateIpv4Cidr } from '../utils/ipCidr';
 import { validateVaultAttachmentSelection } from '../utils/requestLimits';
+import useClearOnVaultLock from '../hooks/useClearOnVaultLock';
 
 const systemOptions = [
   'Ubuntu',
@@ -285,6 +286,21 @@ export default function LinuxServerManager({ serverForm, setServerForm, handleSa
   const [showUserCreateModal, setShowUserCreateModal] = useState(false);
   const [userSearch, setUserSearch] = useState('');
   const [userServerFilter, setUserServerFilter] = useState('');
+
+  useClearOnVaultLock(() => {
+    setServerDraft(emptyLinuxServer());
+    setUserDraft(emptySshCredential());
+    setEditingServer(null);
+    setEditingUser(null);
+    setViewingServer(null);
+    setViewingUser(null);
+    setDeleteConfirmation('');
+    setDeleteUserConfirmation('');
+    setShowServerCreateModal(false);
+    setShowUserCreateModal(false);
+    setUserSearch('');
+    setUserServerFilter('');
+  });
 
   const getServerById = (serverId) => normalizedForm.servers.find((item) => item.id === serverId);
 

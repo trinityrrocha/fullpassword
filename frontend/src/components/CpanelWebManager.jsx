@@ -5,6 +5,7 @@ import DeleteConfirmationControl from './DeleteConfirmationControl';
 import ReadOnlyDetailsModal, { ReadOnlyAttachments, ReadOnlyField } from './ReadOnlyDetailsModal';
 import { normalizeVaultAttachments } from '../utils/vaultAttachments';
 import CopyButton from './CopyButton';
+import useClearOnVaultLock from '../hooks/useClearOnVaultLock';
 
 const departmentOptions = [
   'Comercial',
@@ -123,6 +124,21 @@ export default function CpanelWebManager({ cpanelForm, setCpanelForm, handleSave
   const [showUserCreateModal, setShowUserCreateModal] = useState(false);
   const [userSearch, setUserSearch] = useState('');
   const [userCpanelFilter, setUserCpanelFilter] = useState('');
+
+  useClearOnVaultLock(() => {
+    setCpanelDraft(emptyCpanel());
+    setUserDraft(emptyCpanelUser());
+    setEditingCpanel(null);
+    setEditingUser(null);
+    setViewingCpanel(null);
+    setViewingUser(null);
+    setDeleteCpanelConfirmation('');
+    setDeleteUserConfirmation('');
+    setShowCpanelCreateModal(false);
+    setShowUserCreateModal(false);
+    setUserSearch('');
+    setUserCpanelFilter('');
+  });
 
   const getCpanelById = (cpanelId) => normalizedForm.cpanels.find((item) => item.id === cpanelId);
 

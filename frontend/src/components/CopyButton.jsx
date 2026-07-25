@@ -1,12 +1,18 @@
 import { useEffect, useRef, useState } from 'react';
 import { Copy } from 'lucide-react';
 import { copyToClipboardSilently } from '../utils/clipboard';
+import useClearOnVaultLock from '../hooks/useClearOnVaultLock';
 
 export default function CopyButton({ value, label = 'Copiar', className = 'inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-300 text-slate-600 hover:bg-slate-50', iconClassName = 'h-3.5 w-3.5' }) {
   const [copied, setCopied] = useState(false);
   const timeoutRef = useRef(null);
 
   useEffect(() => () => clearTimeout(timeoutRef.current), []);
+
+  useClearOnVaultLock(() => {
+    clearTimeout(timeoutRef.current);
+    setCopied(false);
+  });
 
   const handleCopy = async () => {
     const succeeded = await copyToClipboardSilently(value);

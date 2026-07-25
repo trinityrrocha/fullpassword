@@ -5,6 +5,7 @@ import GroupModal from '../components/GroupModal';
 import api from '../services/api';
 import { safeLogError } from '../utils/safeLogger';
 import { useAuth } from '../context/AuthContext';
+import useClearOnVaultLock from '../hooks/useClearOnVaultLock';
 
 const defaultNewUser = {
   name: '',
@@ -138,6 +139,17 @@ export default function TeamList() {
   const [isLoadingGroups, setIsLoadingGroups] = useState(false);
   const [isGroupModalOpen, setIsGroupModalOpen] = useState(false);
   const [groupToEdit, setGroupToEdit] = useState(null);
+
+  useClearOnVaultLock(() => {
+    setIsModalOpen(false);
+    setIsEditModalOpen(false);
+    setNewUser(defaultNewUser);
+    setEditUser(defaultEditUser);
+    setDeleteUserConfirmation('');
+    setIsGroupModalOpen(false);
+    setGroupToEdit(null);
+    setIsSaving(false);
+  });
 
   const loadUsers = async () => {
     setIsLoading(true);

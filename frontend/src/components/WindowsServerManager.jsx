@@ -9,6 +9,7 @@ import IpCidrInput from './IpCidrInput';
 import Ipv4Input from './Ipv4Input';
 import { sanitizeIpv4Input, validateIpv4, validateIpv4Cidr } from '../utils/ipCidr';
 import { normalizeVaultAttachments } from '../utils/vaultAttachments';
+import useClearOnVaultLock from '../hooks/useClearOnVaultLock';
 
 const WINDOWS_SERVER_FILE_EXTENSIONS = ['.txt', '.conf', '.json', '.xml', '.log', '.zip', '.rar'];
 
@@ -292,6 +293,21 @@ export default function WindowsServerManager({ tsForm, setTsForm, handleSaveData
   const [showUserCreateModal, setShowUserCreateModal] = useState(false);
   const [userSearch, setUserSearch] = useState('');
   const [userServerFilter, setUserServerFilter] = useState('');
+
+  useClearOnVaultLock(() => {
+    setServerDraft(emptyServer());
+    setUserDraft(emptyUser());
+    setEditingServer(null);
+    setEditingUser(null);
+    setViewingServer(null);
+    setViewingUser(null);
+    setDeleteServerConfirmation('');
+    setDeleteUserConfirmation('');
+    setShowServerCreateModal(false);
+    setShowUserCreateModal(false);
+    setUserSearch('');
+    setUserServerFilter('');
+  });
 
   const getServerById = (serverId) => normalizedForm.servers.find((item) => item.id === serverId);
 

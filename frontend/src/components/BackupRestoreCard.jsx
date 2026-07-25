@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { AlertTriangle, Loader2, Upload } from 'lucide-react';
 import api from '../services/api';
+import useClearOnVaultLock from '../hooks/useClearOnVaultLock';
 
 export default function BackupRestoreCard() {
   const [file, setFile] = useState(null);
@@ -11,6 +12,17 @@ export default function BackupRestoreCard() {
   const [feedback, setFeedback] = useState({ type: '', message: '' });
   const [loading, setLoading] = useState('');
   const [uploadProgress, setUploadProgress] = useState(null);
+
+  useClearOnVaultLock(() => {
+    setFile(null);
+    setPassphrase('');
+    setConfirmation('');
+    setSummary(null);
+    setValidatedFile(null);
+    setFeedback({ type: '', message: '' });
+    setLoading('');
+    setUploadProgress(null);
+  });
 
   const isBackupValidated = Boolean(file && validatedFile === file);
 

@@ -9,6 +9,7 @@ import ReadOnlyDetailsModal, { ReadOnlyAttachments, ReadOnlyField } from './Read
 import CopyButton from './CopyButton';
 import { validateIpv4Cidr } from '../utils/ipCidr';
 import { normalizeVaultAttachments } from '../utils/vaultAttachments';
+import useClearOnVaultLock from '../hooks/useClearOnVaultLock';
 
 const VPN_SERVER_FILE_EXTENSIONS = ['.txt', '.ovpn', '.conf', '.crt', '.cer', '.key', '.pem', '.zip', '.rar'];
 const VPN_USER_FILE_EXTENSIONS = ['.zip', '.rar', '.txt'];
@@ -157,6 +158,21 @@ export default function VpnManager({ vpnForm, setVpnForm, handleSaveData, isSavi
   const [showUserCreateModal, setShowUserCreateModal] = useState(false);
   const [userSearch, setUserSearch] = useState('');
   const [userServerFilter, setUserServerFilter] = useState('');
+
+  useClearOnVaultLock(() => {
+    setServerDraft(emptyVpnServer());
+    setUserDraft(emptyVpnUser());
+    setEditingServer(null);
+    setEditingUser(null);
+    setViewingServer(null);
+    setViewingUser(null);
+    setDeleteServerConfirmation('');
+    setDeleteUserConfirmation('');
+    setShowServerCreateModal(false);
+    setShowUserCreateModal(false);
+    setUserSearch('');
+    setUserServerFilter('');
+  });
 
   const getServerById = (serverId) => normalizedForm.servers.find((item) => item.id === serverId);
 

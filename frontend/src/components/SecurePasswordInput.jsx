@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Eye, EyeOff, KeyRound } from 'lucide-react';
 import CopyButton from './CopyButton';
+import useClearOnVaultLock from '../hooks/useClearOnVaultLock';
 
 // ---------------------------------------------------------------------------
 // Geração de senha segura
@@ -82,6 +83,14 @@ export default function SecurePasswordInput({
     clearTimeout(undoTimerRef.current);
     clearTimeout(revealTimerRef.current);
   }, []);
+
+  useClearOnVaultLock(() => {
+    clearTimeout(undoTimerRef.current);
+    clearTimeout(revealTimerRef.current);
+    setShowPassword(false);
+    setPreviousValue(null);
+    setShowUndo(false);
+  });
 
   const handlePasswordVisibility = () => {
     clearTimeout(revealTimerRef.current);
