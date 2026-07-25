@@ -1,4 +1,4 @@
-import { generateMasterKey, importPublicKey, decryptPrivateKey } from './cryptoService';
+import { generateMasterKey, importPublicKey, decryptPrivateKey } from './cryptoService.js';
 
 const bufferToBase64 = (buffer) => {
   const bytes = new Uint8Array(buffer);
@@ -21,6 +21,10 @@ const base64ToBuffer = (base64) => {
 export const generateClientVaultKey = async () => generateMasterKey();
 
 export const exportClientVaultKey = async (clientVaultKey) => {
+  /*
+   * Exportação controlada usada somente para serializar uma chave recém-criada.
+   * Chaves importadas por importClientVaultKey são non-extractable.
+   */
   const rawKey = await window.crypto.subtle.exportKey('raw', clientVaultKey);
   return bufferToBase64(rawKey);
 };
@@ -31,7 +35,7 @@ export const importClientVaultKey = async (base64Key) => {
     'raw',
     rawKey,
     { name: 'AES-GCM', length: 256 },
-    true,
+    false,
     ['encrypt', 'decrypt']
   );
 };
@@ -42,6 +46,10 @@ export const encryptVaultKeyForPublicKey = async (clientVaultKey, publicKeyBase6
   }
 
   const publicKey = await importPublicKey(publicKeyBase64);
+  /*
+   * O RSA-OAEP precisa receber os bytes da chave AES. Esta exportação só pode
+   * ocorrer para proprietários/administradores em um fluxo de compartilhamento.
+   */
   const rawKey = await window.crypto.subtle.exportKey('raw', clientVaultKey);
   const encryptedKey = await window.crypto.subtle.encrypt(
     { name: 'RSA-OAEP' },
@@ -52,7 +60,12 @@ export const encryptVaultKeyForPublicKey = async (clientVaultKey, publicKeyBase6
   return bufferToBase64(encryptedKey);
 };
 
-export const decryptVaultKeyShare = async (encryptedClientKey, encryptedPrivateKey, masterKey) => {
+export const decryptVaultKeyShare = async (
+  encryptedClientKey,
+  encryptedPrivateKey,
+  masterKey,
+  { allowExportForSharing = false } = {}
+) => {
   if (!encryptedClientKey || !encryptedPrivateKey || !masterKey) {
     throw new Error('Chave compartilhada, chave privada e master key são obrigatórias');
   }
@@ -69,7 +82,12 @@ export const decryptVaultKeyShare = async (encryptedClientKey, encryptedPrivateK
     'raw',
     rawKey,
     { name: 'AES-GCM', length: 256 },
-    true,
+    /*
+     * Somente proprietários/administradores que podem redistribuir a chave
+     * recebem uma chave exportável. Para visualização e edição normais, a chave
+     * compartilhada é importada como non-extractable.
+     */
+    allowExportForSharing === true,
     ['encrypt', 'decrypt']
   );
 };

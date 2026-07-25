@@ -2,7 +2,7 @@
  * Serviço de Criptografia Client-Side (Zero-Knowledge)
  * Utiliza a Web Crypto API nativa do navegador para máxima segurança e performance.
  */
-import { safeLogError } from '../utils/safeLogger';
+import { safeLogError } from '../utils/safeLogger.js';
 
 // Converte string para ArrayBuffer
 const getMessageEncoding = (message) => {
@@ -75,8 +75,8 @@ export const deriveMasterKey = async (password, saltString) => {
     },
     keyMaterial,
     { name: 'AES-GCM', length: 256 },
-    true, // Permite exportar a chave para wrap/unwrap
-    ['encrypt', 'decrypt', 'wrapKey', 'unwrapKey']
+    false,
+    ['wrapKey', 'unwrapKey']
   );
 };
 
@@ -86,6 +86,11 @@ export const deriveMasterKey = async (password, saltString) => {
 export const generateMasterKey = async () => {
   return await window.crypto.subtle.generateKey(
     { name: 'AES-GCM', length: 256 },
+    /*
+     * Esta chave recém-gerada precisa ser extractable para ser persistida com
+     * wrapKey e para inicializar compartilhamentos. Não mantê-la além desses
+     * fluxos controlados sem a proteção de auto-lock.
+     */
     true,
     ['encrypt', 'decrypt']
   );
@@ -140,6 +145,12 @@ export const unwrapMasterKey = async (wrappedKeyStr, kek) => {
       kek,
       { name: 'AES-GCM', iv: new Uint8Array(iv) },
       { name: 'AES-GCM', length: 256 },
+      /*
+       * O modelo atual usa esta mesma chave como chave do cofre do proprietário.
+       * Ela precisa permanecer exportável para compartilhamento RSA e rewrap na
+       * troca de senha. Torná-la non-extractable exige separar a chave do usuário
+       * da chave por cofre e migrar os dados persistidos.
+       */
       true,
       ['encrypt', 'decrypt']
     );
@@ -314,7 +325,12 @@ export const generateRSAKeyPair = async () => {
       publicExponent: new Uint8Array([1, 0, 1]), // 65537
       hash: "SHA-256",
     },
-    true, // extractable
+    /*
+     * O par é extractable somente durante a criação: a chave pública é
+     * publicada em SPKI e a privada é exportada uma vez para armazenamento
+     * cifrado. A chave privada reimportada para uso normal é non-extractable.
+     */
+    true,
     ["encrypt", "decrypt"]
   );
 };
@@ -340,7 +356,7 @@ export const importPublicKey = async (pemStr) => {
       name: "RSA-OAEP",
       hash: "SHA-256",
     },
-    true,
+    false,
     ["encrypt"]
   );
 };
@@ -391,7 +407,7 @@ export const decryptPrivateKey = async (encryptedPrivateKeyStr, masterKey) => {
       name: "RSA-OAEP",
       hash: "SHA-256",
     },
-    true,
+    false,
     ["decrypt"]
   );
 };

@@ -324,7 +324,10 @@ export default function ClientVault() {
           const sharedKey = await decryptVaultKeyShare(
             keyResponse.data.encrypted_client_key,
             user.encrypted_private_key,
-            masterKey
+            masterKey,
+            {
+              allowExportForSharing: normalizedPermissions.is_owner || normalizedPermissions.is_admin
+            }
           );
           if (!cancelled) setVaultDataKey(sharedKey);
           return;
