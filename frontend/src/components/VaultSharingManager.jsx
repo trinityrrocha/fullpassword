@@ -1,32 +1,12 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Plus, RefreshCw, Save, Trash2, Users, ShieldCheck } from 'lucide-react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { ChevronDown, RefreshCw, Save, ShieldCheck } from 'lucide-react';
 import api from '../services/api';
 import { safeLogError } from '../utils/safeLogger';
-
-const permissionLabels = [
-  { key: 'can_view', label: 'Visualizar' },
-  { key: 'can_edit', label: 'Editar' },
-  { key: 'can_add', label: 'Adicionar' },
-  { key: 'can_delete', label: 'Excluir' }
-];
-
-const normalizeShare = (share = {}) => ({
-  group_id: share.group_id || share.groupId || '',
-  group_name: share.group_name || share.groupName || '',
-  group_description: share.group_description || share.groupDescription || '',
-  can_view: Boolean(share.can_view ?? share.canView ?? true),
-  can_edit: Boolean(share.can_edit ?? share.canEdit ?? false),
-  can_add: Boolean(share.can_add ?? share.canAdd ?? false),
-  can_delete: Boolean(share.can_delete ?? share.canDelete ?? false)
-});
-
-const getPermissionSummary = (group = {}) => {
-  const permissions = permissionLabels
-    .filter((permission) => Boolean(group[permission.key]))
-    .map((permission) => permission.label);
-
-  return permissions.length ? permissions.join(', ') : 'Sem permissão definida';
-};
+import {
+  getVaultSharingGroupNames,
+  normalizeVaultShare,
+  toggleVaultGroupShare
+} from '../utils/vaultSharingSelection';
 
 const getSharingErrorMessage = (error) => {
   if (error?.code === 'VAULT_LOCKED') {
@@ -38,20 +18,97 @@ const getSharingErrorMessage = (error) => {
   return 'Não foi possível salvar o compartilhamento do cofre. Atualize a página, desbloqueie o cofre e tente novamente.';
 };
 
+function VaultGroupSelector({ groups, selectedGroupIds, onToggle, disabled }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const selectorRef = useRef(null);
+  const triggerRef = useRef(null);
+  const listboxId = useId();
+  const selectedCount = selectedGroupIds.size;
+  const selectionLabel = selectedCount === 0
+    ? 'Selecione os grupos...'
+    : selectedCount === 1
+      ? '1 grupo selecionado'
+      : `${selectedCount} grupos selecionados`;
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
+
+    const handleOutsideClick = (event) => {
+      if (!selectorRef.current?.contains(event.target)) setIsOpen(false);
+    };
+    const handleEscape = (event) => {
+      if (event.key !== 'Escape') return;
+      setIsOpen(false);
+      triggerRef.current?.focus();
+    };
+
+    document.addEventListener('mousedown', handleOutsideClick);
+    document.addEventListener('keydown', handleEscape);
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClick);
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, [isOpen]);
+
+  return (
+    <div ref={selectorRef} className="relative">
+      <button
+        ref={triggerRef}
+        type="button"
+        disabled={disabled}
+        aria-expanded={isOpen}
+        aria-haspopup="listbox"
+        aria-controls={listboxId}
+        onClick={() => setIsOpen((current) => !current)}
+        className="flex h-10 w-full items-center justify-between gap-2 rounded-md border border-slate-300 bg-white px-3 text-left text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        <span className={selectedCount ? 'text-slate-700' : 'text-slate-500'}>{selectionLabel}</span>
+        <ChevronDown className={`h-4 w-4 shrink-0 text-slate-500 transition-transform ${isOpen ? 'rotate-180' : ''}`} aria-hidden="true" />
+      </button>
+
+      {isOpen && (
+        <div
+          id={listboxId}
+          role="listbox"
+          aria-label="Grupos para compartilhar"
+          aria-multiselectable="true"
+          className="absolute z-30 mt-1 max-h-56 w-full overflow-x-hidden overflow-y-auto rounded-md border border-slate-200 bg-white p-1 shadow-lg"
+        >
+          {groups.length === 0 ? (
+            <p className="px-3 py-3 text-center text-sm text-slate-500">Nenhum grupo cadastrado.</p>
+          ) : groups.map((group) => {
+            const isSelected = selectedGroupIds.has(group.id);
+            return (
+              <label
+                key={group.id}
+                role="option"
+                aria-selected={isSelected}
+                className={`flex items-start gap-2 rounded px-3 py-2 hover:bg-slate-50 ${disabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}
+              >
+                <input
+                  type="checkbox"
+                  disabled={disabled}
+                  checked={isSelected}
+                  onChange={() => onToggle(group)}
+                  className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                />
+                <span className="min-w-0 break-words text-sm text-slate-700">{group.name || 'Grupo sem nome'}</span>
+              </label>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function VaultSharingManager({ clientId, prepareKeyShares, compact = false }) {
   const [groups, setGroups] = useState([]);
   const [shares, setShares] = useState([]);
-  const [selectedGroupId, setSelectedGroupId] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [error, setError] = useState('');
-
-  const groupMap = useMemo(() => {
-    const map = new Map();
-    groups.forEach((group) => map.set(group.id, group));
-    return map;
-  }, [groups]);
 
   const loadSharingData = async () => {
     setIsLoading(true);
@@ -64,7 +121,7 @@ export default function VaultSharingManager({ clientId, prepareKeyShares, compac
       ]);
 
       setGroups(groupsResponse.data || []);
-      setShares((sharesResponse.data || []).map(normalizeShare));
+      setShares((sharesResponse.data || []).map(normalizeVaultShare));
     } catch (err) {
       safeLogError('Erro ao carregar compartilhamento do cofre.', err);
       setError(err.response?.data?.error || 'Você não tem permissão para gerenciar o compartilhamento deste cofre.');
@@ -74,38 +131,39 @@ export default function VaultSharingManager({ clientId, prepareKeyShares, compac
   };
 
   useEffect(() => {
+    // O compartilhamento remoto precisa ser recarregado quando o cofre ativo muda.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadSharingData();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clientId]);
 
-  const selectedGroupIds = shares.map((share) => share.group_id).filter(Boolean);
-  const availableGroups = groups.filter((group) => !selectedGroupIds.includes(group.id));
-
-  const addSelectedGroup = () => {
-    if (!selectedGroupId) {
-      alert('Selecione um grupo para adicionar ao compartilhamento.');
-      return;
-    }
-
-    const group = groupMap.get(selectedGroupId);
-    if (!group) return;
-
-    setShares((current) => [
-      normalizeShare({
-        group_id: group.id,
-        group_name: group.name,
-        group_description: group.description,
-        can_view: group.can_view,
-        can_edit: group.can_edit,
-        can_add: group.can_add,
-        can_delete: group.can_delete
-      }),
-      ...current
-    ]);
-    setSelectedGroupId('');
-  };
-
-  const removeShare = (groupId) => {
-    setShares((current) => current.filter((share) => share.group_id !== groupId));
+  const selectableGroups = useMemo(() => {
+    const merged = [...groups];
+    shares.forEach((share) => {
+      if (share.group_id && !merged.some((group) => group.id === share.group_id)) {
+        merged.push({
+          id: share.group_id,
+          name: share.group_name || 'Grupo sem nome',
+          description: share.group_description,
+          can_view: share.can_view,
+          can_edit: share.can_edit,
+          can_add: share.can_add,
+          can_delete: share.can_delete
+        });
+      }
+    });
+    return merged;
+  }, [groups, shares]);
+  const selectedGroupIds = useMemo(
+    () => new Set(shares.map((share) => share.group_id).filter(Boolean)),
+    [shares]
+  );
+  const selectedGroupNames = useMemo(
+    () => getVaultSharingGroupNames(shares, selectableGroups),
+    [selectableGroups, shares]
+  );
+  const toggleGroup = (group) => {
+    setShares((current) => toggleVaultGroupShare(current, group));
   };
 
   const syncKeyShares = async (groupIds) => {
@@ -197,7 +255,7 @@ export default function VaultSharingManager({ clientId, prepareKeyShares, compac
     let stage = 'load_group_shares';
     try {
       const sharesResponse = await api.get(`/vault-items/${clientId}/shares`);
-      const currentShares = (sharesResponse.data || []).map(normalizeShare);
+      const currentShares = (sharesResponse.data || []).map(normalizeVaultShare);
       const currentGroupIds = currentShares.map((share) => share.group_id).filter(Boolean);
       setShares(currentShares);
       stage = 'prepare_key_shares';
@@ -244,45 +302,22 @@ export default function VaultSharingManager({ clientId, prepareKeyShares, compac
 
       <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
         <label className="block text-sm font-medium text-slate-700 mb-2">Grupo para compartilhar</label>
-        <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_auto] gap-3">
-          <select
-            value={selectedGroupId}
-            onChange={(e) => setSelectedGroupId(e.target.value)}
-            className="w-full border-slate-300 rounded-md shadow-sm p-2 border bg-white"
-          >
-            <option value="">Selecione um grupo existente...</option>
-            {availableGroups.map((group) => (
-              <option key={group.id} value={group.id}>{group.name}</option>
-            ))}
-          </select>
-          <button type="button" onClick={addSelectedGroup} className="inline-flex items-center justify-center px-4 py-2 border border-slate-300 rounded-md shadow-sm text-sm font-medium text-slate-700 bg-white hover:bg-slate-50">
-            <Plus className="w-4 h-4 mr-2" /> Adicionar
-          </button>
-        </div>
-      </div>
-
-      <div className="space-y-3">
-        {shares.length === 0 ? (
-          <div className="rounded-lg border border-slate-200 bg-slate-50 p-5 text-sm text-slate-500">
-            Nenhum grupo compartilhado. Apenas o dono do cofre e administradores têm acesso.
-          </div>
-        ) : shares.map((share) => {
-          const group = groupMap.get(share.group_id) || share;
-
-          return (
-            <div key={share.group_id} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-lg border border-slate-200 bg-white p-4">
-              <div>
-                <p className="font-medium text-slate-900 flex items-center gap-2">
-                  <Users className="w-5 h-5 text-slate-500" /> {group.name || share.group_name || 'Grupo sem nome'}
-                </p>
-                <p className="text-xs text-slate-500 mt-1">Permissões herdadas do grupo: {getPermissionSummary(group)}</p>
-              </div>
-              <button type="button" title="Remover" aria-label="Remover" onClick={() => removeShare(share.group_id)} className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-red-300 text-red-600 hover:bg-red-50">
-                <Trash2 className="h-4 w-4" />
-              </button>
-            </div>
-          );
-        })}
+        <VaultGroupSelector
+          groups={selectableGroups}
+          selectedGroupIds={selectedGroupIds}
+          onToggle={toggleGroup}
+          disabled={isSaving || isSyncing}
+        />
+        {selectedGroupNames.length > 0 ? (
+          <p className="mt-2 w-full break-words text-xs leading-relaxed text-slate-500 [overflow-wrap:anywhere]">
+            <span className="font-medium text-slate-600">Grupos compartilhados:</span>{' '}
+            {selectedGroupNames.join(', ')}
+          </p>
+        ) : (
+          <p className="mt-2 w-full text-xs leading-relaxed text-slate-500">
+            Nenhum grupo selecionado para compartilhamento.
+          </p>
+        )}
       </div>
 
       <div className="flex flex-col sm:flex-row justify-end gap-3 pt-2">
