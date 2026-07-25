@@ -1,64 +1,194 @@
 # FullPassword - Cofre Zero-Knowledge para MSPs e equipes de TI
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
-![Version](https://img.shields.io/badge/version-1.0.1-green.svg)
+![Status](https://img.shields.io/badge/status-em%20evolu%C3%A7%C3%A3o-green.svg)
 ![Node.js](https://img.shields.io/badge/node.js-18+-brightgreen.svg)
 ![React](https://img.shields.io/badge/react-18+-blue.svg)
 
-**FullPassword** é um cofre de credenciais para MSPs, equipes de TI e prestadores de suporte técnico. O sistema organiza acessos por cliente/cofre e mantém os dados sensíveis criptografados no navegador usando a **Web Crypto API**.
+**FullPassword** é um cofre de credenciais para MSPs, equipes de TI e prestadores de suporte técnico. O sistema organiza acessos por empresa/cliente, separa dados por módulos operacionais e mantém as informações sensíveis criptografadas no navegador usando a **Web Crypto API**.
 
-O projeto evoluiu para suportar **múltiplos usuários**, **grupos**, **permissões granulares**, **compartilhamento criptográfico de cofres** e separação entre permissões de **visualizar**, **editar**, **adicionar** e **excluir**.
+A aplicação suporta múltiplos usuários, grupos, permissões granulares, compartilhamento criptográfico de cofres, autenticação com MFA, política de login, política global de senhas, auditoria, backup/restauração criptografada e organização operacional por abas.
 
-## 🎯 Características Principais
+## 🎯 Características principais
 
-### 🔐 Segurança e Criptografia
+### 🔐 Segurança e criptografia
 
-- **Arquitetura Zero-Knowledge**: dados sensíveis criptografados no navegador.
-- **AES-256-GCM**: criptografia simétrica usando Web Crypto API.
-- **PBKDF2**: derivação da Master Key a partir da senha mestre do usuário.
-- **RSA-OAEP por usuário**: usado para compartilhar chaves de cofre entre usuários autorizados.
-- **Chave própria por cofre**: os dados do cofre são criptografados com uma chave do próprio cofre.
-- **Back-end sem acesso ao texto claro**: API e banco armazenam apenas dados criptografados.
-- **JWT Authentication**: autenticação com token e sessão controlada.
+- **Arquitetura Zero-Knowledge**: dados sensíveis são criptografados no navegador antes de serem enviados ao back-end.
+- **AES-256-GCM**: criptografia simétrica usada nos cofres e envelopes criptográficos.
+- **PBKDF2 / derivação de chave no navegador**: usada no fluxo de chave mestre do usuário.
+- **RSA-OAEP por usuário**: usado para compartilhar chaves de cofre com usuários autorizados.
+- **Chave própria por cofre**: cada empresa/cofre possui chave própria para criptografia dos dados internos.
+- **Back-end sem acesso ao texto claro**: API e banco armazenam dados criptografados e metadados necessários.
 - **Argon2id**: hashing seguro das senhas de login no back-end.
+- **Autenticação JWT com controle de sessão**.
+- **MFA e códigos de recuperação**.
+- **Política de login**: controle de tentativas falhadas, janela de contagem e tempo de bloqueio automático.
+- **Política global de senhas**: expiração configurável por 3 meses, 6 meses ou 1 ano.
+- **Blacklist / Whitelist manual de IP/CIDR**: validação de IPv4 e IPv4/CIDR com whitelist prevalecendo sobre blacklist.
+- **Proteção contra impressão/captura de tela best-effort**: bloqueio de impressão, tentativa de interceptar Print Screen, blur ao perder foco e controle por switch. Essa proteção não é absoluta, pois o navegador não consegue impedir capturas feitas diretamente pelo sistema operacional, ferramentas externas ou câmera.
 
-### 👥 Usuários, Grupos e Permissões
+### 👥 Usuários, grupos e permissões
 
-- **Gestão de usuários**: cadastro, edição, ativação/inativação e vínculo com grupos.
-- **Gestão de grupos**: grupos administrativos com permissões herdadas nos cofres compartilhados.
+- **Gestão de usuários do sistema**: cadastro, edição, ativação/inativação e exclusão controlada.
+- **Gestão de grupos**: grupos administrativos usados para compartilhar cofres.
+- **Vínculo de membros com grupos por multi-select com checkbox**.
 - **Permissões granulares por grupo**:
   - Visualizar
   - Editar
   - Adicionar
   - Excluir
 - **Compartilhamento por grupo**: o cofre define quais grupos têm acesso; o grupo define o nível de permissão.
-- **Modo somente leitura**: usuários com permissão apenas de visualização conseguem ver e copiar dados, mas não conseguem alterar campos.
-- **Bloqueio de ações por permissão**: usuários sem permissão de adicionar ou excluir têm esses botões bloqueados no front-end e também são protegidos pelo back-end.
+- **Modo somente leitura**: usuários com permissão apenas de visualização conseguem consultar e copiar dados autorizados, mas não conseguem alterar campos.
+- **Bloqueio de ações por permissão**: usuários sem permissão de adicionar, editar ou excluir têm ações bloqueadas no front-end e protegidas no back-end.
+- **Exclusão segura de usuário do sistema**: com confirmação `EXCLUIR`, bloqueio de autoexclusão e proteção contra remoção do último administrador.
 
-### 📊 Funcionalidades para MSPs
+### 🧩 Módulos operacionais por empresa
 
-- **Gestão de Clientes/Cofres**: organização das credenciais por cliente.
-- **Abas operacionais**:
-  - cPanel / Web
-  - VPN
-  - Windows Server / Terminal Server
-  - Linux Server
-  - Servidores Diversos
-  - Compartilhamento
-- **Senhas copiáveis e visualizáveis**: botões para mostrar/ocultar e copiar senhas.
-- **Anexos criptografados**: suporte a arquivos protegidos no cofre.
-- **Interface responsiva**: frontend em React com Tailwind CSS.
-- **Controle administrativo**: permissões especiais para administradores e donos de cofres.
+As empresas possuem abas operacionais configuráveis. Novas empresas podem iniciar sem módulos ativos, e cada módulo pode ser adicionado conforme necessidade.
 
-### 🚀 Deploy e Operação
+Módulos atuais:
 
-- **Docker Compose**: backend, frontend, banco PostgreSQL e Nginx containerizados.
-- **Nginx Proxy Reverso**: publicação HTTP/HTTPS do sistema.
-- **PostgreSQL**: banco relacional para usuários, grupos, cofres e metadados criptográficos.
-- **Let's Encrypt**: suporte a certificado SSL/TLS.
-- **Script de instalação**: instalação automatizada em VPS Linux.
+- **Servidor hospedagem**
+- **VPN**
+- **Servidor Windows**
+- **Servidor Linux**
+- **Dispositivos**
 
-## 📋 Stack Tecnológico
+Comportamentos comuns:
+
+- Botão superior compacto de ações por módulo.
+- Lista principal compacta.
+- Busca e filtro por servidor/dispositivo quando aplicável.
+- Lista de usuários/logins cadastrados.
+- Modal de visualização somente leitura por ícone de olho.
+- Modal de edição/cadastro.
+- Anexos vinculados aos registros.
+- Exclusão de módulo com confirmação `EXCLUIR`, removendo os dados daquele módulo sem afetar os demais.
+
+### 🌐 Servidor hospedagem
+
+Módulo para credenciais e acessos de hospedagem.
+
+Inclui:
+
+- Cadastro de servidores/domínios de hospedagem.
+- URL, login e senha mascarada.
+- Botões de copiar para URL, login e senha.
+- Usuários vinculados ao servidor de hospedagem.
+- Busca de usuários e filtro por servidor.
+- Layout compacto com servidores e usuários em cards de linha única.
+
+### 🛡️ VPN
+
+Módulo para cadastro de servidores VPN e usuários vinculados.
+
+Inclui:
+
+- Cadastro de servidor VPN.
+- Protocolo/tipo VPN.
+- IPv4 local com validação IPv4/CIDR.
+- IPv4 túnel com validação IPv4/CIDR.
+- VLAN e porta.
+- Usuários VPN vinculados ao servidor.
+- Lista compacta exibindo nome, protocolo, IPv4 túnel, IPv4 local e porta.
+
+### 🪟 Servidor Windows
+
+Módulo para servidores Windows, conexões, portas, Terminal Service e usuários.
+
+Inclui:
+
+- Cadastro de servidores Windows.
+- Conexões Eth e VPN.
+- Campos `IPV4/` e `Gateway/` com prefixos visuais internos.
+- Validação IPv4/CIDR para IP e IPv4 puro para gateway.
+- Portas e TS.
+- Usuários vinculados ao servidor.
+- Busca e filtro por servidor.
+- Anexos.
+
+### 🐧 Servidor Linux
+
+Módulo para servidores Linux, conexões, portas e usuários.
+
+Inclui:
+
+- Cadastro de servidores Linux.
+- Conexões Eth com `IPV4/` e `Gateway/` em linha única.
+- Conexões VPN com input `IPV4/`.
+- Validação IPv4/CIDR e IPv4 puro conforme o campo.
+- Portas.
+- Usuários vinculados ao servidor.
+- Suporte visual específico para dados de Proxmox quando aplicável.
+- Anexos.
+
+### 📟 Dispositivos
+
+Módulo para dispositivos de rede e infraestrutura.
+
+Tipos de dispositivo disponíveis:
+
+- VOIP
+- NAS
+- DVR
+- IMPRESSORA
+- NAS STORAGE
+- PABX
+- ROTEADOR
+
+Inclui:
+
+- Cadastro de dispositivos.
+- Conexões e portas.
+- Anexos.
+- Cadastro de logins vinculados ao dispositivo.
+- Select de dispositivo exibindo nome + tipo, por exemplo `Loja1 (VOIP)`.
+- Login e senha mascarada.
+- Departamento com opção adicional `Geral`.
+- Permissão do login com opções `Admin` e `User`.
+- Busca de logins e filtro por dispositivo.
+
+### 📎 Anexos
+
+- Upload e listagem de anexos dentro dos módulos operacionais.
+- Download de anexos em modais de edição e visualização quando aplicável.
+- Anexos permanecem associados aos dados criptografados do cofre.
+- Backup e restauração preservam os anexos contidos nos dados do banco/cofre.
+
+### 💾 Backup e restauração
+
+- Backup criptografado protegido por frase/senha.
+- Validação/dry-run antes da restauração.
+- Exibição de resumo do conteúdo do backup antes de restaurar.
+- Restauração com transação e rollback em falha.
+- Backup automático de segurança preservado antes da restauração.
+- Tratamento de registros já existentes para evitar duplicidade em usuários, grupos, vínculos, políticas e auditoria.
+- Mensagens visuais de progresso, sucesso e erro.
+- Compatibilidade com anexos incluídos nos dados criptografados.
+
+### ⚙️ Configurações do sistema
+
+- Accordions exclusivos: apenas um card aberto por vez.
+- Card de Segurança com política de login, sessões, proteção de tela e demais opções administrativas.
+- Sessões ativas e sessões encerradas em abas separadas.
+- Paginação de sessões com 10 registros por página.
+- Histórico de sessões encerradas limitado a 30 dias.
+- Política global de senhas por select: 3 meses, 6 meses ou 1 ano.
+- Blacklist / Whitelist manual com campos alinhados e validação IPv4/CIDR.
+- Switches sutis para ativar/desativar recursos de segurança.
+
+### 🎨 Interface e experiência
+
+- Layout compacto para melhor aproveitamento de espaço.
+- Cards de listagem em linha única quando possível.
+- Busca e filtros por servidor/dispositivo.
+- Botões de ação padronizados por ícones.
+- Botões de copiar com feedback local discreto.
+- Senhas sempre mascaradas como `****` em listas e cards.
+- Sem botão de copiar senha na tela principal de login nem no modal de solicitação de senha do cofre.
+- Modais read-only sem inputs, selects, salvar ou excluir.
+
+## 📋 Stack tecnológico
 
 | Componente | Tecnologia | Versão/Requisito |
 |-----------|------------|------------------|
@@ -78,11 +208,11 @@ O projeto evoluiu para suportar **múltiplos usuários**, **grupos**, **permiss�
 > [!CAUTION]
 > **Atenção: valide estes pré-requisitos antes da instalação para evitar erro no deploy.**
 >
-> - 🟡 **VPS com Ubuntu 20.04/22.04 LTS ou Debian 11/12**
-> - 🟡 **Domínio apontando para o IP da VPS (DNS A record)**
-> - 🟡 **Acesso SSH como root**
+> - VPS com Ubuntu 20.04/22.04 LTS ou Debian 11/12
+> - Domínio apontando para o IP da VPS
+> - Acesso SSH como root
 
-### Instalação em 3 Passos
+### Instalação em 3 passos
 
 ```bash
 # 1. Acesse a VPS
@@ -108,11 +238,11 @@ Após a conclusão, acesse:
 https://seu-dominio.com.br
 ```
 
-> No primeiro login, o Super Admin deve obrigatoriamente trocar a senha temporária antes de usar o sistema.
+No primeiro login, o Super Admin deve obrigatoriamente trocar a senha temporária antes de usar o sistema.
 
-## 🔁 Atualização em Produção
+## 🔁 Atualização em produção
 
-O acesso por SSH faz parte apenas da primeira instalação. Depois que o instalador conclui, o fluxo oficial de atualização é exclusivamente pelo painel, usando o **WebUpdater**, e permanece restrito ao usuário com `is_super_admin=true`.
+O acesso por SSH faz parte apenas da primeira instalação. Depois que o instalador conclui, o fluxo oficial de atualização é pelo painel, usando o **WebUpdater**, restrito ao usuário com `is_super_admin=true`.
 
 1. Acesse o FullPassword pelo navegador.
 2. Entre com o Super Admin.
@@ -121,7 +251,7 @@ O acesso por SSH faz parte apenas da primeira instalação. Depois que o instala
 5. Confirme a atualização pelo painel.
 6. Aguarde o processo concluir e pressione `Ctrl + F5` no navegador.
 
-Não use `git pull`, rebuild manual ou configuração recorrente por terminal como rotina operacional. O WebUpdater executa a sincronização do código, a reconstrução dos containers e o reinício dos serviços necessários.
+Não use `git pull`, rebuild manual ou configuração recorrente por terminal como rotina operacional. O WebUpdater executa a sincronização do código, reconstrução dos containers e reinício dos serviços necessários.
 
 ## 📚 Documentação
 
@@ -131,7 +261,7 @@ Não use `git pull`, rebuild manual ou configuração recorrente por terminal co
 - **[frontend/CRYPTO_IMPLEMENTATION.md](./frontend/CRYPTO_IMPLEMENTATION.md)** - Detalhes da criptografia.
 - **[backend/README.md](./backend/README.md)** - Documentação da API.
 
-## 🏗️ Estrutura do Projeto
+## 🏗️ Estrutura do projeto
 
 ```text
 fullpassword/
@@ -139,16 +269,16 @@ fullpassword/
 │   ├── src/
 │   │   ├── config/          # Configurações e banco de dados
 │   │   ├── controllers/     # Lógica de negócio
-│   │   ├── middleware/      # Autenticação e validação
+│   │   ├── middleware/      # Autenticação, autorização e validações
 │   │   ├── routes/          # Rotas da API
-│   │   ├── services/        # Serviços auxiliares e controle de acesso
+│   │   ├── services/        # Serviços auxiliares, segurança e controle de acesso
 │   │   └── server.js        # Entrada principal
 │   ├── Dockerfile
 │   └── package.json
 ├── frontend/                # React + Vite
 │   ├── src/
-│   │   ├── components/      # Componentes reutilizáveis
-│   │   ├── context/         # AuthContext
+│   │   ├── components/      # Componentes reutilizáveis e módulos operacionais
+│   │   ├── context/         # Contextos da aplicação
 │   │   ├── pages/           # Páginas principais
 │   │   ├── services/        # API, criptografia e chaves de cofre
 │   │   └── App.jsx          # Entrada principal
@@ -164,7 +294,7 @@ fullpassword/
 └── README.md                # Este arquivo
 ```
 
-## 🔐 Arquitetura Zero-Knowledge e Compartilhamento
+## 🔐 Arquitetura Zero-Knowledge e compartilhamento
 
 ```text
 Usuário
@@ -173,7 +303,7 @@ Usuário
 │  ├─ public_key
 │  └─ encrypted_private_key
 
-Cofre do cliente
+Cofre da empresa
 ├─ clientVaultKey própria do cofre
 ├─ Dados criptografados com clientVaultKey
 └─ client_key_shares
@@ -184,34 +314,40 @@ Cofre do cliente
 
 Fluxo resumido:
 
-1. O usuário desbloqueia o cofre com sua senha mestre.
-2. O navegador recupera ou gera a chave criptográfica do cofre.
+1. O usuário autentica no sistema.
+2. O navegador desbloqueia as chaves necessárias para acesso ao cofre.
 3. Os dados do cofre são descriptografados localmente.
 4. Ao compartilhar com um grupo, a chave do cofre é criptografada para os usuários autorizados.
 5. O back-end armazena apenas dados e chaves criptografadas.
 
 **Resultado**: o back-end não manipula credenciais em texto claro e o compartilhamento respeita as permissões definidas nos grupos.
 
-## 🛡️ Segurança Implementada
+## 🛡️ Segurança implementada
 
 - ✅ Criptografia AES-256-GCM no navegador.
-- ✅ Derivação de chave com PBKDF2.
+- ✅ Derivação de chave no navegador.
 - ✅ Chaves RSA-OAEP por usuário para compartilhamento criptográfico.
-- ✅ Chave própria por cofre para permitir compartilhamento seguro.
+- ✅ Chave própria por cofre.
 - ✅ Hash de senha com Argon2id.
 - ✅ Autenticação JWT.
+- ✅ MFA e códigos de recuperação.
+- ✅ Política de login com bloqueio por tentativas falhadas.
+- ✅ Política global de senhas.
+- ✅ Sessões ativas e encerradas com histórico limitado.
+- ✅ Blacklist / Whitelist manual por IPv4/CIDR.
 - ✅ Controle de acesso no back-end por cofre, grupo e permissão.
 - ✅ Bloqueios visuais no front-end conforme permissões.
-- ✅ Armazenamento de dados sensíveis apenas em formato criptografado.
+- ✅ Backup e restauração criptografados com validação e rollback.
+- ✅ Screen protection best-effort sem promessa de bloqueio absoluto de screenshot.
 - ✅ Suporte a SSL/TLS com Let's Encrypt.
 
-## 🔑 Modelo de Permissões
+## 🔑 Modelo de permissões
 
 As permissões são definidas no **Grupo** e aplicadas aos cofres compartilhados com esse grupo.
 
 | Permissão | Comportamento esperado |
 |----------|-------------------------|
-| **Visualizar** | Permite abrir o cofre, visualizar dados, mostrar/ocultar senhas e copiar informações. |
+| **Visualizar** | Permite abrir o cofre, visualizar dados autorizados e copiar informações permitidas. |
 | **Editar** | Permite alterar dados existentes e salvar alterações. |
 | **Adicionar** | Permite criar novos registros dentro do cofre. |
 | **Excluir** | Permite excluir/remover registros do cofre. |
@@ -223,7 +359,20 @@ Regras principais:
 - Usuários somente leitura não conseguem digitar, adicionar, salvar nem excluir.
 - Usuários com edição, mas sem adicionar/excluir, podem salvar alterações existentes, mas não podem criar nem remover registros.
 
-## 🤝 Como Contribuir
+## 🧪 Validações recomendadas após atualização
+
+Após aplicar atualizações pelo WebUpdater, validar:
+
+- Login do Super Admin.
+- Abertura de cofre existente.
+- Adição/edição/exclusão de módulo.
+- Cadastro e leitura de credenciais por módulo.
+- Busca e filtro por servidor/dispositivo.
+- Backup e restauração com arquivo recém-gerado.
+- Configurações de segurança, sessões, blacklist/whitelist e política de senhas.
+- Console do navegador sem `ReferenceError`, `OperationError` ou erro fatal.
+
+## 🤝 Como contribuir
 
 Contribuições são bem-vindas. Fluxo recomendado:
 
@@ -239,6 +388,7 @@ Boas práticas:
 - Atualize a documentação quando necessário.
 - Preserve o modelo Zero-Knowledge.
 - Valide permissões tanto no front-end quanto no back-end.
+- Não exponha senhas, chaves, plaintext de cofres ou dados sensíveis em logs.
 
 Commit sugerido:
 
@@ -257,7 +407,7 @@ Prefixos recomendados:
 - `test:` testes.
 - `chore:` manutenção.
 
-## 🐛 Reportar Bugs
+## 🐛 Reportar bugs
 
 Ao reportar um bug, informe:
 
@@ -280,14 +430,12 @@ Este projeto está licenciado sob a **MIT License**. Veja o arquivo [LICENSE](./
 
 ## 🚀 Roadmap
 
-- [ ] Autenticação com WebAuthn/FIDO2.
-- [ ] Suporte avançado a 2FA.
-- [ ] Auditoria detalhada de acessos e alterações.
-- [ ] Backup criptografado automático.
-- [ ] Sincronização entre múltiplas abas.
+- [ ] WebAuthn/FIDO2.
+- [ ] Relatórios administrativos avançados.
+- [ ] Exportações operacionais por módulo.
 - [ ] App mobile.
 - [ ] Integração com outros cofres corporativos.
 
 ---
 
-**FullPassword v1.0.1** - Cofre Zero-Knowledge para MSPs e equipes de TI.
+**FullPassword** - Cofre Zero-Knowledge para MSPs e equipes de TI.
