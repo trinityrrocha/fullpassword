@@ -14,7 +14,7 @@
 }
 
 .screen-protected .protected-app-content {
-  filter: blur(10px);
+  filter: blur(12px);
   pointer-events: none;
   user-select: none;
 }

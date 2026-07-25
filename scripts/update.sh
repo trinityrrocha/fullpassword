@@ -58,6 +58,7 @@ server {
 server {
     listen 443 ssl;
     server_name $domain;
+    add_header Permissions-Policy "display-capture=()" always;
 
     ssl_certificate /etc/letsencrypt/live/$domain/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/$domain/privkey.pem;

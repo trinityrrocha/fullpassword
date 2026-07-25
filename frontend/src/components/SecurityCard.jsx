@@ -122,19 +122,32 @@ export default function SecurityCard() {
             title={screenProtectionEnabled ? 'Desativar proteção de tela' : 'Ativar proteção de tela'}
             onClick={toggleScreenProtection}
             disabled={isLoading}
-            className={`relative mt-0.5 inline-flex h-6 w-11 shrink-0 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${screenProtectionEnabled ? 'bg-indigo-600' : 'bg-slate-300'}`}
+            className={`relative mt-0.5 inline-flex h-5 w-9 shrink-0 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${screenProtectionEnabled ? 'bg-indigo-600' : 'bg-slate-300'}`}
           >
-            <span className={`mt-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${screenProtectionEnabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
+            <span className={`mt-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${screenProtectionEnabled ? 'translate-x-4' : 'translate-x-0.5'}`} />
           </button>
         </section>
 
         <section className="space-y-4">
-          <h4 className="font-semibold text-slate-900">Política de Login</h4>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <label className="text-sm text-slate-700">Tentativas falhadas para bloquear<select value={policy.failed_attempts_threshold} onChange={(e) => updatePolicyField('failed_attempts_threshold', Number(e.target.value))} className={`${selectClass} mt-1 w-full`}>{[5, 10, 15].map((v) => <option key={v}>{v}</option>)}</select></label>
-            <label className="text-sm text-slate-700">Janela de contagem<select value={policy.observation_window_minutes} onChange={(e) => updatePolicyField('observation_window_minutes', Number(e.target.value))} className={`${selectClass} mt-1 w-full`}>{[10, 15, 30, 60].map((v) => <option key={v} value={v}>{v} minutos</option>)}</select></label>
-            <label className="text-sm text-slate-700">Tempo de bloqueio automático<select value={policy.block_duration_minutes} onChange={(e) => updatePolicyField('block_duration_minutes', Number(e.target.value))} className={`${selectClass} mt-1 w-full`}>{[[10, '10 minutos'], [15, '15 minutos'], [30, '30 minutos'], [60, '60 minutos'], [120, '2 horas'], [240, '4 horas'], [360, '6 horas'], [720, '12 horas'], [1440, '24 horas']].map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
-            <label className="text-sm text-slate-700">Bloqueio automático<select value={policy.auto_block_enabled ? 'enabled' : 'disabled'} onChange={(e) => updatePolicyField('auto_block_enabled', e.target.value === 'enabled')} className={`${selectClass} mt-1 w-full`}><option value="enabled">Ativado</option><option value="disabled">Desativado</option></select></label>
+          <div className="flex items-center gap-2">
+            <h4 className="font-semibold text-slate-900">Política de Login</h4>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={policy.auto_block_enabled}
+              aria-label="Bloqueio automático da política de login"
+              title={policy.auto_block_enabled ? 'Desativar bloqueio automático' : 'Ativar bloqueio automático'}
+              onClick={() => updatePolicyField('auto_block_enabled', !policy.auto_block_enabled)}
+              disabled={isLoading}
+              className={`relative inline-flex h-5 w-9 shrink-0 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${policy.auto_block_enabled ? 'bg-indigo-600' : 'bg-slate-300'}`}
+            >
+              <span className={`mt-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${policy.auto_block_enabled ? 'translate-x-4' : 'translate-x-0.5'}`} />
+            </button>
+          </div>
+          <div className="grid w-full grid-cols-1 gap-3 md:grid-cols-3">
+            <label className="min-w-0 text-xs font-medium text-slate-600">Tentativas falhadas para bloquear<select disabled={!policy.auto_block_enabled || isLoading} value={policy.failed_attempts_threshold} onChange={(e) => updatePolicyField('failed_attempts_threshold', Number(e.target.value))} className={`${selectClass} mt-1 h-[35px] w-full disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500 disabled:opacity-60`}>{[5, 10, 15].map((v) => <option key={v}>{v}</option>)}</select></label>
+            <label className="min-w-0 text-xs font-medium text-slate-600">Janela de contagem<select disabled={!policy.auto_block_enabled || isLoading} value={policy.observation_window_minutes} onChange={(e) => updatePolicyField('observation_window_minutes', Number(e.target.value))} className={`${selectClass} mt-1 h-[35px] w-full disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500 disabled:opacity-60`}>{[10, 15, 30, 60].map((v) => <option key={v} value={v}>{v} minutos</option>)}</select></label>
+            <label className="min-w-0 text-xs font-medium text-slate-600">Tempo de bloqueio automático<select disabled={!policy.auto_block_enabled || isLoading} value={policy.block_duration_minutes} onChange={(e) => updatePolicyField('block_duration_minutes', Number(e.target.value))} className={`${selectClass} mt-1 h-[35px] w-full disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500 disabled:opacity-60`}>{[[10, '10 minutos'], [15, '15 minutos'], [30, '30 minutos'], [60, '60 minutos'], [120, '2 horas'], [240, '4 horas'], [360, '6 horas'], [720, '12 horas'], [1440, '24 horas']].map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
           </div>
           <button type="button" onClick={savePolicy} disabled={isLoading} className="px-4 py-2 bg-indigo-600 text-white rounded-md text-sm disabled:opacity-50">Salvar política</button>
         </section>

@@ -43,6 +43,10 @@ const mfaLimiter = rateLimit({
 
 // Middlewares globais de segurança e parse
 app.use(helmet()); // Proteção de headers HTTP
+app.use((_req, res, next) => {
+  res.setHeader('Permissions-Policy', 'display-capture=()');
+  next();
+});
 const allowedOrigin = process.env.APP_ORIGIN;
 if (!allowedOrigin) throw new Error('Variável obrigatória ausente: APP_ORIGIN');
 app.use(cors({ origin: allowedOrigin, credentials: true }));

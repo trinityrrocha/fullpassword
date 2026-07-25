@@ -8,9 +8,18 @@ export default function ScreenProtection({ children, enabled = true }) {
       return undefined;
     }
 
-    let printScreenTimer;
+    let protectionTimer;
     document.documentElement.classList.add('screen-protection-enabled');
     const protectScreen = () => document.documentElement.classList.add('screen-protected');
+    const protectTemporarily = () => {
+      protectScreen();
+      window.clearTimeout(protectionTimer);
+      protectionTimer = window.setTimeout(() => {
+        if (!document.hidden && document.hasFocus()) {
+          document.documentElement.classList.remove('screen-protected');
+        }
+      }, 2000);
+    };
     const restoreScreen = () => {
       if (!document.hidden) document.documentElement.classList.remove('screen-protected');
     };
@@ -18,28 +27,24 @@ export default function ScreenProtection({ children, enabled = true }) {
       document.documentElement.classList.toggle('screen-protected', document.hidden);
     };
     const handleProtectedShortcut = (event) => {
-      const key = event.key?.toLowerCase();
+      const key = String(event.key || '').toLowerCase();
+      const code = String(event.code || '').toLowerCase();
+      const isPrintScreen = key === 'printscreen' || code === 'printscreen' || event.keyCode === 44;
 
       if ((event.ctrlKey || event.metaKey) && key === 'p') {
         event.preventDefault();
         event.stopPropagation();
+        protectTemporarily();
       }
 
-      if (event.key === 'PrintScreen' || key === 'printscreen') {
+      if (isPrintScreen) {
         event.preventDefault();
         event.stopPropagation();
-        protectScreen();
+        protectTemporarily();
 
         if (navigator.clipboard?.writeText) {
           void navigator.clipboard.writeText('').catch(() => undefined);
         }
-
-        window.clearTimeout(printScreenTimer);
-        printScreenTimer = window.setTimeout(() => {
-          if (!document.hidden && document.hasFocus()) {
-            document.documentElement.classList.remove('screen-protected');
-          }
-        }, 1500);
       }
     };
 
@@ -50,7 +55,7 @@ export default function ScreenProtection({ children, enabled = true }) {
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
-      window.clearTimeout(printScreenTimer);
+      window.clearTimeout(protectionTimer);
       window.removeEventListener('blur', protectScreen);
       window.removeEventListener('focus', restoreScreen);
       window.removeEventListener('keydown', handleProtectedShortcut, true);
