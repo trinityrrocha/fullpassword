@@ -3,6 +3,8 @@ import DashboardLayout from './layouts/DashboardLayout';
 
 // Páginas (serão criadas nos próximos passos)
 import Login from './pages/Login';
+import ForgotPassword from './pages/ForgotPassword';
+import ResetPassword from './pages/ResetPassword';
 import ClientsList from './pages/ClientsList';
 import ClientVault from './pages/ClientVault';
 import TeamList from './pages/TeamList';
@@ -40,6 +42,8 @@ function App() {
     <Router>
       <Routes>
         <Route path="/login" element={<Login />} errorElement={<RouteErrorFallback />} />
+        <Route path="/forgot-password" element={<ForgotPassword />} errorElement={<RouteErrorFallback />} />
+        <Route path="/reset-password" element={<ResetPassword />} errorElement={<RouteErrorFallback />} />
         
         {/* Rotas Protegidas com AuthGuard */}
         <Route element={<VaultAwareDashboardLayout />} errorElement={<RouteErrorFallback />}>

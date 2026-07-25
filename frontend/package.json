@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "test": "node scripts/test-crypto-key-extractability.js && node scripts/test-vault-lock-cleanup.js && node scripts/test-csp-hardening.js && node scripts/test-user-crypto-identity.js && node scripts/test-smtp-settings.js",
+    "test": "node scripts/test-crypto-key-extractability.js && node scripts/test-vault-lock-cleanup.js && node scripts/test-csp-hardening.js && node scripts/test-user-crypto-identity.js && node scripts/test-smtp-settings.js && node scripts/test-password-reset.js",
     "preview": "vite preview"
   },
   "dependencies": {

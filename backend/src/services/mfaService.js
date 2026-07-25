@@ -69,11 +69,17 @@ const replaceRecoveryCodes = async (client, userId) => {
   return codes;
 };
 
-const useRecoveryCode = async (userId, candidate) => {
-  const codes = await db.query('SELECT id, code_hash FROM user_mfa_recovery_codes WHERE user_id = $1 AND used_at IS NULL', [userId]);
+const useRecoveryCode = async (userId, candidate, queryable = db) => {
+  const codes = await queryable.query(
+    'SELECT id, code_hash FROM user_mfa_recovery_codes WHERE user_id = $1 AND used_at IS NULL FOR UPDATE',
+    [userId]
+  );
   for (const row of codes.rows) {
     if (await argon2.verify(row.code_hash, String(candidate || '').trim().toUpperCase()).catch(() => false)) {
-      const used = await db.query('UPDATE user_mfa_recovery_codes SET used_at = CURRENT_TIMESTAMP WHERE id = $1 AND used_at IS NULL RETURNING id', [row.id]);
+      const used = await queryable.query(
+        'UPDATE user_mfa_recovery_codes SET used_at = CURRENT_TIMESTAMP WHERE id = $1 AND used_at IS NULL RETURNING id',
+        [row.id]
+      );
       return used.rows.length === 1;
     }
   }

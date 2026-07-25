@@ -1,14 +1,37 @@
 const express = require('express');
 const router = express.Router();
 const authController = require('../controllers/authController');
+const passwordResetController = require('../controllers/passwordResetController');
 const mfaController = require('../controllers/mfaController');
 const sessionController = require('../controllers/sessionController');
 const { verifyToken } = require('../middleware/authMiddleware');
+const {
+  passwordResetRequestIpLimiter,
+  passwordResetRequestLimiter,
+  passwordResetValidateLimiter,
+  passwordResetCompleteLimiter
+} = require('../middleware/writeRateLimiters');
 
 // Rota POST /api/auth/login
 router.post('/login', authController.login);
 router.post('/mfa/verify-login', mfaController.verifyLogin);
 router.post('/mfa/setup/confirm', mfaController.confirmSetup);
+router.post(
+  '/password-reset/request',
+  passwordResetRequestIpLimiter,
+  passwordResetRequestLimiter,
+  passwordResetController.requestReset
+);
+router.post(
+  '/password-reset/validate',
+  passwordResetValidateLimiter,
+  passwordResetController.validateReset
+);
+router.post(
+  '/password-reset/complete',
+  passwordResetCompleteLimiter,
+  passwordResetController.completeReset
+);
 router.post('/logout', authController.logout);
 router.get('/me', verifyToken, authController.me);
 router.get('/csrf', verifyToken, authController.csrf);

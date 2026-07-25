@@ -330,7 +330,19 @@ const updateUser = async (req, res) => {
     if (role !== undefined && !VALID_ROLES.has(role)) {
       return res.status(400).json({ error: 'Nível de acesso inválido' });
     }
-    if (password && await rejectWeakPassword({ req, res, password, context: 'admin_password_reset' })) return;
+    if (typeof password === 'string' && password.trim() !== '') {
+      await recordAuditEvent({
+        user: req.user,
+        action: 'password_reset_failed',
+        status: 'denied',
+        req,
+        metadata: { reason: 'admin_reset_requires_email_flow', target_user_id: id }
+      });
+      return res.status(409).json({
+        error: 'A redefinição de acesso deve ser iniciada pelo usuário em "Esqueceu a senha".',
+        code: 'PASSWORD_RESET_EMAIL_REQUIRED'
+      });
+    }
 
     if (mfa_required !== undefined && (!isSuperAdmin(req.user) || typeof mfa_required !== 'boolean')) {
       return res.status(403).json({ error: 'Apenas o Super Admin pode definir a exigência de MFA' });
@@ -396,46 +408,7 @@ const updateUser = async (req, res) => {
       values.push(mfa_required);
     }
 
-    if (password && password.trim() !== '') {
-      const hashSenhaLogin = await argon2.hash(password);
-      updates.push(`hash_senha_login = $${paramIndex++}`);
-      values.push(hashSenhaLogin);
-
-      const cryptoSalt = crypto.randomBytes(32).toString('hex');
-      const masterKeyBuffer = crypto.randomBytes(32);
-      const kekBuffer = await deriveKek(password, cryptoSalt, CURRENT_KDF_PARAMS);
-
-      const iv = crypto.randomBytes(12);
-      const cipher = crypto.createCipheriv('aes-256-gcm', kekBuffer, iv);
-      let wrappedKeyBuffer = cipher.update(masterKeyBuffer);
-      wrappedKeyBuffer = Buffer.concat([wrappedKeyBuffer, cipher.final()]);
-      const authTag = cipher.getAuthTag();
-      const finalCiphertext = Buffer.concat([wrappedKeyBuffer, authTag]);
-      const wrappedKey = `${iv.toString('base64')}:${finalCiphertext.toString('base64')}`;
-
-      updates.push(`crypto_salt = $${paramIndex++}`);
-      values.push(cryptoSalt);
-      updates.push(`wrapped_key = $${paramIndex++}`);
-      values.push(wrappedKey);
-      updates.push(`public_key = $${paramIndex++}`);
-      values.push(null);
-      updates.push(`encrypted_private_key = $${paramIndex++}`);
-      values.push(null);
-      updates.push(`kdf_version = $${paramIndex++}`);
-      values.push(CURRENT_KDF_PARAMS.version);
-      updates.push(`kdf_name = $${paramIndex++}`);
-      values.push(CURRENT_KDF_PARAMS.name);
-      updates.push(`kdf_hash = $${paramIndex++}`);
-      values.push(CURRENT_KDF_PARAMS.hash);
-      updates.push(`kdf_iterations = $${paramIndex++}`);
-      values.push(CURRENT_KDF_PARAMS.iterations);
-      updates.push(`rsa_key_size = $${paramIndex++}`);
-      values.push(CURRENT_RSA_PARAMS.modulusLength);
-      updates.push(`rsa_key_version = $${paramIndex++}`);
-      values.push(CURRENT_RSA_PARAMS.version);
-    }
-
-    if (password || role !== undefined || is_active !== undefined || email !== undefined) {
+    if (role !== undefined || is_active !== undefined || email !== undefined) {
       updates.push('token_version = token_version + 1');
     }
 
@@ -483,13 +456,6 @@ const updateUser = async (req, res) => {
       await recordAuditEvent({
         user: req.user, action: 'mfa_required_updated', status: 'success', req,
         metadata: { target_user_id: id, mfa_required }
-      });
-    }
-
-    if (password) {
-      await recordAuditEvent({
-        user: req.user, action: 'password_reset_by_admin', status: 'success', req,
-        metadata: { target_user_id: id }
       });
     }
 

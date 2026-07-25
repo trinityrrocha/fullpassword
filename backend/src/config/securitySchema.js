@@ -110,6 +110,23 @@ const ensureSecuritySchema = async () => {
     await client.query('ALTER TABLE user_mfa_settings ADD COLUMN IF NOT EXISTS recovery_codes_version INTEGER NOT NULL DEFAULT 1');
     await client.query('CREATE INDEX IF NOT EXISTS idx_user_mfa_recovery_codes_user_unused ON user_mfa_recovery_codes (user_id, used_at)');
     await client.query(`
+      CREATE TABLE IF NOT EXISTS password_reset_tokens (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        token_hash CHAR(64) NOT NULL,
+        expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+        used_at TIMESTAMP WITH TIME ZONE,
+        created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        requested_ip TEXT,
+        requested_user_agent TEXT,
+        used_ip TEXT,
+        used_user_agent TEXT
+      )
+    `);
+    await client.query('CREATE UNIQUE INDEX IF NOT EXISTS idx_password_reset_tokens_hash_unique ON password_reset_tokens (token_hash)');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_user_created ON password_reset_tokens (user_id, created_at DESC)');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_expiry_unused ON password_reset_tokens (expires_at) WHERE used_at IS NULL');
+    await client.query(`
       CREATE TABLE IF NOT EXISTS system_audit_events (
         id BIGSERIAL PRIMARY KEY,
         user_id UUID REFERENCES users(id) ON DELETE SET NULL,

@@ -7,7 +7,10 @@ const EXEMPT_PATHS = new Set([
   '/api/auth/login',
   '/api/auth/bootstrap',
   '/api/auth/mfa/verify-login',
-  '/api/auth/mfa/setup/confirm'
+  '/api/auth/mfa/setup/confirm',
+  '/api/auth/password-reset/request',
+  '/api/auth/password-reset/validate',
+  '/api/auth/password-reset/complete'
 ]);
 const deniedMessage = 'Token CSRF inválido ou ausente. Recarregue a página e tente novamente.';
 

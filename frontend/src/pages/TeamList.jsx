@@ -22,7 +22,6 @@ const defaultEditUser = {
   email: '',
   role: 'user',
   is_active: true,
-  password: '',
   groupIds: [],
   mfa_required: false,
   mfa_enabled: false,
@@ -178,6 +177,8 @@ export default function TeamList() {
   };
 
   useEffect(() => {
+    // A hidratação inicial depende de duas consultas externas após o mount.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadUsers();
     loadGroups();
   }, []);
@@ -222,13 +223,10 @@ export default function TeamList() {
         groupIds: editUser.groupIds
       };
 
-      if (editUser.password && editUser.password.trim() !== '') {
-        payload.password = editUser.password;
-      }
       if (user?.is_super_admin) payload.mfa_required = editUser.mfa_required;
 
       await api.put(`/users/${editUser.id}`, payload);
-      alert('Usuário atualizado com sucesso!' + (payload.password ? ' A nova senha foi aplicada e as chaves criptográficas foram redefinidas.' : ''));
+      alert('Usuário atualizado com sucesso!');
       setIsEditModalOpen(false);
       setEditUser(defaultEditUser);
       setDeleteUserConfirmation('');
@@ -300,7 +298,6 @@ export default function TeamList() {
       email: member.email || '',
       role: member.role,
       is_active: member.is_active !== undefined ? member.is_active : true,
-      password: '',
       groupIds: Array.isArray(member.groups) ? member.groups.map((group) => group.id) : [],
       mfa_required: member.mfa_required === true,
       mfa_enabled: member.mfa_enabled === true,
@@ -520,11 +517,9 @@ export default function TeamList() {
                     <label className="block text-sm font-medium text-slate-700 mb-1">E-mail</label>
                     <input type="email" required className="h-8 w-full rounded-md border border-slate-300 px-2 py-1 text-sm shadow-sm" value={editUser.email} onChange={e => setEditUser({...editUser, email: e.target.value.toLowerCase()})} />
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Nova Senha <span className="text-slate-400 font-normal">(deixe em branco para não alterar)</span></label>
-                    <SecurePasswordInput className="[&_input]:h-8 [&_input]:py-1 [&_input]:pl-2" value={editUser.password} onChange={e => setEditUser({...editUser, password: e.target.value})} placeholder="Nova senha (opcional)" />
-                    {editUser.password && editUser.password.trim() !== '' && <p className="mt-1 text-xs text-amber-600">Ao alterar a senha, as chaves criptográficas do usuário serão redefinidas.</p>}
-                  </div>
+                  <p className="rounded-md border border-indigo-200 bg-indigo-50 p-2 text-xs text-indigo-800">
+                    Para redefinir o acesso com segurança, o usuário deve usar “Esqueceu a senha?” na tela de login.
+                  </p>
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">Nível de Acesso</label>
                     <select className="h-8 w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-sm shadow-sm" value={editUser.role} onChange={e => setEditUser({...editUser, role: e.target.value})}>

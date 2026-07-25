@@ -8,7 +8,15 @@ const api = axios.create({
 });
 
 const MUTATING_METHODS = new Set(['post', 'put', 'patch', 'delete']);
-const CSRF_EXEMPT_PATHS = ['/auth/login', '/auth/bootstrap', '/auth/mfa/verify-login', '/auth/mfa/setup/confirm'];
+const CSRF_EXEMPT_PATHS = [
+  '/auth/login',
+  '/auth/bootstrap',
+  '/auth/mfa/verify-login',
+  '/auth/mfa/setup/confirm',
+  '/auth/password-reset/request',
+  '/auth/password-reset/validate',
+  '/auth/password-reset/complete'
+];
 const readCookie = (name) => document.cookie
   .split('; ')
   .find((item) => item.startsWith(`${name}=`))

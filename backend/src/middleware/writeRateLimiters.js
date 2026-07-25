@@ -1,8 +1,40 @@
 const rateLimit = require('express-rate-limit');
+const crypto = require('crypto');
+const ipaddr = require('ipaddr.js');
 
 const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 const RATE_LIMIT_MESSAGE = 'Muitas requisições. Aguarde alguns instantes e tente novamente.';
 const SMTP_TEST_RATE_LIMIT_MESSAGE = 'Limite de testes SMTP atingido. Aguarde alguns minutos antes de tentar novamente.';
+const PASSWORD_RESET_RATE_LIMIT_MESSAGE = 'Muitas tentativas de recuperação. Aguarde alguns minutos e tente novamente.';
+
+const normalizeIpKey = (value) => {
+  try {
+    const parsed = ipaddr.process(String(value || ''));
+    if (parsed.kind() === 'ipv4') return parsed.toString();
+    return parsed.toNormalizedString().split(':').slice(0, 4).join(':');
+  } catch {
+    return 'unknown';
+  }
+};
+
+const hashRateLimitValue = (value) => (
+  crypto.createHash('sha256').update(String(value || '').trim().toLowerCase()).digest('hex')
+);
+
+const passwordResetRateLimitResponse = {
+  code: 'PASSWORD_RESET_RATE_LIMITED',
+  error: PASSWORD_RESET_RATE_LIMIT_MESSAGE,
+  message: PASSWORD_RESET_RATE_LIMIT_MESSAGE
+};
+
+const createPasswordResetLimiter = ({ limit, keyGenerator }) => rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  keyGenerator,
+  message: passwordResetRateLimitResponse
+});
 
 const createWriteRateLimiter = ({
   windowMs,
@@ -44,12 +76,41 @@ const smtpTestLimiter = createWriteRateLimiter({
   message: SMTP_TEST_RATE_LIMIT_MESSAGE
 });
 
+const passwordResetRequestIpLimiter = createPasswordResetLimiter({
+  limit: 3,
+  keyGenerator: (req) => `password-reset-request-ip:${normalizeIpKey(req.ip)}`
+});
+
+const passwordResetRequestLimiter = createPasswordResetLimiter({
+  limit: 3,
+  keyGenerator: (req) => (
+    `password-reset-request-email:${hashRateLimitValue(req.body?.email)}`
+  )
+});
+
+const passwordResetValidateLimiter = createPasswordResetLimiter({
+  limit: 20,
+  keyGenerator: (req) => `password-reset-validate:${normalizeIpKey(req.ip)}`
+});
+
+const passwordResetCompleteLimiter = createPasswordResetLimiter({
+  limit: 5,
+  keyGenerator: (req) => (
+    `password-reset-complete:${normalizeIpKey(req.ip)}:${hashRateLimitValue(req.body?.token)}`
+  )
+});
+
 module.exports = {
   RATE_LIMIT_MESSAGE,
   SMTP_TEST_RATE_LIMIT_MESSAGE,
+  PASSWORD_RESET_RATE_LIMIT_MESSAGE,
   createWriteRateLimiter,
   generalWriteLimiter,
   vaultWriteLimiter,
   sensitiveOperationLimiter,
-  smtpTestLimiter
+  smtpTestLimiter,
+  passwordResetRequestIpLimiter,
+  passwordResetRequestLimiter,
+  passwordResetValidateLimiter,
+  passwordResetCompleteLimiter
 };

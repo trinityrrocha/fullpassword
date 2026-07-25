@@ -200,7 +200,17 @@ O instalador gera essa chave automaticamente sem imprimi-la. O WebUpdater preser
 
 Se o painel informar que a chave de criptografia não está configurada, execute novamente o WebUpdater ou defina uma chave válida no `.env` e reinicie o backend. Um erro `429` durante o teste indica o limite de cinco testes SMTP em quinze minutos; aguarde antes de tentar novamente. Na tela, salve a configuração e a senha antes de testar. As combinações usuais são porta `465` com **SSL/TLS direto** e porta `587` com **STARTTLS**; portas personalizadas continuam permitidas com aviso visual.
 
-SMTP não permite recuperar a senha mestre nem descriptografar cofres antigos em uma arquitetura Zero-Knowledge. Links ou tokens por e-mail poderão validar identidade ou iniciar uma futura redefinição de conta, mas não substituem a senha mestre nem recuperam chaves criptográficas sem uma recovery key criada previamente. Esta etapa não implementa recuperação de senha.
+### Recuperação de acesso
+
+O FullPassword permite solicitar por e-mail uma recuperação de acesso à conta. O link contém um token aleatório temporário, válido por 30 minutos e por um único uso; o banco armazena somente o hash SHA-256 desse token. Quando a conta usa MFA, a conclusão também exige um TOTP válido ou um código de recuperação MFA ainda não utilizado.
+
+Por usar arquitetura Zero-Knowledge, essa recuperação **não recupera a senha mestre anterior e não descriptografa cofres antigos**. A nova senha é usada no navegador para gerar um novo salt, uma nova chave de usuário e um novo par RSA. O backend recebe somente a chave de usuário envelopada, a chave pública e a chave privada já criptografada.
+
+Ao concluir a redefinição, as sessões anteriores são revogadas e os compartilhamentos criptográficos vinculados à identidade antiga são removidos. Usuário, grupos, permissões, clientes e cofres são preservados, mas um administrador pode precisar ressincronizar ou recompartilhar os cofres com a nova identidade.
+
+Os códigos de recuperação são exclusivamente um segundo fator alternativo do MFA. Eles são armazenados com hash Argon2, têm uso único, não substituem a senha mestre e não descriptografam cofres.
+
+Para impedir rotação de identidade sem prova de posse, administradores não definem uma nova senha no formulário de edição de membros. A recuperação deve ser iniciada pelo próprio usuário em **Esqueceu a senha?** e concluída com token, confirmação explícita e MFA quando habilitado.
 
 ### 🎨 Interface e experiência
 
