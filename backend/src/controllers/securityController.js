@@ -8,9 +8,109 @@ const THRESHOLDS = new Set([5, 10, 15]);
 const WINDOWS = new Set([10, 15, 30, 60]);
 const DURATIONS = new Set([10, 15, 30, 60, 120, 240, 360, 720, 1440]);
 const RULE_TYPES = new Set(['block', 'allow', 'temporary_block']);
+const NOTIFICATION_ACTIONS = [
+  'backup_export_denied',
+  'backup_export_failed',
+  'backup_restore_denied',
+  'backup_restore_dry_run_failed',
+  'backup_restore_failed',
+  'csrf_denied',
+  'ip_access_blocked',
+  'ip_block_denied',
+  'ip_blocked',
+  'login_failed',
+  'mfa_disable_failed',
+  'mfa_login_failed',
+  'mfa_recovery_code_failed',
+  'mfa_recovery_code_used',
+  'mfa_setup_failed',
+  'new_login_detected',
+  'password_reset_email_failed',
+  'password_reset_failed',
+  'password_reset_mfa_failed',
+  'password_reset_requested',
+  'smtp_test_email_failed',
+  'weak_password_rejected'
+];
+const NOTIFICATION_STATUSES = ['failed', 'denied', 'blocked'];
+const STATUS_LABELS = {
+  blocked: 'Bloqueado',
+  denied: 'Negado',
+  failed: 'Falha',
+  success: 'Sucesso'
+};
 const deny = (res) => res.status(403).json({ error: 'Acesso restrito ao Super Admin.' });
 
 const requireSuperAdmin = (req, res) => isSuperAdmin(req.user) || (deny(res), false);
+const maskEmail = (value) => {
+  const [localPart, domain] = String(value || '').trim().split('@');
+  if (!localPart || !domain) return '';
+  const [domainName, ...domainSuffix] = domain.split('.');
+  const maskedDomain = `${domainName.slice(0, 1)}***${domainSuffix.length ? `.${domainSuffix.join('.')}` : ''}`;
+  return `${localPart.slice(0, 1)}***@${maskedDomain}`;
+};
+const maskIp = (value) => {
+  const normalized = String(value || '').trim();
+  if (!normalized) return '';
+  const embeddedIpv4 = normalized.match(/(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (embeddedIpv4) return `${embeddedIpv4[1]}.xxx.xxx.${embeddedIpv4[4]}`;
+  if (normalized.includes(':')) return `${normalized.split(':').filter(Boolean).slice(0, 2).join(':')}:…`;
+  return '';
+};
+const notificationContext = (event) => {
+  const context = [maskEmail(event.user_email), maskIp(event.ip_address)].filter(Boolean);
+  return context.length ? ` (${context.join(' · ')})` : '';
+};
+const getNotificationContent = (event) => {
+  const context = notificationContext(event);
+  const contentByAction = {
+    backup_export_denied: ['Exportação de backup negada', `A tentativa de exportação foi recusada${context}.`],
+    backup_export_failed: ['Falha na exportação de backup', 'O backup não pôde ser exportado.'],
+    backup_restore_denied: ['Restauração de backup negada', `A tentativa de restauração foi recusada${context}.`],
+    backup_restore_dry_run_failed: ['Validação de backup falhou', 'A validação prévia do backup não foi concluída.'],
+    backup_restore_failed: ['Restauração de backup falhou', 'O backup não pôde ser restaurado.'],
+    csrf_denied: ['Requisição de segurança negada', `Uma requisição sem validação CSRF foi recusada${context}.`],
+    ip_access_blocked: ['Acesso bloqueado por IP', `A política de segurança bloqueou uma tentativa${context}.`],
+    ip_block_denied: ['Bloqueio de IP negado', 'Uma tentativa de criar regra de bloqueio foi recusada.'],
+    ip_blocked: ['IP bloqueado', `Um endereço foi bloqueado pela política de segurança${context}.`],
+    login_failed: ['Falha de login', `Uma tentativa de acesso foi recusada${context}.`],
+    mfa_disable_failed: ['Falha ao desativar MFA', `A tentativa de desativar MFA não foi concluída${context}.`],
+    mfa_login_failed: ['Falha na validação MFA', `Uma tentativa de autenticação MFA foi recusada${context}.`],
+    mfa_recovery_code_failed: ['Falha no código de recuperação MFA', `Uma tentativa de recuperação MFA foi recusada${context}.`],
+    mfa_recovery_code_used: ['Código de recuperação MFA usado', `Um código de recuperação MFA foi utilizado com sucesso${context}.`],
+    mfa_setup_failed: ['Configuração MFA falhou', `A configuração de MFA não foi concluída${context}.`],
+    new_login_detected: ['Novo login detectado', `Uma nova sessão autenticada foi registrada${context}.`],
+    password_reset_email_failed: ['Falha no e-mail de recuperação', 'O e-mail de recuperação de acesso não pôde ser enviado.'],
+    password_reset_failed: ['Recuperação de acesso falhou', `A recuperação de acesso não foi concluída${context}.`],
+    password_reset_mfa_failed: ['Recuperação MFA falhou', `A validação MFA da recuperação de acesso foi recusada${context}.`],
+    password_reset_requested: ['Recuperação de acesso solicitada', 'Uma solicitação de recuperação de acesso foi registrada.'],
+    smtp_test_email_failed: ['Teste SMTP falhou', 'Não foi possível enviar o e-mail de teste.'],
+    weak_password_rejected: ['Senha fora da política', `Uma senha que não atende à política foi recusada${context}.`]
+  };
+  if (contentByAction[event.action]) return contentByAction[event.action];
+  if (event.status === 'denied') return ['Acesso negado', `Uma operação protegida foi recusada${context}.`];
+  if (event.status === 'failed') return ['Falha operacional', 'Uma operação do sistema não foi concluída.'];
+  return ['Evento de segurança', 'Evento registrado no sistema.'];
+};
+const formatSecurityNotification = (event) => {
+  const [title, summary] = getNotificationContent(event);
+  const severity = event.status === 'failed'
+    ? 'error'
+    : event.status === 'denied' || event.status === 'blocked' || ['ip_blocked', 'ip_access_blocked'].includes(event.action)
+      ? 'warning'
+      : event.status === 'success'
+        ? 'success'
+        : 'info';
+  return {
+    id: event.id,
+    title: title.slice(0, 60),
+    summary: summary.slice(0, 120),
+    created_at: event.created_at,
+    severity,
+    status_label: STATUS_LABELS[event.status] || 'Informação',
+    target_url: `/settings?section=audit&audit_action=${encodeURIComponent(event.action)}`
+  };
+};
 const parseDate = (value, endOfDay = false) => {
   if (!value) return null;
   const normalized = /^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T${endOfDay ? '23:59:59.999' : '00:00:00.000'}Z` : value;
@@ -197,16 +297,21 @@ const blockFromAudit = async (req, res) => {
 
 const getSecurityNotifications = async (req, res) => {
   if (!requireSuperAdmin(req, res)) return;
-  const [failures, blocked] = await Promise.all([
-    db.query(`SELECT COUNT(*)::integer AS count, MAX(created_at) AS latest_at FROM system_audit_events WHERE action = 'login_failed' AND created_at >= CURRENT_TIMESTAMP - INTERVAL '24 hours'`),
-    db.query(`SELECT COUNT(*)::integer AS count, MAX(updated_at) AS latest_at FROM ip_security_rules WHERE is_active = TRUE AND (rule_type = 'block' OR (rule_type = 'temporary_block' AND expires_at > CURRENT_TIMESTAMP))`)
-  ]);
-  const items = [];
-  const failureCount = failures.rows[0]?.count || 0;
-  const blockedCount = blocked.rows[0]?.count || 0;
-  if (failureCount > 0) items.push({ type: 'login_failed', label: 'Falhas de login recentes', count: failureCount, latest_at: failures.rows[0].latest_at, target_url: '/settings?audit_action=login_failed' });
-  if (blockedCount > 0) items.push({ type: 'ip_blocked', label: 'IPs bloqueados', count: blockedCount, latest_at: blocked.rows[0].latest_at, target_url: '/settings?security_tab=ip-rules' });
-  return res.json({ unread_count: items.reduce((total, item) => total + item.count, 0), items });
+  const result = await db.query(
+    `SELECT id, action, status, user_email, ip_address, created_at,
+            (COUNT(*) OVER())::integer AS total_count
+     FROM system_audit_events
+     WHERE created_at >= CURRENT_TIMESTAMP - INTERVAL '24 hours'
+       AND (status = ANY($1::text[]) OR action = ANY($2::text[]))
+     ORDER BY created_at DESC
+     LIMIT 10`,
+    [NOTIFICATION_STATUSES, NOTIFICATION_ACTIONS]
+  );
+  const rows = result.rows.slice(0, 10);
+  return res.json({
+    unread_count: Number(rows[0]?.total_count || 0),
+    items: rows.map(formatSecurityNotification)
+  });
 };
 
 module.exports = {

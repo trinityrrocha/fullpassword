@@ -73,6 +73,7 @@ export default function Settings() {
   const [auditFilters, setAuditFilters] = useState({ action: '', status: '', user_email: '', date_from: '', date_to: '' });
   const [isLoadingAudit, setIsLoadingAudit] = useState(false);
   const [auditError, setAuditError] = useState('');
+  const requestedAccordion = searchParams.get('section') === 'audit' ? 'system-audit' : null;
 
   useClearOnVaultLock(() => {
     setBackupConfirmation('');
@@ -333,8 +334,8 @@ export default function Settings() {
     const auditAction = searchParams.get('audit_action');
     const userEmail = searchParams.get('user_email');
     const requestedIp = searchParams.get('ip');
-    if (auditAction) {
-      const filters = { ...auditFilters, action: auditAction, ...(userEmail ? { user_email: userEmail } : {}) };
+    if (auditAction || requestedAccordion === 'system-audit') {
+      const filters = { ...auditFilters, action: auditAction || '', ...(userEmail ? { user_email: userEmail } : {}) };
       timers.push(window.setTimeout(() => {
         setAuditFilters(filters);
         void loadAuditEvents(1, filters);
@@ -400,7 +401,7 @@ export default function Settings() {
         </div>
       )}
 
-      <SettingsAccordionGroup>
+      <SettingsAccordionGroup key={requestedAccordion || 'settings-accordions'} initialOpenAccordion={requestedAccordion}>
       <div className="grid grid-cols-1 gap-6">
         <SettingsAccordionCard title="WebUpdater (Atualização Automática)" icon={<RefreshCw className="w-5 h-5 mr-2 text-indigo-500" />} badge={canManageSystem && <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">Super Admin</span>}>
             <p className="text-sm text-slate-600 mb-4">

@@ -3,8 +3,8 @@ import { ChevronDown } from 'lucide-react';
 
 const SettingsAccordionContext = createContext(null);
 
-export function SettingsAccordionGroup({ children }) {
-  const [openAccordion, setOpenAccordion] = useState(null);
+export function SettingsAccordionGroup({ children, initialOpenAccordion = null }) {
+  const [openAccordion, setOpenAccordion] = useState(initialOpenAccordion);
   const toggleAccordion = (id) => setOpenAccordion((current) => current === id ? null : id);
 
   return (
