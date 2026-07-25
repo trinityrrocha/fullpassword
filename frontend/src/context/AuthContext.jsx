@@ -3,16 +3,17 @@ import api from '../services/api';
 import { 
   deriveMasterKey, 
   unwrapMasterKey, 
-  generateRSAKeyPair, 
-  exportPublicKey, 
-  encryptPrivateKey,
   CRYPTO_KDF_PARAMS_INVALID_ERROR,
   CRYPTO_SALT_REQUIRED_ERROR,
   isValidCryptoSalt,
   resolveKdfParams
 } from '../services/cryptoService';
 import { encryptWrappedVaultKeyForPublicKeys } from '../services/clientVaultKeyService';
-import { safeLogError, safeLogInfo } from '../utils/safeLogger';
+import {
+  ensureUserCryptoIdentity,
+  hasUserCryptoIdentity
+} from '../services/userCryptoIdentityService';
+import { safeLogError } from '../utils/safeLogger';
 
 const AuthContext = createContext(null);
 const AUTO_LOCK_TIMEOUT_MS = 10 * 60 * 1000;
@@ -75,7 +76,12 @@ export const AuthProvider = ({ children }) => {
     }
     setUser(data.user);
     setVaultLockReason(null);
-    return { success: true, recoveryCodes: data.recovery_codes || [], recoveryCodeUsed: data.recovery_code_used === true };
+    return {
+      success: true,
+      recoveryCodes: data.recovery_codes || [],
+      recoveryCodeUsed: data.recovery_code_used === true,
+      cryptoIdentitySetupRequired: !hasUserCryptoIdentity(data.user)
+    };
   };
 
   useEffect(() => {
@@ -94,7 +100,36 @@ export const AuthProvider = ({ children }) => {
     try {
       const response = await api.post('/auth/login', { email, password });
       if (response.data?.mfa_required) return { success: false, mfa: response.data };
-      return finishAuthentication(response.data);
+      const authentication = finishAuthentication(response.data);
+      const authenticatedUser = response.data?.user;
+      if (
+        !authentication.success
+        || authenticatedUser?.must_change_password
+        || hasUserCryptoIdentity(authenticatedUser)
+      ) {
+        return authentication;
+      }
+
+      try {
+        const identity = await ensureUserCryptoIdentity({
+          user: authenticatedUser,
+          password,
+          saveIdentity: async (payload) => (await api.put('/users/keys', payload)).data
+        });
+        setUser(identity.user);
+        return {
+          ...authentication,
+          cryptoIdentitySetupRequired: false,
+          cryptoIdentityCreated: identity.created
+        };
+      } catch (identityError) {
+        safeLogError('Falha ao configurar identidade criptográfica após o login.', identityError);
+        return {
+          ...authentication,
+          cryptoIdentitySetupRequired: true,
+          cryptoIdentityError: 'Não foi possível configurar as chaves de segurança da sua conta. Tente sair e entrar novamente.'
+        };
+      }
     } catch (error) {
       safeLogError('Falha na tentativa de login.', error);
       return { 
@@ -188,6 +223,25 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  const ensureCurrentUserCryptoIdentity = async (password) => {
+    try {
+      const identity = await ensureUserCryptoIdentity({
+        user,
+        password,
+        saveIdentity: async (payload) => (await api.put('/users/keys', payload)).data
+      });
+      setUser(identity.user);
+      return { success: true, created: identity.created };
+    } catch (error) {
+      safeLogError('Falha ao configurar identidade criptográfica da conta.', error);
+      return {
+        success: false,
+        error: error.response?.data?.error
+          || 'Não foi possível configurar as chaves de segurança da sua conta. Confira a senha e tente novamente.'
+      };
+    }
+  };
+
   const unlockVault = async (password, wrappedKeyStr, saltStr) => {
     try {
       const kek = await deriveMasterKey(password, saltStr, resolveKdfParams(user || {}));
@@ -195,41 +249,7 @@ export const AuthProvider = ({ children }) => {
       transientMasterKeySourceRef.current = { kek, wrappedKey: wrappedKeyStr };
       setMasterKey(key);
       setVaultLockReason(null);
-
-      const currentUser = user;
-      let unlockedUser = currentUser;
-      if (currentUser && (!currentUser.public_key || !currentUser.encrypted_private_key)) {
-        safeLogInfo('Gerando chaves RSA para compartilhamento de cofres.');
-        try {
-          const keyPair = await generateRSAKeyPair();
-          const publicKeyStr = await exportPublicKey(keyPair.publicKey);
-          const encryptedPrivateKeyStr = await encryptPrivateKey(keyPair.privateKey, key);
-          
-          const keysResponse = await api.put('/users/keys', {
-            public_key: publicKeyStr,
-            encrypted_private_key: encryptedPrivateKeyStr
-          });
-          const rsaMetadata = keysResponse.data?.key_metadata || {};
-          
-          unlockedUser = {
-            ...currentUser,
-            public_key: publicKeyStr,
-            encrypted_private_key: encryptedPrivateKeyStr,
-            ...rsaMetadata
-          };
-          setUser((existingUser) => ({
-            ...existingUser,
-            public_key: publicKeyStr,
-            encrypted_private_key: encryptedPrivateKeyStr,
-            ...rsaMetadata
-          }));
-          safeLogInfo('Chaves RSA salvas para compartilhamento de cofres.');
-        } catch (rsaError) {
-          safeLogError('Erro ao gerar ou salvar chaves RSA.', rsaError);
-        }
-      }
-
-      return { success: true, key, user: unlockedUser };
+      return { success: true, key, user };
     } catch (error) {
       if ([CRYPTO_SALT_REQUIRED_ERROR, CRYPTO_KDF_PARAMS_INVALID_ERROR].includes(error?.code)) {
         safeLogError('Não foi possível inicializar a chave criptográfica do usuário.', error);
@@ -270,6 +290,7 @@ export const AuthProvider = ({ children }) => {
     login,
     verifyMfaLogin,
     confirmMfaSetup,
+    ensureCurrentUserCryptoIdentity,
     logout,
     lockVault,
     unlockVault,

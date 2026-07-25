@@ -326,7 +326,9 @@ export default function ClientsList() {
             </li>
           ) : filteredClients.length === 0 ? (
             <li className="px-4 py-8 text-center text-slate-500">
-              Nenhum cliente encontrado.
+              {clients.length === 0 && !searchTerm
+                ? 'Nenhum cofre disponível para sua conta. Quando um cofre for compartilhado com você, ele aparecerá aqui.'
+                : 'Nenhum cliente encontrado.'}
             </li>
           ) : filteredClients.map((client) => {
             const canEdit = client.is_owner || client.is_admin || client.can_edit;

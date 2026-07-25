@@ -32,7 +32,7 @@ const getSharingErrorMessage = (error) => {
   if (error?.code === 'VAULT_LOCKED') {
     return 'Desbloqueie o cofre antes de compartilhar.';
   }
-  if (String(error?.message || '').startsWith('Nenhuma chave foi alterada.')) {
+  if (String(error?.message || '').startsWith('Não foi possível compartilhar com todos os usuários do grupo.')) {
     return error.message;
   }
   return 'Não foi possível salvar o compartilhamento do cofre. Atualize a página, desbloqueie o cofre e tente novamente.';
@@ -130,8 +130,13 @@ export default function VaultSharingManager({ clientId, prepareKeyShares, compac
     if (pending.length > 0) {
       const names = pending
         .map((item) => item.name && item.email ? `${item.name} (${item.email})` : item.name || item.email)
-        .join(', ');
-      throw new Error(`Nenhuma chave foi alterada. Usuários sem chave pública: ${names}. Eles precisam entrar e desbloquear o cofre uma vez.`);
+        .map((name) => `- ${name}`)
+        .join('\n');
+      throw new Error(
+        `Não foi possível compartilhar com todos os usuários do grupo.\n\n` +
+        `Usuários sem chave pública:\n${names}\n\n` +
+        `Esses usuários precisam entrar no sistema uma vez para concluir a configuração das chaves de segurança da conta. Depois disso, tente compartilhar novamente.`
+      );
     }
 
     const encryptedKeys = targetUsers.length > 0

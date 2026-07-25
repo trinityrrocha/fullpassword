@@ -38,6 +38,10 @@ const {
   importClientVaultKey,
   reencryptVaultKeyShareForPublicKeys
 } = await import('../src/services/clientVaultKeyService.js');
+const {
+  ensureUserCryptoIdentity,
+  hasUserCryptoIdentity
+} = await import('../src/services/userCryptoIdentityService.js');
 
 const expectExportRejected = async (format, key) => {
   await assert.rejects(
@@ -127,6 +131,49 @@ const rsaDecrypted = await webcrypto.subtle.decrypt(
   rsaCiphertext
 );
 assert.equal(new TextDecoder().decode(rsaDecrypted), 'compatibility-check');
+
+// A identidade RSA da conta é criada sem depender de qualquer cofre.
+let savedIdentityPayload = null;
+const identityResult = await ensureUserCryptoIdentity({
+  user: {
+    id: 'user-without-vault',
+    wrapped_key: wrappedMasterKey,
+    crypto_salt: salt
+  },
+  password: 'TEST_PASSWORD_NOT_A_SECRET',
+  saveIdentity: async (payload) => {
+    savedIdentityPayload = payload;
+    return {
+      created: true,
+      key_metadata: {
+        rsa_key_size: RSA_KEY_PARAMS.modulusLength,
+        rsa_key_version: RSA_KEY_PARAMS.version
+      }
+    };
+  }
+});
+assert.equal(identityResult.created, true);
+assert.equal(hasUserCryptoIdentity(identityResult.user), true);
+assert.equal(savedIdentityPayload.private_key, undefined);
+assert.equal(typeof savedIdentityPayload.public_key, 'string');
+assert.equal(typeof savedIdentityPayload.encrypted_private_key, 'string');
+const identityPrivateKey = await decryptPrivateKey(
+  savedIdentityPayload.encrypted_private_key,
+  operationalMasterKey
+);
+assert.equal(identityPrivateKey.extractable, false);
+await expectExportRejected('pkcs8', identityPrivateKey);
+
+let idempotentSaveCalled = false;
+const existingIdentityResult = await ensureUserCryptoIdentity({
+  user: identityResult.user,
+  password: 'IGNORED_PASSWORD',
+  saveIdentity: async () => {
+    idempotentSaveCalled = true;
+  }
+});
+assert.equal(existingIdentityResult.created, false);
+assert.equal(idempotentSaveCalled, false);
 
 // Pares RSA-2048 existentes continuam importáveis e utilizáveis.
 const legacyRsaKeyPair = await webcrypto.subtle.generateKey(

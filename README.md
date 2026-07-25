@@ -17,6 +17,8 @@ A aplicação suporta múltiplos usuários, grupos, permissões granulares, comp
 - **AES-256-GCM**: criptografia simétrica usada nos cofres e envelopes criptográficos.
 - **PBKDF2 / derivação de chave no navegador**: usada no fluxo de chave mestre do usuário.
 - **RSA-OAEP por usuário**: usado para compartilhar chaves de cofre com usuários autorizados.
+- **Identidade criptográfica da conta**: cada usuário gera no navegador sua `public_key` e sua chave privada criptografada no primeiro login. A API armazena somente a chave pública e `encrypted_private_key`; a chave privada nunca é enviada em claro.
+- **Bootstrap independente de cofre**: um usuário não precisa possuir ou abrir um cofre para concluir sua identidade criptográfica e ficar apto a receber compartilhamentos. Contas existentes sem chaves concluem o setup no próximo login.
 - **Chave própria por cofre**: cada empresa/cofre possui chave própria para criptografia dos dados internos.
 - **Back-end sem acesso ao texto claro**: API e banco armazenam dados criptografados e metadados necessários.
 - **Argon2id**: hashing seguro das senhas de login no back-end.

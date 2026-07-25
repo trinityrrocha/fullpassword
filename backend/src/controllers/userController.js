@@ -7,11 +7,14 @@ const { recordAuditEvent } = require('../services/auditService');
 const { rejectWeakPassword } = require('../services/passwordPolicyService');
 const { safeLogError } = require('../utils/safeLogger');
 const {
+  validateUserCryptoIdentityPayload,
+  cryptoIdentityMatches
+} = require('../services/userCryptoIdentityService');
+const {
   CURRENT_KDF_PARAMS,
   CURRENT_RSA_PARAMS,
   deriveKek,
-  matchesCurrentKdfMetadata,
-  getRsaPublicKeySize
+  matchesCurrentKdfMetadata
 } = require('../config/cryptoParameters');
 const VALID_ROLES = new Set(['admin', 'user']);
 
@@ -638,49 +641,92 @@ const resetMfa = async (req, res) => {
 };
 
 const updateKeys = async (req, res) => {
+  const client = await db.pool.connect();
   try {
     const userId = req.user.id;
-    const { public_key, encrypted_private_key } = req.body;
+    const identity = validateUserCryptoIdentityPayload(req.body);
 
-    if (!public_key || !encrypted_private_key) {
-      return res.status(400).json({ error: 'Chaves pública e privada são obrigatórias' });
+    await client.query('BEGIN');
+    const currentResult = await client.query(
+      `SELECT id, is_active, public_key, encrypted_private_key, rsa_key_size, rsa_key_version
+       FROM users
+       WHERE id = $1
+       FOR UPDATE`,
+      [userId]
+    );
+    const currentUser = currentResult.rows[0];
+    if (!currentUser) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Usuário não encontrado' });
+    }
+    if (currentUser.is_active === false) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'Conta inativa' });
     }
 
-    let modulusLength;
-    try {
-      modulusLength = getRsaPublicKeySize(public_key);
-    } catch {
-      return res.status(400).json({ error: 'Chave pública RSA inválida' });
-    }
-
-    if (modulusLength !== CURRENT_RSA_PARAMS.modulusLength) {
-      return res.status(400).json({
-        error: `Novos pares de chaves devem usar RSA-${CURRENT_RSA_PARAMS.modulusLength}`
+    if (currentUser.public_key || currentUser.encrypted_private_key) {
+      await client.query('ROLLBACK');
+      if (cryptoIdentityMatches(currentUser, identity)) {
+        return res.status(200).json({
+          message: 'Chaves criptográficas já configuradas',
+          created: false,
+          key_metadata: {
+            rsa_key_size: currentUser.rsa_key_size,
+            rsa_key_version: currentUser.rsa_key_version
+          }
+        });
+      }
+      return res.status(409).json({
+        error: 'As chaves criptográficas da conta já estão configuradas.',
+        code: 'CRYPTO_IDENTITY_ALREADY_CONFIGURED'
       });
     }
 
-    const result = await db.query(
+    if (identity.rsaKeySize !== CURRENT_RSA_PARAMS.modulusLength) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        error: `Novos pares de chaves devem usar RSA-${CURRENT_RSA_PARAMS.modulusLength}`,
+        code: 'CRYPTO_IDENTITY_INVALID'
+      });
+    }
+
+    const result = await client.query(
       `UPDATE users
        SET public_key = $1, encrypted_private_key = $2, rsa_key_size = $3, rsa_key_version = $4,
            updated_at = CURRENT_TIMESTAMP
-       WHERE id = $5
+       WHERE id = $5 AND public_key IS NULL AND encrypted_private_key IS NULL
        RETURNING rsa_key_size, rsa_key_version`,
       [
-        public_key,
-        encrypted_private_key,
-        CURRENT_RSA_PARAMS.modulusLength,
-        CURRENT_RSA_PARAMS.version,
+        identity.publicKey,
+        identity.encryptedPrivateKey,
+        identity.rsaKeySize,
+        identity.rsaKeyVersion,
         userId
       ]
     );
+    if (result.rows.length !== 1) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({
+        error: 'As chaves criptográficas da conta já estão configuradas.',
+        code: 'CRYPTO_IDENTITY_ALREADY_CONFIGURED'
+      });
+    }
+    await client.query('COMMIT');
 
-    res.status(200).json({
+    return res.status(200).json({
       message: 'Chaves criptográficas salvas com sucesso',
+      created: true,
       key_metadata: result.rows[0]
     });
   } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    if (error.statusCode === 400) {
+      return res.status(400).json({ error: error.message, code: error.code });
+    }
     safeLogError('Erro ao salvar chaves RSA.', error);
-    res.status(500).json({ error: 'Erro interno ao salvar chaves' });
+    return res.status(500).json({ error: 'Erro interno ao salvar chaves' });
+  } finally {
+    client.release();
   }
 };
 

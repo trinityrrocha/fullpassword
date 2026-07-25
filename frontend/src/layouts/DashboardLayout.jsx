@@ -7,6 +7,7 @@ import ScreenProtection from '../components/ScreenProtection';
 import api from '../services/api';
 import { SCREEN_PROTECTION_CHANGED_EVENT } from '../utils/screenProtection';
 import useClearOnVaultLock from '../hooks/useClearOnVaultLock';
+import UserCryptoIdentitySetup from '../components/UserCryptoIdentitySetup';
 
 export default function DashboardLayout() {
   const location = useLocation();
@@ -194,6 +195,7 @@ export default function DashboardLayout() {
         }}
         forcePasswordChange={mustChangePassword}
       />
+      <UserCryptoIdentitySetup />
       </div>
     </ScreenProtection>
   );
