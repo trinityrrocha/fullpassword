@@ -178,6 +178,27 @@ Inclui:
 - Política global de senhas por select: 3 meses, 6 meses ou 1 ano.
 - Blacklist / Whitelist manual com campos alinhados e validação IPv4/CIDR.
 - Switches sutis para ativar/desativar recursos de segurança.
+- Configuração global de e-mail SMTP restrita ao Super Admin, com SSL/TLS direto, STARTTLS e envio de teste.
+
+### Configuração SMTP
+
+O FullPassword pode usar SMTP para e-mails de teste e como base para futuros fluxos de convites, alertas e recuperação de conta. A configuração fica em **Configurações do Sistema > E-mail / SMTP** e somente o Super Admin pode consultar, alterar ou testar o transporte.
+
+A senha SMTP é criptografada em repouso no backend com AES-256-GCM e uma chave dedicada mantida fora do banco:
+
+```env
+CONFIG_ENCRYPTION_KEY=
+```
+
+Gere uma chave base64 de 32 bytes com:
+
+```bash
+openssl rand -base64 32
+```
+
+O instalador gera essa chave automaticamente sem imprimi-la. O WebUpdater preserva uma chave existente e, em instalações anteriores sem a variável, gera uma única chave e a adiciona ao `.env` com permissão restrita. Perder ou trocar essa chave impede a leitura de senhas SMTP já salvas.
+
+SMTP não permite recuperar a senha mestre nem descriptografar cofres antigos em uma arquitetura Zero-Knowledge. Links ou tokens por e-mail poderão validar identidade ou iniciar uma futura redefinição de conta, mas não substituem a senha mestre nem recuperam chaves criptográficas sem uma recovery key criada previamente. Esta etapa não implementa recuperação de senha.
 
 ### 🎨 Interface e experiência
 
@@ -354,6 +375,7 @@ Fluxo resumido:
 - ✅ WebUpdater restrito ao Super Admin, à branch `main`, ao repositório oficial e a serviços permitidos.
 - ✅ Screen protection best-effort sem promessa de bloqueio absoluto de screenshot.
 - ✅ Suporte a SSL/TLS com Let's Encrypt.
+- ✅ Transporte SMTP global com validação TLS e senha criptografada por chave dedicada.
 
 ## 🔑 Modelo de permissões
 
@@ -384,6 +406,7 @@ Após aplicar atualizações pelo WebUpdater, validar:
 - Busca e filtro por servidor/dispositivo.
 - Backup e restauração com arquivo recém-gerado.
 - Configurações de segurança, sessões, blacklist/whitelist e política de senhas.
+- Configuração SMTP com um servidor de teste controlado antes de habilitar uso real.
 - Console do navegador sem `ReferenceError`, `OperationError` ou erro fatal.
 
 ## 🤝 Como contribuir

@@ -4,7 +4,7 @@
   "description": "Backend para o projeto FullPassword",
   "main": "src/server.js",
   "scripts": {
-    "test": "node scripts/test-backup-v2.js && node scripts/test-ip-cidr.js && node scripts/test-request-limits.js && node scripts/test-operational-hardening.js && node scripts/test-crypto-parameters.js && node scripts/test-user-crypto-identity.js",
+    "test": "node scripts/test-backup-v2.js && node scripts/test-ip-cidr.js && node scripts/test-request-limits.js && node scripts/test-operational-hardening.js && node scripts/test-crypto-parameters.js && node scripts/test-user-crypto-identity.js && node scripts/test-smtp-settings.js",
     "start": "node src/server.js",
     "dev": "nodemon src/server.js"
   },
@@ -20,6 +20,7 @@
     "ipaddr.js": "^2.4.0",
     "jsonwebtoken": "^9.0.2",
     "multer": "^2.0.2",
+    "nodemailer": "9.0.3",
     "otplib": "12.0.1",
     "pg": "^8.11.5",
     "pg-query-stream": "^4.16.0",

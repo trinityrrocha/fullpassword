@@ -31,10 +31,16 @@ const sensitiveOperationLimiter = createWriteRateLimiter({
   limit: 5
 });
 
+const smtpTestLimiter = createWriteRateLimiter({
+  windowMs: 15 * 60 * 1000,
+  limit: 5
+});
+
 module.exports = {
   RATE_LIMIT_MESSAGE,
   createWriteRateLimiter,
   generalWriteLimiter,
   vaultWriteLimiter,
-  sensitiveOperationLimiter
+  sensitiveOperationLimiter,
+  smtpTestLimiter
 };

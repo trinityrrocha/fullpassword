@@ -125,6 +125,25 @@ const ensureSecuritySchema = async () => {
     await client.query('CREATE INDEX IF NOT EXISTS idx_system_audit_events_created_at ON system_audit_events (created_at DESC)');
     await client.query('CREATE INDEX IF NOT EXISTS idx_system_audit_events_action_ip_created ON system_audit_events (action, ip_address, created_at DESC)');
     await client.query(`
+      CREATE TABLE IF NOT EXISTS smtp_settings (
+        id INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+        enabled BOOLEAN NOT NULL DEFAULT FALSE,
+        host VARCHAR(255) NOT NULL DEFAULT '',
+        port INTEGER NOT NULL DEFAULT 587 CHECK (port BETWEEN 1 AND 65535),
+        security VARCHAR(20) NOT NULL DEFAULT 'starttls' CHECK (security IN ('ssl_tls', 'starttls', 'none')),
+        username VARCHAR(320) NOT NULL DEFAULT '',
+        encrypted_password TEXT,
+        from_name VARCHAR(255) NOT NULL DEFAULT 'FullPassword',
+        from_email VARCHAR(254) NOT NULL DEFAULT '',
+        reply_to VARCHAR(254),
+        timeout_seconds INTEGER NOT NULL DEFAULT 15 CHECK (timeout_seconds BETWEEN 1 AND 120),
+        updated_by UUID REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    await client.query('INSERT INTO smtp_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING');
+    await client.query(`
       CREATE TABLE IF NOT EXISTS login_security_policy (
         id INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
         auto_block_enabled BOOLEAN NOT NULL DEFAULT TRUE,

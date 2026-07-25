@@ -11,6 +11,7 @@ import ActiveSessionsCard from '../components/ActiveSessionsCard';
 import PasswordPolicyCard from '../components/PasswordPolicyCard';
 import BackupRestoreCard from '../components/BackupRestoreCard';
 import ManualIpRulesCard from '../components/ManualIpRulesCard';
+import SmtpSettingsCard from '../components/SmtpSettingsCard';
 import { formatDateTimeShort } from '../utils/formatDateTimeShort';
 import useClearOnVaultLock from '../hooks/useClearOnVaultLock';
 
@@ -33,6 +34,9 @@ const AUDIT_ACTION_OPTIONS = [
   ['ip_whitelist_removed', 'IP removido da whitelist'],
   ['user_deleted', 'Usuário excluído'],
   ['login_security_policy_updated', 'Política de login alterada'],
+  ['smtp_settings_updated', 'Configuração SMTP alterada'],
+  ['smtp_test_email_sent', 'E-mail SMTP de teste enviado'],
+  ['smtp_test_email_failed', 'Falha no teste SMTP'],
   ['ip_access_blocked', 'Acesso bloqueado por IP']
 ];
 
@@ -494,6 +498,8 @@ export default function Settings() {
             <PasswordPolicyCard />
           </SettingsAccordionCard>
         )}
+
+        <SmtpSettingsCard isSuperAdmin={canManageSystem} />
 
         <SettingsAccordionCard title="Web Backup (Backup Completo)" icon={<Database className="w-5 h-5 mr-2 text-indigo-500" />} badge={canManageSystem && <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">Super Admin</span>}>
             <p className="text-sm text-slate-600 mb-4">

@@ -74,6 +74,7 @@ apt-get install -y curl git ufw fail2ban certbot python3-certbot-nginx apt-trans
 DB_PASSWORD=$(openssl rand -base64 48 | tr -dc 'a-zA-Z0-9' | head -c 40)
 JWT_SECRET=$(openssl rand -hex 64)
 ADMIN_BOOTSTRAP_TOKEN=$(openssl rand -hex 32)
+CONFIG_ENCRYPTION_KEY=$(openssl rand -base64 32 | tr -d '\n')
 INITIAL_PASSWORD_RANDOM=$(openssl rand -base64 48 | tr -dc 'a-zA-Z0-9' | head -c 28)
 INITIAL_SUPER_ADMIN_PASSWORD="${INITIAL_PASSWORD_RANDOM}Aa1!"
 
@@ -159,6 +160,7 @@ NODE_ENV=production
 JWT_SECRET=$JWT_SECRET
 JWT_EXPIRES_IN=8h
 ADMIN_BOOTSTRAP_TOKEN=$ADMIN_BOOTSTRAP_TOKEN
+CONFIG_ENCRYPTION_KEY=$CONFIG_ENCRYPTION_KEY
 SUPER_ADMIN_EMAIL=$SUPER_ADMIN_EMAIL
 APP_ORIGIN=https://$DOMAIN
 

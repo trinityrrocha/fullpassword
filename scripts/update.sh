@@ -133,7 +133,17 @@ set -a
 . ./.env
 set +a
 
-required_vars="DB_HOST DB_USER DB_PASSWORD DB_NAME JWT_SECRET ADMIN_BOOTSTRAP_TOKEN SUPER_ADMIN_EMAIL APP_ORIGIN"
+if [ -z "${CONFIG_ENCRYPTION_KEY:-}" ]; then
+  CONFIG_ENCRYPTION_KEY="$(node -e "process.stdout.write(require('crypto').randomBytes(32).toString('base64'))")" \
+    || fail "CONFIG_ENCRYPTION_KEY ausente. Gere com: openssl rand -base64 32"
+  printf '\n# Criptografia de segredos de configuração (SMTP)\nCONFIG_ENCRYPTION_KEY=%s\n' \
+    "$CONFIG_ENCRYPTION_KEY" >> .env
+  chmod 600 .env
+  export CONFIG_ENCRYPTION_KEY
+  log "CONFIG_ENCRYPTION_KEY ausente: uma chave dedicada foi gerada e salva no .env sem ser exibida."
+fi
+
+required_vars="DB_HOST DB_USER DB_PASSWORD DB_NAME JWT_SECRET ADMIN_BOOTSTRAP_TOKEN CONFIG_ENCRYPTION_KEY SUPER_ADMIN_EMAIL APP_ORIGIN"
 for var_name in $required_vars; do
   eval var_value=\${$var_name:-}
   [ -n "$var_value" ] || fail "Variável obrigatória ausente no .env: $var_name"
@@ -142,6 +152,11 @@ done
 [ "$DB_PASSWORD" != "fullpassword_pass" ] || fail "DB_PASSWORD padrão é proibida"
 [ ${#JWT_SECRET} -ge 64 ] || fail "JWT_SECRET curto demais"
 [ ${#ADMIN_BOOTSTRAP_TOKEN} -ge 48 ] || fail "ADMIN_BOOTSTRAP_TOKEN curto demais"
+node -e "
+  const value = String(process.env.CONFIG_ENCRYPTION_KEY || '').trim();
+  const key = Buffer.from(value, 'base64');
+  process.exit(key.length === 32 && key.toString('base64') === value ? 0 : 1);
+" || fail "CONFIG_ENCRYPTION_KEY inválida. Gere uma chave base64 de 32 bytes com: openssl rand -base64 32"
 
 case "$JWT_SECRET" in
   sua_chave_secreta_super_segura_aqui|SEU_JWT_SECRET_GERADO_AQUI|change-me|changeme)

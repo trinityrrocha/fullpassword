@@ -8,6 +8,7 @@ const securityController = require('../controllers/securityController');
 const sessionController = require('../controllers/sessionController');
 const passwordPolicyController = require('../controllers/passwordPolicyController');
 const backupRestoreController = require('../controllers/backupRestoreController');
+const smtpController = require('../controllers/smtpController');
 const multer = require('multer');
 const { verifyToken } = require('../middleware/authMiddleware');
 const { isEncryptedBackupFilename } = require('../services/backupRestoreService');
@@ -19,6 +20,7 @@ const {
   BACKUP_TEMP_DIR
 } = require('../config/backupConfig');
 const { MEBIBYTE, enforceContentLength, PAYLOAD_TOO_LARGE_MESSAGE } = require('../middleware/requestLimits');
+const { smtpTestLimiter } = require('../middleware/writeRateLimiters');
 const asyncRoute = (handler) => (req, res, next) => Promise.resolve(handler(req, res, next)).catch(next);
 const restoreUploadDirectory = path.join(BACKUP_TEMP_DIR, 'uploads');
 fs.mkdirSync(restoreUploadDirectory, { recursive: true, mode: 0o700 });
@@ -90,6 +92,9 @@ router.delete('/sessions/:id', sessionController.revokeSessionByAdmin);
 router.get('/password-policy', passwordPolicyController.getPolicy);
 router.put('/password-policy', passwordPolicyController.updatePolicy);
 router.get('/audit-events', systemController.getAuditEvents);
+router.get('/smtp', asyncRoute(smtpController.getSettings));
+router.put('/smtp', asyncRoute(smtpController.saveSettings));
+router.post('/smtp/test', smtpTestLimiter, asyncRoute(smtpController.testSettings));
 router.get('/screen-protection', asyncRoute(securityController.getScreenProtection));
 router.put('/screen-protection', asyncRoute(securityController.updateScreenProtection));
 router.get('/login-security-policy', asyncRoute(securityController.getPolicy));
