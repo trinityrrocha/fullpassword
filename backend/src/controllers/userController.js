@@ -5,6 +5,7 @@ const { ensureSharingSchema } = require('../services/accessControlService');
 const { isSuperAdmin, normalizeEmail } = require('../config/security');
 const { recordAuditEvent } = require('../services/auditService');
 const { rejectWeakPassword } = require('../services/passwordPolicyService');
+const { safeLogError } = require('../utils/safeLogger');
 const VALID_ROLES = new Set(['admin', 'user']);
 
 const getValidGroupIds = async (groupIds = []) => {
@@ -78,7 +79,7 @@ const getUsers = async (req, res) => {
 
     res.status(200).json(users);
   } catch (error) {
-    console.error('Erro ao buscar usuários:', error);
+    safeLogError('Erro ao buscar usuários.', error);
     res.status(500).json({ error: 'Erro ao buscar usuários' });
   }
 };
@@ -157,7 +158,7 @@ const createUser = async (req, res) => {
     res.status(201).json(newUser);
   } catch (error) {
     await client.query('ROLLBACK');
-    console.error('Erro ao criar usuário:', error);
+    safeLogError('Erro ao criar usuário.', error);
     res.status(500).json({ error: 'Erro interno ao criar usuário' });
   } finally {
     client.release();
@@ -244,7 +245,7 @@ const updateProfile = async (req, res) => {
     });
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {});
-    console.error('Erro ao atualizar perfil:', error);
+    safeLogError('Erro ao atualizar perfil.', error);
     if (error.code === '23505') {
       return res.status(400).json({ error: 'Este e-mail já está em uso' });
     }
@@ -435,7 +436,7 @@ const updateUser = async (req, res) => {
     });
   } catch (error) {
     await client.query('ROLLBACK');
-    console.error('Erro ao atualizar usuário:', error);
+    safeLogError('Erro ao atualizar usuário.', error);
     res.status(500).json({ error: 'Erro interno ao atualizar usuário' });
   } finally {
     client.release();
@@ -520,7 +521,7 @@ const deleteUser = async (req, res) => {
         error: 'Este usuário não pode ser excluído porque possui vínculos ativos ou permissões críticas.'
       });
     }
-    console.error('Erro ao excluir usuário:', error);
+    safeLogError('Erro ao excluir usuário.', error);
     return res.status(500).json({ error: 'Erro interno ao excluir usuário' });
   } finally {
     client.release();
@@ -544,7 +545,7 @@ const updateMfaPolicy = async (req, res) => {
     });
     return res.status(200).json({ message: 'Política MFA atualizada', user: result.rows[0] });
   } catch (error) {
-    console.error('Erro ao atualizar política MFA:', error);
+    safeLogError('Erro ao atualizar política MFA.', error);
     return res.status(500).json({ error: 'Erro ao atualizar política MFA' });
   }
 };
@@ -569,7 +570,7 @@ const resetMfa = async (req, res) => {
     return res.status(200).json({ message: 'MFA resetado e sessões do usuário revogadas' });
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {});
-    console.error('Erro ao resetar MFA:', error);
+    safeLogError('Erro ao resetar MFA.', error);
     return res.status(500).json({ error: 'Erro ao resetar MFA' });
   } finally {
     client.release();
@@ -592,7 +593,7 @@ const updateKeys = async (req, res) => {
 
     res.status(200).json({ message: 'Chaves criptográficas salvas com sucesso' });
   } catch (error) {
-    console.error('Erro ao salvar chaves RSA:', error);
+    safeLogError('Erro ao salvar chaves RSA.', error);
     res.status(500).json({ error: 'Erro interno ao salvar chaves' });
   }
 };

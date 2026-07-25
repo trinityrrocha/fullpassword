@@ -6,7 +6,8 @@ import DeleteConfirmationControl from '../components/DeleteConfirmationControl';
 import VaultSharingManager from '../components/VaultSharingManager';
 import VaultReadOnlyGuard from '../components/VaultReadOnlyGuard';
 import { useAuth } from '../context/AuthContext';
-import { encryptData, encryptFile, decryptData, base64ToBlob, downloadBlob } from '../services/cryptoService';
+import { safeLogError } from '../utils/safeLogger';
+import { encryptData, encryptFile, decryptData, base64ToBlob, downloadBlob, isValidCryptoSalt } from '../services/cryptoService';
 import { decryptVaultKeyShare } from '../services/clientVaultKeyService';
 import api from '../services/api';
 
@@ -274,7 +275,7 @@ export default function ClientVault() {
       setEnabledModules(resolvedModules);
       setActiveModuleId(COMPANY_MODULES.find((module) => resolvedModules.includes(module.id))?.id || null);
     } catch (error) {
-      console.error('Erro ao carregar itens do cofre:', error);
+      safeLogError('Erro ao carregar itens do cofre.', error);
     } finally {
       setIsLoading(false);
       setModulesLoaded(true);
@@ -325,7 +326,7 @@ export default function ClientVault() {
 
         throw new Error('A chave criptográfica deste cofre ainda não foi entregue. Peça ao proprietário para salvar o compartilhamento novamente.');
       } catch (error) {
-        console.error('Erro ao carregar acesso criptográfico do cofre:', error);
+        safeLogError('Erro ao carregar acesso criptográfico do cofre.', error);
         if (!cancelled) {
           setVaultKeyError(error.response?.data?.error || error.message || 'Não foi possível carregar a chave deste cofre.');
         }
@@ -390,7 +391,7 @@ export default function ClientVault() {
 
       return true;
     } catch (error) {
-      console.error('Erro ao salvar no cofre:', error);
+      safeLogError('Erro ao salvar no cofre.', error);
       alert('Erro ao salvar os dados. Verifique o console.');
       return false;
     } finally {
@@ -413,7 +414,7 @@ export default function ClientVault() {
       setIsAddModuleOpen(false);
       return true;
     } catch (error) {
-      console.error('Erro ao salvar módulos da empresa:', error);
+      safeLogError('Erro ao salvar módulos da empresa.', error);
       alert(error.response?.data?.error || 'Não foi possível atualizar as abas da empresa.');
       return false;
     } finally {
@@ -488,10 +489,7 @@ export default function ClientVault() {
       setModuleDeleteConfirmation('');
       alert('Servidor e todos os dados desta aba foram excluídos com sucesso.');
     } catch (error) {
-      console.error('Erro ao excluir módulo da empresa.', {
-        status: error.response?.status,
-        moduleId: modulePendingDeletion.id
-      });
+      safeLogError('Erro ao excluir módulo da empresa.', error);
       alert(error.response?.data?.error || 'Não foi possível excluir o servidor. Nenhuma alteração foi aplicada.');
     } finally {
       setIsDeletingModule(false);
@@ -507,8 +505,8 @@ export default function ClientVault() {
     const userWrappedKey = user?.wrapped_key;
     const userSalt = user?.crypto_salt;
 
-    if (!userWrappedKey || !userSalt) {
-      alert('Erro crítico: Chave envelopada do usuário não encontrada. Faça login novamente ou recadastre o usuário.');
+    if (!userWrappedKey || !isValidCryptoSalt(userSalt)) {
+      alert('Não foi possível inicializar a chave criptográfica do usuário. Entre em contato com o administrador.');
       return;
     }
 
@@ -528,7 +526,7 @@ export default function ClientVault() {
       const blob = base64ToBlob(decryptedFile.data);
       downloadBlob(blob, decryptedFile.name);
     } catch (error) {
-      console.error('Erro ao descriptografar anexo:', error);
+      safeLogError('Erro ao descriptografar anexo.', error);
       alert('Erro ao descriptografar o anexo. A chave pode estar incorreta.');
     }
   };

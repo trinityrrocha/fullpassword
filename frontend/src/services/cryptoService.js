@@ -2,6 +2,7 @@
  * Serviço de Criptografia Client-Side (Zero-Knowledge)
  * Utiliza a Web Crypto API nativa do navegador para máxima segurança e performance.
  */
+import { safeLogError } from '../utils/safeLogger';
 
 // Converte string para ArrayBuffer
 const getMessageEncoding = (message) => {
@@ -38,11 +39,22 @@ const base64ToBuffer = (base64) => {
 /**
  * Deriva uma chave mestra (Master Key) a partir da senha do usuário.
  * Utiliza PBKDF2 com SHA-256 e 100.000 iterações.
- * O salt é fixo para simplificar o exemplo, mas em produção deve ser único por usuário e salvo no banco.
  * @param {string} password - A senha em texto claro
+ * @param {string} saltString - O salt criptográfico único do usuário
  * @returns {Promise<CryptoKey>} - A chave criptográfica utilizável para AES-GCM
  */
-export const deriveMasterKey = async (password, saltString = 'fullpassword-salt-super-seguro-123') => {
+export const CRYPTO_SALT_REQUIRED_ERROR = 'CRYPTO_SALT_REQUIRED';
+export const isValidCryptoSalt = (saltString) => (
+  typeof saltString === 'string' && saltString.trim().length >= 16
+);
+
+export const deriveMasterKey = async (password, saltString) => {
+  if (!isValidCryptoSalt(saltString)) {
+    const error = new Error('Salt criptográfico único por usuário é obrigatório');
+    error.code = CRYPTO_SALT_REQUIRED_ERROR;
+    throw error;
+  }
+
   const enc = new TextEncoder();
   const keyMaterial = await window.crypto.subtle.importKey(
     'raw',
@@ -101,8 +113,8 @@ export const wrapMasterKey = async (masterKey, kek) => {
     
     return `${ivBase64}:${wrappedKeyBase64}`;
   } catch (error) {
-    console.error('Erro ao envelopar Master Key:', error);
-    throw new Error('Falha ao proteger a chave mestra');
+    safeLogError('Erro ao envelopar Master Key.', error);
+    throw new Error('Falha ao proteger a chave mestra', { cause: error });
   }
 };
 
@@ -168,8 +180,8 @@ export const encryptData = async (jsonObject, masterKey) => {
     
     return `${ivBase64}:${ciphertextBase64}`;
   } catch (error) {
-    console.error('Erro ao criptografar dados:', error);
-    throw new Error('Falha na criptografia dos dados');
+    safeLogError('Erro ao criptografar dados.', error);
+    throw new Error('Falha na criptografia dos dados', { cause: error });
   }
 };
 
@@ -248,8 +260,8 @@ export const encryptFile = async (file, masterKey) => {
     
     return await encryptData(fileData, masterKey);
   } catch (error) {
-    console.error('Erro ao criptografar arquivo:', error);
-    throw new Error('Falha na criptografia do arquivo');
+    safeLogError('Erro ao criptografar arquivo.', error);
+    throw new Error('Falha na criptografia do arquivo', { cause: error });
   }
 };
 

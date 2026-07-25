@@ -58,7 +58,6 @@ server {
 server {
     listen 443 ssl;
     server_name $domain;
-    add_header Permissions-Policy "display-capture=()" always;
 
     ssl_certificate /etc/letsencrypt/live/$domain/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/$domain/privkey.pem;
@@ -69,6 +68,13 @@ server {
 
     # Frontend estático (React)
     location / {
+        add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none';" always;
+        add_header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header X-Frame-Options "DENY" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+        add_header Permissions-Policy "display-capture=(), camera=(), microphone=(), geolocation=()" always;
+
         proxy_pass http://frontend:80;
         proxy_http_version 1.1;
         proxy_set_header Host \$host;

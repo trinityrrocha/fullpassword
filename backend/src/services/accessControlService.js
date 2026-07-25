@@ -1,5 +1,6 @@
 const db = require('../config/database');
 const { isSuperAdmin } = require('../config/security');
+const { safeLogError } = require('../utils/safeLogger');
 
 let schemaReady = false;
 
@@ -175,7 +176,7 @@ const logVaultAccess = async (clientId, actorUserId, action, details = {}) => {
       [clientId, actorUserId || null, action, details]
     );
   } catch (error) {
-    console.error('Erro ao registrar auditoria de acesso ao cofre:', error);
+    safeLogError('Erro ao registrar auditoria de acesso ao cofre.', error);
   }
 };
 

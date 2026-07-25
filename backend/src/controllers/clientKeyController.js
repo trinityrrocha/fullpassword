@@ -5,6 +5,7 @@ const {
   canManageClientShares,
   logVaultAccess
 } = require('../services/accessControlService');
+const { safeLogError } = require('../utils/safeLogger');
 
 const getClientKeyShare = async (req, res) => {
   try {
@@ -27,7 +28,7 @@ const getClientKeyShare = async (req, res) => {
       return res.status(error.statusCode).json({ error: error.statusCode === 404 ? 'Cofre não encontrado' : 'Acesso negado' });
     }
 
-    console.error('Erro ao buscar chave compartilhada do cofre:', error);
+    safeLogError('Erro ao buscar chave compartilhada do cofre.', error);
     res.status(500).json({ error: 'Erro ao buscar chave compartilhada do cofre' });
   }
 };
@@ -78,7 +79,7 @@ const updateClientKeyShares = async (req, res) => {
     res.status(200).json({ message: 'Chaves de compartilhamento atualizadas', saved });
   } catch (error) {
     await db.query('ROLLBACK');
-    console.error('Erro ao atualizar chaves compartilhadas do cofre:', error);
+    safeLogError('Erro ao atualizar chaves compartilhadas do cofre.', error);
     res.status(500).json({ error: 'Erro ao atualizar chaves compartilhadas do cofre' });
   }
 };

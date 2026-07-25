@@ -1,5 +1,6 @@
 const db = require('../config/database');
 const { ensureSharingSchema, normalizePermissionSet } = require('../services/accessControlService');
+const { safeLogError } = require('../utils/safeLogger');
 
 const normalizeGroupPayload = (body = {}, forceAdmin = false) => {
   if (forceAdmin) {
@@ -37,7 +38,7 @@ const getGroupOptions = async (req, res) => {
 
     res.status(200).json(result.rows);
   } catch (error) {
-    console.error('Erro ao buscar opções de grupos:', error);
+    safeLogError('Erro ao buscar opções de grupos.', error);
     res.status(500).json({ error: 'Erro ao buscar opções de grupos' });
   }
 };
@@ -64,7 +65,7 @@ const getGroups = async (req, res) => {
 
     res.status(200).json(groups);
   } catch (error) {
-    console.error('Erro ao buscar grupos:', error);
+    safeLogError('Erro ao buscar grupos.', error);
     res.status(500).json({ error: 'Erro ao buscar grupos' });
   }
 };
@@ -112,7 +113,7 @@ const createGroup = async (req, res) => {
     });
   } catch (error) {
     await client.query('ROLLBACK');
-    console.error('Erro ao criar grupo:', error);
+    safeLogError('Erro ao criar grupo.', error);
     res.status(500).json({ error: 'Erro interno ao criar grupo' });
   } finally {
     client.release();
@@ -182,7 +183,7 @@ const updateGroup = async (req, res) => {
     });
   } catch (error) {
     await client.query('ROLLBACK');
-    console.error('Erro ao atualizar grupo:', error);
+    safeLogError('Erro ao atualizar grupo.', error);
     res.status(500).json({ error: 'Erro interno ao atualizar grupo' });
   } finally {
     client.release();
@@ -209,7 +210,7 @@ const deleteGroup = async (req, res) => {
 
     res.status(200).json({ message: 'Grupo excluído com sucesso' });
   } catch (error) {
-    console.error('Erro ao excluir grupo:', error);
+    safeLogError('Erro ao excluir grupo.', error);
     res.status(500).json({ error: 'Erro interno ao excluir grupo' });
   }
 };

@@ -7,6 +7,7 @@ const {
   canManageClientShares,
   logVaultAccess
 } = require('../services/accessControlService');
+const { safeLogError } = require('../utils/safeLogger');
 
 // GET /api/vault-items/:clientId/permissions - Retorna as permissões efetivas do usuário no cofre
 const getVaultPermissions = async (req, res) => {
@@ -20,7 +21,7 @@ const getVaultPermissions = async (req, res) => {
 
     res.status(200).json(permissions);
   } catch (error) {
-    console.error('Erro ao buscar permissões do cofre:', error);
+    safeLogError('Erro ao buscar permissões do cofre.', error);
     res.status(500).json({ error: 'Erro ao buscar permissões do cofre' });
   }
 };
@@ -50,7 +51,7 @@ const getVaultItems = async (req, res) => {
       return res.status(error.statusCode).json({ error: error.statusCode === 404 ? 'Cofre não encontrado' : 'Acesso negado' });
     }
 
-    console.error('Erro ao buscar itens do cofre:', error);
+    safeLogError('Erro ao buscar itens do cofre.', error);
     res.status(500).json({ error: 'Erro ao buscar itens do cofre' });
   }
 };
@@ -82,7 +83,7 @@ const createVaultItem = async (req, res) => {
       return res.status(error.statusCode).json({ error: 'Você não tem permissão para alterar este cofre' });
     }
 
-    console.error('Erro ao salvar item no cofre:', error);
+    safeLogError('Erro ao salvar item no cofre.', error);
     res.status(500).json({ error: 'Erro ao salvar item no cofre' });
   }
 };
@@ -118,7 +119,7 @@ const getClientShares = async (req, res) => {
 
     res.status(200).json(result.rows);
   } catch (error) {
-    console.error('Erro ao buscar compartilhamentos do cofre:', error);
+    safeLogError('Erro ao buscar compartilhamentos do cofre.', error);
     res.status(500).json({ error: 'Erro ao buscar compartilhamentos do cofre' });
   }
 };
@@ -171,7 +172,7 @@ const updateClientShares = async (req, res) => {
     res.status(200).json({ message: 'Compartilhamento atualizado com sucesso' });
   } catch (error) {
     await db.query('ROLLBACK');
-    console.error('Erro ao atualizar compartilhamentos do cofre:', error);
+    safeLogError('Erro ao atualizar compartilhamentos do cofre.', error);
     res.status(500).json({ error: 'Erro ao atualizar compartilhamentos do cofre' });
   }
 };
@@ -216,7 +217,7 @@ const shareVaultItem = async (req, res) => {
     res.status(200).json({ message: 'Cofre compartilhado com sucesso' });
   } catch (error) {
     await db.query('ROLLBACK');
-    console.error('Erro ao compartilhar cofre:', error);
+    safeLogError('Erro ao compartilhar cofre.', error);
     res.status(500).json({ error: 'Erro ao compartilhar cofre' });
   }
 };

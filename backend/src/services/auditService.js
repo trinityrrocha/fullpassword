@@ -1,4 +1,5 @@
 const db = require('../config/database');
+const { safeLogError } = require('../utils/safeLogger');
 
 const recordAuditEvent = async ({ user, userEmail, action, status, req, metadata = {} }) => {
   try {
@@ -17,7 +18,7 @@ const recordAuditEvent = async ({ user, userEmail, action, status, req, metadata
       ]
     );
   } catch (error) {
-    console.error('Falha ao registrar evento de auditoria:', error.message);
+    safeLogError('Falha ao registrar evento de auditoria.', error);
   }
 };
 

@@ -8,6 +8,7 @@ const { issueCsrfCookie, clearCsrfCookie } = require('../services/csrfService');
 const { getMfaSettings, ensureMfaSetup, createChallengeToken } = require('../services/mfaService');
 const { ABSOLUTE_SESSION_MS, createUserSession, revokeTokenSession } = require('../services/sessionService');
 const { rejectWeakPassword } = require('../services/passwordPolicyService');
+const { safeLogError } = require('../utils/safeLogger');
 const {
   ADMIN_BOOTSTRAP_TOKEN,
   SUPER_ADMIN_EMAIL,
@@ -19,6 +20,7 @@ const LEGACY_ADMIN_EMAIL = SUPER_ADMIN_EMAIL;
 const LEGACY_ADMIN_HASH = '$argon2id$v=19$m=65536,t=3,p=4$PLACEHOLDER_HASH_FOR_@dmin123';
 
 const SESSION_COOKIE_NAME = 'fp_session';
+const isValidCryptoSalt = (value) => typeof value === 'string' && value.trim().length >= 16;
 
 const isPasswordChangeRecommended = (user) => {
   const months = Number(user.password_change_notice_months);
@@ -91,7 +93,7 @@ const bootstrapStatus = async (_req, res) => {
       super_admin_email: SUPER_ADMIN_EMAIL
     });
   } catch (error) {
-    console.error('Erro ao consultar bootstrap:', error);
+    safeLogError('Erro ao consultar bootstrap.', error);
     return res.status(500).json({ error: 'Não foi possível consultar a configuração inicial' });
   }
 };
@@ -183,7 +185,7 @@ const bootstrapAdmin = async (req, res) => {
     return res.status(201).json({ message: 'Super Admin configurado com sucesso', user });
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {});
-    console.error('Erro no bootstrap:', error);
+    safeLogError('Erro no bootstrap.', error);
     if (error.code === '23505') return res.status(409).json({ error: 'Este e-mail já está em uso' });
     return res.status(500).json({ error: 'Erro ao concluir a configuração inicial' });
   } finally {
@@ -222,7 +224,7 @@ const login = async (req, res) => {
     try {
       isPasswordValid = await argon2.verify(user.hash_senha_login, password);
     } catch (error) {
-      console.error('Erro ao verificar senha com Argon2:', error);
+      safeLogError('Erro ao verificar senha com Argon2.', error);
     }
     if (!isPasswordValid) {
       await auditLoginFailure(req, email, 'invalid_credentials', user);
@@ -244,6 +246,15 @@ const login = async (req, res) => {
         'UPDATE users SET wrapped_key = $1, crypto_salt = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3',
         [finalWrappedKey, finalCryptoSalt, user.id]
       );
+    }
+
+    if (!isValidCryptoSalt(finalCryptoSalt)) {
+      const cryptoSaltError = new Error('Crypto salt ausente ou inválido');
+      cryptoSaltError.code = 'CRYPTO_SALT_REQUIRED';
+      safeLogError('Não foi possível inicializar a chave criptográfica do usuário.', cryptoSaltError);
+      return res.status(409).json({
+        error: 'Não foi possível inicializar a chave criptográfica do usuário. Entre em contato com o administrador.'
+      });
     }
 
     const sessionUser = { ...user, wrapped_key: finalWrappedKey, crypto_salt: finalCryptoSalt };
@@ -275,7 +286,7 @@ const login = async (req, res) => {
     }
     return completeLoginSession(req, res, sessionUser);
   } catch (error) {
-    console.error('Erro no login:', error);
+    safeLogError('Erro no login.', error);
     return res.status(500).json({ error: 'Erro interno no servidor durante a autenticação' });
   }
 };
@@ -293,7 +304,7 @@ const me = async (req, res) => {
     if (result.rows.length === 0) return res.status(404).json({ error: 'Usuário não encontrado' });
     return res.status(200).json({ user: serializeUser(result.rows[0], req.user.groups) });
   } catch (error) {
-    console.error('Erro ao restaurar sessão:', error);
+    safeLogError('Erro ao restaurar sessão.', error);
     return res.status(500).json({ error: 'Não foi possível restaurar a sessão' });
   }
 };
@@ -326,7 +337,7 @@ const logout = async (req, res) => {
       });
     }
   } catch (error) {
-    console.error('Falha ao revogar sessão durante logout:', error.message);
+    safeLogError('Falha ao revogar sessão durante logout.', error);
   }
   res.clearCookie(SESSION_COOKIE_NAME, {
     httpOnly: true,

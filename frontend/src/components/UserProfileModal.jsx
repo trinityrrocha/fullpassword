@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react';
 import { User, Lock, Loader2, AlertTriangle, ShieldCheck } from 'lucide-react';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
-import { deriveMasterKey, unwrapMasterKey, wrapMasterKey } from '../services/cryptoService';
+import { CRYPTO_SALT_REQUIRED_ERROR, deriveMasterKey, isValidCryptoSalt, unwrapMasterKey, wrapMasterKey } from '../services/cryptoService';
+import { safeLogError } from '../utils/safeLogger';
 import SecurePasswordInput from './SecurePasswordInput';
 import RecoveryCodesPanel from './RecoveryCodesPanel';
 import ActiveSessionsCard from './ActiveSessionsCard';
@@ -83,8 +84,10 @@ export default function UserProfileModal({ isOpen, onClose, forcePasswordChange 
         const currentWrappedKey = user?.wrapped_key;
         const currentSalt = user?.crypto_salt;
 
-        if (!currentWrappedKey || !currentSalt) {
-          throw new Error('Chaves criptográficas não encontradas. Faça login novamente.');
+        if (!currentWrappedKey || !isValidCryptoSalt(currentSalt)) {
+          const cryptoError = new Error('Não foi possível inicializar a chave criptográfica do usuário.');
+          cryptoError.code = CRYPTO_SALT_REQUIRED_ERROR;
+          throw cryptoError;
         }
 
         const currentKek = await deriveMasterKey(formData.currentPassword, currentSalt);
@@ -128,8 +131,12 @@ export default function UserProfileModal({ isOpen, onClose, forcePasswordChange 
       }, 1800);
 
     } catch (err) {
-      console.error('Falha ao atualizar o perfil.');
-      setError(err.message || err.response?.data?.error || 'Erro ao atualizar perfil.');
+      safeLogError('Falha ao atualizar o perfil.', err);
+      setError(
+        err?.code === CRYPTO_SALT_REQUIRED_ERROR
+          ? 'Não foi possível inicializar a chave criptográfica do usuário. Entre em contato com o administrador.'
+          : err.message || err.response?.data?.error || 'Erro ao atualizar perfil.'
+      );
     } finally {
       setIsSaving(false);
     }

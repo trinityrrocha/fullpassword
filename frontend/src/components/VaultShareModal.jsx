@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { X, Share2, Users, User, AlertCircle } from 'lucide-react';
 import api from '../services/api';
+import { safeLogError } from '../utils/safeLogger';
 import { useAuth } from '../context/AuthContext';
 import { encryptData, importPublicKey } from '../services/cryptoService';
 
@@ -41,7 +42,7 @@ const VaultShareModal = ({ isOpen, onClose, vaultItem, onShareSuccess }) => {
       setUsers(eligibleUsers);
       setGroups(groupsRes.data);
     } catch (err) {
-      console.error("Erro ao carregar usuários/grupos:", err);
+      safeLogError('Erro ao carregar usuários ou grupos.', err);
       setError("Falha ao carregar lista de usuários e grupos.");
     } finally {
       setIsLoading(false);
@@ -156,7 +157,7 @@ const VaultShareModal = ({ isOpen, onClose, vaultItem, onShareSuccess }) => {
       onShareSuccess();
       onClose();
     } catch (err) {
-      console.error("Erro no compartilhamento:", err);
+      safeLogError('Erro no compartilhamento.', err);
       setError(err.message || "Erro ao processar o compartilhamento criptográfico.");
     } finally {
       setIsSharing(false);

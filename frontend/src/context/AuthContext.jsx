@@ -5,8 +5,11 @@ import {
   unwrapMasterKey, 
   generateRSAKeyPair, 
   exportPublicKey, 
-  encryptPrivateKey 
+  encryptPrivateKey,
+  CRYPTO_SALT_REQUIRED_ERROR,
+  isValidCryptoSalt
 } from '../services/cryptoService';
+import { safeLogError, safeLogInfo } from '../utils/safeLogger';
 
 const AuthContext = createContext(null);
 
@@ -17,6 +20,16 @@ export const AuthProvider = ({ children }) => {
 
   const finishAuthentication = (data) => {
     if (!data?.user) return { success: false, error: 'Resposta de autenticação inválida' };
+    if (!isValidCryptoSalt(data.user.crypto_salt)) {
+      safeLogError('Resposta de autenticação sem salt criptográfico válido.', {
+        name: 'CryptoSaltValidationError',
+        code: CRYPTO_SALT_REQUIRED_ERROR
+      });
+      return {
+        success: false,
+        error: 'Não foi possível inicializar a chave criptográfica do usuário. Entre em contato com o administrador.'
+      };
+    }
     setUser(data.user);
     return { success: true, recoveryCodes: data.recovery_codes || [], recoveryCodeUsed: data.recovery_code_used === true };
   };
@@ -39,7 +52,7 @@ export const AuthProvider = ({ children }) => {
       if (response.data?.mfa_required) return { success: false, mfa: response.data };
       return finishAuthentication(response.data);
     } catch (error) {
-      console.error('Falha na tentativa de login.');
+      safeLogError('Falha na tentativa de login.', error);
       return { 
         success: false, 
         error: error.response?.data?.error || 'Erro ao conectar com o servidor' 
@@ -73,7 +86,7 @@ export const AuthProvider = ({ children }) => {
     try {
       await api.post('/auth/logout');
     } catch (error) {
-      console.error('Erro ao encerrar sessão no servidor:', error);
+      safeLogError('Erro ao encerrar sessão no servidor.', error);
     } finally {
       setUser(null);
       setMasterKey(null);
@@ -89,7 +102,7 @@ export const AuthProvider = ({ children }) => {
       const currentUser = user;
       let unlockedUser = currentUser;
       if (currentUser && (!currentUser.public_key || !currentUser.encrypted_private_key)) {
-        console.log('Gerando chaves RSA para compartilhamento de cofres...');
+        safeLogInfo('Gerando chaves RSA para compartilhamento de cofres.');
         try {
           const keyPair = await generateRSAKeyPair();
           const publicKeyStr = await exportPublicKey(keyPair.publicKey);
@@ -110,14 +123,21 @@ export const AuthProvider = ({ children }) => {
             public_key: publicKeyStr,
             encrypted_private_key: encryptedPrivateKeyStr
           }));
-          console.log('Chaves RSA salvas para compartilhamento de cofres.');
+          safeLogInfo('Chaves RSA salvas para compartilhamento de cofres.');
         } catch (rsaError) {
-          console.error('Erro ao gerar/salvar chaves RSA:', rsaError);
+          safeLogError('Erro ao gerar ou salvar chaves RSA.', rsaError);
         }
       }
 
       return { success: true, key, user: unlockedUser };
-    } catch {
+    } catch (error) {
+      if (error?.code === CRYPTO_SALT_REQUIRED_ERROR) {
+        safeLogError('Não foi possível inicializar a chave criptográfica do usuário.', error);
+        return {
+          success: false,
+          error: 'Não foi possível inicializar a chave criptográfica do usuário. Entre em contato com o administrador.'
+        };
+      }
       console.warn('Não foi possível validar a senha mestre informada.');
       return { success: false, error: 'Senha mestre incorreta' };
     }

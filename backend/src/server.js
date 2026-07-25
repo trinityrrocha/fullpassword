@@ -9,6 +9,7 @@ require('./config/security');
 const { ensureSecuritySchema } = require('./config/securitySchema');
 const { ipSecurityMiddleware } = require('./middleware/ipSecurityMiddleware');
 const { csrfProtection } = require('./middleware/csrfMiddleware');
+const { safeLogError } = require('./utils/safeLogger');
 
 // Importação das rotas (serão criadas nos próximos passos)
 const authRoutes = require('./routes/authRoutes');
@@ -41,10 +42,28 @@ const mfaLimiter = rateLimit({
   message: { error: 'Muitas tentativas MFA. Aguarde alguns minutos e tente novamente.' }
 });
 
-// Middlewares globais de segurança e parse
-app.use(helmet()); // Proteção de headers HTTP
+// A API recebe headers via Helmet. O documento estático do frontend recebe sua
+// política de conteúdo no Nginx de borda, evitando políticas CSP conflitantes.
+app.use(helmet({
+  contentSecurityPolicy: {
+    useDefaults: false,
+    directives: {
+      defaultSrc: ["'none'"],
+      frameAncestors: ["'none'"],
+      baseUri: ["'none'"],
+      formAction: ["'none'"]
+    }
+  },
+  frameguard: { action: 'deny' },
+  hsts: {
+    maxAge: 31536000,
+    includeSubDomains: true,
+    preload: true
+  },
+  referrerPolicy: { policy: 'strict-origin-when-cross-origin' }
+}));
 app.use((_req, res, next) => {
-  res.setHeader('Permissions-Policy', 'display-capture=()');
+  res.setHeader('Permissions-Policy', 'display-capture=(), camera=(), microphone=(), geolocation=()');
   next();
 });
 const allowedOrigin = process.env.APP_ORIGIN;
@@ -75,7 +94,7 @@ app.use('/api/groups', groupRoutes);
 
 // Middleware para tratamento de erros não capturados
 app.use((err, req, res, next) => {
-  console.error(err.stack);
+  safeLogError('Erro não tratado na API.', err);
   res.status(500).json({ 
     error: 'Erro interno do servidor',
     message: process.env.NODE_ENV === 'development' ? err.message : undefined
@@ -91,7 +110,7 @@ const startServer = async () => {
       console.log(`Ambiente: ${process.env.NODE_ENV || 'development'}`);
     });
   } catch (error) {
-    console.error('Falha ao garantir o schema de segurança:', error);
+    safeLogError('Falha ao garantir o schema de segurança.', error);
     process.exit(1);
   }
 };

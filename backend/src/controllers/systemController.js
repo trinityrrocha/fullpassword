@@ -10,6 +10,7 @@ const { BACKUP_TABLES } = require('../config/backupTables');
 const { BACKUP_RESTORE_TIMEOUT_MS } = require('../config/backupConfig');
 const { recordAuditEvent } = require('../services/auditService');
 const { createBackupPackageV2, cleanupBackupWorkspace } = require('../services/backupPackageV2Service');
+const { safeLogError } = require('../utils/safeLogger');
 
 const UPDATER_REQUEST_DIR = process.env.UPDATER_REQUEST_DIR || '/var/lib/fullpassword-updater/requests';
 const scryptAsync = promisify(crypto.scrypt);
@@ -130,7 +131,7 @@ const updateSystem = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Erro ao iniciar atualização:', error);
+    safeLogError('Erro ao iniciar atualização.', error);
     await recordAuditEvent({ user: req.user, action: 'system_update_request', status: 'failed', req });
     return res.status(500).json({ error: 'Erro interno ao registrar solicitação de atualização' });
   }
@@ -327,7 +328,7 @@ const getAuditEvents = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Erro ao consultar eventos de auditoria:', error);
+    safeLogError('Erro ao consultar eventos de auditoria.', error);
     await recordAuditEvent({ user: req.user, action: 'audit_events_access', status: 'failed', req });
     return res.status(500).json({ error: 'Erro interno ao consultar auditoria.' });
   }

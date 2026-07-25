@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { X, Loader2 } from 'lucide-react';
 import api from '../services/api';
+import { safeLogError } from '../utils/safeLogger';
 
 const permissionFields = [
   { key: 'can_view', label: 'Visualizar' },
@@ -58,7 +59,7 @@ export default function GroupModal({ isOpen, onClose, groupToEdit, onSaveSuccess
       const response = await api.get('/users');
       setUsers(response.data.filter(u => u.is_active));
     } catch (error) {
-      console.error('Erro ao carregar usuários:', error);
+      safeLogError('Erro ao carregar usuários.', error);
     } finally {
       setIsLoadingUsers(false);
     }
@@ -102,7 +103,7 @@ export default function GroupModal({ isOpen, onClose, groupToEdit, onSaveSuccess
       }
       onSaveSuccess();
     } catch (error) {
-      console.error('Erro ao salvar grupo:', error);
+      safeLogError('Erro ao salvar grupo.', error);
       alert(error.response?.data?.error || 'Erro ao salvar grupo.');
     } finally {
       setIsSaving(false);

@@ -1,5 +1,6 @@
 const { Pool } = require('pg');
 require('dotenv').config();
+const { safeLogError } = require('../utils/safeLogger');
 
 const requiredDatabaseValue = (name) => {
   const value = String(process.env[name] || '').trim();
@@ -24,7 +25,7 @@ pool.on('connect', () => {
 });
 
 pool.on('error', (err) => {
-  console.error('Erro inesperado no cliente idle do PostgreSQL', err);
+  safeLogError('Erro inesperado no cliente idle do PostgreSQL.', err);
   process.exit(-1);
 });
 

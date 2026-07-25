@@ -1,6 +1,7 @@
 const db = require('../config/database');
 const { ensureSharingSchema, requireClientPermission, logVaultAccess } = require('../services/accessControlService');
 const { isSuperAdmin } = require('../config/security');
+const { safeLogError } = require('../utils/safeLogger');
 
 // GET /api/clients - Lista apenas cofres próprios ou compartilhados com grupos que podem visualizar
 const getClients = async (req, res) => {
@@ -52,7 +53,7 @@ const getClients = async (req, res) => {
     const result = await db.query(query, params);
     res.status(200).json(result.rows);
   } catch (error) {
-    console.error('Erro ao buscar clientes:', error);
+    safeLogError('Erro ao buscar clientes.', error);
     res.status(500).json({ error: 'Erro ao buscar clientes' });
   }
 };
@@ -95,8 +96,8 @@ const createClient = async (req, res) => {
     res.status(201).json(newClient);
   } catch (error) {
     await db.query('ROLLBACK');
-    console.error('Erro ao criar cliente:', error);
-    res.status(500).json({ error: 'Erro ao criar cliente: ' + error.message });
+    safeLogError('Erro ao criar cliente.', error);
+    res.status(500).json({ error: 'Erro interno ao criar cliente' });
   }
 };
 
@@ -118,7 +119,7 @@ const getClientModules = async (req, res) => {
     res.status(200).json({ enabledModules: result.rows[0]?.enabled_modules ?? null });
   } catch (error) {
     if (error.statusCode) return res.status(error.statusCode).json({ error: error.statusCode === 404 ? 'Cofre não encontrado' : 'Acesso negado' });
-    console.error('Erro ao buscar módulos da empresa:', error);
+    safeLogError('Erro ao buscar módulos da empresa.', error);
     res.status(500).json({ error: 'Erro ao buscar módulos da empresa' });
   }
 };
@@ -134,7 +135,7 @@ const updateClientModules = async (req, res) => {
     res.status(200).json({ enabledModules });
   } catch (error) {
     if (error.statusCode) return res.status(error.statusCode).json({ error: error.statusCode === 404 ? 'Cofre não encontrado' : 'Acesso negado' });
-    console.error('Erro ao atualizar módulos da empresa:', error);
+    safeLogError('Erro ao atualizar módulos da empresa.', error);
     res.status(500).json({ error: 'Erro ao atualizar módulos da empresa' });
   }
 };
@@ -196,11 +197,7 @@ const deleteClientModule = async (req, res) => {
         deleted_items: deletedItems.rowCount
       });
     } catch (auditError) {
-      console.error('Módulo excluído, mas não foi possível registrar a auditoria.', {
-        clientId,
-        moduleId,
-        errorName: auditError?.name || 'Error'
-      });
+      safeLogError('Módulo excluído, mas não foi possível registrar a auditoria.', auditError);
     }
 
     return res.status(200).json({
@@ -214,7 +211,7 @@ const deleteClientModule = async (req, res) => {
       try {
         await transaction.query('ROLLBACK');
       } catch (rollbackError) {
-        console.error('Erro ao reverter exclusão de módulo:', rollbackError);
+        safeLogError('Erro ao reverter exclusão de módulo.', rollbackError);
       }
     }
 
@@ -224,7 +221,7 @@ const deleteClientModule = async (req, res) => {
       });
     }
 
-    console.error('Erro ao excluir módulo da empresa:', error);
+    safeLogError('Erro ao excluir módulo da empresa.', error);
     return res.status(500).json({ error: 'Não foi possível excluir o módulo da empresa' });
   } finally {
     if (transaction) transaction.release();
@@ -253,7 +250,7 @@ const updateClient = async (req, res) => {
     res.status(200).json(result.rows[0]);
   } catch (error) {
     if (error.statusCode) return res.status(error.statusCode).json({ error: error.statusCode === 404 ? 'Cliente não encontrado' : 'Acesso negado' });
-    console.error('Erro ao atualizar cliente:', error);
+    safeLogError('Erro ao atualizar cliente.', error);
     res.status(500).json({ error: 'Erro ao atualizar cliente' });
   }
 };
@@ -270,7 +267,7 @@ const deleteClient = async (req, res) => {
     res.status(200).json({ deleted: true, id: result.rows[0].id });
   } catch (error) {
     if (error.statusCode) return res.status(error.statusCode).json({ error: error.statusCode === 404 ? 'Cliente não encontrado' : 'Acesso negado' });
-    console.error('Erro ao excluir cliente:', error);
+    safeLogError('Erro ao excluir cliente.', error);
     res.status(500).json({ error: 'Erro ao excluir cliente' });
   }
 };

@@ -10,6 +10,7 @@ const {
   useRecoveryCode
 } = require('../services/mfaService');
 const { completeLoginSession } = require('./authController');
+const { safeLogError } = require('../utils/safeLogger');
 
 const loadChallengeUser = async (challengeToken, purpose) => {
   const challenge = verifyChallengeToken(challengeToken, purpose);
@@ -117,7 +118,7 @@ const getProfileStatus = async (req, res) => {
     );
     return res.status(200).json(result.rows[0] || { mfa_required: false, mfa_enabled: false, recovery_codes_remaining: 0 });
   } catch (error) {
-    console.error('Erro ao consultar status MFA:', error);
+    safeLogError('Erro ao consultar status MFA.', error);
     return res.status(500).json({ error: 'Não foi possível consultar o status MFA' });
   }
 };
@@ -133,7 +134,7 @@ const startProfileSetup = async (req, res) => {
     });
     return res.status(200).json({ otpauth_url: setup.otpauthUrl, qr_code_data_url: setup.qrCodeDataUrl });
   } catch (error) {
-    console.error('Erro ao iniciar configuração MFA:', error);
+    safeLogError('Erro ao iniciar configuração MFA.', error);
     return res.status(500).json({ error: 'Não foi possível iniciar a configuração MFA' });
   }
 };
@@ -162,7 +163,7 @@ const confirmProfileSetup = async (req, res) => {
     return res.status(200).json({ message: 'MFA habilitado', recovery_codes: recoveryCodes });
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {});
-    console.error('Erro ao confirmar configuração MFA:', error);
+    safeLogError('Erro ao confirmar configuração MFA.', error);
     return res.status(500).json({ error: 'Não foi possível confirmar a configuração MFA' });
   } finally {
     client.release();
@@ -191,7 +192,7 @@ const regenerateRecoveryCodes = async (req, res) => {
     return res.status(200).json({ recovery_codes: recoveryCodes });
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {});
-    console.error('Erro ao regenerar códigos de recuperação:', error);
+    safeLogError('Erro ao regenerar códigos de recuperação.', error);
     return res.status(500).json({ error: 'Não foi possível regenerar os códigos de recuperação' });
   } finally {
     client.release();

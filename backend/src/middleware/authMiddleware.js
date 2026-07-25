@@ -2,6 +2,7 @@ const jwt = require('jsonwebtoken');
 const db = require('../config/database');
 const { JWT_SECRET } = require('../config/security');
 const { validateUserSession } = require('../services/sessionService');
+const { safeLogError } = require('../utils/safeLogger');
 
 const isRequiredPasswordChangeRoute = (req) => {
   return (req.method === 'PUT' && req.baseUrl === '/api/users' && req.path === '/profile') ||
@@ -65,7 +66,7 @@ const verifyToken = async (req, res, next) => {
       return res.status(401).json({ error: 'Token expirado. Faça login novamente.' });
     }
     if (error.code) {
-      console.error('Erro ao validar sessão no banco:', error);
+      safeLogError('Erro ao validar sessão no banco.', error);
       return res.status(503).json({ error: 'Não foi possível validar a sessão.' });
     }
     return res.status(401).json({ error: 'Token inválido.' });

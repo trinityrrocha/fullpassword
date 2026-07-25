@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Settings as SettingsIcon, RefreshCw, AlertTriangle, ShieldCheck, Download, Database } from 'lucide-react';
 import api from '../services/api';
+import { safeLogError } from '../utils/safeLogger';
 import { useAuth } from '../context/AuthContext';
 import SecurityCard from '../components/SecurityCard';
 import SettingsAccordionCard, { SettingsAccordionGroup } from '../components/SettingsAccordionCard';
@@ -71,7 +72,7 @@ export default function Settings() {
         const response = await api.get('/system/permissions');
         setSystemPermissions(response.data);
       } catch (error) {
-        console.error('Erro ao carregar permissões do sistema:', error);
+        safeLogError('Erro ao carregar permissões do sistema.', error);
         setSystemPermissions(null);
       } finally {
         setIsLoadingPermissions(false);
@@ -109,7 +110,7 @@ export default function Settings() {
       setUpdateCountdown(response.data.estimatedTime || 60);
     } catch (error) {
       setIsUpdating(false);
-      console.error('Erro ao iniciar atualização:', error);
+      safeLogError('Erro ao iniciar atualização.', error);
       alert(error.response?.data?.error || 'Erro ao iniciar atualização. Verifique se você está logado como Super Admin.');
     }
   };

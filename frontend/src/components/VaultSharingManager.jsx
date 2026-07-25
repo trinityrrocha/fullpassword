@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Plus, RefreshCw, Save, Trash2, Users, ShieldCheck } from 'lucide-react';
 import api from '../services/api';
+import { safeLogError } from '../utils/safeLogger';
 import { encryptVaultKeyForPublicKey } from '../services/clientVaultKeyService';
 
 const permissionLabels = [
@@ -56,7 +57,7 @@ export default function VaultSharingManager({ clientId, clientVaultKey, compact 
       setGroups(groupsResponse.data || []);
       setShares((sharesResponse.data || []).map(normalizeShare));
     } catch (err) {
-      console.error('Erro ao carregar compartilhamento do cofre:', err);
+      safeLogError('Erro ao carregar compartilhamento do cofre.', err);
       setError(err.response?.data?.error || 'Você não tem permissão para gerenciar o compartilhamento deste cofre.');
     } finally {
       setIsLoading(false);
@@ -163,7 +164,7 @@ export default function VaultSharingManager({ clientId, clientVaultKey, compact 
 
       await loadSharingData();
     } catch (err) {
-      console.error('Erro ao salvar compartilhamento:', err);
+      safeLogError('Erro ao salvar compartilhamento.', err);
       alert(err.message || err.response?.data?.error || 'Erro ao salvar compartilhamento do cofre.');
     } finally {
       setIsSaving(false);
@@ -180,7 +181,7 @@ export default function VaultSharingManager({ clientId, clientVaultKey, compact 
       await syncKeyShares(currentGroupIds);
       alert('Chaves do compartilhamento ressincronizadas com sucesso.');
     } catch (err) {
-      console.error('Erro ao ressincronizar chaves do compartilhamento:', err);
+      safeLogError('Erro ao ressincronizar chaves do compartilhamento.', err);
       alert(err.message || err.response?.data?.error || 'Erro ao ressincronizar chaves do compartilhamento.');
     } finally {
       setIsSyncing(false);

@@ -3,6 +3,7 @@ import { Users, Plus, Shield, Star, UserRound, X, Loader2, FolderKey, Trash2, Ch
 import SecurePasswordInput from '../components/SecurePasswordInput';
 import GroupModal from '../components/GroupModal';
 import api from '../services/api';
+import { safeLogError } from '../utils/safeLogger';
 import { useAuth } from '../context/AuthContext';
 
 const defaultNewUser = {
@@ -144,7 +145,7 @@ export default function TeamList() {
       const response = await api.get('/users');
       setTeamMembers(response.data || []);
     } catch (error) {
-      console.error('Erro ao carregar usuários:', error);
+      safeLogError('Erro ao carregar usuários.', error);
       alert('Não foi possível carregar a lista de usuários.');
     } finally {
       setIsLoading(false);
@@ -157,7 +158,7 @@ export default function TeamList() {
       const response = await api.get('/groups');
       setGroups(response.data || []);
     } catch (error) {
-      console.error('Erro ao carregar grupos:', error);
+      safeLogError('Erro ao carregar grupos.', error);
       alert('Não foi possível carregar a lista de grupos.');
     } finally {
       setIsLoadingGroups(false);
@@ -185,7 +186,7 @@ export default function TeamList() {
       setNewUser(defaultNewUser);
       await loadUsers();
     } catch (error) {
-      console.error('Erro ao criar usuário:', error);
+      safeLogError('Erro ao criar usuário.', error);
       alert(error.response?.data?.error || 'Erro ao criar usuário. Verifique se o e-mail já existe.');
     } finally {
       setIsSaving(false);
@@ -216,7 +217,7 @@ export default function TeamList() {
       setDeleteUserConfirmation('');
       await loadUsers();
     } catch (error) {
-      console.error('Erro ao atualizar usuário:', error);
+      safeLogError('Erro ao atualizar usuário.', error);
       alert(error.response?.data?.error || 'Erro ao atualizar usuário.');
     } finally {
       setIsSaving(false);
@@ -230,7 +231,7 @@ export default function TeamList() {
       await api.put(`/users/${userId}`, { is_active: !currentStatus });
       await loadUsers();
     } catch (error) {
-      console.error('Erro ao alterar status:', error);
+      safeLogError('Erro ao alterar status.', error);
       alert(error.response?.data?.error || 'Erro ao alterar status do usuário.');
     }
   };
@@ -311,7 +312,7 @@ export default function TeamList() {
       await loadGroups();
       await loadUsers();
     } catch (error) {
-      console.error('Erro ao excluir grupo:', error);
+      safeLogError('Erro ao excluir grupo.', error);
       alert(error.response?.data?.error || 'Erro ao excluir grupo.');
     }
   };

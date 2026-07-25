@@ -3,7 +3,8 @@ import { Link } from 'react-router-dom';
 import { Building2, Search, Plus, Pencil, Eye, Trash2, X, Loader2 } from 'lucide-react';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
-import { decryptData } from '../services/cryptoService';
+import { safeLogError } from '../utils/safeLogger';
+import { decryptData, isValidCryptoSalt } from '../services/cryptoService';
 import { decryptVaultKeyShare } from '../services/clientVaultKeyService';
 
 const formatDate = (value) => {
@@ -78,7 +79,7 @@ export default function ClientsList() {
       const response = await api.get('/clients');
       setClients(response.data || []);
     } catch (error) {
-      console.error('Erro ao carregar clientes:', error);
+      safeLogError('Erro ao carregar clientes.', error);
       alert('Não foi possível carregar a lista de clientes.');
     } finally {
       setIsLoading(false);
@@ -92,7 +93,7 @@ export default function ClientsList() {
         if (!cancelled) setClients(response.data || []);
       })
       .catch((error) => {
-        console.error('Erro ao carregar clientes:', error);
+        safeLogError('Erro ao carregar clientes.', error);
         if (!cancelled) alert('Não foi possível carregar a lista de clientes.');
       })
       .finally(() => {
@@ -115,7 +116,7 @@ export default function ClientsList() {
       setNewClient({ name: '', address: '', phone: '', email: '' });
       loadClients(); // Recarrega a lista
     } catch (error) {
-      console.error('Erro ao criar cliente:', error);
+      safeLogError('Erro ao criar cliente.', error);
       alert(error.response?.data?.error || 'Erro ao criar cliente.');
     } finally {
       setIsSaving(false);
@@ -206,8 +207,8 @@ export default function ClientsList() {
     event.preventDefault();
     if (!unlockClient || isUnlocking) return;
 
-    if (!user?.wrapped_key || !user?.crypto_salt) {
-      setUnlockError('Chave criptográfica indisponível. Faça login novamente para desbloquear o cofre.');
+    if (!user?.wrapped_key || !isValidCryptoSalt(user?.crypto_salt)) {
+      setUnlockError('Não foi possível inicializar a chave criptográfica do usuário. Entre em contato com o administrador.');
       return;
     }
 

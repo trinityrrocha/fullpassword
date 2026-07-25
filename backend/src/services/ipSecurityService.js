@@ -1,6 +1,7 @@
 const ipaddr = require('ipaddr.js');
 const db = require('../config/database');
 const { recordAuditEvent } = require('./auditService');
+const { safeLogError } = require('../utils/safeLogger');
 
 const normalizeIp = (value) => {
   try {
@@ -97,7 +98,7 @@ const applyAutomaticBlockForLoginFailure = async (req) => {
       }
     });
   } catch (error) {
-    console.error('Falha ao avaliar bloqueio automático de login:', error.message);
+    safeLogError('Falha ao avaliar bloqueio automático de login.', error);
   }
 };
 
