@@ -1,5 +1,5 @@
 /* global __APP_COMMIT__ */
-import { useState, useEffect } from 'react';
+import { useRef, useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Settings as SettingsIcon, RefreshCw, AlertTriangle, ShieldCheck, Download, Database } from 'lucide-react';
 import api from '../services/api';
@@ -84,6 +84,8 @@ export default function Settings() {
   const [searchParams] = useSearchParams();
   const { user } = useAuth();
   const [isUpdating, setIsUpdating] = useState(false);
+  const [updateRequestLoading, setUpdateRequestLoading] = useState(false);
+  const updateRequestLockRef = useRef(false);
   const [updateCountdown, setUpdateCountdown] = useState(0);
   const [backupConfirmation, setBackupConfirmation] = useState('');
   const [backupPassphrase, setBackupPassphrase] = useState('');
@@ -150,6 +152,7 @@ export default function Settings() {
   }, [updateCountdown, isUpdating]);
 
   const handleUpdateSystem = async () => {
+    if (updateRequestLockRef.current || updateRequestLoading || isUpdating) return;
     if (!canManageSystem) {
       alert(`Apenas o Super Admin inicial (${superAdminEmail}) pode executar o WebUpdater.`);
       return;
@@ -159,6 +162,8 @@ export default function Settings() {
       return;
     }
 
+    updateRequestLockRef.current = true;
+    setUpdateRequestLoading(true);
     try {
       const response = await api.post('/system/update');
       setIsUpdating(true);
@@ -167,6 +172,9 @@ export default function Settings() {
       setIsUpdating(false);
       safeLogError('Erro ao iniciar atualização.', error);
       alert(error.response?.data?.error || 'Erro ao iniciar atualização. Verifique se você está logado como Super Admin.');
+    } finally {
+      updateRequestLockRef.current = false;
+      setUpdateRequestLoading(false);
     }
   };
 
@@ -444,11 +452,11 @@ export default function Settings() {
             ) : (
               <button
                 onClick={handleUpdateSystem}
-                disabled={isUpdating}
+                disabled={isUpdating || updateRequestLoading}
                 className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
               >
-                <RefreshCw className="w-4 h-4 mr-2" />
-                Buscar Atualizações e Reiniciar
+                <RefreshCw className={`w-4 h-4 mr-2 ${updateRequestLoading ? 'animate-spin' : ''}`} />
+                {updateRequestLoading ? 'Solicitando atualização...' : 'Buscar Atualizações e Reiniciar'}
               </button>
             )}
         </SettingsAccordionCard>

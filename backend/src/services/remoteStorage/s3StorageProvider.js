@@ -8,7 +8,7 @@ const {
 } = require('@aws-sdk/client-s3');
 const { Upload } = require('@aws-sdk/lib-storage');
 
-const BACKUP_FILE_PATTERN = /^fullpassword-backup-v2-[a-zA-Z0-9._-]+\.zip$/;
+const BACKUP_FILE_PATTERN = /^fullpassword-backup-(?:v2-[a-zA-Z0-9._-]+\.zip|v1-[a-zA-Z0-9._-]+\.enc\.json)$/;
 
 const createClient = (config) => new S3Client({
   endpoint: config.endpoint,
@@ -34,7 +34,7 @@ const testConnection = async (config) => {
   return { bucket: config.bucket, endpoint: config.endpoint };
 };
 
-const upload = async ({ config, localPath, remoteName }) => {
+const upload = async ({ config, localPath, remoteName, backupFormat = 'v2' }) => {
   const client = createClient(config);
   const remoteKey = joinRemoteKey(config.prefix, remoteName);
   const task = new Upload({
@@ -43,10 +43,10 @@ const upload = async ({ config, localPath, remoteName }) => {
       Bucket: config.bucket,
       Key: remoteKey,
       Body: fs.createReadStream(localPath),
-      ContentType: 'application/zip',
+      ContentType: backupFormat === 'v1' ? 'application/json' : 'application/zip',
       Metadata: {
         app: 'fullpassword',
-        format: 'v2'
+        format: backupFormat
       }
     },
     leavePartsOnError: false

@@ -4,11 +4,14 @@ const {
   createBackupPackageV2,
   cleanupBackupWorkspace
 } = require('./backupPackageV2Service');
+const { createBackupPackageV1 } = require('./backupPackageV1Service');
 const {
   getRawSettings,
   getProviderRow,
   getResolvedProviderConfig,
   getBackupPassphrase,
+  normalizeBackupFormat,
+  deleteExpiredRuns,
   CloudBackupSettingsError
 } = require('./cloudBackupSettingsService');
 const {
@@ -25,6 +28,10 @@ const ADAPTERS = Object.freeze({
   backblaze_b2: s3StorageProvider,
   mega_s3: s3StorageProvider,
   ftp: ftpStorageProvider
+});
+const BACKUP_ARTIFACT_BUILDERS = Object.freeze({
+  v1: createBackupPackageV1,
+  v2: createBackupPackageV2
 });
 
 class CloudBackupError extends Error {
@@ -65,14 +72,15 @@ const getAdapter = (provider, adapters = ADAPTERS) => {
   return adapter;
 };
 
-const beginRun = async ({ provider, triggerType, userId, scheduledSlot }, queryable = db) => {
+const beginRun = async ({ provider, triggerType, userId, scheduledSlot, backupFormat = 'v2' }, queryable = db) => {
+  const normalizedFormat = normalizeBackupFormat(backupFormat);
   const result = await queryable.query(
     `INSERT INTO cloud_backup_runs
        (provider, status, trigger_type, backup_format, scheduled_slot, created_by)
-     VALUES ($1, 'running', $2, 'v2', $3, $4)
+     VALUES ($1, 'running', $2, $3, $4, $5)
      ON CONFLICT (scheduled_slot) DO NOTHING
      RETURNING id`,
-    [provider, triggerType, scheduledSlot || null, userId || null]
+    [provider, triggerType, normalizedFormat, scheduledSlot || null, userId || null]
   );
   return result.rows[0]?.id || null;
 };
@@ -118,7 +126,6 @@ const markProviderTest = async (provider, status, message = null, queryable = db
 const testActiveProvider = async (queryable = db, adapters = ADAPTERS) => {
   const settings = await getRawSettings(queryable);
   const provider = assertActiveProvider(settings);
-  const recoveredFromFailure = Boolean(settings.last_error_at);
   try {
     const result = provider === 'google_drive'
       ? await testGoogleDriveConnection(queryable)
@@ -138,9 +145,11 @@ const runCloudBackup = async ({
   triggerType = 'manual',
   userId = null,
   scheduledSlot = null
-} = {}, queryable = db, adapters = ADAPTERS) => {
+} = {}, queryable = db, adapters = ADAPTERS, artifactBuilders = BACKUP_ARTIFACT_BUILDERS) => {
   const settings = await getRawSettings(queryable);
   const provider = assertActiveProvider(settings);
+  const backupFormat = normalizeBackupFormat(settings.backup_format);
+  const recoveredFromFailure = Boolean(settings.last_error_at);
   const providerRow = await getProviderRow(provider, queryable);
   if (provider !== 'google_drive' && (providerRow.configured !== true || !providerRow.encrypted_credentials)) {
     throw new CloudBackupError(
@@ -150,8 +159,14 @@ const runCloudBackup = async ({
     );
   }
   const passphrase = getBackupPassphrase(settings);
-  const runId = await beginRun({ provider, triggerType, userId, scheduledSlot }, queryable);
-  if (!runId) return { skipped: true, reason: 'already_executed', provider };
+  const runId = await beginRun({
+    provider,
+    triggerType,
+    userId,
+    scheduledSlot,
+    backupFormat
+  }, queryable);
+  if (!runId) return { skipped: true, reason: 'already_executed', provider, backup_format: backupFormat };
 
   let workspace;
   try {
@@ -161,11 +176,12 @@ const runCloudBackup = async ({
         userId,
         scheduledSlot,
         passphraseOverride: passphrase,
-        retentionDaysOverride: settings.retention_days
+        retentionDaysOverride: settings.retention_days,
+        backupFormatOverride: backupFormat
       }, queryable);
       if (googleResult.skipped) {
         await finishRun(runId, 'skipped', { errorMessage: 'Execução já processada.' }, queryable);
-        return { ...googleResult, provider };
+        return { ...googleResult, provider, backup_format: backupFormat };
       }
       await finishRun(runId, 'success', {
         fileName: googleResult.file_name,
@@ -182,24 +198,32 @@ const runCloudBackup = async ({
              updated_at = CURRENT_TIMESTAMP
          WHERE id = 1`
       );
+      const historyRemoved = await deleteExpiredRuns(settings.retention_days, queryable).catch(() => 0);
       return {
         ...googleResult,
         run_id: runId,
         provider,
+        backup_format: backupFormat,
+        history_removed: historyRemoved,
         recovered_from_failure: recoveredFromFailure
       };
     }
 
     const config = await getResolvedProviderConfig(provider, queryable);
     const adapter = getAdapter(provider, adapters);
-    const generated = await createBackupPackageV2({ generatedBy: userId, passphrase });
+    const generated = await artifactBuilders[backupFormat]({
+      generatedBy: userId,
+      passphrase,
+      queryable
+    });
     workspace = generated.workspace;
     const stats = await fsp.stat(generated.packagePath);
-    const fileName = buildDriveBackupFilename();
+    const fileName = buildDriveBackupFilename(backupFormat);
     const uploaded = await adapter.upload({
       config,
       localPath: generated.packagePath,
-      remoteName: fileName
+      remoteName: fileName,
+      backupFormat
     });
     let retentionRemoved = 0;
     let retentionWarning = null;
@@ -226,21 +250,25 @@ const runCloudBackup = async ({
            updated_at = CURRENT_TIMESTAMP
        WHERE id = 1`
     );
+    const historyRemoved = await deleteExpiredRuns(settings.retention_days, queryable).catch(() => 0);
     return {
       skipped: false,
       run_id: runId,
       provider,
+      backup_format: backupFormat,
       file_name: fileName,
       remote_id: uploaded.remoteId,
       remote_path: uploaded.remotePath,
       size_bytes: stats.size,
       retention_removed: retentionRemoved,
       retention_warning: retentionWarning,
+      history_removed: historyRemoved,
       recovered_from_failure: recoveredFromFailure
     };
   } catch (error) {
     const safeError = sanitizeCloudError(error, 'CLOUD_BACKUP_RUN_FAILED');
     await finishRun(runId, 'failed', { errorMessage: safeError.message }, queryable).catch(() => {});
+    await deleteExpiredRuns(settings.retention_days, queryable).catch(() => {});
     await queryable.query(
       `UPDATE cloud_backup_settings
        SET last_error_at = CURRENT_TIMESTAMP,
@@ -257,6 +285,7 @@ const runCloudBackup = async ({
 
 module.exports = {
   ADAPTERS,
+  BACKUP_ARTIFACT_BUILDERS,
   CloudBackupError,
   sanitizeCloudError,
   assertActiveProvider,

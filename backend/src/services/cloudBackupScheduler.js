@@ -105,6 +105,7 @@ const executeSchedulerTick = async () => {
         provider: result.provider,
         trigger_type: 'scheduled',
         run_id: result.run_id,
+        backup_format: result.backup_format,
         size_bytes: result.size_bytes,
         retention_removed: result.retention_removed
       },

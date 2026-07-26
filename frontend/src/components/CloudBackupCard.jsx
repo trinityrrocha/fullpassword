@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Activity,
   ChevronDown,
@@ -57,12 +57,19 @@ const EMPTY_STATUS = Object.freeze({
   schedule_days: [0, 1, 2, 3, 4, 5, 6],
   schedule_times: ['02:00'],
   retention_days: 30,
+  backup_format: 'v2',
   failure_email_enabled: false,
   failure_email_recipients: [],
   failure_email_on_recovery: false,
   has_backup_passphrase: false,
   providers: {},
-  recent_runs: []
+  recent_runs: [],
+  recent_runs_pagination: {
+    page: 1,
+    page_size: 10,
+    total: 0,
+    total_pages: 0
+  }
 });
 
 const findRegion = (provider, region) => {
@@ -191,9 +198,13 @@ export default function CloudBackupCard({ isSuperAdmin }) {
   const [endpointModalOpen, setEndpointModalOpen] = useState(false);
   const [testModalOpen, setTestModalOpen] = useState(false);
   const [monitorModalOpen, setMonitorModalOpen] = useState(false);
+  const [providerChangeLoading, setProviderChangeLoading] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState('');
   const [feedback, setFeedback] = useState({ type: '', text: '' });
+  const providerChangeLockRef = useRef(false);
+  const lastProviderChangeAtRef = useRef(0);
 
   useClearOnVaultLock(() => {
     setBackupPassphrase('');
@@ -230,6 +241,28 @@ export default function CloudBackupCard({ isSuperAdmin }) {
     }
   }, [isSuperAdmin]);
 
+  const loadHistory = useCallback(async (page) => {
+    setHistoryLoading(true);
+    try {
+      const { data } = await api.get('/cloud-backup/runs', {
+        params: { page, page_size: 10 }
+      });
+      setStatus((current) => ({
+        ...current,
+        recent_runs: data.items || [],
+        recent_runs_pagination: data.pagination || EMPTY_STATUS.recent_runs_pagination
+      }));
+    } catch (error) {
+      safeLogError('Falha sanitizada ao carregar histórico do Backup Nuvem.', error);
+      setFeedback({
+        type: 'error',
+        text: error.response?.data?.error || 'Não foi possível carregar o histórico do Backup Nuvem.'
+      });
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     const timer = window.setTimeout(loadStatus, 0);
     return () => window.clearTimeout(timer);
@@ -257,20 +290,35 @@ export default function CloudBackupCard({ isSuperAdmin }) {
     setProviderDirty(true);
   };
 
-  const selectProvider = (provider) => {
+  const selectProvider = async (provider) => {
+    const now = Date.now();
+    if (
+      providerChangeLockRef.current
+      || providerChangeLoading
+      || Boolean(busy)
+      || now - lastProviderChangeAtRef.current < 500
+    ) return;
     const targetProvider = provider === status.active_provider ? 'none' : provider;
     if (
       targetProvider !== 'none'
       && status.active_provider !== 'none'
       && !window.confirm('Ao ativar este provedor, os próximos backups serão enviados somente por ele. As credenciais atuais serão preservadas. Deseja continuar?')
     ) return;
+    providerChangeLockRef.current = true;
+    lastProviderChangeAtRef.current = now;
+    setProviderChangeLoading(true);
     setCommunication(null);
     setGoogleExpanded(false);
-    perform(
-      'provider-change',
-      () => api.put('/cloud-backup/provider', { provider: targetProvider }),
-      targetProvider === 'none' ? 'Backup Nuvem desativado. As credenciais foram preservadas.' : 'Provedor ativo alterado.'
-    );
+    try {
+      await perform(
+        'provider-change',
+        () => api.put('/cloud-backup/provider', { provider: targetProvider }),
+        targetProvider === 'none' ? 'Backup Nuvem desativado. As credenciais foram preservadas.' : 'Provedor ativo alterado.'
+      );
+    } finally {
+      providerChangeLockRef.current = false;
+      setProviderChangeLoading(false);
+    }
   };
 
   const saveProvider = async () => {
@@ -296,6 +344,7 @@ export default function CloudBackupCard({ isSuperAdmin }) {
       schedule_days: status.schedule_days,
       schedule_times: status.schedule_times,
       retention_days: Number(status.retention_days),
+      backup_format: status.backup_format || 'v2',
       backup_passphrase: backupPassphrase,
       failure_email_enabled: status.failure_email_enabled,
       failure_email_recipients: failureEmailRecipients.split(',').map((email) => email.trim()).filter(Boolean),
@@ -399,7 +448,7 @@ export default function CloudBackupCard({ isSuperAdmin }) {
           <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
             {PROVIDERS.map(([provider, label]) => {
               const providerStatus = status.providers?.[provider];
-              return <ProviderSwitch key={provider} provider={provider} label={label} active={status.active_provider === provider} configured={providerStatus?.configured === true} failed={providerStatus?.last_test_status === 'failed'} disabled={Boolean(busy)} onChange={selectProvider} />;
+              return <ProviderSwitch key={provider} provider={provider} label={label} active={status.active_provider === provider} configured={providerStatus?.configured === true} failed={providerStatus?.last_test_status === 'failed'} disabled={providerChangeLoading || Boolean(busy)} onChange={selectProvider} />;
             })}
           </div>
 
@@ -499,7 +548,7 @@ export default function CloudBackupCard({ isSuperAdmin }) {
                   ) : status.active_provider === 'ftp' ? (
                     <>
                       <CompactField label="Pasta remota" className="md:col-span-6"><input className={fieldClass} value={providerForm.remote_path || ''} onChange={(event) => updateProviderForm({ remote_path: event.target.value })} /></CompactField>
-                      <CompactField label="Formato" className="md:col-span-3"><div className={`${fieldClass} bg-slate-50`}>Backup V2</div></CompactField>
+                      <CompactField label="Formato" className="md:col-span-3"><div className={`${fieldClass} bg-slate-50`}>Backup {String(status.backup_format || 'v2').toUpperCase()}</div></CompactField>
                     </>
                   ) : (
                     <>
@@ -541,12 +590,21 @@ export default function CloudBackupCard({ isSuperAdmin }) {
           )}
 
           <form onSubmit={saveSettings} className="space-y-3">
-            <CollapsibleSection title="Configuração do backup" description="Formato, agendamento, retenção e frase do Backup V2.">
+            <CollapsibleSection title="Configuração do backup" description="Formato, agendamento, retenção e frase de criptografia.">
               <fieldset disabled={status.active_provider === 'none'} className="space-y-4 disabled:opacity-60">
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
                   <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={status.active_provider !== 'none' && status.enabled} disabled={activationDisabled} onChange={(event) => setStatus((current) => ({ ...current, enabled: event.target.checked }))} /> Backup Nuvem ativo</label>
                   <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={status.active_provider !== 'none' && status.schedule_enabled} disabled={activationDisabled} onChange={(event) => setStatus((current) => ({ ...current, schedule_enabled: event.target.checked }))} /> Agendamento ativo</label>
-                  <CompactField label="Formato"><input readOnly value="Backup V2" className={`${fieldClass} bg-slate-100`} /></CompactField>
+                  <CompactField label="Tipo de backup" hint="Backup V2 é o formato recomendado. Use V1 apenas por compatibilidade com processos antigos de restauração.">
+                    <select
+                      value={status.backup_format || 'v2'}
+                      onChange={(event) => setStatus((current) => ({ ...current, backup_format: event.target.value }))}
+                      className={fieldClass}
+                    >
+                      <option value="v2">Backup V2 — recomendado</option>
+                      <option value="v1">Backup V1 — compatibilidade</option>
+                    </select>
+                  </CompactField>
                   <CompactField label="Retenção"><select value={status.retention_days} disabled={!providerConfigured || Boolean(busy)} onChange={(event) => setStatus((current) => ({ ...current, retention_days: Number(event.target.value) }))} className={fieldClass}>{[7, 15, 30, 60].map((days) => <option key={days} value={days}>{days} dias</option>)}</select></CompactField>
                 </div>
                 <div>
@@ -557,10 +615,10 @@ export default function CloudBackupCard({ isSuperAdmin }) {
                   <CompactField label="Execuções por dia"><select value={status.schedule_times.length} onChange={(event) => setExecutionCount(Number(event.target.value))} className={fieldClass}><option value={1}>1 vez</option><option value={2}>2 vezes</option><option value={3}>3 vezes</option></select></CompactField>
                   {status.schedule_times.map((time, index) => <CompactField key={index} label={`Horário ${index + 1}`}><input type="time" value={time} onChange={(event) => setStatus((current) => ({ ...current, schedule_times: current.schedule_times.map((item, itemIndex) => itemIndex === index ? event.target.value : item) }))} className={fieldClass} /></CompactField>)}
                 </div>
-                <CompactField label="Frase de criptografia do Backup V2" hint="Guarde essa frase em local seguro. Sem ela, o backup não poderá ser restaurado.">
+                <CompactField label="Frase de criptografia do backup" hint="Guarde essa frase em local seguro. Sem ela, o backup não poderá ser restaurado.">
                   <input type="password" minLength={16} autoComplete="new-password" value={backupPassphrase} disabled={!providerConfigured || Boolean(busy)} onChange={(event) => setBackupPassphrase(event.target.value)} placeholder={status.has_backup_passphrase ? 'Deixe em branco para manter a frase salva' : 'Mínimo de 16 caracteres'} className={fieldClass} />
                 </CompactField>
-                <button type="button" onClick={() => { if (window.confirm('Executar agora um Backup V2 criptografado no provedor ativo?')) perform('backup-run', () => api.post('/cloud-backup/run'), 'Backup V2 enviado ao provedor ativo.'); }} disabled={!providerConfigured || !status.has_backup_passphrase || Boolean(busy)} className="inline-flex items-center rounded-md bg-green-600 px-3 py-2 text-xs font-medium text-white disabled:opacity-50"><UploadCloud className="mr-2 h-4 w-4" /> Executar backup agora</button>
+                <button type="button" onClick={() => { const formatLabel = String(status.backup_format || 'v2').toUpperCase(); if (window.confirm(`Executar agora um Backup ${formatLabel} criptografado no provedor ativo?`)) perform('backup-run', () => api.post('/cloud-backup/run'), `Backup ${formatLabel} enviado ao provedor ativo.`); }} disabled={!providerConfigured || !status.has_backup_passphrase || Boolean(busy)} className="inline-flex items-center rounded-md bg-green-600 px-3 py-2 text-xs font-medium text-white disabled:opacity-50"><UploadCloud className="mr-2 h-4 w-4" /> Executar backup agora</button>
               </fieldset>
             </CollapsibleSection>
 
@@ -575,14 +633,36 @@ export default function CloudBackupCard({ isSuperAdmin }) {
 
             <CollapsibleSection title="Histórico de backups" description="Últimas execuções registradas.">
               <div className="space-y-2">
-                {!status.recent_runs?.length ? <p className="text-sm text-slate-500">Nenhuma execução registrada.</p> : status.recent_runs.map((run) => (
-                  <div key={run.id} className="grid grid-cols-2 gap-2 rounded-md border border-slate-200 p-3 text-xs sm:grid-cols-4">
+                {historyLoading ? <p className="text-sm text-slate-500">Carregando histórico...</p> : !status.recent_runs?.length ? <p className="text-sm text-slate-500">Nenhuma execução registrada.</p> : status.recent_runs.map((run) => (
+                  <div key={run.id} className="grid grid-cols-2 gap-2 rounded-md border border-slate-200 p-3 text-xs sm:grid-cols-5">
                     <span>{formatDateTimeShort(run.started_at)}</span>
                     <span>{PROVIDERS.find(([value]) => value === run.provider)?.[1] || run.provider}</span>
+                    <span><span className="rounded-full bg-indigo-50 px-2 py-1 font-semibold text-indigo-700">{String(run.backup_format || 'v2').toUpperCase()}</span></span>
                     <span>{run.trigger_type} · {run.status}</span>
                     <span className="truncate" title={run.file_name || run.error_message || '-'}>{run.file_name || run.error_message || '-'}</span>
                   </div>
                 ))}
+                {status.recent_runs_pagination.total > 0 && <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => loadHistory(status.recent_runs_pagination.page - 1)}
+                    disabled={historyLoading || status.recent_runs_pagination.page <= 1}
+                    className="rounded-md border border-slate-300 px-3 py-1.5 text-xs disabled:opacity-50"
+                  >
+                    Anterior
+                  </button>
+                  <span className="text-xs text-slate-500">
+                    Página {status.recent_runs_pagination.page} de {Math.max(status.recent_runs_pagination.total_pages, 1)}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => loadHistory(status.recent_runs_pagination.page + 1)}
+                    disabled={historyLoading || status.recent_runs_pagination.page >= status.recent_runs_pagination.total_pages}
+                    className="rounded-md border border-slate-300 px-3 py-1.5 text-xs disabled:opacity-50"
+                  >
+                    Próxima
+                  </button>
+                </div>}
               </div>
             </CollapsibleSection>
 

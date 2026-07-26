@@ -13,6 +13,7 @@ const PROVIDER_SET = new Set(PROVIDERS);
 const PROVIDER_SELECTION_SET = new Set(['none', ...PROVIDERS]);
 const S3_PROVIDERS = new Set(['backblaze_b2', 'mega_s3']);
 const ALLOWED_RETENTION_DAYS = new Set([7, 15, 30, 60]);
+const ALLOWED_BACKUP_FORMATS = new Set(['v1', 'v2']);
 const TIME_PATTERN = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
 const MAX_FAILURE_EMAIL_RECIPIENTS = 10;
 
@@ -37,6 +38,19 @@ const assertProviderSelection = (provider) => {
   const normalized = String(provider || '').trim().toLowerCase();
   if (!PROVIDER_SELECTION_SET.has(normalized)) {
     throw new CloudBackupSettingsError('CLOUD_BACKUP_INVALID_PROVIDER', 'Selecione um provedor de backup válido.');
+  }
+  return normalized;
+};
+
+const normalizeBackupFormat = (value) => {
+  const normalized = value === undefined || value === null
+    ? 'v2'
+    : String(value).trim().toLowerCase();
+  if (!ALLOWED_BACKUP_FORMATS.has(normalized)) {
+    throw new CloudBackupSettingsError(
+      'CLOUD_BACKUP_INVALID_FORMAT',
+      'Formato de backup inválido.'
+    );
   }
   return normalized;
 };
@@ -278,7 +292,7 @@ const sanitizeSettings = (settings) => ({
     : [],
   failure_email_on_recovery: settings?.failure_email_on_recovery === true,
   has_backup_passphrase: Boolean(settings?.encrypted_backup_passphrase),
-  backup_format: 'v2',
+  backup_format: normalizeBackupFormat(settings?.backup_format),
   last_success_at: settings?.last_success_at || null,
   last_error_at: settings?.last_error_at || null,
   last_error_message: settings?.last_error_message || null
@@ -424,7 +438,7 @@ const updateSettings = async (input, userId, queryable = db) => {
   if ((enabled || scheduleEnabled) && !encryptedPassphrase) {
     throw new CloudBackupSettingsError(
       'CLOUD_BACKUP_PASSPHRASE_REQUIRED',
-      'Defina a frase de criptografia do Backup V2 antes de ativar a rotina.',
+      'Defina a frase de criptografia do backup antes de ativar a rotina.',
       409
     );
   }
@@ -432,6 +446,7 @@ const updateSettings = async (input, userId, queryable = db) => {
   if (!ALLOWED_RETENTION_DAYS.has(retentionDays)) {
     throw new CloudBackupSettingsError('CLOUD_BACKUP_INVALID_RETENTION', 'Selecione uma retenção válida.');
   }
+  const backupFormat = normalizeBackupFormat(input.backup_format ?? current.backup_format);
   const failureEmailEnabled = input.failure_email_enabled === true;
   const failureEmailOnRecovery = failureEmailEnabled && input.failure_email_on_recovery === true;
   const failureEmailRecipients = normalizeFailureEmailRecipients(
@@ -450,11 +465,12 @@ const updateSettings = async (input, userId, queryable = db) => {
          schedule_days = $3::jsonb,
          schedule_times = $4::jsonb,
          retention_days = $5,
-         encrypted_backup_passphrase = $6,
-         failure_email_enabled = $7,
-         failure_email_recipients = $8::jsonb,
-         failure_email_on_recovery = $9,
-         updated_by = $10,
+         backup_format = $6,
+         encrypted_backup_passphrase = $7,
+         failure_email_enabled = $8,
+         failure_email_recipients = $9::jsonb,
+         failure_email_on_recovery = $10,
+         updated_by = $11,
          updated_at = CURRENT_TIMESTAMP
      WHERE id = 1`,
     [
@@ -463,6 +479,7 @@ const updateSettings = async (input, userId, queryable = db) => {
       JSON.stringify(normalizeDays(input.schedule_days ?? current.schedule_days)),
       JSON.stringify(normalizeTimes(input.schedule_times ?? current.schedule_times)),
       retentionDays,
+      backupFormat,
       encryptedPassphrase,
       failureEmailEnabled,
       JSON.stringify(failureEmailRecipients),
@@ -470,6 +487,7 @@ const updateSettings = async (input, userId, queryable = db) => {
       userId || null
     ]
   );
+  await deleteExpiredRuns(retentionDays, queryable);
   return getStatus(queryable);
 };
 
@@ -531,34 +549,63 @@ const getBackupPassphrase = (settings) => {
   if (!settings?.encrypted_backup_passphrase) {
     throw new CloudBackupSettingsError(
       'CLOUD_BACKUP_PASSPHRASE_REQUIRED',
-      'Defina a frase de criptografia do Backup V2 antes de executar o backup.',
+      'Defina a frase de criptografia do backup antes de executar a rotina.',
       409
     );
   }
   return decryptConfigSecret(settings.encrypted_backup_passphrase);
 };
 
-const listRuns = async (limit = 10, queryable = db) => {
-  const safeLimit = Math.min(Math.max(Number(limit) || 10, 1), 50);
+const deleteExpiredRuns = async (retentionDays, queryable = db) => {
+  const safeRetentionDays = Number(retentionDays);
+  if (!ALLOWED_RETENTION_DAYS.has(safeRetentionDays)) {
+    throw new CloudBackupSettingsError('CLOUD_BACKUP_INVALID_RETENTION', 'Selecione uma retenção válida.');
+  }
   const result = await queryable.query(
+    `DELETE FROM cloud_backup_runs
+     WHERE started_at < CURRENT_TIMESTAMP - ($1 * INTERVAL '1 day')`,
+    [safeRetentionDays]
+  );
+  return Number(result.rowCount || 0);
+};
+
+const listRuns = async ({ page = 1, pageSize = 10 } = {}, queryable = db) => {
+  const safePage = Math.max(Number.parseInt(page, 10) || 1, 1);
+  const safePageSize = Math.min(Math.max(Number.parseInt(pageSize, 10) || 10, 1), 10);
+  const offset = (safePage - 1) * safePageSize;
+  const [countResult, result] = await Promise.all([
+    queryable.query('SELECT COUNT(*)::integer AS total FROM cloud_backup_runs'),
+    queryable.query(
     `SELECT id, provider, status, trigger_type, backup_format, file_name,
             remote_id, remote_path, size_bytes, retention_removed,
             scheduled_slot, started_at, finished_at, error_message
      FROM cloud_backup_runs
      ORDER BY started_at DESC
-     LIMIT $1`,
-    [safeLimit]
-  );
-  return result.rows;
+     LIMIT $1 OFFSET $2`,
+      [safePageSize, offset]
+    )
+  ]);
+  const total = Number(countResult.rows[0]?.total || 0);
+  return {
+    items: result.rows,
+    pagination: {
+      page: safePage,
+      page_size: safePageSize,
+      total,
+      total_pages: total === 0 ? 0 : Math.ceil(total / safePageSize)
+    }
+  };
 };
 
 module.exports = {
   PROVIDERS,
   S3_PROVIDERS,
+  ALLOWED_BACKUP_FORMATS,
   MAX_FAILURE_EMAIL_RECIPIENTS,
   CloudBackupSettingsError,
   assertProvider,
   assertProviderSelection,
+  normalizeBackupFormat,
   normalizeFailureEmailRecipients,
   normalizeDays,
   normalizeTimes,
@@ -577,6 +624,7 @@ module.exports = {
   disconnectProvider,
   getResolvedProviderConfig,
   getBackupPassphrase,
+  deleteExpiredRuns,
   listRuns,
   sanitizeSettings,
   sanitizeProvider

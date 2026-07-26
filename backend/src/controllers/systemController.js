@@ -3,17 +3,19 @@ const fsStream = require('fs');
 const fs = require('fs/promises');
 const path = require('path');
 const { pipeline } = require('stream/promises');
-const { promisify } = require('util');
 const db = require('../config/database');
-const { SUPER_ADMIN_EMAIL, normalizeRole, isSuperAdmin } = require('../config/security');
+const { normalizeRole, isSuperAdmin } = require('../config/security');
 const { BACKUP_TABLES } = require('../config/backupTables');
 const { BACKUP_RESTORE_TIMEOUT_MS } = require('../config/backupConfig');
 const { recordAuditEvent } = require('../services/auditService');
 const { createBackupPackageV2, cleanupBackupWorkspace } = require('../services/backupPackageV2Service');
+const {
+  buildBackupPayload,
+  encryptBackupPayload
+} = require('../services/backupPackageV1Service');
 const { safeLogError } = require('../utils/safeLogger');
 
 const UPDATER_REQUEST_DIR = process.env.UPDATER_REQUEST_DIR || '/var/lib/fullpassword-updater/requests';
-const scryptAsync = promisify(crypto.scrypt);
 
 const denyNonSuperAdmin = (res) => {
   return res.status(403).json({
@@ -22,60 +24,6 @@ const denyNonSuperAdmin = (res) => {
 };
 
 const backupTables = [...BACKUP_TABLES];
-
-const buildBackupPayload = async (generatedBy) => {
-  const data = {};
-
-  for (const table of backupTables) {
-    const result = await db.query(`SELECT * FROM ${table}`);
-    data[table] = result.rows;
-  }
-
-  return {
-    metadata: {
-      project: 'FullPassword',
-      type: 'full-encrypted-backup',
-      version: 1,
-      generated_at: new Date().toISOString(),
-      generated_by: generatedBy || SUPER_ADMIN_EMAIL,
-      super_admin_email: SUPER_ADMIN_EMAIL,
-      warning: 'Este backup contém dados sensíveis do sistema, incluindo hashes, chaves envelopadas, chaves privadas criptografadas e cofres criptografados. As senhas dos cofres não são descriptografadas pelo servidor.'
-    },
-    data
-  };
-};
-
-const encryptBackupPayload = async (payload, passphrase) => {
-  const salt = crypto.randomBytes(32);
-  const iv = crypto.randomBytes(12);
-  const params = { N: 32768, r: 8, p: 1, keyLength: 32 };
-  const key = await scryptAsync(passphrase, salt, params.keyLength, {
-    N: params.N,
-    r: params.r,
-    p: params.p,
-    maxmem: 64 * 1024 * 1024
-  });
-  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
-  const plaintext = Buffer.from(JSON.stringify(payload), 'utf8');
-  const ciphertext = Buffer.concat([cipher.update(plaintext), cipher.final()]);
-
-  return {
-    format: 'fullpassword-encrypted-backup',
-    version: 1,
-    generated_at: payload.metadata.generated_at,
-    kdf: {
-      name: 'scrypt',
-      salt: salt.toString('base64'),
-      params
-    },
-    cipher: {
-      name: 'aes-256-gcm',
-      iv: iv.toString('base64'),
-      tag: cipher.getAuthTag().toString('base64')
-    },
-    ciphertext: ciphertext.toString('base64')
-  };
-};
 
 // GET /api/system/permissions - Informa permissões especiais do usuário autenticado
 const getSystemPermissions = async (req, res) => {

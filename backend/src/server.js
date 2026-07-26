@@ -21,7 +21,8 @@ const {
 const {
   generalWriteLimiter,
   vaultWriteLimiter,
-  sensitiveOperationLimiter
+  sensitiveOperationLimiter,
+  systemUpdateLimiter
 } = require('./middleware/writeRateLimiters');
 const { safeLogError } = require('./utils/safeLogger');
 
@@ -103,9 +104,8 @@ app.use('/api', csrfProtection);
 // Limites de escrita são aplicados antes da leitura e do parsing do corpo.
 // Backup, restore e atualização recebem uma contenção ainda mais restritiva.
 app.use('/api/system/backup', sensitiveOperationLimiter);
-app.use('/api/system/update', sensitiveOperationLimiter);
+app.use('/api/system/update', systemUpdateLimiter);
 app.use('/api/integrations/google-drive', sensitiveOperationLimiter);
-app.use('/api/cloud-backup', sensitiveOperationLimiter);
 app.use(['/api/clients', '/api/users', '/api/system', '/api/groups'], generalWriteLimiter);
 
 // O vault transporta anexos já criptografados no navegador e precisa de uma

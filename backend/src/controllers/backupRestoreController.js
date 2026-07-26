@@ -3,7 +3,7 @@ const { constants: fsConstants } = require('fs');
 const path = require('path');
 const { isSuperAdmin } = require('../config/security');
 const { recordAuditEvent } = require('../services/auditService');
-const { buildBackupPayload, encryptBackupPayload } = require('./systemController');
+const { buildBackupPayload, encryptBackupPayload } = require('../services/backupPackageV1Service');
 const {
   MAX_BACKUP_BYTES,
   parseAndDecryptBackup,

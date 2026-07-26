@@ -14,7 +14,7 @@ const PROVIDER_LABELS = Object.freeze({
 const SAFE_ERROR_MESSAGES = Object.freeze({
   CLOUD_BACKUP_PROVIDER_REQUIRED: 'Nenhum provedor de Backup Nuvem está ativo.',
   CLOUD_BACKUP_PROVIDER_NOT_CONFIGURED: 'O provedor ativo ainda não está configurado.',
-  CLOUD_BACKUP_PASSPHRASE_REQUIRED: 'A frase de criptografia do Backup V2 não está definida.',
+  CLOUD_BACKUP_PASSPHRASE_REQUIRED: 'A frase de criptografia do backup não está definida.',
   CLOUD_BACKUP_INVALID_ENDPOINT: 'O endpoint do armazenamento remoto é inválido.',
   CLOUD_BACKUP_INVALID_FTP_HOST: 'O host FTP é inválido.',
   CLOUD_BACKUP_TEST_FAILED: 'A comunicação com o armazenamento remoto falhou.',

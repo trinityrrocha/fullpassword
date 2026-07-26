@@ -59,12 +59,16 @@ const sendSafeError = (res, error, fallbackMessage) => {
 const status = async (req, res) => {
   if (!isSuperAdmin(req.user)) return deny(req, res, 'cloud_backup_status_access');
   try {
-    const [settings, recentRuns] = await Promise.all([getStatus(), listRuns(10)]);
+    const [settings, recentRuns] = await Promise.all([
+      getStatus(),
+      listRuns({ page: 1, pageSize: 10 })
+    ]);
     return res.json({
       ...settings,
       suggested_failure_email: req.user?.email || null,
       next_execution_at: getNextExecutionAt(settings),
-      recent_runs: recentRuns
+      recent_runs: recentRuns.items,
+      recent_runs_pagination: recentRuns.pagination
     });
   } catch (error) {
     return sendSafeError(res, error, 'Não foi possível carregar o status do Backup Nuvem.');
@@ -87,6 +91,7 @@ const saveSettings = async (req, res) => {
         schedule_days: settings.schedule_days,
         schedule_times: settings.schedule_times,
         retention_days: settings.retention_days,
+        backup_format: settings.backup_format,
         failure_email_enabled: settings.failure_email_enabled,
         failure_email_recipient_count: settings.failure_email_recipients.length,
         failure_email_on_recovery: settings.failure_email_on_recovery,
@@ -176,7 +181,8 @@ const run = async (req, res) => {
         provider: result.provider,
         run_id: result.run_id,
         size_bytes: result.size_bytes,
-        retention_removed: result.retention_removed
+        retention_removed: result.retention_removed,
+        backup_format: result.backup_format
       }
     });
     if (result.retention_removed > 0) {
@@ -211,7 +217,10 @@ const run = async (req, res) => {
         req
       });
     }
-    return res.json({ message: 'Backup V2 enviado ao provedor ativo.', ...result });
+    return res.json({
+      message: `Backup ${String(result.backup_format || 'v2').toUpperCase()} enviado ao provedor ativo.`,
+      ...result
+    });
   } catch (error) {
     await recordAuditEvent({
       user: req.user,
@@ -266,7 +275,10 @@ const disconnect = async (req, res) => {
 const runs = async (req, res) => {
   if (!isSuperAdmin(req.user)) return deny(req, res, 'cloud_backup_status_access');
   try {
-    return res.json({ runs: await listRuns(req.query?.limit) });
+    return res.json(await listRuns({
+      page: req.query?.page,
+      pageSize: req.query?.page_size
+    }));
   } catch (error) {
     return sendSafeError(res, error, 'Não foi possível carregar o histórico do Backup Nuvem.');
   }

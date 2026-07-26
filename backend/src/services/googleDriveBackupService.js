@@ -7,6 +7,7 @@ const {
   createBackupPackageV2,
   cleanupBackupWorkspace
 } = require('./backupPackageV2Service');
+const { createBackupPackageV1 } = require('./backupPackageV1Service');
 const {
   DRIVE_SCOPE,
   resolveGoogleDriveOAuthConfig,
@@ -163,12 +164,17 @@ const createDriveClient = async (settings, queryable = db) => {
 };
 
 const escapeDriveQueryValue = (value) => String(value).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-const buildDriveBackupFilename = (date = new Date()) => {
+const normalizeBackupFormat = (value) => value === 'v1' ? 'v1' : 'v2';
+const buildDriveBackupFilename = (formatOrDate = 'v2', providedDate = new Date()) => {
+  const backupFormat = formatOrDate instanceof Date ? 'v2' : normalizeBackupFormat(formatOrDate);
+  const date = formatOrDate instanceof Date ? formatOrDate : providedDate;
   const compact = date.toISOString()
     .replace(/[-:]/g, '')
     .replace('T', '-')
     .slice(0, 15);
-  return `fullpassword-backup-v2-${compact}.zip`;
+  return backupFormat === 'v1'
+    ? `fullpassword-backup-v1-${compact}.enc.json`
+    : `fullpassword-backup-v2-${compact}.zip`;
 };
 
 const ensureBackupFolder = async (drive, settings, queryable = db) => {
@@ -236,16 +242,17 @@ const testConnection = async (queryable = db) => {
   }
 };
 
-const uploadBackup = async (drive, folderId, packagePath, filename) => {
+const uploadBackup = async (drive, folderId, packagePath, filename, backupFormat = 'v2') => {
+  const normalizedFormat = normalizeBackupFormat(backupFormat);
   const result = await drive.files.create({
     uploadType: 'resumable',
     requestBody: {
       name: filename,
       parents: [folderId],
-      appProperties: APP_PROPERTIES
+      appProperties: { app: 'fullpassword', type: 'backup', format: normalizedFormat }
     },
     media: {
-      mimeType: BACKUP_MIME_TYPE,
+      mimeType: normalizedFormat === 'v1' ? 'application/json' : BACKUP_MIME_TYPE,
       body: fs.createReadStream(packagePath)
     },
     fields: 'id,name,size,createdTime,appProperties,parents'
@@ -264,8 +271,7 @@ const deleteExpiredBackups = async (drive, folderId, retentionDays) => {
         `'${escapeDriveQueryValue(folderId)}' in parents`,
         'trashed = false',
         "appProperties has { key='app' and value='fullpassword' }",
-        "appProperties has { key='type' and value='backup' }",
-        "appProperties has { key='format' and value='v2' }"
+        "appProperties has { key='type' and value='backup' }"
       ].join(' and '),
       spaces: 'drive',
       fields: 'nextPageToken,files(id,createdTime,parents,appProperties)',
@@ -276,7 +282,7 @@ const deleteExpiredBackups = async (drive, folderId, retentionDays) => {
       const isOwnedBackup = file.parents?.includes(folderId)
         && file.appProperties?.app === 'fullpassword'
         && file.appProperties?.type === 'backup'
-        && file.appProperties?.format === 'v2';
+        && ['v1', 'v2'].includes(file.appProperties?.format);
       if (isOwnedBackup && Date.parse(file.createdTime) < cutoff) {
         await drive.files.delete({ fileId: file.id });
         removed += 1;
@@ -287,14 +293,14 @@ const deleteExpiredBackups = async (drive, folderId, retentionDays) => {
   return removed;
 };
 
-const beginRun = async ({ triggerType, userId, scheduledSlot }, queryable = db) => {
+const beginRun = async ({ triggerType, userId, scheduledSlot, backupFormat = 'v2' }, queryable = db) => {
   const result = await queryable.query(
     `INSERT INTO google_drive_backup_runs
        (status, trigger_type, backup_format, scheduled_slot, created_by)
-     VALUES ('running', $1, 'v2', $2, $3)
+     VALUES ('running', $1, $2, $3, $4)
      ON CONFLICT (scheduled_slot) DO NOTHING
      RETURNING id`,
-    [triggerType, scheduledSlot || null, userId || null]
+    [triggerType, normalizeBackupFormat(backupFormat), scheduledSlot || null, userId || null]
   );
   return result.rows[0]?.id || null;
 };
@@ -327,9 +333,11 @@ const runBackup = async ({
   userId = null,
   scheduledSlot = null,
   passphraseOverride = null,
-  retentionDaysOverride = null
+  retentionDaysOverride = null,
+  backupFormatOverride = 'v2'
 } = {}, queryable = db) => {
-  const runId = await beginRun({ triggerType, userId, scheduledSlot }, queryable);
+  const backupFormat = normalizeBackupFormat(backupFormatOverride);
+  const runId = await beginRun({ triggerType, userId, scheduledSlot, backupFormat }, queryable);
   if (!runId) return { skipped: true, reason: 'already_executed' };
 
   let workspace;
@@ -341,18 +349,20 @@ const runBackup = async ({
     if (!passphraseOverride && !settings.encrypted_backup_passphrase) {
       throw new GoogleDriveBackupError(
         'GOOGLE_DRIVE_PASSPHRASE_REQUIRED',
-        'Defina a frase de criptografia do Backup V2 antes de executar o backup.',
+        'Defina a frase de criptografia do backup antes de executar a rotina.',
         409
       );
     }
     const passphrase = passphraseOverride || getBackupPassphrase(settings);
-    const generated = await createBackupPackageV2({ generatedBy: userId, passphrase });
+    const generated = backupFormat === 'v1'
+      ? await createBackupPackageV1({ generatedBy: userId, passphrase, queryable })
+      : await createBackupPackageV2({ generatedBy: userId, passphrase });
     workspace = generated.workspace;
     const stats = await fsp.stat(generated.packagePath);
     const { drive } = await createDriveClient(settings, queryable);
     const folderId = await ensureBackupFolder(drive, settings, queryable);
-    const fileName = buildDriveBackupFilename();
-    const uploaded = await uploadBackup(drive, folderId, generated.packagePath, fileName);
+    const fileName = buildDriveBackupFilename(backupFormat);
+    const uploaded = await uploadBackup(drive, folderId, generated.packagePath, fileName, backupFormat);
 
     await finishRun(runId, 'success', {
       fileName,
@@ -382,8 +392,8 @@ const runBackup = async ({
       await queryable.query(
         `INSERT INTO google_drive_backup_runs
            (status, trigger_type, backup_format, drive_folder_id, finished_at, error_message, created_by)
-         VALUES ('failed', 'retention_cleanup', 'v2', $1, CURRENT_TIMESTAMP, $2, $3)`,
-        [folderId, retentionWarning, userId]
+         VALUES ('failed', 'retention_cleanup', $1, $2, CURRENT_TIMESTAMP, $3, $4)`,
+        [backupFormat, folderId, retentionWarning, userId]
       );
     }
 
@@ -394,6 +404,7 @@ const runBackup = async ({
       drive_file_id: uploaded.id,
       folder_id: folderId,
       size_bytes: stats.size,
+      backup_format: backupFormat,
       retention_removed: retentionRemoved,
       retention_warning: retentionWarning
     };

@@ -8,6 +8,7 @@ const api = axios.create({
 });
 
 const MUTATING_METHODS = new Set(['post', 'put', 'patch', 'delete']);
+const RATE_LIMIT_MESSAGE = 'Muitas tentativas em pouco tempo. Aguarde alguns segundos e tente novamente.';
 const CSRF_EXEMPT_PATHS = [
   '/auth/login',
   '/auth/bootstrap',
@@ -44,6 +45,23 @@ api.interceptors.response.use(
     return response;
   },
   (error) => {
+    if (error.response?.status === 429) {
+      const headerValue = Number.parseInt(error.response.headers?.['retry-after'], 10);
+      const bodyValue = Number.parseInt(error.response.data?.retry_after_seconds, 10);
+      const retryAfterSeconds = Number.isFinite(headerValue) && headerValue > 0
+        ? headerValue
+        : Number.isFinite(bodyValue) && bodyValue > 0 ? bodyValue : null;
+      const message = retryAfterSeconds
+        ? `${RATE_LIMIT_MESSAGE} Tente novamente em ${retryAfterSeconds} segundos.`
+        : RATE_LIMIT_MESSAGE;
+      error.response.data = {
+        ...(error.response.data && typeof error.response.data === 'object' ? error.response.data : {}),
+        error: message,
+        message,
+        retry_after_seconds: retryAfterSeconds
+      };
+      error.message = message;
+    }
     if (error.response?.status === 413) {
       const responseData = error.response.data;
       if (responseData && typeof responseData === 'object') {

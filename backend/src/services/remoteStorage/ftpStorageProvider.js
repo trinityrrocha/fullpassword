@@ -1,7 +1,7 @@
 const path = require('path');
 const ftp = require('basic-ftp');
 
-const BACKUP_FILE_PATTERN = /^fullpassword-backup-v2-[a-zA-Z0-9._-]+\.zip$/;
+const BACKUP_FILE_PATTERN = /^fullpassword-backup-(?:v2-[a-zA-Z0-9._-]+\.zip|v1-[a-zA-Z0-9._-]+\.enc\.json)$/;
 
 const withClient = async (config, operation) => {
   const client = new ftp.Client(30_000);

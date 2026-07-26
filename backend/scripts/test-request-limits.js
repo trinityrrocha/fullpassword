@@ -8,7 +8,11 @@ const {
 } = require('../src/middleware/requestLimits');
 const {
   RATE_LIMIT_MESSAGE,
-  createWriteRateLimiter
+  SHORT_RATE_LIMIT_MESSAGE,
+  createWriteRateLimiter,
+  cloudBackupConfigLimiter,
+  cloudBackupOperationLimiter,
+  systemUpdateLimiter
 } = require('../src/middleware/writeRateLimiters');
 
 const request = ({ port, path, method = 'POST', body = '', headers = {}, chunked = false }) => new Promise((resolve, reject) => {
@@ -28,6 +32,7 @@ const request = ({ port, path, method = 'POST', body = '', headers = {}, chunked
       const rawBody = Buffer.concat(chunks).toString('utf8');
       resolve({
         status: response.statusCode,
+        headers: response.headers,
         body: rawBody ? JSON.parse(rawBody) : null
       });
     });
@@ -55,6 +60,9 @@ const run = async () => {
     (_req, res) => res.json({ ok: true })
   );
   app.all('/rate-limited', testWriteLimiter, (_req, res) => res.json({ ok: true }));
+  app.put('/cloud-provider', cloudBackupConfigLimiter, (_req, res) => res.json({ ok: true }));
+  app.post('/cloud-run', cloudBackupOperationLimiter, (_req, res) => res.json({ ok: true }));
+  app.post('/system-update', systemUpdateLimiter, (_req, res) => res.json({ ok: true }));
   app.use(payloadTooLargeErrorHandler);
 
   const server = await new Promise((resolve) => {
@@ -112,6 +120,20 @@ const run = async () => {
     const rateLimited = await request({ port, path: '/rate-limited' });
     assert.strictEqual(rateLimited.status, 429);
     assert.strictEqual(rateLimited.body.error, RATE_LIMIT_MESSAGE);
+    assert.ok(Number(rateLimited.headers['retry-after']) > 0);
+
+    for (let index = 0; index < 60; index += 1) {
+      assert.strictEqual((await request({ port, path: '/cloud-provider', method: 'PUT' })).status, 200);
+    }
+    const providerLimited = await request({ port, path: '/cloud-provider', method: 'PUT' });
+    assert.strictEqual(providerLimited.status, 429);
+    assert.strictEqual(providerLimited.body.error, SHORT_RATE_LIMIT_MESSAGE);
+    assert.strictEqual((await request({ port, path: '/system-update' })).status, 200);
+
+    for (let index = 0; index < 5; index += 1) {
+      assert.strictEqual((await request({ port, path: '/cloud-run' })).status, 200);
+    }
+    assert.strictEqual((await request({ port, path: '/cloud-run' })).status, 429);
 
     console.log('Request size and write rate-limit tests passed.');
   } finally {

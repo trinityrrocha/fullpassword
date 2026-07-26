@@ -178,7 +178,7 @@ const ensureSecuritySchema = async () => {
         encrypted_refresh_token TEXT,
         encrypted_backup_passphrase TEXT,
         scope TEXT NOT NULL DEFAULT 'https://www.googleapis.com/auth/drive.file',
-        backup_format TEXT NOT NULL DEFAULT 'v2' CHECK (backup_format = 'v2'),
+        backup_format VARCHAR(8) NOT NULL DEFAULT 'v2' CHECK (backup_format IN ('v1', 'v2')),
         schedule_enabled BOOLEAN NOT NULL DEFAULT FALSE,
         schedule_days JSONB NOT NULL DEFAULT '[0,1,2,3,4,5,6]'::jsonb,
         schedule_times JSONB NOT NULL DEFAULT '["02:00"]'::jsonb,
@@ -202,7 +202,7 @@ const ensureSecuritySchema = async () => {
         id BIGSERIAL PRIMARY KEY,
         status VARCHAR(20) NOT NULL CHECK (status IN ('running', 'success', 'failed', 'skipped')),
         trigger_type VARCHAR(30) NOT NULL CHECK (trigger_type IN ('manual', 'scheduled', 'test', 'retention_cleanup')),
-        backup_format TEXT NOT NULL DEFAULT 'v2' CHECK (backup_format = 'v2'),
+        backup_format VARCHAR(8) NOT NULL DEFAULT 'v2' CHECK (backup_format IN ('v1', 'v2')),
         file_name TEXT,
         drive_file_id TEXT,
         drive_folder_id TEXT,
@@ -225,6 +225,7 @@ const ensureSecuritySchema = async () => {
         schedule_days JSONB NOT NULL DEFAULT '[0,1,2,3,4,5,6]'::jsonb,
         schedule_times JSONB NOT NULL DEFAULT '["02:00"]'::jsonb,
         retention_days INTEGER NOT NULL DEFAULT 30 CHECK (retention_days IN (7, 15, 30, 60)),
+        backup_format VARCHAR(8) NOT NULL DEFAULT 'v2' CHECK (backup_format IN ('v1', 'v2')),
         encrypted_backup_passphrase TEXT,
         last_success_at TIMESTAMP WITH TIME ZONE,
         last_error_at TIMESTAMP WITH TIME ZONE,
@@ -253,6 +254,9 @@ const ensureSecuritySchema = async () => {
     await client.query('ALTER TABLE cloud_backup_settings ADD COLUMN IF NOT EXISTS failure_email_enabled BOOLEAN NOT NULL DEFAULT FALSE');
     await client.query("ALTER TABLE cloud_backup_settings ADD COLUMN IF NOT EXISTS failure_email_recipients JSONB NOT NULL DEFAULT '[]'::jsonb");
     await client.query('ALTER TABLE cloud_backup_settings ADD COLUMN IF NOT EXISTS failure_email_on_recovery BOOLEAN NOT NULL DEFAULT FALSE');
+    await client.query("ALTER TABLE cloud_backup_settings ADD COLUMN IF NOT EXISTS backup_format VARCHAR(8) NOT NULL DEFAULT 'v2'");
+    await client.query('ALTER TABLE cloud_backup_settings DROP CONSTRAINT IF EXISTS cloud_backup_settings_backup_format_check');
+    await client.query("ALTER TABLE cloud_backup_settings ADD CONSTRAINT cloud_backup_settings_backup_format_check CHECK (backup_format IN ('v1', 'v2'))");
     await client.query('UPDATE google_drive_backup_settings SET enabled = FALSE, schedule_enabled = FALSE, updated_at = CURRENT_TIMESTAMP WHERE enabled = TRUE OR schedule_enabled = TRUE');
     await client.query(`
       CREATE TABLE IF NOT EXISTS cloud_backup_providers (
@@ -301,7 +305,7 @@ const ensureSecuritySchema = async () => {
           CHECK (provider IN ('google_drive', 'backblaze_b2', 'mega_s3', 'ftp')),
         status VARCHAR(32) NOT NULL CHECK (status IN ('running', 'success', 'failed', 'skipped')),
         trigger_type VARCHAR(32) NOT NULL CHECK (trigger_type IN ('manual', 'scheduled', 'test', 'retention_cleanup')),
-        backup_format VARCHAR(16) NOT NULL DEFAULT 'v2' CHECK (backup_format = 'v2'),
+        backup_format VARCHAR(8) NOT NULL DEFAULT 'v2' CHECK (backup_format IN ('v1', 'v2')),
         file_name TEXT,
         remote_id TEXT,
         remote_path TEXT,
@@ -314,6 +318,12 @@ const ensureSecuritySchema = async () => {
         created_by UUID REFERENCES users(id) ON DELETE SET NULL
       )
     `);
+    await client.query("ALTER TABLE cloud_backup_runs ADD COLUMN IF NOT EXISTS backup_format VARCHAR(8) NOT NULL DEFAULT 'v2'");
+    await client.query("ALTER TABLE google_drive_backup_runs ADD COLUMN IF NOT EXISTS backup_format VARCHAR(8) NOT NULL DEFAULT 'v2'");
+    await client.query('ALTER TABLE cloud_backup_runs DROP CONSTRAINT IF EXISTS cloud_backup_runs_backup_format_check');
+    await client.query("ALTER TABLE cloud_backup_runs ADD CONSTRAINT cloud_backup_runs_backup_format_check CHECK (backup_format IN ('v1', 'v2'))");
+    await client.query('ALTER TABLE google_drive_backup_runs DROP CONSTRAINT IF EXISTS google_drive_backup_runs_backup_format_check');
+    await client.query("ALTER TABLE google_drive_backup_runs ADD CONSTRAINT google_drive_backup_runs_backup_format_check CHECK (backup_format IN ('v1', 'v2'))");
     await client.query('CREATE INDEX IF NOT EXISTS idx_cloud_backup_runs_started_at ON cloud_backup_runs (started_at DESC)');
     await client.query(`
       CREATE TABLE IF NOT EXISTS google_drive_oauth_states (
