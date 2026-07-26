@@ -12,6 +12,7 @@ import PasswordPolicyCard from '../components/PasswordPolicyCard';
 import BackupRestoreCard from '../components/BackupRestoreCard';
 import ManualIpRulesCard from '../components/ManualIpRulesCard';
 import SmtpSettingsCard from '../components/SmtpSettingsCard';
+import GoogleDriveBackupCard from '../components/GoogleDriveBackupCard';
 import { formatDateTimeShort } from '../utils/formatDateTimeShort';
 import useClearOnVaultLock from '../hooks/useClearOnVaultLock';
 
@@ -51,7 +52,15 @@ const AUDIT_ACTION_OPTIONS = [
   ['mfa_recovery_codes_regenerated', 'Códigos de recuperação MFA regenerados'],
   ['mfa_disabled', 'MFA desativado'],
   ['mfa_disable_failed', 'Falha ao desativar MFA'],
-  ['ip_access_blocked', 'Acesso bloqueado por IP']
+  ['ip_access_blocked', 'Acesso bloqueado por IP'],
+  ['google_drive_connected', 'Google Drive conectado'],
+  ['google_drive_disconnected', 'Google Drive desconectado'],
+  ['google_drive_test_succeeded', 'Teste Google Drive bem-sucedido'],
+  ['google_drive_test_failed', 'Falha no teste Google Drive'],
+  ['google_drive_backup_succeeded', 'Backup Google Drive bem-sucedido'],
+  ['google_drive_backup_failed', 'Falha no backup Google Drive'],
+  ['google_drive_backup_retention_cleaned', 'Retenção Google Drive executada'],
+  ['google_drive_backup_settings_updated', 'Configuração Google Drive alterada']
 ];
 
 const AUDIT_ACTION_LABELS = Object.fromEntries(AUDIT_ACTION_OPTIONS.filter(([value]) => value));
@@ -73,7 +82,11 @@ export default function Settings() {
   const [auditFilters, setAuditFilters] = useState({ action: '', status: '', user_email: '', date_from: '', date_to: '' });
   const [isLoadingAudit, setIsLoadingAudit] = useState(false);
   const [auditError, setAuditError] = useState('');
-  const requestedAccordion = searchParams.get('section') === 'audit' ? 'system-audit' : null;
+  const requestedAccordion = searchParams.get('section') === 'audit'
+    ? 'system-audit'
+    : searchParams.get('section') === 'google-drive'
+      ? 'google-drive-backup'
+      : null;
 
   useClearOnVaultLock(() => {
     setBackupConfirmation('');
@@ -515,6 +528,8 @@ export default function Settings() {
         )}
 
         <SmtpSettingsCard isSuperAdmin={canManageSystem} />
+
+        <GoogleDriveBackupCard isSuperAdmin={canManageSystem} />
 
         <SettingsAccordionCard title="Web Backup (Backup Completo)" icon={<Database className="w-5 h-5 mr-2 text-indigo-500" />} badge={canManageSystem && <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">Super Admin</span>}>
             <p className="text-sm text-slate-600 mb-4">

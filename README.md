@@ -196,9 +196,27 @@ Gere uma chave base64 de 32 bytes com:
 openssl rand -base64 32
 ```
 
-O instalador gera essa chave automaticamente sem imprimi-la. O WebUpdater preserva uma chave existente válida e, em instalações anteriores com a variável ausente, vazia, inválida ou ainda preenchida com placeholder, gera uma única chave e atualiza o `.env` com permissão restrita. Perder ou trocar uma chave válida impede a leitura de senhas SMTP já salvas.
+O instalador gera essa chave automaticamente sem imprimi-la. O WebUpdater preserva uma chave existente válida e, em instalações anteriores com a variável ausente, vazia, inválida ou ainda preenchida com placeholder, gera uma única chave e atualiza o `.env` com permissão restrita. Perder ou trocar uma chave válida impede a leitura das senhas SMTP, dos refresh tokens e das frases de backup já salvos.
 
 Se o painel informar que a chave de criptografia não está configurada, execute novamente o WebUpdater ou defina uma chave válida no `.env` e reinicie o backend. Um erro `429` durante o teste indica o limite de cinco testes SMTP em quinze minutos; aguarde antes de tentar novamente. Na tela, salve a configuração e a senha antes de testar. As combinações usuais são porta `465` com **SSL/TLS direto** e porta `587` com **STARTTLS**; portas personalizadas continuam permitidas com aviso visual.
+
+### Backup automático no Google Drive
+
+O Super Admin pode conectar uma conta em **Configurações do Sistema > Backup Google Drive**. A integração usa OAuth 2.0 server-side, Drive API v3 e somente o escopo `https://www.googleapis.com/auth/drive.file`. Ela cria ou reutiliza a pasta **FullPassword Backups**, envia pacotes Backup V2 por streaming e aplica retenção de 7, 15, 30 ou 60 dias exclusivamente aos arquivos marcados pelo FullPassword dentro dessa pasta.
+
+Crie um OAuth Client do tipo aplicação Web no Google Cloud, habilite a Drive API e configure:
+
+```env
+GOOGLE_DRIVE_CLIENT_ID=
+GOOGLE_DRIVE_CLIENT_SECRET=
+GOOGLE_DRIVE_REDIRECT_URI=https://cofre.exemplo.com.br/api/integrations/google-drive/oauth/callback
+```
+
+`GOOGLE_DRIVE_REDIRECT_URI` pode ficar vazio; nesse caso o backend deriva a URI a partir de `APP_ORIGIN`. A URI cadastrada no Google Cloud deve ser idêntica à efetivamente usada. Depois de alterar o `.env`, recrie o backend.
+
+O refresh token e a frase usada para cifrar os pacotes automáticos são armazenados com AES-256-GCM por meio de `CONFIG_ENCRYPTION_KEY`. Access tokens permanecem apenas em memória. Tokens, authorization codes e o client secret nunca são retornados à interface nem incluídos em logs. A desconexão remove a autorização local, desativa o agendamento e preserva os backups já existentes.
+
+O agendador verifica os horários a cada 30 segundos usando `TZ` (padrão `America/Sao_Paulo`), registra cada slot no PostgreSQL e mantém um advisory lock durante a execução para impedir duplicidade entre réplicas. A frase do Backup V2 deve ter pelo menos 16 caracteres e precisa ser guardada pelo administrador: sem ela, os arquivos externos não podem ser restaurados.
 
 ### Recuperação de acesso
 

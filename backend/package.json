@@ -4,7 +4,7 @@
   "description": "Backend para o projeto FullPassword",
   "main": "src/server.js",
   "scripts": {
-    "test": "node scripts/test-backup-v2.js && node scripts/test-ip-cidr.js && node scripts/test-request-limits.js && node scripts/test-operational-hardening.js && node scripts/test-crypto-parameters.js && node scripts/test-user-crypto-identity.js && node scripts/test-smtp-settings.js && node scripts/test-password-reset.js && node scripts/test-mfa-recovery-codes.js && node scripts/test-security-notifications.js",
+    "test": "node scripts/test-backup-v2.js && node scripts/test-ip-cidr.js && node scripts/test-request-limits.js && node scripts/test-operational-hardening.js && node scripts/test-crypto-parameters.js && node scripts/test-user-crypto-identity.js && node scripts/test-smtp-settings.js && node scripts/test-password-reset.js && node scripts/test-mfa-recovery-codes.js && node scripts/test-security-notifications.js && node scripts/test-google-drive-backup.js",
     "start": "node src/server.js",
     "dev": "nodemon src/server.js"
   },
@@ -16,6 +16,7 @@
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
     "express-rate-limit": "^7.5.0",
+    "googleapis": "^173.0.0",
     "helmet": "^7.1.0",
     "ipaddr.js": "^2.4.0",
     "jsonwebtoken": "^9.0.2",
