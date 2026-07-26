@@ -26,6 +26,10 @@ const { CloudBackupSettingsError } = require('../services/cloudBackupSettingsSer
 const { getNextExecutionAt } = require('../services/googleDriveBackupScheduler');
 const { ConfigEncryptionError } = require('../services/configSecretCrypto');
 const { safeLogError } = require('../utils/safeLogger');
+const {
+  notifyCloudBackupFailure,
+  notifyCloudBackupRecovery
+} = require('../services/cloudBackupNotificationService');
 
 const deny = async (req, res, action) => {
   await recordAuditEvent({
@@ -278,6 +282,14 @@ const backupNow = async (req, res) => {
         metadata: { provider: result.provider, reason: 'retention_cleanup_failed' }
       });
     }
+    if (result.recovered_from_failure) {
+      await notifyCloudBackupRecovery({
+        provider: result.provider,
+        triggerType: 'manual',
+        user: req.user,
+        req
+      });
+    }
     return res.json({
       message: 'Backup V2 enviado ao provedor ativo.',
       ...result
@@ -289,6 +301,12 @@ const backupNow = async (req, res) => {
       status: 'failed',
       req,
       metadata: { trigger_type: 'manual', reason: error?.code || 'operation_failed' }
+    });
+    await notifyCloudBackupFailure({
+      triggerType: 'manual',
+      error,
+      user: req.user,
+      req
     });
     return sendSafeError(res, error, 'Não foi possível executar o Backup Nuvem.');
   }

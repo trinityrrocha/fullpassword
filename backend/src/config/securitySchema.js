@@ -250,6 +250,10 @@ const ensureSecuritySchema = async () => {
       ON CONFLICT (id) DO NOTHING
     `);
     await client.query('INSERT INTO cloud_backup_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING');
+    await client.query('ALTER TABLE cloud_backup_settings ADD COLUMN IF NOT EXISTS failure_email_enabled BOOLEAN NOT NULL DEFAULT FALSE');
+    await client.query("ALTER TABLE cloud_backup_settings ADD COLUMN IF NOT EXISTS failure_email_recipients JSONB NOT NULL DEFAULT '[]'::jsonb");
+    await client.query('ALTER TABLE cloud_backup_settings ADD COLUMN IF NOT EXISTS failure_email_on_recovery BOOLEAN NOT NULL DEFAULT FALSE');
+    await client.query('UPDATE google_drive_backup_settings SET enabled = FALSE, schedule_enabled = FALSE, updated_at = CURRENT_TIMESTAMP WHERE enabled = TRUE OR schedule_enabled = TRUE');
     await client.query(`
       CREATE TABLE IF NOT EXISTS cloud_backup_providers (
         provider VARCHAR(32) PRIMARY KEY

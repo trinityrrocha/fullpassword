@@ -118,6 +118,7 @@ const markProviderTest = async (provider, status, message = null, queryable = db
 const testActiveProvider = async (queryable = db, adapters = ADAPTERS) => {
   const settings = await getRawSettings(queryable);
   const provider = assertActiveProvider(settings);
+  const recoveredFromFailure = Boolean(settings.last_error_at);
   try {
     const result = provider === 'google_drive'
       ? await testGoogleDriveConnection(queryable)
@@ -184,7 +185,8 @@ const runCloudBackup = async ({
       return {
         ...googleResult,
         run_id: runId,
-        provider
+        provider,
+        recovered_from_failure: recoveredFromFailure
       };
     }
 
@@ -233,7 +235,8 @@ const runCloudBackup = async ({
       remote_path: uploaded.remotePath,
       size_bytes: stats.size,
       retention_removed: retentionRemoved,
-      retention_warning: retentionWarning
+      retention_warning: retentionWarning,
+      recovered_from_failure: recoveredFromFailure
     };
   } catch (error) {
     const safeError = sanitizeCloudError(error, 'CLOUD_BACKUP_RUN_FAILED');

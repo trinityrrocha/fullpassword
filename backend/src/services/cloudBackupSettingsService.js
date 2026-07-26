@@ -6,12 +6,15 @@ const {
 const {
   getSettings: getGoogleDriveSettings
 } = require('./googleDriveBackupSettingsService');
+const { isValidEmail } = require('./smtpSettingsService');
 
 const PROVIDERS = Object.freeze(['google_drive', 'backblaze_b2', 'mega_s3', 'ftp']);
 const PROVIDER_SET = new Set(PROVIDERS);
+const PROVIDER_SELECTION_SET = new Set(['none', ...PROVIDERS]);
 const S3_PROVIDERS = new Set(['backblaze_b2', 'mega_s3']);
 const ALLOWED_RETENTION_DAYS = new Set([7, 15, 30, 60]);
 const TIME_PATTERN = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
+const MAX_FAILURE_EMAIL_RECIPIENTS = 10;
 
 class CloudBackupSettingsError extends Error {
   constructor(code, message, statusCode = 400) {
@@ -28,6 +31,36 @@ const assertProvider = (provider) => {
     throw new CloudBackupSettingsError('CLOUD_BACKUP_INVALID_PROVIDER', 'Selecione um provedor de backup válido.');
   }
   return normalized;
+};
+
+const assertProviderSelection = (provider) => {
+  const normalized = String(provider || '').trim().toLowerCase();
+  if (!PROVIDER_SELECTION_SET.has(normalized)) {
+    throw new CloudBackupSettingsError('CLOUD_BACKUP_INVALID_PROVIDER', 'Selecione um provedor de backup válido.');
+  }
+  return normalized;
+};
+
+const normalizeFailureEmailRecipients = (value) => {
+  const values = Array.isArray(value)
+    ? value
+    : String(value || '').split(',');
+  const recipients = [...new Set(values
+    .map((email) => String(email || '').trim().toLowerCase())
+    .filter(Boolean))];
+  if (recipients.length > MAX_FAILURE_EMAIL_RECIPIENTS) {
+    throw new CloudBackupSettingsError(
+      'CLOUD_BACKUP_TOO_MANY_EMAIL_RECIPIENTS',
+      `Informe no máximo ${MAX_FAILURE_EMAIL_RECIPIENTS} destinatários.`
+    );
+  }
+  if (recipients.some((email) => !isValidEmail(email))) {
+    throw new CloudBackupSettingsError(
+      'CLOUD_BACKUP_INVALID_EMAIL_RECIPIENTS',
+      'Informe somente destinatários de e-mail válidos.'
+    );
+  }
+  return recipients;
 };
 
 const normalizeDays = (value) => {
@@ -205,7 +238,10 @@ const sanitizeProvider = (provider, row, googleStatus = null) => {
       google_email: googleStatus?.google_email || null,
       drive_folder_name: googleStatus?.drive_folder_name || 'FullPassword Backups',
       redirect_uri: googleStatus?.redirect_uri || null,
-      public_config: {}
+      public_config: {},
+      last_test_at: row?.last_test_at || null,
+      last_test_status: row?.last_test_status || null,
+      last_error_message: row?.last_error_message || null
     };
   }
   let credentialHint = null;
@@ -236,6 +272,11 @@ const sanitizeSettings = (settings) => ({
   retention_days: ALLOWED_RETENTION_DAYS.has(Number(settings?.retention_days))
     ? Number(settings.retention_days)
     : 30,
+  failure_email_enabled: settings?.failure_email_enabled === true,
+  failure_email_recipients: Array.isArray(settings?.failure_email_recipients)
+    ? settings.failure_email_recipients
+    : [],
+  failure_email_on_recovery: settings?.failure_email_on_recovery === true,
   has_backup_passphrase: Boolean(settings?.encrypted_backup_passphrase),
   backup_format: 'v2',
   last_success_at: settings?.last_success_at || null,
@@ -290,7 +331,30 @@ const saveProviderConfiguration = async (provider, input, userId, queryable = db
 };
 
 const selectProvider = async (provider, userId, queryable = db) => {
-  const normalized = assertProvider(provider);
+  const normalized = assertProviderSelection(provider);
+  await queryable.query(
+    `UPDATE google_drive_backup_settings
+     SET enabled = FALSE,
+         schedule_enabled = FALSE,
+         updated_at = CURRENT_TIMESTAMP
+     WHERE enabled = TRUE OR schedule_enabled = TRUE`
+  );
+  if (normalized === 'none') {
+    await queryable.query(
+      `UPDATE cloud_backup_settings
+       SET active_provider = 'none',
+           enabled = FALSE,
+           schedule_enabled = FALSE,
+           updated_by = $1,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = 1`,
+      [userId || null]
+    );
+    await queryable.query(
+      'UPDATE cloud_backup_providers SET enabled = FALSE, updated_at = CURRENT_TIMESTAMP'
+    );
+    return getStatus(queryable);
+  }
   const providerRow = await getProviderRow(normalized, queryable);
   const googleStatus = normalized === 'google_drive'
     ? await getGoogleDriveSettings(queryable)
@@ -317,11 +381,25 @@ const selectProvider = async (provider, userId, queryable = db) => {
 };
 
 const updateSettings = async (input, userId, queryable = db) => {
-  const current = await getRawSettings(queryable);
-  const status = await getStatus(queryable);
-  const activeProvider = status.providers[status.active_provider];
+  let current = await getRawSettings(queryable);
   const enabled = input.enabled === true;
   const scheduleEnabled = input.schedule_enabled === true;
+  const requestedProvider = input.active_provider === undefined
+    ? current.active_provider
+    : assertProviderSelection(input.active_provider);
+  if (requestedProvider === 'none' && (enabled || scheduleEnabled)) {
+    throw new CloudBackupSettingsError(
+      'CLOUD_BACKUP_PROVIDER_REQUIRED',
+      'Selecione um provedor antes de ativar o backup em nuvem.',
+      409
+    );
+  }
+  if (requestedProvider !== current.active_provider) {
+    await selectProvider(requestedProvider, userId, queryable);
+    current = await getRawSettings(queryable);
+  }
+  const status = await getStatus(queryable);
+  const activeProvider = status.providers[status.active_provider];
   if ((enabled || scheduleEnabled) && (!activeProvider || activeProvider.configured !== true)) {
     throw new CloudBackupSettingsError(
       'CLOUD_BACKUP_PROVIDER_NOT_CONFIGURED',
@@ -352,6 +430,17 @@ const updateSettings = async (input, userId, queryable = db) => {
   if (!ALLOWED_RETENTION_DAYS.has(retentionDays)) {
     throw new CloudBackupSettingsError('CLOUD_BACKUP_INVALID_RETENTION', 'Selecione uma retenção válida.');
   }
+  const failureEmailEnabled = input.failure_email_enabled === true;
+  const failureEmailOnRecovery = failureEmailEnabled && input.failure_email_on_recovery === true;
+  const failureEmailRecipients = normalizeFailureEmailRecipients(
+    input.failure_email_recipients ?? current.failure_email_recipients
+  );
+  if (failureEmailEnabled && failureEmailRecipients.length === 0) {
+    throw new CloudBackupSettingsError(
+      'CLOUD_BACKUP_EMAIL_RECIPIENT_REQUIRED',
+      'Informe ao menos um destinatário para ativar as notificações por e-mail.'
+    );
+  }
   await queryable.query(
     `UPDATE cloud_backup_settings
      SET enabled = $1,
@@ -360,7 +449,10 @@ const updateSettings = async (input, userId, queryable = db) => {
          schedule_times = $4::jsonb,
          retention_days = $5,
          encrypted_backup_passphrase = $6,
-         updated_by = $7,
+         failure_email_enabled = $7,
+         failure_email_recipients = $8::jsonb,
+         failure_email_on_recovery = $9,
+         updated_by = $10,
          updated_at = CURRENT_TIMESTAMP
      WHERE id = 1`,
     [
@@ -370,6 +462,9 @@ const updateSettings = async (input, userId, queryable = db) => {
       JSON.stringify(normalizeTimes(input.schedule_times ?? current.schedule_times)),
       retentionDays,
       encryptedPassphrase,
+      failureEmailEnabled,
+      JSON.stringify(failureEmailRecipients),
+      failureEmailOnRecovery,
       userId || null
     ]
   );
@@ -458,8 +553,11 @@ const listRuns = async (limit = 10, queryable = db) => {
 module.exports = {
   PROVIDERS,
   S3_PROVIDERS,
+  MAX_FAILURE_EMAIL_RECIPIENTS,
   CloudBackupSettingsError,
   assertProvider,
+  assertProviderSelection,
+  normalizeFailureEmailRecipients,
   normalizeDays,
   normalizeTimes,
   normalizePrefix,

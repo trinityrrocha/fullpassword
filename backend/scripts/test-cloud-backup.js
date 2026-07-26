@@ -20,14 +20,18 @@ const {
   saveProviderConfiguration,
   getResolvedProviderConfig,
   selectProvider,
-  getStatus
+  getStatus,
+  updateSettings,
+  normalizeFailureEmailRecipients
 } = require('../src/services/cloudBackupSettingsService');
 const { decryptConfigSecret } = require('../src/services/configSecretCrypto');
 const {
   ADAPTERS,
   beginRun,
-  sanitizeCloudError
+  sanitizeCloudError,
+  assertActiveProvider
 } = require('../src/services/cloudBackupService');
+const { getNextExecutionAt } = require('../src/services/cloudBackupScheduler');
 const s3Adapter = require('../src/services/remoteStorage/s3StorageProvider');
 const ftpAdapter = require('../src/services/remoteStorage/ftpStorageProvider');
 
@@ -49,7 +53,8 @@ const createStore = () => {
   );
   const google = {
     id: 1,
-    connected: false,
+    connected: true,
+    encrypted_refresh_token: 'v1:preserved-google-refresh-token',
     schedule_days: [0],
     schedule_times: ['02:00'],
     retention_days: 30
@@ -57,6 +62,7 @@ const createStore = () => {
   return {
     settings,
     providers,
+    google,
     query: async (text, params = []) => {
       if (text.includes('SELECT * FROM cloud_backup_settings')) return { rows: [{ ...settings }] };
       if (text.includes('SELECT * FROM cloud_backup_providers WHERE provider')) {
@@ -66,6 +72,11 @@ const createStore = () => {
         return { rows: Object.values(providers).map((row) => ({ ...row })) };
       }
       if (text.includes('SELECT * FROM google_drive_backup_settings')) return { rows: [{ ...google }] };
+      if (text.includes('UPDATE google_drive_backup_settings')) {
+        google.enabled = false;
+        google.schedule_enabled = false;
+        return { rows: [] };
+      }
       if (text.includes('SET configured = TRUE')) {
         const row = providers[params[0]];
         row.configured = true;
@@ -82,10 +93,34 @@ const createStore = () => {
         }
         return { rows: [] };
       }
+      if (text.includes("SET active_provider = 'none'")) {
+        settings.active_provider = 'none';
+        settings.enabled = false;
+        settings.schedule_enabled = false;
+        return { rows: [] };
+      }
       if (text.includes('SET enabled = (provider = $1)')) {
         Object.values(providers).forEach((row) => {
           row.enabled = row.provider === params[0];
         });
+        return { rows: [] };
+      }
+      if (text.includes('SET enabled = FALSE') && text.includes('cloud_backup_providers')) {
+        Object.values(providers).forEach((row) => {
+          row.enabled = false;
+        });
+        return { rows: [] };
+      }
+      if (text.includes('SET enabled = $1') && text.includes('failure_email_enabled')) {
+        settings.enabled = params[0];
+        settings.schedule_enabled = params[1];
+        settings.schedule_days = JSON.parse(params[2]);
+        settings.schedule_times = JSON.parse(params[3]);
+        settings.retention_days = params[4];
+        settings.encrypted_backup_passphrase = params[5];
+        settings.failure_email_enabled = params[6];
+        settings.failure_email_recipients = JSON.parse(params[7]);
+        settings.failure_email_on_recovery = params[8];
         return { rows: [] };
       }
       if (text.includes('FROM cloud_backup_runs')) {
@@ -97,6 +132,17 @@ const createStore = () => {
 };
 
 const run = async () => {
+  assert.throws(
+    () => assertActiveProvider({ active_provider: 'none' }),
+    (error) => error.code === 'CLOUD_BACKUP_PROVIDER_REQUIRED'
+  );
+  assert.equal(getNextExecutionAt({
+    active_provider: 'none',
+    enabled: true,
+    schedule_enabled: true,
+    schedule_days: [0, 1, 2, 3, 4, 5, 6],
+    schedule_times: ['02:00']
+  }), null);
   assert.throws(
     () => validateS3Config('backblaze_b2', {
       endpoint: 'http://s3.example.test',
@@ -174,6 +220,68 @@ const run = async () => {
   assert.equal(store.settings.enabled, false);
   assert.ok(store.providers.backblaze_b2.encrypted_credentials);
   assert.equal(Object.values(store.providers).filter((row) => row.enabled).length, 1);
+
+  status = await selectProvider('none', 'user-id', store);
+  assert.equal(status.active_provider, 'none');
+  assert.equal(status.enabled, false);
+  assert.equal(status.schedule_enabled, false);
+  assert.equal(Object.values(store.providers).filter((row) => row.enabled).length, 0);
+  assert.ok(store.providers.backblaze_b2.encrypted_credentials);
+  assert.match(store.providers.ftp.encrypted_credentials, /^v1:/);
+
+  status = await selectProvider('google_drive', 'user-id', store);
+  assert.equal(status.active_provider, 'google_drive');
+  status = await updateSettings({
+    active_provider: 'none',
+    enabled: false,
+    schedule_enabled: false,
+    schedule_days: [0],
+    schedule_times: ['02:00'],
+    retention_days: 30
+  }, 'user-id', store);
+  assert.equal(status.active_provider, 'none');
+  assert.equal(status.enabled, false);
+  assert.equal(status.schedule_enabled, false);
+  status = await selectProvider('google_drive', 'user-id', store);
+  status = await selectProvider('mega_s3', 'user-id', store);
+  assert.equal(status.active_provider, 'mega_s3');
+  assert.equal(store.google.encrypted_refresh_token, 'v1:preserved-google-refresh-token');
+  status = await selectProvider('none', 'user-id', store);
+  assert.equal(status.active_provider, 'none');
+
+  await assert.rejects(
+    () => updateSettings({
+      enabled: true,
+      schedule_enabled: false,
+      schedule_days: [0],
+      schedule_times: ['02:00'],
+      retention_days: 30
+    }, 'user-id', store),
+    (error) => error.code === 'CLOUD_BACKUP_PROVIDER_REQUIRED'
+      && /Selecione um provedor/.test(error.message)
+  );
+  assert.deepEqual(
+    normalizeFailureEmailRecipients('Admin@Example.test, support@example.test, admin@example.test'),
+    ['admin@example.test', 'support@example.test']
+  );
+  assert.throws(
+    () => normalizeFailureEmailRecipients('not-an-email'),
+    (error) => error.code === 'CLOUD_BACKUP_INVALID_EMAIL_RECIPIENTS'
+  );
+  status = await updateSettings({
+    enabled: false,
+    schedule_enabled: false,
+    schedule_days: [0],
+    schedule_times: ['02:00'],
+    retention_days: 30,
+    failure_email_enabled: true,
+    failure_email_recipients: ['admin@example.test'],
+    failure_email_on_recovery: true
+  }, 'user-id', store);
+  assert.equal(status.active_provider, 'none');
+  assert.equal(status.failure_email_enabled, true);
+  assert.deepEqual(status.failure_email_recipients, ['admin@example.test']);
+  assert.equal(status.failure_email_on_recovery, true);
 
   const sanitizedStatus = await getStatus(store);
   assert.equal('encrypted_credentials' in sanitizedStatus.providers.backblaze_b2, false);

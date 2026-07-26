@@ -4,6 +4,7 @@ const { recordAuditEvent } = require('../services/auditService');
 const {
   CloudBackupSettingsError,
   assertProvider,
+  assertProviderSelection,
   getStatus,
   getRawSettings,
   saveProviderConfiguration,
@@ -24,6 +25,10 @@ const {
 const { getNextExecutionAt } = require('../services/cloudBackupScheduler');
 const { ConfigEncryptionError } = require('../services/configSecretCrypto');
 const { safeLogError } = require('../utils/safeLogger');
+const {
+  notifyCloudBackupFailure,
+  notifyCloudBackupRecovery
+} = require('../services/cloudBackupNotificationService');
 
 const deny = async (req, res, action) => {
   await recordAuditEvent({
@@ -57,6 +62,7 @@ const status = async (req, res) => {
     const [settings, recentRuns] = await Promise.all([getStatus(), listRuns(10)]);
     return res.json({
       ...settings,
+      suggested_failure_email: req.user?.email || null,
       next_execution_at: getNextExecutionAt(settings),
       recent_runs: recentRuns
     });
@@ -81,6 +87,9 @@ const saveSettings = async (req, res) => {
         schedule_days: settings.schedule_days,
         schedule_times: settings.schedule_times,
         retention_days: settings.retention_days,
+        failure_email_enabled: settings.failure_email_enabled,
+        failure_email_recipient_count: settings.failure_email_recipients.length,
+        failure_email_on_recovery: settings.failure_email_on_recovery,
         backup_passphrase_changed: Boolean(req.body?.backup_passphrase)
       }
     });
@@ -93,9 +102,9 @@ const saveSettings = async (req, res) => {
 const saveProvider = async (req, res) => {
   if (!isSuperAdmin(req.user)) return deny(req, res, 'cloud_backup_provider_changed');
   try {
-    const provider = assertProvider(req.body?.provider);
+    const provider = assertProviderSelection(req.body?.provider);
     const before = await getRawSettings();
-    if (req.body?.config && provider !== 'google_drive') {
+    if (req.body?.config && !['none', 'google_drive'].includes(provider)) {
       await saveProviderConfiguration(provider, req.body.config, req.user.id);
       await recordAuditEvent({
         user: req.user,
@@ -144,6 +153,12 @@ const test = async (req, res) => {
       req,
       metadata: { reason: error?.code || 'operation_failed' }
     });
+    await notifyCloudBackupFailure({
+      triggerType: 'test',
+      error,
+      user: req.user,
+      req
+    });
     return sendSafeError(res, error, 'Não foi possível validar o provedor de Backup Nuvem.');
   }
 };
@@ -188,6 +203,14 @@ const run = async (req, res) => {
         }
       });
     }
+    if (result.recovered_from_failure) {
+      await notifyCloudBackupRecovery({
+        provider: result.provider,
+        triggerType: 'manual',
+        user: req.user,
+        req
+      });
+    }
     return res.json({ message: 'Backup V2 enviado ao provedor ativo.', ...result });
   } catch (error) {
     await recordAuditEvent({
@@ -196,6 +219,12 @@ const run = async (req, res) => {
       status: 'failed',
       req,
       metadata: { reason: error?.code || 'operation_failed' }
+    });
+    await notifyCloudBackupFailure({
+      triggerType: 'manual',
+      error,
+      user: req.user,
+      req
     });
     return sendSafeError(res, error, 'Não foi possível executar o Backup Nuvem.');
   }

@@ -3,6 +3,10 @@ const { recordAuditEvent } = require('./auditService');
 const { getRawSettings } = require('./cloudBackupSettingsService');
 const { runCloudBackup } = require('./cloudBackupService');
 const { safeLogError } = require('../utils/safeLogger');
+const {
+  notifyCloudBackupFailure,
+  notifyCloudBackupRecovery
+} = require('./cloudBackupNotificationService');
 
 // Mantém o mesmo lock do scheduler legado para impedir duplicidade durante
 // rolling updates onde uma instância antiga ainda possa estar ativa.
@@ -130,6 +134,13 @@ const executeSchedulerTick = async () => {
         queryable: client
       });
     }
+    if (result.recovered_from_failure) {
+      await notifyCloudBackupRecovery({
+        provider: result.provider,
+        triggerType: 'scheduled',
+        user: settings.updated_by ? { id: settings.updated_by } : null
+      });
+    }
   } catch (error) {
     safeLogError('Falha sanitizada no agendador de Backup Nuvem.', {
       name: 'CloudBackupSchedulerError'
@@ -143,6 +154,10 @@ const executeSchedulerTick = async () => {
       },
       queryable: client
     }).catch(() => {});
+    await notifyCloudBackupFailure({
+      triggerType: 'scheduled',
+      error
+    });
   } finally {
     if (locked) await client.query('SELECT pg_advisory_unlock($1)', [SCHEDULER_LOCK_ID]).catch(() => {});
     client.release();

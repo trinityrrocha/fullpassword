@@ -202,7 +202,7 @@ Se o painel informar que a chave de criptografia não está configurada, execute
 
 ### Backup Nuvem
 
-O Super Admin escolhe em **Configurações do Sistema > Backup Nuvem** um único destino ativo: Google Drive, Backblaze B2, Mega S3 ou FTP/FTPS. Trocar o destino preserva as credenciais do provedor anterior, mas as próximas execuções manuais e agendadas usam exclusivamente o provedor selecionado.
+O Super Admin escolhe em **Configurações do Sistema > Backup Nuvem** no máximo um destino ativo: Google Drive, Backblaze B2, Mega S3 ou FTP/FTPS. Também é permitido manter todos desligados. Desligar ou trocar o destino preserva as credenciais do provedor anterior; as próximas execuções manuais e agendadas usam exclusivamente o provedor selecionado, e não há execução remota quando o estado ativo é `none`.
 
 Backblaze B2 e Mega S3 compartilham um adapter S3 com endpoint HTTPS obrigatório, upload multipart por streaming e retenção restrita ao prefixo configurado e aos arquivos `fullpassword-backup-v2-*.zip`. FTP suporta FTPS e mostra aviso quando o transporte sem TLS é escolhido. Chaves S3 e credenciais FTP são cifradas com `CONFIG_ENCRYPTION_KEY` e nunca retornam à interface.
 
@@ -223,6 +223,8 @@ Quando existirem credenciais completas no banco, elas têm prioridade sobre o am
 O Client Secret, o refresh token e a frase usada para cifrar os pacotes automáticos são armazenados com AES-256-GCM por meio de `CONFIG_ENCRYPTION_KEY`. Access tokens permanecem apenas em memória. Tokens, authorization codes e o Client Secret salvo nunca são retornados à interface nem incluídos em logs. A desconexão remove a autorização local, desativa o agendamento e preserva os backups já existentes.
 
 Existe somente um agendador de Backup Nuvem. Ele verifica os horários a cada 30 segundos usando `TZ` (padrão `America/Sao_Paulo`), resolve o provedor ativo no momento da execução, registra cada slot no PostgreSQL e mantém um advisory lock compartilhado com a compatibilidade Google legada. O módulo de scheduler antigo apenas delega ao singleton genérico e não cria um intervalo paralelo. A frase do Backup V2 deve ter pelo menos 16 caracteres e precisa ser guardada pelo administrador: sem ela, os arquivos externos não podem ser restaurados.
+
+Falhas de execução e de teste podem gerar notificações por e-mail por meio do SMTP global já configurado. Os destinatários são validados e limitados a dez; os e-mails e eventos de auditoria não incluem credenciais, tokens, frases de criptografia, conteúdo do cofre ou stack trace. Uma falha no próprio envio SMTP é registrada separadamente e não altera o resultado original do backup.
 
 ### Recuperação de acesso
 

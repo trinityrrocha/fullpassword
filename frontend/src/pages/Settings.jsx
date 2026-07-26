@@ -72,7 +72,10 @@ const AUDIT_ACTION_OPTIONS = [
   ['cloud_backup_test_failed', 'Falha no teste de Backup Nuvem'],
   ['cloud_backup_run_succeeded', 'Backup Nuvem bem-sucedido'],
   ['cloud_backup_run_failed', 'Falha no Backup Nuvem'],
-  ['cloud_backup_retention_cleaned', 'Retenção do Backup Nuvem executada']
+  ['cloud_backup_retention_cleaned', 'Retenção do Backup Nuvem executada'],
+  ['cloud_backup_failure_email_sent', 'E-mail de falha do Backup Nuvem enviado'],
+  ['cloud_backup_failure_email_failed', 'Falha no e-mail do Backup Nuvem'],
+  ['cloud_backup_recovery_email_sent', 'E-mail de normalização do Backup Nuvem enviado']
 ];
 
 const AUDIT_ACTION_LABELS = Object.fromEntries(AUDIT_ACTION_OPTIONS.filter(([value]) => value));
