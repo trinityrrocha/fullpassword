@@ -1,80 +1,51 @@
-import assert from 'node:assert';
+import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import {
-  GOOGLE_DRIVE_CONNECT_FIRST_MESSAGE,
-  GOOGLE_DRIVE_OAUTH_SETUP_MESSAGE,
-  getGoogleDriveActionError,
-  normalizeGoogleDriveStatus,
-  validateGoogleDriveSettingsSave
-} from '../src/utils/googleDriveBackupUiState.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const card = fs.readFileSync(path.join(root, 'src/components/GoogleDriveBackupCard.jsx'), 'utf8');
-const settings = fs.readFileSync(path.join(root, 'src/pages/Settings.jsx'), 'utf8');
+const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), 'utf8');
+const card = read('src/components/CloudBackupCard.jsx');
+const googlePanel = read('src/components/GoogleDriveProviderPanel.jsx');
+const settings = read('src/pages/Settings.jsx');
 
-assert.match(card, /Conectar Google Drive/);
-assert.match(card, /settings\.google_email/);
-assert.match(card, /schedule_days/);
-assert.match(card, /schedule_times/);
-assert.match(card, /\[7, 15, 30, 60\]/);
-assert.match(card, /\/integrations\/google-drive\/test/);
-assert.match(card, /\/integrations\/google-drive\/backup-now/);
-assert.match(card, /window\.confirm\('Desconectar/);
-assert.doesNotMatch(card, /refresh_token|access_token/);
-assert.match(card, /if \(!isSuperAdmin\) return null/);
-assert.match(card, /Configuração OAuth Google Drive/);
-assert.match(card, /\/integrations\/google-drive\/oauth-config/);
-assert.match(card, /api\.put\('\/integrations\/google-drive\/oauth-config'/);
-assert.match(card, /clientSecret: ''/);
+assert.match(card, /title="Backup Nuvem"/);
+assert.match(card, /\['google_drive', 'Google Drive'\]/);
+assert.match(card, /\['backblaze_b2', 'Backblaze B2'\]/);
+assert.match(card, /\['mega_s3', 'Mega S3'\]/);
+assert.match(card, /\['ftp', 'FTP'\]/);
+assert.match(card, /role="switch"/);
+assert.match(card, /aria-checked=\{active\}/);
+assert.match(card, /status\.active_provider === provider/);
+assert.match(card, /window\.confirm\('Ao ativar este provedor/);
+assert.match(card, /api\.put\('\/cloud-backup\/provider'/);
+assert.match(card, /status\.active_provider === 'google_drive'/);
+assert.match(card, /Endpoint S3/);
+assert.match(card, /Application Key \/ Secret Key/);
+assert.match(card, /Mega Object Storage \/ S4/);
+assert.match(card, /FTP \/ FTPS/);
+assert.match(card, /Usar FTPS/);
+assert.match(card, /Backup Nuvem ativo/);
+assert.match(card, /Agendamento ativo/);
+assert.match(card, /Backup V2/);
+assert.match(card, /Frase de criptografia/);
+assert.match(card, /Últimas execuções/);
+assert.match(card, /provider: status\.active_provider/);
+assert.match(card, /access_key: ''/);
+assert.match(card, /secret_key: ''/);
+assert.match(card, /username: ''/);
+assert.match(card, /password: ''/);
 assert.doesNotMatch(card, /localStorage|sessionStorage/);
-assert.match(card, /disabled=\{!settings\.oauth_configured \|\| Boolean\(action\)\}/);
-assert.match(card, /disabled=\{!canConfigure\}/);
-assert.match(card, /validateGoogleDriveSettingsSave\(settings\)/);
-assert.match(settings, /isSuperAdmin=\{canManageSystem\}/);
-assert.match(settings, /GoogleDriveBackupCard/);
 
-const serverMissing = normalizeGoogleDriveStatus({
-  server_configured: false,
-  oauth_configured: false,
-  connected: false,
-  enabled: true,
-  schedule_enabled: true
-});
-assert.equal(serverMissing.enabled, false);
-assert.equal(serverMissing.schedule_enabled, false);
-assert.equal(validateGoogleDriveSettingsSave(serverMissing), GOOGLE_DRIVE_OAUTH_SETUP_MESSAGE);
+assert.match(googlePanel, /Configuração OAuth/);
+assert.match(googlePanel, /\/integrations\/google-drive\/oauth-config/);
+assert.match(googlePanel, /\/integrations\/google-drive\/oauth\/start|\/integrations\/google-drive\/oauth\/start/);
+assert.match(googlePanel, /Conectar Google Drive/);
+assert.match(googlePanel, /clientSecret: ''/);
+assert.doesNotMatch(googlePanel, /localStorage|sessionStorage|refresh_token|access_token/);
 
-const disconnected = normalizeGoogleDriveStatus({
-  server_configured: true,
-  oauth_configured: true,
-  connected: false,
-  enabled: true,
-  schedule_enabled: true
-});
-assert.equal(disconnected.enabled, false);
-assert.equal(disconnected.schedule_enabled, false);
-assert.equal(validateGoogleDriveSettingsSave(disconnected), GOOGLE_DRIVE_CONNECT_FIRST_MESSAGE);
+assert.match(settings, /import CloudBackupCard/);
+assert.match(settings, /<CloudBackupCard isSuperAdmin=\{canManageSystem\}/);
+assert.doesNotMatch(settings, /<GoogleDriveBackupCard/);
 
-const connected = normalizeGoogleDriveStatus({
-  server_configured: true,
-  oauth_configured: true,
-  connected: true,
-  enabled: true,
-  schedule_enabled: true
-});
-assert.equal(connected.enabled, true);
-assert.equal(connected.schedule_enabled, true);
-assert.equal(validateGoogleDriveSettingsSave(connected), '');
-
-assert.deepEqual(
-  getGoogleDriveActionError({ response: { data: { code: 'GOOGLE_DRIVE_NOT_CONNECTED' } } }, 'fallback'),
-  { expected: true, message: GOOGLE_DRIVE_CONNECT_FIRST_MESSAGE }
-);
-assert.equal(
-  getGoogleDriveActionError({ response: { data: { code: 'GOOGLE_DRIVE_PASSPHRASE_REQUIRED' } } }, 'fallback').message,
-  'Defina a frase de criptografia do Backup V2 antes de ativar a rotina.'
-);
-
-console.log('Google Drive backup frontend tests passed.');
+console.log('Cloud Backup frontend tests passed.');

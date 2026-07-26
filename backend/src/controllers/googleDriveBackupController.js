@@ -16,9 +16,13 @@ const {
   createAuthorizationUrl,
   connectFromAuthorizationCode,
   testConnection,
-  runBackup,
   revokeAndDisconnect
 } = require('../services/googleDriveBackupService');
+const {
+  CloudBackupError,
+  runCloudBackup
+} = require('../services/cloudBackupService');
+const { CloudBackupSettingsError } = require('../services/cloudBackupSettingsService');
 const { getNextExecutionAt } = require('../services/googleDriveBackupScheduler');
 const { ConfigEncryptionError } = require('../services/configSecretCrypto');
 const { safeLogError } = require('../utils/safeLogger');
@@ -38,6 +42,8 @@ const sendSafeError = (res, error, fallbackMessage) => {
   if (
     error instanceof GoogleDriveBackupError
     || error instanceof GoogleDriveSettingsError
+    || error instanceof CloudBackupError
+    || error instanceof CloudBackupSettingsError
     || error instanceof ConfigEncryptionError
   ) {
     return res.status(error.statusCode || 503).json({ code: error.code, error: error.message });
@@ -240,13 +246,14 @@ const test = async (req, res) => {
 const backupNow = async (req, res) => {
   if (!isSuperAdmin(req.user)) return deny(req, res, 'google_drive_backup_failed');
   try {
-    const result = await runBackup({ triggerType: 'manual', userId: req.user.id });
+    const result = await runCloudBackup({ triggerType: 'manual', userId: req.user.id });
     await recordAuditEvent({
       user: req.user,
-      action: 'google_drive_backup_succeeded',
+      action: 'cloud_backup_run_succeeded',
       status: 'success',
       req,
       metadata: {
+        provider: result.provider,
         trigger_type: 'manual',
         run_id: result.run_id,
         size_bytes: result.size_bytes,
@@ -256,34 +263,34 @@ const backupNow = async (req, res) => {
     if (result.retention_removed > 0) {
       await recordAuditEvent({
         user: req.user,
-        action: 'google_drive_backup_retention_cleaned',
+        action: 'cloud_backup_retention_cleaned',
         status: 'success',
         req,
-        metadata: { removed_count: result.retention_removed }
+        metadata: { provider: result.provider, removed_count: result.retention_removed }
       });
     }
     if (result.retention_warning) {
       await recordAuditEvent({
         user: req.user,
-        action: 'google_drive_backup_retention_cleaned',
+        action: 'cloud_backup_retention_cleaned',
         status: 'failed',
         req,
-        metadata: { reason: 'retention_cleanup_failed' }
+        metadata: { provider: result.provider, reason: 'retention_cleanup_failed' }
       });
     }
     return res.json({
-      message: 'Backup V2 enviado ao Google Drive.',
+      message: 'Backup V2 enviado ao provedor ativo.',
       ...result
     });
   } catch (error) {
     await recordAuditEvent({
       user: req.user,
-      action: 'google_drive_backup_failed',
+      action: 'cloud_backup_run_failed',
       status: 'failed',
       req,
       metadata: { trigger_type: 'manual', reason: error?.code || 'operation_failed' }
     });
-    return sendSafeError(res, error, 'Não foi possível enviar o backup ao Google Drive.');
+    return sendSafeError(res, error, 'Não foi possível executar o Backup Nuvem.');
   }
 };
 

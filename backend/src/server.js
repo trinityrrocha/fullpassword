@@ -33,7 +33,8 @@ const userRoutes = require('./routes/userRoutes');
 const systemRoutes = require('./routes/systemRoutes');
 const groupRoutes = require('./routes/groupRoutes');
 const integrationRoutes = require('./routes/integrationRoutes');
-const { startGoogleDriveBackupScheduler } = require('./services/googleDriveBackupScheduler');
+const cloudBackupRoutes = require('./routes/cloudBackupRoutes');
+const { startCloudBackupScheduler } = require('./services/cloudBackupScheduler');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -104,6 +105,7 @@ app.use('/api', csrfProtection);
 app.use('/api/system/backup', sensitiveOperationLimiter);
 app.use('/api/system/update', sensitiveOperationLimiter);
 app.use('/api/integrations/google-drive', sensitiveOperationLimiter);
+app.use('/api/cloud-backup', sensitiveOperationLimiter);
 app.use(['/api/clients', '/api/users', '/api/system', '/api/groups'], generalWriteLimiter);
 
 // O vault transporta anexos já criptografados no navegador e precisa de uma
@@ -125,6 +127,7 @@ app.use('/api/users', userRoutes);
 app.use('/api/system', systemRoutes);
 app.use('/api/groups', groupRoutes);
 app.use('/api/integrations', integrationRoutes);
+app.use('/api/cloud-backup', cloudBackupRoutes);
 
 app.use(payloadTooLargeErrorHandler);
 
@@ -144,7 +147,7 @@ const startServer = async () => {
     app.listen(PORT, () => {
       console.log(`Servidor backend rodando na porta ${PORT}`);
       console.log(`Ambiente: ${process.env.NODE_ENV || 'development'}`);
-      startGoogleDriveBackupScheduler();
+      startCloudBackupScheduler();
     });
   } catch (error) {
     safeLogError('Falha ao garantir o schema de segurança.', error);

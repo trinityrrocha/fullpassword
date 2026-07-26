@@ -12,7 +12,7 @@ import PasswordPolicyCard from '../components/PasswordPolicyCard';
 import BackupRestoreCard from '../components/BackupRestoreCard';
 import ManualIpRulesCard from '../components/ManualIpRulesCard';
 import SmtpSettingsCard from '../components/SmtpSettingsCard';
-import GoogleDriveBackupCard from '../components/GoogleDriveBackupCard';
+import CloudBackupCard from '../components/CloudBackupCard';
 import { formatDateTimeShort } from '../utils/formatDateTimeShort';
 import useClearOnVaultLock from '../hooks/useClearOnVaultLock';
 
@@ -63,7 +63,16 @@ const AUDIT_ACTION_OPTIONS = [
   ['google_drive_backup_settings_updated', 'Configuração Google Drive alterada'],
   ['google_drive_oauth_configured', 'OAuth Google Drive configurado'],
   ['google_drive_oauth_config_updated', 'OAuth Google Drive atualizado'],
-  ['google_drive_oauth_config_removed', 'OAuth Google Drive removido']
+  ['google_drive_oauth_config_removed', 'OAuth Google Drive removido'],
+  ['cloud_backup_provider_changed', 'Provedor de Backup Nuvem alterado'],
+  ['cloud_backup_settings_updated', 'Configuração do Backup Nuvem alterada'],
+  ['cloud_backup_provider_configured', 'Provedor de Backup Nuvem configurado'],
+  ['cloud_backup_provider_disconnected', 'Provedor de Backup Nuvem desconectado'],
+  ['cloud_backup_test_succeeded', 'Teste de Backup Nuvem bem-sucedido'],
+  ['cloud_backup_test_failed', 'Falha no teste de Backup Nuvem'],
+  ['cloud_backup_run_succeeded', 'Backup Nuvem bem-sucedido'],
+  ['cloud_backup_run_failed', 'Falha no Backup Nuvem'],
+  ['cloud_backup_retention_cleaned', 'Retenção do Backup Nuvem executada']
 ];
 
 const AUDIT_ACTION_LABELS = Object.fromEntries(AUDIT_ACTION_OPTIONS.filter(([value]) => value));
@@ -87,8 +96,8 @@ export default function Settings() {
   const [auditError, setAuditError] = useState('');
   const requestedAccordion = searchParams.get('section') === 'audit'
     ? 'system-audit'
-    : searchParams.get('section') === 'google-drive'
-      ? 'google-drive-backup'
+    : ['google-drive', 'cloud-backup'].includes(searchParams.get('section'))
+      ? 'cloud-backup'
       : null;
 
   useClearOnVaultLock(() => {
@@ -532,7 +541,7 @@ export default function Settings() {
 
         <SmtpSettingsCard isSuperAdmin={canManageSystem} />
 
-        <GoogleDriveBackupCard isSuperAdmin={canManageSystem} />
+        <CloudBackupCard isSuperAdmin={canManageSystem} />
 
         <SettingsAccordionCard title="Web Backup (Backup Completo)" icon={<Database className="w-5 h-5 mr-2 text-indigo-500" />} badge={canManageSystem && <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">Super Admin</span>}>
             <p className="text-sm text-slate-600 mb-4">

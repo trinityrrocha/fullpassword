@@ -200,9 +200,13 @@ O instalador gera essa chave automaticamente sem imprimi-la. O WebUpdater preser
 
 Se o painel informar que a chave de criptografia não está configurada, execute novamente o WebUpdater ou defina uma chave válida no `.env` e reinicie o backend. Um erro `429` durante o teste indica o limite de cinco testes SMTP em quinze minutos; aguarde antes de tentar novamente. Na tela, salve a configuração e a senha antes de testar. As combinações usuais são porta `465` com **SSL/TLS direto** e porta `587` com **STARTTLS**; portas personalizadas continuam permitidas com aviso visual.
 
-### Backup automático no Google Drive
+### Backup Nuvem
 
-O Super Admin pode configurar e conectar uma conta em **Configurações do Sistema > Backup Google Drive**, sem acesso SSH. A integração usa OAuth 2.0 server-side, Drive API v3 e somente o escopo `https://www.googleapis.com/auth/drive.file`. Ela cria ou reutiliza a pasta **FullPassword Backups**, envia pacotes Backup V2 por streaming e aplica retenção de 7, 15, 30 ou 60 dias exclusivamente aos arquivos marcados pelo FullPassword dentro dessa pasta.
+O Super Admin escolhe em **Configurações do Sistema > Backup Nuvem** um único destino ativo: Google Drive, Backblaze B2, Mega S3 ou FTP/FTPS. Trocar o destino preserva as credenciais do provedor anterior, mas as próximas execuções manuais e agendadas usam exclusivamente o provedor selecionado.
+
+Backblaze B2 e Mega S3 compartilham um adapter S3 com endpoint HTTPS obrigatório, upload multipart por streaming e retenção restrita ao prefixo configurado e aos arquivos `fullpassword-backup-v2-*.zip`. FTP suporta FTPS e mostra aviso quando o transporte sem TLS é escolhido. Chaves S3 e credenciais FTP são cifradas com `CONFIG_ENCRYPTION_KEY` e nunca retornam à interface.
+
+O Google Drive continua usando OAuth 2.0 server-side, Drive API v3 e somente o escopo `https://www.googleapis.com/auth/drive.file`. Ele cria ou reutiliza a pasta **FullPassword Backups**, envia pacotes Backup V2 por streaming e aplica retenção exclusivamente aos arquivos marcados pelo FullPassword dentro dessa pasta.
 
 Crie um OAuth Client do tipo aplicação Web no Google Cloud, habilite a Drive API, cadastre exatamente a Redirect URI exibida no card e salve o Client ID e o Client Secret pela interface. O Client Secret é cifrado com AES-256-GCM por meio de `CONFIG_ENCRYPTION_KEY`, nunca volta a ser exibido e permanece restrito ao backend.
 
@@ -218,7 +222,7 @@ Quando existirem credenciais completas no banco, elas têm prioridade sobre o am
 
 O Client Secret, o refresh token e a frase usada para cifrar os pacotes automáticos são armazenados com AES-256-GCM por meio de `CONFIG_ENCRYPTION_KEY`. Access tokens permanecem apenas em memória. Tokens, authorization codes e o Client Secret salvo nunca são retornados à interface nem incluídos em logs. A desconexão remove a autorização local, desativa o agendamento e preserva os backups já existentes.
 
-O agendador verifica os horários a cada 30 segundos usando `TZ` (padrão `America/Sao_Paulo`), registra cada slot no PostgreSQL e mantém um advisory lock durante a execução para impedir duplicidade entre réplicas. A frase do Backup V2 deve ter pelo menos 16 caracteres e precisa ser guardada pelo administrador: sem ela, os arquivos externos não podem ser restaurados.
+Existe somente um agendador de Backup Nuvem. Ele verifica os horários a cada 30 segundos usando `TZ` (padrão `America/Sao_Paulo`), resolve o provedor ativo no momento da execução, registra cada slot no PostgreSQL e mantém um advisory lock compartilhado com a compatibilidade Google legada. O módulo de scheduler antigo apenas delega ao singleton genérico e não cria um intervalo paralelo. A frase do Backup V2 deve ter pelo menos 16 caracteres e precisa ser guardada pelo administrador: sem ela, os arquivos externos não podem ser restaurados.
 
 ### Recuperação de acesso
 

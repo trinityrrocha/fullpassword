@@ -322,7 +322,13 @@ const finishRun = async (runId, status, values = {}, queryable = db) => {
   );
 };
 
-const runBackup = async ({ triggerType = 'manual', userId = null, scheduledSlot = null } = {}, queryable = db) => {
+const runBackup = async ({
+  triggerType = 'manual',
+  userId = null,
+  scheduledSlot = null,
+  passphraseOverride = null,
+  retentionDaysOverride = null
+} = {}, queryable = db) => {
   const runId = await beginRun({ triggerType, userId, scheduledSlot }, queryable);
   if (!runId) return { skipped: true, reason: 'already_executed' };
 
@@ -332,14 +338,14 @@ const runBackup = async ({ triggerType = 'manual', userId = null, scheduledSlot 
     if (!settings.connected || !settings.encrypted_refresh_token) {
       throw new GoogleDriveBackupError('GOOGLE_DRIVE_NOT_CONNECTED', 'Conecte uma conta Google Drive primeiro.', 409);
     }
-    if (!settings.encrypted_backup_passphrase) {
+    if (!passphraseOverride && !settings.encrypted_backup_passphrase) {
       throw new GoogleDriveBackupError(
         'GOOGLE_DRIVE_PASSPHRASE_REQUIRED',
         'Defina a frase de criptografia do Backup V2 antes de executar o backup.',
         409
       );
     }
-    const passphrase = getBackupPassphrase(settings);
+    const passphrase = passphraseOverride || getBackupPassphrase(settings);
     const generated = await createBackupPackageV2({ generatedBy: userId, passphrase });
     workspace = generated.workspace;
     const stats = await fsp.stat(generated.packagePath);
@@ -366,7 +372,11 @@ const runBackup = async ({ triggerType = 'manual', userId = null, scheduledSlot 
     let retentionRemoved = 0;
     let retentionWarning = null;
     try {
-      retentionRemoved = await deleteExpiredBackups(drive, folderId, Number(settings.retention_days));
+      retentionRemoved = await deleteExpiredBackups(
+        drive,
+        folderId,
+        Number(retentionDaysOverride || settings.retention_days)
+      );
     } catch {
       retentionWarning = 'O backup foi enviado, mas a limpeza de retenção não pôde ser concluída.';
       await queryable.query(
