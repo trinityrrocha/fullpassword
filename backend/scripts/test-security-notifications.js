@@ -42,27 +42,42 @@ const run = async () => {
   const originalQuery = db.query;
   let queryCount = 0;
   let capturedSql = '';
-  db.query = async (sql) => {
+  const seenByUser = new Map();
+  const events = Array.from({ length: 12 }, (_, index) => ({
+    id: `event-${index}`,
+    action: index === 0 ? 'login_failed' : 'smtp_test_email_failed',
+    status: 'failed',
+    user_email: 'security.user@example.com',
+    ip_address: '192.0.2.55',
+    created_at: new Date(Date.now() - index * 1000).toISOString(),
+    metadata: {
+      password: 'SHOULD_NOT_LEAK',
+      token: 'SHOULD_NOT_LEAK',
+      recovery_code: 'SHOULD_NOT_LEAK',
+      hash: 'SHOULD_NOT_LEAK',
+      private_key: 'SHOULD_NOT_LEAK'
+    }
+  }));
+  db.query = async (sql, params = []) => {
     queryCount += 1;
-    capturedSql = sql;
-    return {
-      rows: Array.from({ length: 12 }, (_, index) => ({
-        id: `event-${index}`,
-        action: index === 0 ? 'login_failed' : 'smtp_test_email_failed',
-        status: 'failed',
-        user_email: 'security.user@example.com',
-        ip_address: '192.0.2.55',
-        created_at: new Date(Date.now() - index * 1000).toISOString(),
-        total_count: 12,
-        metadata: {
-          password: 'SHOULD_NOT_LEAK',
-          token: 'SHOULD_NOT_LEAK',
-          recovery_code: 'SHOULD_NOT_LEAK',
-          hash: 'SHOULD_NOT_LEAK',
-          private_key: 'SHOULD_NOT_LEAK'
-        }
-      }))
-    };
+    if (sql.includes('SELECT security_notifications_seen_at')) {
+      const seenAt = seenByUser.get(params[0]);
+      return { rows: seenAt ? [{ security_notifications_seen_at: seenAt }] : [] };
+    }
+    if (sql.includes('FROM system_audit_events')) {
+      capturedSql = sql;
+      const seenAt = new Date(params[2]).getTime();
+      const unreadCount = events.filter((event) => new Date(event.created_at).getTime() > seenAt).length;
+      return { rows: events.map((event) => ({ ...event, unread_count: unreadCount })) };
+    }
+    if (sql.includes('INSERT INTO user_notification_state')) {
+      const current = seenByUser.get(params[0]);
+      const proposed = new Date(params[1]);
+      const next = !current || proposed > new Date(current) ? proposed.toISOString() : current;
+      seenByUser.set(params[0], next);
+      return { rows: [{ security_notifications_seen_at: next }] };
+    }
+    throw new Error(`Unexpected query in notification test: ${sql}`);
   };
 
   try {
@@ -73,13 +88,22 @@ const run = async () => {
     assert.equal(deniedResponse.statusCode, 403);
     assert.equal(queryCount, 0);
 
+    const deniedMarkResponse = response();
+    await securityController.markSecurityNotificationsSeen({
+      user: { id: 'user-denied', role: 'admin', is_super_admin: false },
+      body: { seen_through: events[0].created_at }
+    }, deniedMarkResponse);
+    assert.equal(deniedMarkResponse.statusCode, 403);
+    assert.equal(queryCount, 0);
+
     const allowedResponse = response();
     await securityController.getSecurityNotifications({
-      user: { role: 'admin', is_super_admin: true }
+      user: { id: 'user-a', role: 'admin', is_super_admin: true }
     }, allowedResponse);
     assert.equal(allowedResponse.statusCode, 200);
     assert.equal(allowedResponse.body.items.length, 10);
     assert.equal(allowedResponse.body.unread_count, 12);
+    assert.equal(allowedResponse.body.last_seen_at, null);
     assert.equal(allowedResponse.body.items[0].id, 'event-0');
     assert.match(capturedSql, /ORDER BY created_at DESC\s+LIMIT 10/);
 
@@ -91,12 +115,59 @@ const run = async () => {
     assert.equal(serialized.includes('192.0.2.55'), false);
     assert.match(serialized, /s\*\*\*@e\*\*\*\.com/);
     assert.match(serialized, /192\.xxx\.xxx\.55/);
+
+    const invalidMarkResponse = response();
+    await securityController.markSecurityNotificationsSeen({
+      user: { id: 'user-a', role: 'admin', is_super_admin: true },
+      body: { seen_through: 'invalid' }
+    }, invalidMarkResponse);
+    assert.equal(invalidMarkResponse.statusCode, 400);
+
+    const markResponse = response();
+    await securityController.markSecurityNotificationsSeen({
+      user: { id: 'user-a', role: 'admin', is_super_admin: true },
+      body: { seen_through: events[0].created_at }
+    }, markResponse);
+    assert.equal(markResponse.statusCode, 200);
+    assert.equal(markResponse.body.unread_count, 0);
+
+    const seenResponse = response();
+    await securityController.getSecurityNotifications({
+      user: { id: 'user-a', role: 'admin', is_super_admin: true }
+    }, seenResponse);
+    assert.equal(seenResponse.body.unread_count, 0);
+    assert.equal(seenResponse.body.items.length, 10);
+
+    const otherUserResponse = response();
+    await securityController.getSecurityNotifications({
+      user: { id: 'user-b', role: 'admin', is_super_admin: true }
+    }, otherUserResponse);
+    assert.equal(otherUserResponse.body.unread_count, 12);
+    assert.equal(otherUserResponse.body.last_seen_at, null);
+
+    events.unshift({
+      ...events[0],
+      id: 'event-new',
+      created_at: new Date(new Date(events[0].created_at).getTime() + 1000).toISOString()
+    });
+    const newNotificationResponse = response();
+    await securityController.getSecurityNotifications({
+      user: { id: 'user-a', role: 'admin', is_super_admin: true }
+    }, newNotificationResponse);
+    assert.equal(newNotificationResponse.body.unread_count, 1);
+    assert.equal(newNotificationResponse.body.items[0].id, 'event-new');
   } finally {
     db.query = originalQuery;
   }
 
   const routes = read('backend/src/routes/systemRoutes.js');
+  const schema = read('backend/src/config/securitySchema.js');
+  const migration = read('database/migrations/12_create_user_notification_state.sql');
   assert.match(routes, /router\.use\(verifyToken\)[\s\S]*router\.get\('\/security-notifications'/);
+  assert.match(routes, /router\.post\('\/security-notifications\/mark-seen'/);
+  assert.match(schema, /CREATE TABLE IF NOT EXISTS user_notification_state/);
+  assert.match(migration, /user_id UUID PRIMARY KEY REFERENCES users\(id\) ON DELETE CASCADE/);
+  assert.match(migration, /security_notifications_seen_at TIMESTAMP WITH TIME ZONE NOT NULL/);
 };
 
 run()

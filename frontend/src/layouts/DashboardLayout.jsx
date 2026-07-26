@@ -29,10 +29,24 @@ export default function DashboardLayout() {
   });
 
   useEffect(() => {
-    if (!user?.is_super_admin) return;
-    api.get('/system/security-notifications')
-      .then((response) => setNotifications(response.data))
-      .catch(() => setNotifications({ unread_count: 0, items: [] }));
+    if (!user?.is_super_admin) return undefined;
+    let isMounted = true;
+    const refreshNotifications = () => {
+      api.get('/system/security-notifications')
+        .then((response) => {
+          if (isMounted) setNotifications(response.data);
+        })
+        .catch(() => {
+          if (isMounted) setNotifications({ unread_count: 0, items: [] });
+        });
+    };
+
+    refreshNotifications();
+    const refreshInterval = window.setInterval(refreshNotifications, 60000);
+    return () => {
+      isMounted = false;
+      window.clearInterval(refreshInterval);
+    };
   }, [user?.is_super_admin]);
 
   useEffect(() => {
@@ -65,6 +79,41 @@ export default function DashboardLayout() {
   const openNotification = (targetUrl) => {
     setIsNotificationsOpen(false);
     navigate(targetUrl);
+  };
+
+  const toggleNotifications = async () => {
+    if (isNotificationsOpen) {
+      setIsNotificationsOpen(false);
+      return;
+    }
+
+    setIsNotificationsOpen(true);
+    let response;
+    try {
+      response = await api.get('/system/security-notifications');
+    } catch {
+      return;
+    }
+
+    const nextNotifications = response.data || { unread_count: 0, items: [] };
+    setNotifications(nextNotifications);
+    const unreadCount = Number(nextNotifications.unread_count || 0);
+    const seenThrough = nextNotifications.items?.[0]?.created_at;
+    if (unreadCount <= 0 || !seenThrough) return;
+
+    setNotifications((current) => ({ ...current, unread_count: 0 }));
+    try {
+      const seenResponse = await api.post('/system/security-notifications/mark-seen', {
+        seen_through: seenThrough
+      });
+      setNotifications((current) => ({
+        ...current,
+        unread_count: Number(seenResponse.data?.unread_count || 0),
+        last_seen_at: seenResponse.data?.last_seen_at || seenThrough
+      }));
+    } catch {
+      setNotifications((current) => ({ ...current, unread_count: unreadCount }));
+    }
   };
 
   const handleLogout = async () => {
@@ -177,7 +226,7 @@ export default function DashboardLayout() {
             <SecurityNotificationsMenu
               notifications={notifications}
               isOpen={isNotificationsOpen}
-              onToggle={() => setIsNotificationsOpen((open) => !open)}
+              onToggle={toggleNotifications}
               onClose={closeNotifications}
               onNavigate={openNotification}
             />

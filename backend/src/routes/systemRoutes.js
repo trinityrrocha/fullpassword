@@ -105,6 +105,7 @@ router.get('/ip-rules', asyncRoute(securityController.listIpRules));
 router.patch('/ip-rules/:id/deactivate', asyncRoute(securityController.deactivateIpRule));
 router.post('/ip-rules/block-from-audit', asyncRoute(securityController.blockFromAudit));
 router.get('/security-notifications', asyncRoute(securityController.getSecurityNotifications));
+router.post('/security-notifications/mark-seen', asyncRoute(securityController.markSecurityNotificationsSeen));
 router.post('/update', systemController.updateSystem);
 router.get('/backup', systemController.rejectLegacyBackupDownload);
 router.post('/backup', systemController.downloadBackup);

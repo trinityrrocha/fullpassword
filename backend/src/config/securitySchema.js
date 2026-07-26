@@ -142,6 +142,13 @@ const ensureSecuritySchema = async () => {
     await client.query('CREATE INDEX IF NOT EXISTS idx_system_audit_events_created_at ON system_audit_events (created_at DESC)');
     await client.query('CREATE INDEX IF NOT EXISTS idx_system_audit_events_action_ip_created ON system_audit_events (action, ip_address, created_at DESC)');
     await client.query(`
+      CREATE TABLE IF NOT EXISTS user_notification_state (
+        user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+        security_notifications_seen_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT '1970-01-01 00:00:00+00',
+        updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    await client.query(`
       CREATE TABLE IF NOT EXISTS smtp_settings (
         id INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
         enabled BOOLEAN NOT NULL DEFAULT FALSE,

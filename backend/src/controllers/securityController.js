@@ -297,20 +297,54 @@ const blockFromAudit = async (req, res) => {
 
 const getSecurityNotifications = async (req, res) => {
   if (!requireSuperAdmin(req, res)) return;
+  const state = await db.query(
+    `SELECT security_notifications_seen_at
+     FROM user_notification_state
+     WHERE user_id = $1`,
+    [req.user.id]
+  );
+  const lastSeenAt = state.rows[0]?.security_notifications_seen_at || new Date(0).toISOString();
   const result = await db.query(
     `SELECT id, action, status, user_email, ip_address, created_at,
-            (COUNT(*) OVER())::integer AS total_count
+            (COUNT(*) FILTER (WHERE created_at > $3::timestamptz) OVER())::integer AS unread_count
      FROM system_audit_events
      WHERE created_at >= CURRENT_TIMESTAMP - INTERVAL '24 hours'
        AND (status = ANY($1::text[]) OR action = ANY($2::text[]))
      ORDER BY created_at DESC
      LIMIT 10`,
-    [NOTIFICATION_STATUSES, NOTIFICATION_ACTIONS]
+    [NOTIFICATION_STATUSES, NOTIFICATION_ACTIONS, lastSeenAt]
   );
   const rows = result.rows.slice(0, 10);
   return res.json({
-    unread_count: Number(rows[0]?.total_count || 0),
+    unread_count: Number(rows[0]?.unread_count || 0),
+    last_seen_at: state.rows[0]?.security_notifications_seen_at || null,
     items: rows.map(formatSecurityNotification)
+  });
+};
+
+const markSecurityNotificationsSeen = async (req, res) => {
+  if (!requireSuperAdmin(req, res)) return;
+  const requestedSeenThrough = new Date(req.body?.seen_through);
+  if (Number.isNaN(requestedSeenThrough.getTime())) {
+    return res.status(400).json({ error: 'Timestamp da notificação inválido.' });
+  }
+  const seenThrough = new Date(Math.min(requestedSeenThrough.getTime(), Date.now()));
+  const result = await db.query(
+    `INSERT INTO user_notification_state (
+       user_id, security_notifications_seen_at, updated_at
+     ) VALUES ($1, $2, CURRENT_TIMESTAMP)
+     ON CONFLICT (user_id) DO UPDATE
+     SET security_notifications_seen_at = GREATEST(
+           user_notification_state.security_notifications_seen_at,
+           EXCLUDED.security_notifications_seen_at
+         ),
+         updated_at = CURRENT_TIMESTAMP
+     RETURNING security_notifications_seen_at`,
+    [req.user.id, seenThrough.toISOString()]
+  );
+  return res.json({
+    unread_count: 0,
+    last_seen_at: result.rows[0].security_notifications_seen_at
   });
 };
 
@@ -324,5 +358,6 @@ module.exports = {
   listIpRules,
   deactivateIpRule,
   blockFromAudit,
-  getSecurityNotifications
+  getSecurityNotifications,
+  markSecurityNotificationsSeen
 };
