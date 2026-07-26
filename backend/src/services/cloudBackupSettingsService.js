@@ -55,6 +55,16 @@ const normalizeBackupFormat = (value) => {
   return normalized;
 };
 
+const isMaskedBackupPassphrase = (value) => (
+  typeof value === 'string' && /^\*+$/.test(value)
+);
+
+const hasBackupPassphraseReplacement = (value) => (
+  typeof value === 'string'
+  && value.length > 0
+  && !isMaskedBackupPassphrase(value)
+);
+
 const normalizeFailureEmailRecipients = (value) => {
   const values = Array.isArray(value)
     ? value
@@ -423,9 +433,18 @@ const updateSettings = async (input, userId, queryable = db) => {
       409
     );
   }
-  const passphrase = typeof input.backup_passphrase === 'string'
+  const submittedPassphrase = typeof input.backup_passphrase === 'string'
     ? input.backup_passphrase
     : '';
+  if (isMaskedBackupPassphrase(submittedPassphrase) && !current.encrypted_backup_passphrase) {
+    throw new CloudBackupSettingsError(
+      'CLOUD_BACKUP_PASSPHRASE_INVALID',
+      'Informe uma frase de criptografia válida.'
+    );
+  }
+  const passphrase = isMaskedBackupPassphrase(submittedPassphrase)
+    ? ''
+    : submittedPassphrase;
   if (passphrase && passphrase.length < 16) {
     throw new CloudBackupSettingsError(
       'CLOUD_BACKUP_PASSPHRASE_TOO_SHORT',
@@ -606,6 +625,8 @@ module.exports = {
   assertProvider,
   assertProviderSelection,
   normalizeBackupFormat,
+  isMaskedBackupPassphrase,
+  hasBackupPassphraseReplacement,
   normalizeFailureEmailRecipients,
   normalizeDays,
   normalizeTimes,

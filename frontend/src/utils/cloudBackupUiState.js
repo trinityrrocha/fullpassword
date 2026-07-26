@@ -1,3 +1,24 @@
+export const BACKUP_PASSPHRASE_MASK = '****************************';
+
+export const getCloudBackupPassphraseFieldValue = ({
+  hasBackupPassphrase,
+  isEditing,
+  value
+}) => (
+  hasBackupPassphrase && !isEditing
+    ? BACKUP_PASSPHRASE_MASK
+    : String(value || '')
+);
+
+export const withCloudBackupPassphrase = (payload, {
+  isEditing,
+  value
+}) => {
+  const nextPayload = { ...payload };
+  if (isEditing && value) nextPayload.backup_passphrase = value;
+  return nextPayload;
+};
+
 export const getCloudStatus = ({ busy, communication, providerStatus, configured }) => {
   if (busy === 'provider-test') return 'testing';
   if (!configured) return 'config_error';

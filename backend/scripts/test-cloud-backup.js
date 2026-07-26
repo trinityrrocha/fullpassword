@@ -24,6 +24,8 @@ const {
   updateSettings,
   normalizeFailureEmailRecipients,
   normalizeBackupFormat,
+  isMaskedBackupPassphrase,
+  hasBackupPassphraseReplacement,
   deleteExpiredRuns,
   listRuns
 } = require('../src/services/cloudBackupSettingsService');
@@ -168,6 +170,10 @@ const run = async () => {
     (error) => error.code === 'CLOUD_BACKUP_INVALID_FORMAT'
       && error.message === 'Formato de backup inválido.'
   );
+  assert.equal(isMaskedBackupPassphrase('****************************'), true);
+  assert.equal(isMaskedBackupPassphrase('real-passphrase-1234'), false);
+  assert.equal(hasBackupPassphraseReplacement('****************************'), false);
+  assert.equal(hasBackupPassphraseReplacement('real-passphrase-1234'), true);
   assert.throws(
     () => assertActiveProvider({ active_provider: 'none' }),
     (error) => error.code === 'CLOUD_BACKUP_PROVIDER_REQUIRED'
@@ -324,6 +330,56 @@ const run = async () => {
   assert.deepEqual(status.failure_email_recipients, ['admin@example.test']);
   assert.equal(status.failure_email_on_recovery, true);
   assert.equal(status.backup_format, 'v2');
+
+  const passphraseSettingsInput = {
+    enabled: false,
+    schedule_enabled: false,
+    schedule_days: [0],
+    schedule_times: ['02:00'],
+    retention_days: 30,
+    backup_format: 'v2',
+    failure_email_enabled: false,
+    failure_email_recipients: [],
+    failure_email_on_recovery: false
+  };
+  store.settings.encrypted_backup_passphrase = encryptConfigSecret('original-passphrase-1234');
+  const originalEncryptedPassphrase = store.settings.encrypted_backup_passphrase;
+  status = await updateSettings(passphraseSettingsInput, 'user-id', store);
+  assert.equal(store.settings.encrypted_backup_passphrase, originalEncryptedPassphrase);
+  status = await updateSettings({
+    ...passphraseSettingsInput,
+    backup_passphrase: ''
+  }, 'user-id', store);
+  assert.equal(store.settings.encrypted_backup_passphrase, originalEncryptedPassphrase);
+  status = await updateSettings({
+    ...passphraseSettingsInput,
+    backup_passphrase: '****************************'
+  }, 'user-id', store);
+  assert.equal(store.settings.encrypted_backup_passphrase, originalEncryptedPassphrase);
+  assert.equal(status.has_backup_passphrase, true);
+  assert.equal('backup_passphrase' in status, false);
+  assert.equal('encrypted_backup_passphrase' in status, false);
+
+  status = await updateSettings({
+    ...passphraseSettingsInput,
+    backup_passphrase: 'replacement-passphrase-5678'
+  }, 'user-id', store);
+  assert.notEqual(store.settings.encrypted_backup_passphrase, originalEncryptedPassphrase);
+  assert.equal(
+    decryptConfigSecret(store.settings.encrypted_backup_passphrase),
+    'replacement-passphrase-5678'
+  );
+  assert.equal(status.has_backup_passphrase, true);
+
+  const storeWithoutPassphrase = createStore();
+  await assert.rejects(
+    () => updateSettings({
+      ...passphraseSettingsInput,
+      backup_passphrase: '****************'
+    }, 'user-id', storeWithoutPassphrase),
+    (error) => error.code === 'CLOUD_BACKUP_PASSPHRASE_INVALID'
+      && error.message === 'Informe uma frase de criptografia válida.'
+  );
 
   await assert.rejects(
     () => updateSettings({

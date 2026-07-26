@@ -2,7 +2,12 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { getCloudStatus } from '../src/utils/cloudBackupUiState.js';
+import {
+  BACKUP_PASSPHRASE_MASK,
+  getCloudBackupPassphraseFieldValue,
+  getCloudStatus,
+  withCloudBackupPassphrase
+} from '../src/utils/cloudBackupUiState.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), 'utf8');
@@ -16,6 +21,34 @@ const combinedCloudUi = `${card}\n${modals}\n${googlePanel}`;
 assert.equal(getCloudStatus({ providerStatus: { last_test_status: 'degraded' }, configured: true }), 'degraded');
 assert.equal(getCloudStatus({ providerStatus: { last_test_status: 'success' }, configured: true }), 'online');
 assert.equal(getCloudStatus({ providerStatus: { last_test_status: 'failed' }, configured: true }), 'offline');
+assert.equal(getCloudBackupPassphraseFieldValue({
+  hasBackupPassphrase: false,
+  isEditing: false,
+  value: ''
+}), '');
+assert.equal(getCloudBackupPassphraseFieldValue({
+  hasBackupPassphrase: true,
+  isEditing: false,
+  value: ''
+}), BACKUP_PASSPHRASE_MASK);
+assert.equal(BACKUP_PASSPHRASE_MASK, '****************************');
+assert.equal(getCloudBackupPassphraseFieldValue({
+  hasBackupPassphrase: true,
+  isEditing: true,
+  value: 'new-passphrase-kept-in-memory'
+}), 'new-passphrase-kept-in-memory');
+assert.equal('backup_passphrase' in withCloudBackupPassphrase(
+  { enabled: true },
+  { isEditing: false, value: BACKUP_PASSPHRASE_MASK }
+), false);
+assert.equal('backup_passphrase' in withCloudBackupPassphrase(
+  { enabled: true },
+  { isEditing: true, value: '' }
+), false);
+assert.equal(withCloudBackupPassphrase(
+  { enabled: true },
+  { isEditing: true, value: 'replacement-passphrase-1234' }
+).backup_passphrase, 'replacement-passphrase-1234');
 
 assert.match(card, /title="Backup Nuvem"/);
 assert.match(card, /\['google_drive', 'Google Drive'\]/);
@@ -95,6 +128,14 @@ assert.match(card, />\s*Anterior/);
 assert.match(card, />\s*Próxima/);
 assert.match(card, /Página \{status\.recent_runs_pagination\.page\}/);
 assert.match(card, /Frase de criptografia/);
+assert.match(card, /backupPassphraseFieldValue/);
+assert.match(card, /readOnly=\{status\.has_backup_passphrase && !isEditingBackupPassphrase\}/);
+assert.match(card, />\s*Alterar frase\s*</);
+assert.match(card, />\s*Cancelar alteração\s*</);
+assert.match(card, /setIsEditingBackupPassphrase\(true\)/);
+assert.match(card, /setIsEditingBackupPassphrase\(false\)/);
+assert.match(card, /withCloudBackupPassphrase/);
+assert.doesNotMatch(card, /backup_passphrase: backupPassphrase/);
 assert.match(card, /Notificações por e-mail/);
 assert.match(card, /Configure o servidor de e-mail antes de ativar notificações/);
 assert.match(card, /failure_email_enabled/);

@@ -24,7 +24,11 @@ import {
 import useClearOnVaultLock from '../hooks/useClearOnVaultLock';
 import { formatDateTimeShort } from '../utils/formatDateTimeShort';
 import { safeLogError } from '../utils/safeLogger';
-import { getCloudStatus } from '../utils/cloudBackupUiState';
+import {
+  getCloudBackupPassphraseFieldValue,
+  getCloudStatus,
+  withCloudBackupPassphrase
+} from '../utils/cloudBackupUiState';
 
 const PROVIDERS = Object.freeze([
   ['google_drive', 'Google Drive'],
@@ -189,6 +193,7 @@ export default function CloudBackupCard({ isSuperAdmin }) {
   const [smtpStatus, setSmtpStatus] = useState({ enabled: false, loaded: false });
   const [providerForm, setProviderForm] = useState(createProviderForm('backblaze_b2'));
   const [backupPassphrase, setBackupPassphrase] = useState('');
+  const [isEditingBackupPassphrase, setIsEditingBackupPassphrase] = useState(false);
   const [failureEmailRecipients, setFailureEmailRecipients] = useState('');
   const [communication, setCommunication] = useState(null);
   const [editingCredentials, setEditingCredentials] = useState(false);
@@ -208,6 +213,7 @@ export default function CloudBackupCard({ isSuperAdmin }) {
 
   useClearOnVaultLock(() => {
     setBackupPassphrase('');
+    setIsEditingBackupPassphrase(false);
     setProviderForm((current) => ({ ...current, access_key: '', secret_key: '', username: '', password: '' }));
     setSecretVisible(false);
   });
@@ -222,6 +228,8 @@ export default function CloudBackupCard({ isSuperAdmin }) {
       ]);
       const data = cloudResponse.data;
       setStatus({ ...EMPTY_STATUS, ...data });
+      setBackupPassphrase('');
+      setIsEditingBackupPassphrase(false);
       setSmtpStatus({ ...smtpResponse.data, loaded: true });
       const recipients = data.failure_email_recipients?.length
         ? data.failure_email_recipients
@@ -338,19 +346,39 @@ export default function CloudBackupCard({ isSuperAdmin }) {
 
   const saveSettings = async (event) => {
     event.preventDefault();
-    const response = await perform('settings-save', () => api.put('/cloud-backup/settings', {
+    const payload = withCloudBackupPassphrase({
       enabled: status.active_provider === 'none' ? false : status.enabled,
       schedule_enabled: status.active_provider === 'none' ? false : status.schedule_enabled,
       schedule_days: status.schedule_days,
       schedule_times: status.schedule_times,
       retention_days: Number(status.retention_days),
       backup_format: status.backup_format || 'v2',
-      backup_passphrase: backupPassphrase,
       failure_email_enabled: status.failure_email_enabled,
       failure_email_recipients: failureEmailRecipients.split(',').map((email) => email.trim()).filter(Boolean),
       failure_email_on_recovery: status.failure_email_on_recovery
-    }), 'Configurações do Backup Nuvem salvas.');
-    if (response) setBackupPassphrase('');
+    }, {
+      isEditing: isEditingBackupPassphrase || !status.has_backup_passphrase,
+      value: backupPassphrase
+    });
+    const response = await perform(
+      'settings-save',
+      () => api.put('/cloud-backup/settings', payload),
+      'Configurações do Backup Nuvem salvas.'
+    );
+    if (response) {
+      setBackupPassphrase('');
+      setIsEditingBackupPassphrase(false);
+    }
+  };
+
+  const editBackupPassphrase = () => {
+    setBackupPassphrase('');
+    setIsEditingBackupPassphrase(true);
+  };
+
+  const cancelBackupPassphraseEdit = () => {
+    setBackupPassphrase('');
+    setIsEditingBackupPassphrase(false);
   };
 
   const removeProvider = () => {
@@ -419,6 +447,11 @@ export default function CloudBackupCard({ isSuperAdmin }) {
   const activeLabel = PROVIDERS.find(([provider]) => provider === status.active_provider)?.[1] || 'Nenhum';
   const cloudStatus = getCloudStatus({ busy, communication, providerStatus: activeProvider, configured: providerConfigured });
   const activationDisabled = !providerConfigured || (!status.has_backup_passphrase && backupPassphrase.length < 16);
+  const backupPassphraseFieldValue = getCloudBackupPassphraseFieldValue({
+    hasBackupPassphrase: status.has_backup_passphrase,
+    isEditing: isEditingBackupPassphrase,
+    value: backupPassphrase
+  });
   const regionOptions = status.active_provider === 'backblaze_b2' ? BACKBLAZE_REGIONS : MEGA_REGIONS;
   const safeTarget = {
     endpointHost: activeProvider?.public_config?.endpoint || activeProvider?.public_config?.host || null,
@@ -616,7 +649,31 @@ export default function CloudBackupCard({ isSuperAdmin }) {
                   {status.schedule_times.map((time, index) => <CompactField key={index} label={`Horário ${index + 1}`}><input type="time" value={time} onChange={(event) => setStatus((current) => ({ ...current, schedule_times: current.schedule_times.map((item, itemIndex) => itemIndex === index ? event.target.value : item) }))} className={fieldClass} /></CompactField>)}
                 </div>
                 <CompactField label="Frase de criptografia do backup" hint="Guarde essa frase em local seguro. Sem ela, o backup não poderá ser restaurado.">
-                  <input type="password" minLength={16} autoComplete="new-password" value={backupPassphrase} disabled={!providerConfigured || Boolean(busy)} onChange={(event) => setBackupPassphrase(event.target.value)} placeholder={status.has_backup_passphrase ? 'Deixe em branco para manter a frase salva' : 'Mínimo de 16 caracteres'} className={fieldClass} />
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                    <input
+                      type="password"
+                      minLength={16}
+                      autoComplete="new-password"
+                      value={backupPassphraseFieldValue}
+                      readOnly={status.has_backup_passphrase && !isEditingBackupPassphrase}
+                      disabled={!providerConfigured || Boolean(busy)}
+                      onChange={(event) => setBackupPassphrase(event.target.value)}
+                      placeholder="Informe a frase de criptografia"
+                      aria-label="Frase de criptografia do backup"
+                      className={`${fieldClass} sm:flex-1`}
+                    />
+                    {status.has_backup_passphrase && (
+                      isEditingBackupPassphrase ? (
+                        <button type="button" onClick={cancelBackupPassphraseEdit} disabled={Boolean(busy)} className="whitespace-nowrap rounded-md border border-slate-300 px-3 py-2 text-xs font-medium text-slate-700 disabled:opacity-50">
+                          Cancelar alteração
+                        </button>
+                      ) : (
+                        <button type="button" onClick={editBackupPassphrase} disabled={!providerConfigured || Boolean(busy)} className="whitespace-nowrap rounded-md border border-indigo-300 px-3 py-2 text-xs font-medium text-indigo-700 disabled:opacity-50">
+                          Alterar frase
+                        </button>
+                      )
+                    )}
+                  </div>
                 </CompactField>
                 <button type="button" onClick={() => { const formatLabel = String(status.backup_format || 'v2').toUpperCase(); if (window.confirm(`Executar agora um Backup ${formatLabel} criptografado no provedor ativo?`)) perform('backup-run', () => api.post('/cloud-backup/run'), `Backup ${formatLabel} enviado ao provedor ativo.`); }} disabled={!providerConfigured || !status.has_backup_passphrase || Boolean(busy)} className="inline-flex items-center rounded-md bg-green-600 px-3 py-2 text-xs font-medium text-white disabled:opacity-50"><UploadCloud className="mr-2 h-4 w-4" /> Executar backup agora</button>
               </fieldset>

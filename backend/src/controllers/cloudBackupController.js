@@ -5,6 +5,7 @@ const {
   CloudBackupSettingsError,
   assertProvider,
   assertProviderSelection,
+  hasBackupPassphraseReplacement,
   getStatus,
   getRawSettings,
   saveProviderConfiguration,
@@ -95,7 +96,7 @@ const saveSettings = async (req, res) => {
         failure_email_enabled: settings.failure_email_enabled,
         failure_email_recipient_count: settings.failure_email_recipients.length,
         failure_email_on_recovery: settings.failure_email_on_recovery,
-        backup_passphrase_changed: Boolean(req.body?.backup_passphrase)
+        backup_passphrase_changed: hasBackupPassphraseReplacement(req.body?.backup_passphrase)
       }
     });
     return res.json(settings);
