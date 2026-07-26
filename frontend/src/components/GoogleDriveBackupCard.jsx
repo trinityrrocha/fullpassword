@@ -5,6 +5,13 @@ import SettingsAccordionCard from './SettingsAccordionCard';
 import { safeLogError } from '../utils/safeLogger';
 import { formatDateTimeShort } from '../utils/formatDateTimeShort';
 import useClearOnVaultLock from '../hooks/useClearOnVaultLock';
+import {
+  GOOGLE_DRIVE_CONNECT_FIRST_MESSAGE,
+  GOOGLE_DRIVE_SERVER_SETUP_MESSAGE,
+  getGoogleDriveActionError,
+  normalizeGoogleDriveStatus,
+  validateGoogleDriveSettingsSave
+} from '../utils/googleDriveBackupUiState';
 
 const WEEKDAYS = [
   [1, 'Seg'],
@@ -61,7 +68,7 @@ export default function GoogleDriveBackupCard({ isSuperAdmin }) {
     setLoading(true);
     try {
       const { data } = await api.get('/integrations/google-drive/status');
-      setSettings({ ...INITIAL_STATUS, ...data });
+      setSettings(normalizeGoogleDriveStatus({ ...INITIAL_STATUS, ...data }));
     } catch (error) {
       setMessage({
         type: 'error',
@@ -87,23 +94,41 @@ export default function GoogleDriveBackupCard({ isSuperAdmin }) {
       setMessage({ type: 'success', text: successMessage });
       await loadStatus();
     } catch (error) {
-      safeLogError('Falha sanitizada na ação do Google Drive.', error);
+      const actionError = getGoogleDriveActionError(
+        error,
+        'Não foi possível concluir a operação com o Google Drive.'
+      );
+      if (!actionError.expected) {
+        safeLogError('Falha sanitizada na ação do Google Drive.', error);
+      }
       setMessage({
         type: 'error',
-        text: error.response?.data?.error || 'Não foi possível concluir a operação com o Google Drive.'
+        text: actionError.message
       });
     } finally {
       setAction('');
     }
   };
 
-  const connect = () => perform('connect', async () => {
-    const { data } = await api.get('/integrations/google-drive/oauth/start');
-    window.location.assign(data.authorization_url);
-  }, 'Redirecionando para o Google...');
+  const connect = () => {
+    if (!settings.server_configured) {
+      setMessage({ type: 'error', text: GOOGLE_DRIVE_SERVER_SETUP_MESSAGE });
+      return;
+    }
+    perform('connect', async () => {
+      const { data } = await api.get('/integrations/google-drive/oauth/start');
+      window.location.assign(data.authorization_url);
+    }, 'Redirecionando para o Google...');
+  };
 
   const save = (event) => {
     event.preventDefault();
+    const validationMessage = validateGoogleDriveSettingsSave(settings);
+    if (validationMessage) {
+      setSettings((value) => ({ ...value, enabled: false, schedule_enabled: false }));
+      setMessage({ type: 'error', text: validationMessage });
+      return;
+    }
     return perform('save', () => api.put('/integrations/google-drive/settings', {
       enabled: settings.enabled,
       schedule_enabled: settings.schedule_enabled,
@@ -151,6 +176,8 @@ export default function GoogleDriveBackupCard({ isSuperAdmin }) {
       : [...settings.schedule_days, day].sort();
     if (scheduleDays.length) setSettings((value) => ({ ...value, schedule_days: scheduleDays }));
   };
+  const canConfigure = settings.server_configured && settings.connected;
+  const controlsDisabled = !canConfigure || Boolean(action);
 
   return (
     <SettingsAccordionCard
@@ -165,7 +192,15 @@ export default function GoogleDriveBackupCard({ isSuperAdmin }) {
         <div className="space-y-5">
           {!settings.server_configured && (
             <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-              Integração Google Drive não configurada no servidor.
+              <p className="font-medium">Integração Google Drive não configurada no servidor.</p>
+              <p className="mt-1">
+                Configure GOOGLE_DRIVE_CLIENT_ID, GOOGLE_DRIVE_CLIENT_SECRET e GOOGLE_DRIVE_REDIRECT_URI no backend e reinicie o serviço.
+              </p>
+            </div>
+          )}
+          {settings.server_configured && !settings.connected && (
+            <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">
+              {GOOGLE_DRIVE_CONNECT_FIRST_MESSAGE}
             </div>
           )}
           {message.text && (
@@ -189,12 +224,19 @@ export default function GoogleDriveBackupCard({ isSuperAdmin }) {
             </div>
             <div className="flex flex-wrap gap-2">
               {!settings.connected ? (
-                <button type="button" onClick={connect} disabled={!settings.server_configured || Boolean(action)} className="inline-flex items-center rounded-md bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50">
-                  <Link className="mr-2 h-4 w-4" /> Conectar Google Drive
-                </button>
+                <div>
+                  <button type="button" onClick={connect} disabled={!settings.server_configured || Boolean(action)} title={!settings.server_configured ? 'Configure as credenciais OAuth no servidor para liberar a conexão.' : undefined} className="inline-flex items-center rounded-md bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50">
+                    <Link className="mr-2 h-4 w-4" /> Conectar Google Drive
+                  </button>
+                  {!settings.server_configured && (
+                    <p className="mt-1 max-w-xs text-xs text-slate-500">
+                      Configure as credenciais OAuth no servidor para liberar a conexão.
+                    </p>
+                  )}
+                </div>
               ) : (
                 <>
-                  <button type="button" onClick={test} disabled={Boolean(action)} className="inline-flex items-center rounded-md border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-50 disabled:opacity-50">
+                  <button type="button" onClick={test} disabled={!canConfigure || Boolean(action)} className="inline-flex items-center rounded-md border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50">
                     <RefreshCw className={`mr-2 h-4 w-4 ${action === 'test' ? 'animate-spin' : ''}`} /> Testar comunicação
                   </button>
                   <button type="button" onClick={disconnect} disabled={Boolean(action)} className="inline-flex items-center rounded-md border border-red-300 bg-white px-3 py-2 text-sm text-red-700 hover:bg-red-50 disabled:opacity-50">
@@ -208,11 +250,11 @@ export default function GoogleDriveBackupCard({ isSuperAdmin }) {
           <form onSubmit={save} className="space-y-4">
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <label className="flex items-center gap-2 text-sm text-slate-700">
-                <input type="checkbox" checked={settings.enabled} onChange={(event) => setSettings((value) => ({ ...value, enabled: event.target.checked }))} />
+                <input type="checkbox" checked={settings.enabled} disabled={!canConfigure} onChange={(event) => setSettings((value) => ({ ...value, enabled: event.target.checked }))} />
                 Backup Google Drive ativo
               </label>
               <label className="flex items-center gap-2 text-sm text-slate-700">
-                <input type="checkbox" checked={settings.schedule_enabled} onChange={(event) => setSettings((value) => ({ ...value, schedule_enabled: event.target.checked }))} />
+                <input type="checkbox" checked={settings.schedule_enabled} disabled={!canConfigure} onChange={(event) => setSettings((value) => ({ ...value, schedule_enabled: event.target.checked }))} />
                 Agendamento ativo
               </label>
               <label className="text-sm text-slate-700">
@@ -221,13 +263,13 @@ export default function GoogleDriveBackupCard({ isSuperAdmin }) {
               </label>
               <label className="text-sm text-slate-700">
                 <span className="mb-1 block font-medium">Retenção</span>
-                <select value={settings.retention_days} onChange={(event) => setSettings((value) => ({ ...value, retention_days: Number(event.target.value) }))} className={`${fieldClass} w-full`}>
+                <select value={settings.retention_days} disabled={controlsDisabled} onChange={(event) => setSettings((value) => ({ ...value, retention_days: Number(event.target.value) }))} className={`${fieldClass} w-full disabled:bg-slate-100 disabled:text-slate-500`}>
                   {[7, 15, 30, 60].map((days) => <option key={days} value={days}>{days} dias</option>)}
                 </select>
               </label>
             </div>
 
-            <fieldset>
+            <fieldset disabled={controlsDisabled} className={controlsDisabled ? 'opacity-60' : ''}>
               <legend className="mb-2 text-sm font-medium text-slate-700">Dias da semana</legend>
               <div className="flex flex-wrap gap-2">
                 <label className="flex items-center gap-1.5 rounded-md border border-slate-200 px-2.5 py-2 text-sm">
@@ -243,7 +285,7 @@ export default function GoogleDriveBackupCard({ isSuperAdmin }) {
               </div>
             </fieldset>
 
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+            <fieldset disabled={controlsDisabled} className={`grid grid-cols-1 gap-3 md:grid-cols-4 ${controlsDisabled ? 'opacity-60' : ''}`}>
               <label className="text-sm text-slate-700">
                 <span className="mb-1 block font-medium">Execuções por dia</span>
                 <select value={settings.schedule_times.length} onChange={(event) => setExecutionCount(Number(event.target.value))} className={`${fieldClass} w-full`}>
@@ -258,21 +300,21 @@ export default function GoogleDriveBackupCard({ isSuperAdmin }) {
                   <input type="time" value={time} onChange={(event) => setSettings((value) => ({ ...value, schedule_times: value.schedule_times.map((item, itemIndex) => itemIndex === index ? event.target.value : item) }))} className={`${fieldClass} w-full`} />
                 </label>
               ))}
-            </div>
+            </fieldset>
 
             <label className="block text-sm text-slate-700">
               <span className="mb-1 block font-medium">Frase de criptografia do Backup V2</span>
-              <input type="password" value={backupPassphrase} onChange={(event) => setBackupPassphrase(event.target.value)} minLength={16} autoComplete="new-password" placeholder={settings.has_backup_passphrase ? 'Deixe em branco para manter a frase salva' : 'Mínimo de 16 caracteres'} className={`${fieldClass} w-full`} />
+              <input type="password" value={backupPassphrase} disabled={controlsDisabled} onChange={(event) => setBackupPassphrase(event.target.value)} minLength={16} autoComplete="new-password" placeholder={settings.has_backup_passphrase ? 'Deixe em branco para manter a frase salva' : 'Mínimo de 16 caracteres'} className={`${fieldClass} w-full disabled:bg-slate-100 disabled:text-slate-500`} />
               <span className="mt-1 block text-xs text-slate-500">
                 Armazenada cifrada no servidor. Guarde uma cópia segura: sem ela o backup não pode ser restaurado.
               </span>
             </label>
 
             <div className="flex flex-wrap gap-2">
-              <button type="submit" disabled={Boolean(action)} className="inline-flex items-center rounded-md bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50">
+              <button type="submit" disabled={controlsDisabled} className="inline-flex items-center rounded-md bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50">
                 <Save className="mr-2 h-4 w-4" /> Salvar configuração
               </button>
-              <button type="button" onClick={backupNow} disabled={!settings.connected || !settings.has_backup_passphrase || Boolean(action)} className="inline-flex items-center rounded-md bg-green-600 px-3 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50">
+              <button type="button" onClick={backupNow} disabled={!canConfigure || !settings.has_backup_passphrase || Boolean(action)} className="inline-flex items-center rounded-md bg-green-600 px-3 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50">
                 <UploadCloud className="mr-2 h-4 w-4" /> Executar backup agora
               </button>
             </div>
