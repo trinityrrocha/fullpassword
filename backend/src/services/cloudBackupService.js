@@ -114,9 +114,12 @@ const markProviderTest = async (provider, status, message = null, queryable = db
   await queryable.query(
     `UPDATE cloud_backup_providers
      SET last_test_at = CURRENT_TIMESTAMP,
-         last_test_status = $2,
-         last_error_at = CASE WHEN $2 = 'success' THEN NULL ELSE CURRENT_TIMESTAMP END,
-         last_error_message = $3,
+         last_test_status = $2::varchar(32),
+         last_error_at = CASE
+           WHEN $2::varchar(32) = 'success'::varchar(32) THEN NULL
+           ELSE CURRENT_TIMESTAMP
+         END,
+         last_error_message = $3::text,
          updated_at = CURRENT_TIMESTAMP
      WHERE provider = $1`,
     [provider, status, message]

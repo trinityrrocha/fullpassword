@@ -32,6 +32,7 @@ const {
   ADAPTERS,
   beginRun,
   runCloudBackup,
+  testActiveProvider,
   sanitizeCloudError,
   assertActiveProvider
 } = require('../src/services/cloudBackupService');
@@ -487,6 +488,54 @@ const run = async () => {
   );
   assert.equal(sanitizeCloudError(new Error('plain-secret-key')).message.includes('plain-secret-key'), false);
 
+  let providerTestUpdate;
+  const failedProviderTestStore = {
+    query: async (text, params = []) => {
+      if (text.includes('SELECT * FROM cloud_backup_settings')) {
+        return { rows: [{ active_provider: 'ftp' }] };
+      }
+      if (text.includes('SELECT * FROM cloud_backup_providers WHERE provider')) {
+        return {
+          rows: [{
+            provider: 'ftp',
+            configured: true,
+            public_config: {
+              host: 'ftp.example.test',
+              port: 21,
+              remote_path: '/fullpassword/backups',
+              secure: true
+            },
+            encrypted_credentials: encryptConfigSecret(JSON.stringify({
+              username: 'ftp-user',
+              password: 'ftp-password'
+            }))
+          }]
+        };
+      }
+      if (text.includes('UPDATE cloud_backup_providers')) {
+        providerTestUpdate = { text, params };
+        return { rows: [] };
+      }
+      throw new Error(`Query de teste de provedor não simulada: ${text}`);
+    }
+  };
+  await assert.rejects(
+    () => testActiveProvider(failedProviderTestStore, {
+      ...ADAPTERS,
+      ftp: {
+        testConnection: async () => {
+          throw new Error('credencial-interna-que-nao-pode-vazar');
+        }
+      }
+    }),
+    (error) => error.code === 'CLOUD_BACKUP_TEST_FAILED'
+  );
+  assert.ok(providerTestUpdate);
+  assert.match(providerTestUpdate.text, /last_test_status = \$2::varchar\(32\)/);
+  assert.match(providerTestUpdate.text, /last_error_message = \$3::text/);
+  assert.deepEqual(providerTestUpdate.params.slice(0, 2), ['ftp', 'failed']);
+  assert.equal(providerTestUpdate.params[2].includes('credencial-interna-que-nao-pode-vazar'), false);
+
   const serverSource = read('src/server.js');
   const cloudSchedulerSource = read('src/services/cloudBackupScheduler.js');
   const legacySchedulerSource = read('src/services/googleDriveBackupScheduler.js');
@@ -494,6 +543,10 @@ const run = async () => {
   const controllerSource = read('src/controllers/cloudBackupController.js');
   const cloudRoutesSource = read('src/routes/cloudBackupRoutes.js');
   const limiterSource = read('src/middleware/writeRateLimiters.js');
+  const securitySchemaSource = read('src/config/securitySchema.js');
+  const cloudMigrationSource = read('../database/migrations/15_create_cloud_backup.sql');
+  const failureEmailMigrationSource = read('../database/migrations/16_add_cloud_backup_failure_email.sql');
+  const backupFormatMigrationSource = read('../database/migrations/17_add_cloud_backup_format.sql');
   assert.match(serverSource, /startCloudBackupScheduler\(\)/);
   assert.doesNotMatch(serverSource, /startGoogleDriveBackupScheduler\(\)/);
   assert.match(cloudSchedulerSource, /let schedulerStop = null/);
@@ -511,6 +564,20 @@ const run = async () => {
   assert.match(cloudRoutesSource, /router\.post\('\/run', cloudBackupOperationLimiter/);
   assert.match(limiterSource, /keyPrefix: 'cloud-backup-config'/);
   assert.match(limiterSource, /keyPrefix: 'system-update'/);
+  [
+    securitySchemaSource,
+    cloudMigrationSource
+  ].forEach((source) => {
+    assert.match(source, /active_provider IN \('none', 'google_drive', 'backblaze_b2', 'mega_s3', 'ftp'\)/);
+    assert.match(source, /CREATE TABLE IF NOT EXISTS cloud_backup_providers/);
+    assert.match(source, /CREATE TABLE IF NOT EXISTS cloud_backup_runs/);
+    assert.match(source, /backup_format VARCHAR\(8\) NOT NULL DEFAULT 'v2' CHECK \(backup_format IN \('v1', 'v2'\)\)/);
+  });
+  assert.match(failureEmailMigrationSource, /ADD COLUMN IF NOT EXISTS failure_email_enabled BOOLEAN NOT NULL DEFAULT FALSE/);
+  assert.match(failureEmailMigrationSource, /ADD COLUMN IF NOT EXISTS failure_email_recipients JSONB NOT NULL DEFAULT '\[\]'::jsonb/);
+  assert.match(backupFormatMigrationSource, /ADD COLUMN IF NOT EXISTS backup_format VARCHAR\(8\) NOT NULL DEFAULT 'v2'/);
+  assert.match(backupFormatMigrationSource, /DROP CONSTRAINT IF EXISTS cloud_backup_runs_backup_format_check/);
+  assert.match(backupFormatMigrationSource, /CHECK \(backup_format IN \('v1', 'v2'\)\)/);
 
   const database = require('../src/config/database');
   const originalQuery = database.query;

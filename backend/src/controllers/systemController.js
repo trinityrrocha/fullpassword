@@ -16,6 +16,9 @@ const {
 const { safeLogError } = require('../utils/safeLogger');
 
 const UPDATER_REQUEST_DIR = process.env.UPDATER_REQUEST_DIR || '/var/lib/fullpassword-updater/requests';
+const getConfiguredSuperAdminEmail = () => (
+  String(process.env.SUPER_ADMIN_EMAIL || '').trim().toLowerCase() || null
+);
 
 const denyNonSuperAdmin = (res) => {
   return res.status(403).json({
@@ -34,7 +37,7 @@ const getSystemPermissions = async (req, res) => {
     can_manage_system: isSuper,
     is_admin: isAdmin,
     is_super_admin: isSuper,
-    super_admin_email: SUPER_ADMIN_EMAIL,
+    super_admin_email: getConfiguredSuperAdminEmail(),
     role: req.user?.role || null,
     email: req.user?.email || null
   });
@@ -287,6 +290,7 @@ module.exports = {
   rejectLegacyBackupDownload,
   getAuditEvents,
   backupTables,
+  getConfiguredSuperAdminEmail,
   buildBackupPayload,
   encryptBackupPayload
 };
