@@ -320,6 +320,8 @@ const saveProviderConfiguration = async (provider, input, userId, queryable = db
      SET configured = TRUE,
          public_config = $2::jsonb,
          encrypted_credentials = $3,
+         last_test_at = NULL,
+         last_test_status = NULL,
          last_error_at = NULL,
          last_error_message = NULL,
          updated_by = $4,

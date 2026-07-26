@@ -48,7 +48,15 @@ const createStore = () => {
   const providers = Object.fromEntries(
     ['google_drive', 'backblaze_b2', 'mega_s3', 'ftp'].map((provider) => [
       provider,
-      { provider, enabled: false, configured: false, public_config: {}, encrypted_credentials: null }
+      {
+        provider,
+        enabled: false,
+        configured: false,
+        public_config: {},
+        encrypted_credentials: null,
+        last_test_at: '2026-07-26T12:00:00.000Z',
+        last_test_status: 'success'
+      }
     ])
   );
   const google = {
@@ -82,6 +90,8 @@ const createStore = () => {
         row.configured = true;
         row.public_config = JSON.parse(params[1]);
         row.encrypted_credentials = params[2];
+        row.last_test_at = null;
+        row.last_test_status = null;
         row.updated_by = params[3];
         return { rows: [] };
       }
@@ -191,6 +201,8 @@ const run = async () => {
   const encrypted = store.providers.backblaze_b2.encrypted_credentials;
   assert.match(encrypted, /^v1:/);
   assert.doesNotMatch(encrypted, /plain-access-key|plain-secret-key/);
+  assert.equal(store.providers.backblaze_b2.last_test_at, null);
+  assert.equal(store.providers.backblaze_b2.last_test_status, null);
   assert.deepEqual(JSON.parse(decryptConfigSecret(encrypted)), {
     accessKeyId: 'plain-access-key',
     secretAccessKey: 'plain-secret-key'
