@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   GOOGLE_DRIVE_CONNECT_FIRST_MESSAGE,
-  GOOGLE_DRIVE_SERVER_SETUP_MESSAGE,
+  GOOGLE_DRIVE_OAUTH_SETUP_MESSAGE,
   getGoogleDriveActionError,
   normalizeGoogleDriveStatus,
   validateGoogleDriveSettingsSave
@@ -22,9 +22,14 @@ assert.match(card, /\[7, 15, 30, 60\]/);
 assert.match(card, /\/integrations\/google-drive\/test/);
 assert.match(card, /\/integrations\/google-drive\/backup-now/);
 assert.match(card, /window\.confirm\('Desconectar/);
-assert.doesNotMatch(card, /refresh_token|access_token|client_secret/);
+assert.doesNotMatch(card, /refresh_token|access_token/);
 assert.match(card, /if \(!isSuperAdmin\) return null/);
-assert.match(card, /disabled=\{!settings\.server_configured \|\| Boolean\(action\)\}/);
+assert.match(card, /Configuração OAuth Google Drive/);
+assert.match(card, /\/integrations\/google-drive\/oauth-config/);
+assert.match(card, /api\.put\('\/integrations\/google-drive\/oauth-config'/);
+assert.match(card, /clientSecret: ''/);
+assert.doesNotMatch(card, /localStorage|sessionStorage/);
+assert.match(card, /disabled=\{!settings\.oauth_configured \|\| Boolean\(action\)\}/);
 assert.match(card, /disabled=\{!canConfigure\}/);
 assert.match(card, /validateGoogleDriveSettingsSave\(settings\)/);
 assert.match(settings, /isSuperAdmin=\{canManageSystem\}/);
@@ -32,16 +37,18 @@ assert.match(settings, /GoogleDriveBackupCard/);
 
 const serverMissing = normalizeGoogleDriveStatus({
   server_configured: false,
+  oauth_configured: false,
   connected: false,
   enabled: true,
   schedule_enabled: true
 });
 assert.equal(serverMissing.enabled, false);
 assert.equal(serverMissing.schedule_enabled, false);
-assert.equal(validateGoogleDriveSettingsSave(serverMissing), GOOGLE_DRIVE_SERVER_SETUP_MESSAGE);
+assert.equal(validateGoogleDriveSettingsSave(serverMissing), GOOGLE_DRIVE_OAUTH_SETUP_MESSAGE);
 
 const disconnected = normalizeGoogleDriveStatus({
   server_configured: true,
+  oauth_configured: true,
   connected: false,
   enabled: true,
   schedule_enabled: true
@@ -52,6 +59,7 @@ assert.equal(validateGoogleDriveSettingsSave(disconnected), GOOGLE_DRIVE_CONNECT
 
 const connected = normalizeGoogleDriveStatus({
   server_configured: true,
+  oauth_configured: true,
   connected: true,
   enabled: true,
   schedule_enabled: true

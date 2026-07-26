@@ -192,6 +192,11 @@ const ensureSecuritySchema = async () => {
       )
     `);
     await client.query('INSERT INTO google_drive_backup_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING');
+    await client.query('ALTER TABLE google_drive_backup_settings ADD COLUMN IF NOT EXISTS google_oauth_client_id TEXT');
+    await client.query('ALTER TABLE google_drive_backup_settings ADD COLUMN IF NOT EXISTS encrypted_google_oauth_client_secret TEXT');
+    await client.query('ALTER TABLE google_drive_backup_settings ADD COLUMN IF NOT EXISTS google_oauth_redirect_uri TEXT');
+    await client.query('ALTER TABLE google_drive_backup_settings ADD COLUMN IF NOT EXISTS google_oauth_configured_at TIMESTAMP WITH TIME ZONE');
+    await client.query('ALTER TABLE google_drive_backup_settings ADD COLUMN IF NOT EXISTS google_oauth_configured_by UUID REFERENCES users(id) ON DELETE SET NULL');
     await client.query(`
       CREATE TABLE IF NOT EXISTS google_drive_backup_runs (
         id BIGSERIAL PRIMARY KEY,

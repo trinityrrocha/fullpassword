@@ -9,8 +9,7 @@ const {
 } = require('./backupPackageV2Service');
 const {
   DRIVE_SCOPE,
-  isServerConfigured,
-  getRedirectUri,
+  resolveGoogleDriveOAuthConfig,
   getRawSettings,
   saveConnection,
   disconnect,
@@ -48,26 +47,28 @@ const sanitizeDriveError = (error, fallbackCode = 'GOOGLE_DRIVE_OPERATION_FAILED
   return new GoogleDriveBackupError(fallbackCode);
 };
 
-const assertServerConfigured = () => {
-  if (!isServerConfigured()) {
+const assertOAuthConfigured = (oauthConfig) => {
+  if (!oauthConfig?.configured) {
     throw new GoogleDriveBackupError(
-      'GOOGLE_DRIVE_SERVER_NOT_CONFIGURED',
-      'Integração Google Drive não configurada no servidor.',
+      'GOOGLE_DRIVE_OAUTH_NOT_CONFIGURED',
+      'Configure as credenciais OAuth do Google Drive antes de conectar a conta.',
       503
     );
   }
 };
 
-const createOAuthClient = () => {
-  assertServerConfigured();
+const createOAuthClient = (oauthConfig) => {
+  assertOAuthConfigured(oauthConfig);
   return new google.auth.OAuth2(
-    String(process.env.GOOGLE_DRIVE_CLIENT_ID).trim(),
-    String(process.env.GOOGLE_DRIVE_CLIENT_SECRET).trim(),
-    getRedirectUri()
+    oauthConfig.clientId,
+    oauthConfig.clientSecret,
+    oauthConfig.redirectUri
   );
 };
 
 const createAuthorizationUrl = async (userId, queryable = db) => {
+  const oauthConfig = await resolveGoogleDriveOAuthConfig(queryable);
+  assertOAuthConfigured(oauthConfig);
   const state = crypto.randomBytes(32).toString('base64url');
   await queryable.query(
     'DELETE FROM google_drive_oauth_states WHERE expires_at <= CURRENT_TIMESTAMP OR user_id = $1',
@@ -78,7 +79,7 @@ const createAuthorizationUrl = async (userId, queryable = db) => {
      VALUES ($1, $2, CURRENT_TIMESTAMP + ($3 * INTERVAL '1 minute'))`,
     [hashState(state), userId, OAUTH_STATE_TTL_MINUTES]
   );
-  const oauth2Client = createOAuthClient();
+  const oauth2Client = createOAuthClient(oauthConfig);
   return oauth2Client.generateAuthUrl({
     access_type: 'offline',
     prompt: 'consent',
@@ -127,7 +128,8 @@ const connectFromAuthorizationCode = async ({ code, state }, queryable = db) => 
   }
 
   try {
-    const oauth2Client = createOAuthClient();
+    const oauthConfig = await resolveGoogleDriveOAuthConfig(queryable);
+    const oauth2Client = createOAuthClient(oauthConfig);
     const { tokens } = await oauth2Client.getToken(code);
     if (!tokens?.refresh_token) {
       throw new GoogleDriveBackupError(
@@ -149,9 +151,10 @@ const connectFromAuthorizationCode = async ({ code, state }, queryable = db) => 
   }
 };
 
-const createDriveClient = (settings) => {
+const createDriveClient = async (settings, queryable = db) => {
   try {
-    const oauth2Client = createOAuthClient();
+    const oauthConfig = await resolveGoogleDriveOAuthConfig(queryable, settings);
+    const oauth2Client = createOAuthClient(oauthConfig);
     oauth2Client.setCredentials({ refresh_token: getRefreshToken(settings) });
     return { oauth2Client, drive: google.drive({ version: 'v3', auth: oauth2Client }) };
   } catch (error) {
@@ -224,7 +227,7 @@ const testConnection = async (queryable = db) => {
     throw new GoogleDriveBackupError('GOOGLE_DRIVE_NOT_CONNECTED', 'Conecte uma conta Google Drive primeiro.', 409);
   }
   try {
-    const { drive } = createDriveClient(settings);
+    const { drive } = await createDriveClient(settings, queryable);
     const folderId = await ensureBackupFolder(drive, settings, queryable);
     await drive.about.get({ fields: 'user(emailAddress)' });
     return { folder_id: folderId, folder_name: settings.drive_folder_name };
@@ -340,7 +343,7 @@ const runBackup = async ({ triggerType = 'manual', userId = null, scheduledSlot 
     const generated = await createBackupPackageV2({ generatedBy: userId, passphrase });
     workspace = generated.workspace;
     const stats = await fsp.stat(generated.packagePath);
-    const { drive } = createDriveClient(settings);
+    const { drive } = await createDriveClient(settings, queryable);
     const folderId = await ensureBackupFolder(drive, settings, queryable);
     const fileName = buildDriveBackupFilename();
     const uploaded = await uploadBackup(drive, folderId, generated.packagePath, fileName);
@@ -406,7 +409,8 @@ const revokeAndDisconnect = async (userId, queryable = db) => {
   if (settings.encrypted_refresh_token) {
     try {
       const token = getRefreshToken(settings);
-      const oauth2Client = createOAuthClient();
+      const oauthConfig = await resolveGoogleDriveOAuthConfig(queryable, settings);
+      const oauth2Client = createOAuthClient(oauthConfig);
       await oauth2Client.revokeToken(token);
     } catch {
       // A remoção local é obrigatória; revogação remota é best-effort.

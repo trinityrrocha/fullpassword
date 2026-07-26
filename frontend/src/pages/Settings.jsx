@@ -60,7 +60,10 @@ const AUDIT_ACTION_OPTIONS = [
   ['google_drive_backup_succeeded', 'Backup Google Drive bem-sucedido'],
   ['google_drive_backup_failed', 'Falha no backup Google Drive'],
   ['google_drive_backup_retention_cleaned', 'Retenção Google Drive executada'],
-  ['google_drive_backup_settings_updated', 'Configuração Google Drive alterada']
+  ['google_drive_backup_settings_updated', 'Configuração Google Drive alterada'],
+  ['google_drive_oauth_configured', 'OAuth Google Drive configurado'],
+  ['google_drive_oauth_config_updated', 'OAuth Google Drive atualizado'],
+  ['google_drive_oauth_config_removed', 'OAuth Google Drive removido']
 ];
 
 const AUDIT_ACTION_LABELS = Object.fromEntries(AUDIT_ACTION_OPTIONS.filter(([value]) => value));

@@ -11,6 +11,9 @@ router.get('/google-drive/oauth/callback', asyncRoute(googleDriveBackupControlle
 
 router.use(verifyToken);
 router.get('/google-drive/status', asyncRoute(googleDriveBackupController.getStatus));
+router.get('/google-drive/oauth-config', asyncRoute(googleDriveBackupController.getOAuthConfig));
+router.put('/google-drive/oauth-config', asyncRoute(googleDriveBackupController.updateOAuthConfig));
+router.delete('/google-drive/oauth-config', asyncRoute(googleDriveBackupController.deleteOAuthConfig));
 router.get('/google-drive/oauth/start', asyncRoute(googleDriveBackupController.startOAuth));
 router.put('/google-drive/settings', asyncRoute(googleDriveBackupController.saveSettings));
 router.post('/google-drive/disconnect', asyncRoute(googleDriveBackupController.disconnect));

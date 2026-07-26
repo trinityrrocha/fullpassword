@@ -7,7 +7,7 @@ import { formatDateTimeShort } from '../utils/formatDateTimeShort';
 import useClearOnVaultLock from '../hooks/useClearOnVaultLock';
 import {
   GOOGLE_DRIVE_CONNECT_FIRST_MESSAGE,
-  GOOGLE_DRIVE_SERVER_SETUP_MESSAGE,
+  GOOGLE_DRIVE_OAUTH_SETUP_MESSAGE,
   getGoogleDriveActionError,
   normalizeGoogleDriveStatus,
   validateGoogleDriveSettingsSave
@@ -27,6 +27,8 @@ const INITIAL_STATUS = {
   enabled: false,
   connected: false,
   server_configured: false,
+  oauth_configured: false,
+  oauth_config_source: null,
   google_email: null,
   drive_folder_name: 'FullPassword Backups',
   backup_format: 'v2',
@@ -48,6 +50,14 @@ const runStatusLabel = {
 
 export default function GoogleDriveBackupCard({ isSuperAdmin }) {
   const [settings, setSettings] = useState(INITIAL_STATUS);
+  const [oauthConfig, setOauthConfig] = useState({
+    configured: false,
+    source: null,
+    client_id_masked: null,
+    redirect_uri: ''
+  });
+  const [oauthForm, setOauthForm] = useState({ clientId: '', clientSecret: '', redirectUri: '' });
+  const [editingOAuth, setEditingOAuth] = useState(false);
   const [backupPassphrase, setBackupPassphrase] = useState('');
   const [loading, setLoading] = useState(true);
   const [action, setAction] = useState('');
@@ -61,14 +71,25 @@ export default function GoogleDriveBackupCard({ isSuperAdmin }) {
 
   useClearOnVaultLock(() => {
     setBackupPassphrase('');
+    setOauthForm((value) => ({ ...value, clientSecret: '' }));
   });
 
   const loadStatus = useCallback(async () => {
     if (!isSuperAdmin) return;
     setLoading(true);
     try {
-      const { data } = await api.get('/integrations/google-drive/status');
-      setSettings(normalizeGoogleDriveStatus({ ...INITIAL_STATUS, ...data }));
+      const [{ data: status }, { data: config }] = await Promise.all([
+        api.get('/integrations/google-drive/status'),
+        api.get('/integrations/google-drive/oauth-config')
+      ]);
+      const normalized = normalizeGoogleDriveStatus({ ...INITIAL_STATUS, ...status });
+      setSettings(normalized);
+      setOauthConfig(config);
+      setOauthForm({
+        clientId: '',
+        clientSecret: '',
+        redirectUri: config.redirect_uri || normalized.redirect_uri || ''
+      });
     } catch (error) {
       setMessage({
         type: 'error',
@@ -93,6 +114,7 @@ export default function GoogleDriveBackupCard({ isSuperAdmin }) {
       await operation();
       setMessage({ type: 'success', text: successMessage });
       await loadStatus();
+      return true;
     } catch (error) {
       const actionError = getGoogleDriveActionError(
         error,
@@ -105,20 +127,58 @@ export default function GoogleDriveBackupCard({ isSuperAdmin }) {
         type: 'error',
         text: actionError.message
       });
+      return false;
     } finally {
       setAction('');
     }
   };
 
   const connect = () => {
-    if (!settings.server_configured) {
-      setMessage({ type: 'error', text: GOOGLE_DRIVE_SERVER_SETUP_MESSAGE });
+    if (!settings.oauth_configured) {
+      setMessage({ type: 'error', text: GOOGLE_DRIVE_OAUTH_SETUP_MESSAGE });
       return;
     }
     perform('connect', async () => {
       const { data } = await api.get('/integrations/google-drive/oauth/start');
       window.location.assign(data.authorization_url);
     }, 'Redirecionando para o Google...');
+  };
+
+  const saveOAuthConfig = (event) => {
+    event.preventDefault();
+    if (!oauthForm.clientId.trim() || !oauthForm.clientSecret || !oauthForm.redirectUri.trim()) {
+      setMessage({ type: 'error', text: 'Preencha Client ID, Client Secret e Redirect URI.' });
+      return;
+    }
+    return perform('oauth-save', () => api.put('/integrations/google-drive/oauth-config', {
+      client_id: oauthForm.clientId.trim(),
+      client_secret: oauthForm.clientSecret,
+      redirect_uri: oauthForm.redirectUri.trim()
+    }), 'Configuração OAuth salva com segurança.').then((success) => {
+      if (success) {
+        setOauthForm((value) => ({ ...value, clientId: '', clientSecret: '' }));
+        setEditingOAuth(false);
+      }
+    });
+  };
+
+  const clearOAuthForm = () => {
+    setOauthForm({
+      clientId: '',
+      clientSecret: '',
+      redirectUri: oauthConfig.redirect_uri || settings.redirect_uri || ''
+    });
+  };
+
+  const removeOAuthConfig = () => {
+    if (!window.confirm('Remover a configuração OAuth salva? A conta Google precisa estar desconectada.')) return;
+    perform(
+      'oauth-remove',
+      () => api.delete('/integrations/google-drive/oauth-config'),
+      'Configuração OAuth salva removida.'
+    ).then((success) => {
+      if (success) setEditingOAuth(false);
+    });
   };
 
   const save = (event) => {
@@ -136,7 +196,9 @@ export default function GoogleDriveBackupCard({ isSuperAdmin }) {
       schedule_times: settings.schedule_times,
       retention_days: Number(settings.retention_days),
       backup_passphrase: backupPassphrase
-    }), 'Configuração do backup Google Drive salva.').then(() => setBackupPassphrase(''));
+    }), 'Configuração do backup Google Drive salva.').then((success) => {
+      if (success) setBackupPassphrase('');
+    });
   };
 
   const test = () => perform(
@@ -176,7 +238,7 @@ export default function GoogleDriveBackupCard({ isSuperAdmin }) {
       : [...settings.schedule_days, day].sort();
     if (scheduleDays.length) setSettings((value) => ({ ...value, schedule_days: scheduleDays }));
   };
-  const canConfigure = settings.server_configured && settings.connected;
+  const canConfigure = settings.oauth_configured && settings.connected;
   const controlsDisabled = !canConfigure || Boolean(action);
 
   return (
@@ -190,17 +252,89 @@ export default function GoogleDriveBackupCard({ isSuperAdmin }) {
         <div className="text-sm text-slate-500">Carregando integração Google Drive...</div>
       ) : (
         <div className="space-y-5">
-          {!settings.server_configured && (
-            <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-              <p className="font-medium">Integração Google Drive não configurada no servidor.</p>
-              <p className="mt-1">
-                Configure GOOGLE_DRIVE_CLIENT_ID, GOOGLE_DRIVE_CLIENT_SECRET e GOOGLE_DRIVE_REDIRECT_URI no backend e reinicie o serviço.
-              </p>
-            </div>
+          {(!oauthConfig.configured || editingOAuth) && !settings.connected && (
+            <form onSubmit={saveOAuthConfig} className="space-y-4 rounded-md border border-indigo-200 bg-indigo-50 p-4">
+              <div>
+                <h3 className="text-sm font-semibold text-slate-900">Configuração OAuth Google Drive</h3>
+                <p className="mt-1 text-sm text-slate-600">
+                  Antes de conectar uma conta, crie no Google Cloud Console um OAuth Client do tipo Web Application
+                  e cadastre a Redirect URI exibida abaixo.
+                </p>
+              </div>
+              <label className="block text-sm text-slate-700">
+                <span className="mb-1 block font-medium">Client ID</span>
+                <input
+                  type="text"
+                  value={oauthForm.clientId}
+                  onChange={(event) => setOauthForm((value) => ({ ...value, clientId: event.target.value }))}
+                  autoComplete="off"
+                  maxLength={512}
+                  placeholder="Client ID do OAuth Client"
+                  className={`${fieldClass} w-full`}
+                />
+              </label>
+              <label className="block text-sm text-slate-700">
+                <span className="mb-1 block font-medium">Client Secret</span>
+                <input
+                  type="password"
+                  value={oauthForm.clientSecret}
+                  onChange={(event) => setOauthForm((value) => ({ ...value, clientSecret: event.target.value }))}
+                  autoComplete="new-password"
+                  maxLength={1024}
+                  placeholder="Client Secret do OAuth Client"
+                  className={`${fieldClass} w-full`}
+                />
+                <span className="mt-1 block text-xs text-slate-500">
+                  O Client Secret será criptografado no banco e nunca será exibido novamente.
+                </span>
+              </label>
+              <label className="block text-sm text-slate-700">
+                <span className="mb-1 block font-medium">Redirect URI para cadastrar no Google</span>
+                <input
+                  type="url"
+                  value={oauthForm.redirectUri}
+                  onChange={(event) => setOauthForm((value) => ({ ...value, redirectUri: event.target.value }))}
+                  autoComplete="off"
+                  placeholder="https://seu-dominio/api/integrations/google-drive/oauth/callback"
+                  className={`${fieldClass} w-full font-mono text-xs`}
+                />
+              </label>
+              <div className="flex flex-wrap gap-2">
+                <button type="submit" disabled={Boolean(action)} className="inline-flex items-center rounded-md bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50">
+                  <Save className="mr-2 h-4 w-4" /> Salvar configuração OAuth
+                </button>
+                <button type="button" onClick={clearOAuthForm} disabled={Boolean(action)} className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50">
+                  Limpar campos
+                </button>
+                {editingOAuth && (
+                  <button type="button" onClick={() => { setEditingOAuth(false); clearOAuthForm(); }} disabled={Boolean(action)} className="rounded-md px-3 py-2 text-sm text-slate-600 hover:bg-white/70 disabled:opacity-50">
+                    Cancelar
+                  </button>
+                )}
+              </div>
+            </form>
           )}
-          {settings.server_configured && !settings.connected && (
-            <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">
-              {GOOGLE_DRIVE_CONNECT_FIRST_MESSAGE}
+          {oauthConfig.configured && !settings.connected && !editingOAuth && (
+            <div className="space-y-3 rounded-md border border-green-200 bg-green-50 p-4 text-sm text-green-800">
+              <div>
+                <p className="font-medium">OAuth Google Drive configurado.</p>
+                <p className="mt-1">{GOOGLE_DRIVE_CONNECT_FIRST_MESSAGE}</p>
+                <p className="mt-2 text-xs text-green-700">
+                  Origem: {oauthConfig.source === 'database' ? 'configuração salva no sistema' : 'variáveis do servidor'}
+                  {oauthConfig.client_id_masked ? ` · Client ID: ${oauthConfig.client_id_masked}` : ''}
+                </p>
+                <p className="mt-1 break-all font-mono text-xs text-green-700">{oauthConfig.redirect_uri}</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button type="button" onClick={() => setEditingOAuth(true)} className="rounded-md border border-green-300 bg-white px-3 py-2 text-sm text-green-800 hover:bg-green-100">
+                  Editar configuração OAuth
+                </button>
+                {oauthConfig.source === 'database' && (
+                  <button type="button" onClick={removeOAuthConfig} disabled={Boolean(action)} className="rounded-md border border-red-300 bg-white px-3 py-2 text-sm text-red-700 hover:bg-red-50 disabled:opacity-50">
+                    Remover configuração OAuth
+                  </button>
+                )}
+              </div>
             </div>
           )}
           {message.text && (
@@ -225,12 +359,12 @@ export default function GoogleDriveBackupCard({ isSuperAdmin }) {
             <div className="flex flex-wrap gap-2">
               {!settings.connected ? (
                 <div>
-                  <button type="button" onClick={connect} disabled={!settings.server_configured || Boolean(action)} title={!settings.server_configured ? 'Configure as credenciais OAuth no servidor para liberar a conexão.' : undefined} className="inline-flex items-center rounded-md bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50">
+                  <button type="button" onClick={connect} disabled={!settings.oauth_configured || Boolean(action)} title={!settings.oauth_configured ? GOOGLE_DRIVE_OAUTH_SETUP_MESSAGE : undefined} className="inline-flex items-center rounded-md bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50">
                     <Link className="mr-2 h-4 w-4" /> Conectar Google Drive
                   </button>
-                  {!settings.server_configured && (
+                  {!settings.oauth_configured && (
                     <p className="mt-1 max-w-xs text-xs text-slate-500">
-                      Configure as credenciais OAuth no servidor para liberar a conexão.
+                      Salve as credenciais OAuth acima para liberar a conexão.
                     </p>
                   )}
                 </div>

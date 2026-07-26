@@ -190,7 +190,7 @@ CONFIG_ENCRYPTION_KEY=$CONFIG_ENCRYPTION_KEY
 SUPER_ADMIN_EMAIL=$SUPER_ADMIN_EMAIL
 APP_ORIGIN=https://$DOMAIN
 
-# Google Drive Backup (preencher após criar o OAuth Client no Google Cloud)
+# Google Drive Backup (fallback opcional; configuração principal disponível pela UI)
 GOOGLE_DRIVE_CLIENT_ID=
 GOOGLE_DRIVE_CLIENT_SECRET=
 GOOGLE_DRIVE_REDIRECT_URI=https://$DOMAIN/api/integrations/google-drive/oauth/callback

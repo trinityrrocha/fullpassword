@@ -44,20 +44,24 @@ const normalizeTimes = (value) => {
   return times;
 };
 
-const isServerConfigured = () => Boolean(
-  String(process.env.GOOGLE_DRIVE_CLIENT_ID || '').trim()
-  && String(process.env.GOOGLE_DRIVE_CLIENT_SECRET || '').trim()
-  && (
-    String(process.env.GOOGLE_DRIVE_REDIRECT_URI || '').trim()
-    || String(process.env.APP_ORIGIN || '').trim()
-  )
-);
-
-const getRedirectUri = () => {
+const getEnvironmentRedirectUri = () => {
   const explicit = String(process.env.GOOGLE_DRIVE_REDIRECT_URI || '').trim();
   if (explicit) return explicit;
   const origin = String(process.env.APP_ORIGIN || '').trim().replace(/\/+$/, '');
   return origin ? `${origin}/api/integrations/google-drive/oauth/callback` : '';
+};
+
+const getEnvironmentOAuthConfig = () => {
+  const clientId = String(process.env.GOOGLE_DRIVE_CLIENT_ID || '').trim();
+  const clientSecret = String(process.env.GOOGLE_DRIVE_CLIENT_SECRET || '').trim();
+  const redirectUri = getEnvironmentRedirectUri();
+  return {
+    configured: Boolean(clientId && clientSecret && redirectUri),
+    source: clientId && clientSecret && redirectUri ? 'env' : null,
+    clientId,
+    clientSecret,
+    redirectUri
+  };
 };
 
 const getRawSettings = async (queryable = db) => {
@@ -71,7 +75,53 @@ const getRawSettings = async (queryable = db) => {
   return inserted.rows[0];
 };
 
-const sanitizeSettings = (settings) => ({
+const resolveGoogleDriveOAuthConfig = async (queryable = db, providedSettings = null) => {
+  const settings = providedSettings || await getRawSettings(queryable);
+  const clientId = String(settings?.google_oauth_client_id || '').trim();
+  const encryptedClientSecret = String(settings?.encrypted_google_oauth_client_secret || '').trim();
+  const redirectUri = String(settings?.google_oauth_redirect_uri || '').trim();
+
+  if (clientId && encryptedClientSecret && redirectUri) {
+    return {
+      configured: true,
+      source: 'database',
+      clientId,
+      clientSecret: decryptConfigSecret(encryptedClientSecret),
+      redirectUri,
+      configuredAt: settings.google_oauth_configured_at || null,
+      configuredBy: settings.google_oauth_configured_by || null
+    };
+  }
+
+  const environment = getEnvironmentOAuthConfig();
+  return {
+    ...environment,
+    configuredAt: null,
+    configuredBy: null
+  };
+};
+
+const maskClientId = (value) => {
+  const clientId = String(value || '').trim();
+  if (!clientId) return null;
+  if (clientId.length <= 16) return `${clientId.slice(0, 4)}...`;
+  return `${clientId.slice(0, 8)}...${clientId.slice(-24)}`;
+};
+
+const sanitizeOAuthConfig = (config) => ({
+  configured: config?.configured === true,
+  source: config?.source || null,
+  client_id_masked: maskClientId(config?.clientId),
+  redirect_uri: config?.redirectUri || getEnvironmentRedirectUri() || null,
+  configured_at: config?.configuredAt || null,
+  configured_by: config?.configuredBy || null
+});
+
+const getOAuthConfigStatus = async (queryable = db) => (
+  sanitizeOAuthConfig(await resolveGoogleDriveOAuthConfig(queryable))
+);
+
+const sanitizeSettings = (settings, oauthConfig = getEnvironmentOAuthConfig()) => ({
   enabled: settings?.enabled === true,
   connected: settings?.connected === true && Boolean(settings?.encrypted_refresh_token),
   google_email: settings?.google_email || null,
@@ -89,11 +139,111 @@ const sanitizeSettings = (settings) => ({
   last_success_at: settings?.last_success_at || null,
   last_error_at: settings?.last_error_at || null,
   last_error_message: settings?.last_error_message || null,
-  server_configured: isServerConfigured(),
-  redirect_uri: getRedirectUri() || null
+  server_configured: oauthConfig?.configured === true,
+  oauth_configured: oauthConfig?.configured === true,
+  oauth_config_source: oauthConfig?.source || null,
+  redirect_uri: oauthConfig?.redirectUri || getEnvironmentRedirectUri() || null
 });
 
-const getSettings = async (queryable = db) => sanitizeSettings(await getRawSettings(queryable));
+const getSettings = async (queryable = db) => {
+  const settings = await getRawSettings(queryable);
+  const oauthConfig = await resolveGoogleDriveOAuthConfig(queryable, settings);
+  return sanitizeSettings(settings, oauthConfig);
+};
+
+const validateOAuthRedirectUri = (value) => {
+  const redirectUri = String(value || '').trim();
+  let parsed;
+  try {
+    parsed = new URL(redirectUri);
+  } catch {
+    throw new GoogleDriveSettingsError(
+      'GOOGLE_DRIVE_INVALID_REDIRECT_URI',
+      'Informe uma Redirect URI válida.'
+    );
+  }
+  const expectedPath = '/api/integrations/google-drive/oauth/callback';
+  const localDevelopment = ['development', 'test'].includes(String(process.env.NODE_ENV || '').toLowerCase())
+    && ['localhost', '127.0.0.1', '::1'].includes(parsed.hostname);
+  if (
+    (parsed.protocol !== 'https:' && !(localDevelopment && parsed.protocol === 'http:'))
+    || parsed.pathname !== expectedPath
+    || parsed.username
+    || parsed.password
+    || parsed.search
+    || parsed.hash
+  ) {
+    throw new GoogleDriveSettingsError(
+      'GOOGLE_DRIVE_INVALID_REDIRECT_URI',
+      `A Redirect URI deve usar HTTPS e terminar com ${expectedPath}.`
+    );
+  }
+  return parsed.toString();
+};
+
+const saveOAuthConfig = async (input, userId, queryable = db) => {
+  const clientId = String(input?.client_id || '').trim();
+  const clientSecret = String(input?.client_secret || '');
+  if (!clientId || clientId.length > 512 || /\s/.test(clientId)) {
+    throw new GoogleDriveSettingsError(
+      'GOOGLE_DRIVE_INVALID_CLIENT_ID',
+      'Informe um Client ID OAuth válido.'
+    );
+  }
+  if (!clientSecret || clientSecret.length > 1024) {
+    throw new GoogleDriveSettingsError(
+      'GOOGLE_DRIVE_INVALID_CLIENT_SECRET',
+      'Informe o Client Secret OAuth.'
+    );
+  }
+  const redirectUri = validateOAuthRedirectUri(input?.redirect_uri);
+  const current = await getRawSettings(queryable);
+  const wasConfigured = Boolean(
+    current.google_oauth_client_id
+    && current.encrypted_google_oauth_client_secret
+    && current.google_oauth_redirect_uri
+  );
+  const encryptedClientSecret = encryptConfigSecret(clientSecret);
+  await queryable.query(
+    `UPDATE google_drive_backup_settings
+     SET google_oauth_client_id = $1,
+         encrypted_google_oauth_client_secret = $2,
+         google_oauth_redirect_uri = $3,
+         google_oauth_configured_at = CURRENT_TIMESTAMP,
+         google_oauth_configured_by = $4,
+         updated_at = CURRENT_TIMESTAMP
+     WHERE id = 1`,
+    [clientId, encryptedClientSecret, redirectUri, userId]
+  );
+  return {
+    status: await getOAuthConfigStatus(queryable),
+    wasConfigured
+  };
+};
+
+const removeOAuthConfig = async (queryable = db) => {
+  const current = await getRawSettings(queryable);
+  if (current.connected === true || current.encrypted_refresh_token) {
+    throw new GoogleDriveSettingsError(
+      'GOOGLE_DRIVE_OAUTH_CONFIG_IN_USE',
+      'Desconecte a conta Google Drive antes de remover a configuração OAuth.',
+      409
+    );
+  }
+  await queryable.query(
+    `UPDATE google_drive_backup_settings
+     SET google_oauth_client_id = NULL,
+         encrypted_google_oauth_client_secret = NULL,
+         google_oauth_redirect_uri = NULL,
+         google_oauth_configured_at = NULL,
+         google_oauth_configured_by = NULL,
+         enabled = FALSE,
+         schedule_enabled = FALSE,
+         updated_at = CURRENT_TIMESTAMP
+     WHERE id = 1`
+  );
+  return getOAuthConfigStatus(queryable);
+};
 
 const updateSettings = async (input, userId, queryable = db) => {
   const current = await getRawSettings(queryable);
@@ -136,7 +286,7 @@ const updateSettings = async (input, userId, queryable = db) => {
     );
   }
 
-  const result = await queryable.query(
+  await queryable.query(
     `UPDATE google_drive_backup_settings
      SET enabled = $1,
          schedule_enabled = $2,
@@ -147,7 +297,7 @@ const updateSettings = async (input, userId, queryable = db) => {
          updated_by = $7,
          updated_at = CURRENT_TIMESTAMP
      WHERE id = 1
-     RETURNING *`,
+     RETURNING id`,
     [
       enabled,
       scheduleEnabled,
@@ -158,12 +308,12 @@ const updateSettings = async (input, userId, queryable = db) => {
       userId
     ]
   );
-  return sanitizeSettings(result.rows[0]);
+  return getSettings(queryable);
 };
 
 const saveConnection = async ({ refreshToken, googleEmail }, userId, queryable = db) => {
   const encryptedRefreshToken = encryptConfigSecret(refreshToken);
-  const result = await queryable.query(
+  await queryable.query(
     `UPDATE google_drive_backup_settings
      SET connected = TRUE,
          google_email = $1,
@@ -174,14 +324,14 @@ const saveConnection = async ({ refreshToken, googleEmail }, userId, queryable =
          last_error_message = NULL,
          updated_at = CURRENT_TIMESTAMP
      WHERE id = 1
-     RETURNING *`,
+     RETURNING id`,
     [googleEmail || null, encryptedRefreshToken, DRIVE_SCOPE, userId]
   );
-  return sanitizeSettings(result.rows[0]);
+  return getSettings(queryable);
 };
 
 const disconnect = async (userId, queryable = db) => {
-  const result = await queryable.query(
+  await queryable.query(
     `UPDATE google_drive_backup_settings
      SET enabled = FALSE,
          connected = FALSE,
@@ -192,10 +342,10 @@ const disconnect = async (userId, queryable = db) => {
          updated_by = $1,
          updated_at = CURRENT_TIMESTAMP
      WHERE id = 1
-     RETURNING *`,
+     RETURNING id`,
     [userId]
   );
-  return sanitizeSettings(result.rows[0]);
+  return getSettings(queryable);
 };
 
 const getRefreshToken = (settings) => decryptConfigSecret(settings.encrypted_refresh_token);
@@ -219,9 +369,13 @@ module.exports = {
   GoogleDriveSettingsError,
   normalizeDays,
   normalizeTimes,
-  isServerConfigured,
-  getRedirectUri,
+  getEnvironmentRedirectUri,
+  getEnvironmentOAuthConfig,
   getRawSettings,
+  resolveGoogleDriveOAuthConfig,
+  getOAuthConfigStatus,
+  saveOAuthConfig,
+  removeOAuthConfig,
   getSettings,
   sanitizeSettings,
   updateSettings,

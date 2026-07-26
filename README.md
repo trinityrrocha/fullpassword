@@ -202,9 +202,11 @@ Se o painel informar que a chave de criptografia não está configurada, execute
 
 ### Backup automático no Google Drive
 
-O Super Admin pode conectar uma conta em **Configurações do Sistema > Backup Google Drive**. A integração usa OAuth 2.0 server-side, Drive API v3 e somente o escopo `https://www.googleapis.com/auth/drive.file`. Ela cria ou reutiliza a pasta **FullPassword Backups**, envia pacotes Backup V2 por streaming e aplica retenção de 7, 15, 30 ou 60 dias exclusivamente aos arquivos marcados pelo FullPassword dentro dessa pasta.
+O Super Admin pode configurar e conectar uma conta em **Configurações do Sistema > Backup Google Drive**, sem acesso SSH. A integração usa OAuth 2.0 server-side, Drive API v3 e somente o escopo `https://www.googleapis.com/auth/drive.file`. Ela cria ou reutiliza a pasta **FullPassword Backups**, envia pacotes Backup V2 por streaming e aplica retenção de 7, 15, 30 ou 60 dias exclusivamente aos arquivos marcados pelo FullPassword dentro dessa pasta.
 
-Crie um OAuth Client do tipo aplicação Web no Google Cloud, habilite a Drive API e configure:
+Crie um OAuth Client do tipo aplicação Web no Google Cloud, habilite a Drive API, cadastre exatamente a Redirect URI exibida no card e salve o Client ID e o Client Secret pela interface. O Client Secret é cifrado com AES-256-GCM por meio de `CONFIG_ENCRYPTION_KEY`, nunca volta a ser exibido e permanece restrito ao backend.
+
+Como fallback legado, instalações que já usam variáveis de ambiente continuam compatíveis:
 
 ```env
 GOOGLE_DRIVE_CLIENT_ID=
@@ -212,9 +214,9 @@ GOOGLE_DRIVE_CLIENT_SECRET=
 GOOGLE_DRIVE_REDIRECT_URI=https://cofre.exemplo.com.br/api/integrations/google-drive/oauth/callback
 ```
 
-`GOOGLE_DRIVE_REDIRECT_URI` pode ficar vazio; nesse caso o backend deriva a URI a partir de `APP_ORIGIN`. A URI cadastrada no Google Cloud deve ser idêntica à efetivamente usada. Depois de alterar o `.env`, recrie o backend.
+Quando existirem credenciais completas no banco, elas têm prioridade sobre o ambiente. No fallback, `GOOGLE_DRIVE_REDIRECT_URI` pode ficar vazio; nesse caso o backend deriva a URI a partir de `APP_ORIGIN`. A URI cadastrada no Google Cloud deve ser idêntica à efetivamente usada.
 
-O refresh token e a frase usada para cifrar os pacotes automáticos são armazenados com AES-256-GCM por meio de `CONFIG_ENCRYPTION_KEY`. Access tokens permanecem apenas em memória. Tokens, authorization codes e o client secret nunca são retornados à interface nem incluídos em logs. A desconexão remove a autorização local, desativa o agendamento e preserva os backups já existentes.
+O Client Secret, o refresh token e a frase usada para cifrar os pacotes automáticos são armazenados com AES-256-GCM por meio de `CONFIG_ENCRYPTION_KEY`. Access tokens permanecem apenas em memória. Tokens, authorization codes e o Client Secret salvo nunca são retornados à interface nem incluídos em logs. A desconexão remove a autorização local, desativa o agendamento e preserva os backups já existentes.
 
 O agendador verifica os horários a cada 30 segundos usando `TZ` (padrão `America/Sao_Paulo`), registra cada slot no PostgreSQL e mantém um advisory lock durante a execução para impedir duplicidade entre réplicas. A frase do Backup V2 deve ter pelo menos 16 caracteres e precisa ser guardada pelo administrador: sem ela, os arquivos externos não podem ser restaurados.
 

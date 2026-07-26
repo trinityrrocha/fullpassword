@@ -5,6 +5,9 @@ const {
   GoogleDriveSettingsError,
   getSettings,
   getRawSettings,
+  getOAuthConfigStatus,
+  saveOAuthConfig,
+  removeOAuthConfig,
   updateSettings,
   listRuns
 } = require('../services/googleDriveBackupSettingsService');
@@ -63,6 +66,59 @@ const startOAuth = async (req, res) => {
     return res.json({ authorization_url: authorizationUrl });
   } catch (error) {
     return sendSafeError(res, error, 'Não foi possível iniciar a conexão com o Google Drive.');
+  }
+};
+
+const getOAuthConfig = async (req, res) => {
+  if (!isSuperAdmin(req.user)) return deny(req, res, 'google_drive_oauth_config_access');
+  try {
+    return res.json(await getOAuthConfigStatus());
+  } catch (error) {
+    return sendSafeError(res, error, 'Não foi possível consultar a configuração OAuth do Google Drive.');
+  }
+};
+
+const updateOAuthConfig = async (req, res) => {
+  if (!isSuperAdmin(req.user)) return deny(req, res, 'google_drive_oauth_configured');
+  try {
+    const result = await saveOAuthConfig(req.body || {}, req.user.id);
+    await recordAuditEvent({
+      user: req.user,
+      action: result.wasConfigured
+        ? 'google_drive_oauth_config_updated'
+        : 'google_drive_oauth_configured',
+      status: 'success',
+      req,
+      metadata: {
+        source: result.status.source,
+        redirect_uri: result.status.redirect_uri
+      }
+    });
+    return res.json(result.status);
+  } catch (error) {
+    return sendSafeError(res, error, 'Não foi possível salvar a configuração OAuth do Google Drive.');
+  }
+};
+
+const deleteOAuthConfig = async (req, res) => {
+  if (!isSuperAdmin(req.user)) return deny(req, res, 'google_drive_oauth_config_removed');
+  try {
+    const status = await removeOAuthConfig();
+    await recordAuditEvent({
+      user: req.user,
+      action: 'google_drive_oauth_config_removed',
+      status: 'success',
+      req,
+      metadata: { fallback_source: status.source }
+    });
+    return res.json({
+      ...status,
+      message: status.configured
+        ? 'Configuração salva removida. O fallback por ambiente continua ativo.'
+        : 'Configuração OAuth removida.'
+    });
+  } catch (error) {
+    return sendSafeError(res, error, 'Não foi possível remover a configuração OAuth do Google Drive.');
   }
 };
 
@@ -233,6 +289,9 @@ const backupNow = async (req, res) => {
 
 module.exports = {
   getStatus,
+  getOAuthConfig,
+  updateOAuthConfig,
+  deleteOAuthConfig,
   startOAuth,
   oauthCallback,
   saveSettings,
