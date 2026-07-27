@@ -374,9 +374,9 @@ Para impedir rotação de identidade sem prova de posse, administradores não de
 ssh root@seu_ip_da_vps
 
 # 2. Baixe e execute o script
-wget https://raw.githubusercontent.com/trinityrrocha/fullpassword/main/scripts/install.sh
+wget -O install.sh https://raw.githubusercontent.com/trinityrrocha/fullpassword/main/scripts/install.sh
 chmod +x install.sh
-./install.sh
+sudo ./install.sh
 ```
 
 O script solicitará:
