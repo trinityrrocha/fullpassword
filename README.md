@@ -622,3 +622,9 @@ Este projeto está licenciado sob a **MIT License**. Veja o arquivo [LICENSE](./
 ---
 
 **FullPassword** - Cofre Zero-Knowledge para MSPs e equipes de TI.
+
+**Se você gostou do projeto faça uma doação para manter o projeto sempre atualizado e seguro**
+
+
+<img width="260" height="251" alt="qrcode" src="https://github.com/user-attachments/assets/d0d10a69-2dfb-4ecd-8952-48f6ffdc16a0" />
+
