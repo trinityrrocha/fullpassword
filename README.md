@@ -611,13 +611,6 @@ Este projeto está licenciado sob a **MIT License**. Veja o arquivo [LICENSE](./
 - 🐛 [Issues](https://github.com/trinityrrocha/fullpassword/issues)
 - 💬 [Discussions](https://github.com/trinityrrocha/fullpassword/discussions)
 
-## 🚀 Roadmap
-
-- [ ] WebAuthn/FIDO2.
-- [ ] Relatórios administrativos avançados.
-- [ ] Exportações operacionais por módulo.
-- [ ] App mobile.
-- [ ] Integração com outros cofres corporativos.
 
 ---
 
