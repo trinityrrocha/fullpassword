@@ -590,6 +590,21 @@ Prefixos recomendados:
 - `test:` testes.
 - `chore:` manutenção.
 
+## Preview
+<img width="531" height="551" alt="exemplo1" src="https://github.com/user-attachments/assets/bb355418-3577-4f62-96e9-a7fb530b369d" />
+<img width="1064" height="561" alt="exemplo2" src="https://github.com/user-attachments/assets/cb15c3ee-f2d4-4d48-9401-c7eefa2db91f" />
+<img width="1065" height="506" alt="exemplo3" src="https://github.com/user-attachments/assets/3011e415-ded3-417d-a554-287ca2e35a48" />
+<img width="1061" height="624" alt="exemplo4" src="https://github.com/user-attachments/assets/4ec281d5-f822-458b-bfe6-df94ae1eb0a8" />
+<img width="392" height="482" alt="Googeldrive" src="https://github.com/user-attachments/assets/6ad44afd-59a6-4e67-b5f2-b3089a2be562" />
+<img width="384" height="369" alt="ftp" src="https://github.com/user-attachments/assets/2554182b-a30e-4471-8cd6-50ffe42e2f56" />
+<img width="382" height="383" alt="blackblaze" src="https://github.com/user-attachments/assets/cdac8ebc-98a7-4d0a-a9f1-989f3e3fb16d" />
+
+
+
+
+
+
+
 ## 🐛 Reportar bugs
 
 Ao reportar um bug, informe:
