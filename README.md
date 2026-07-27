@@ -7,7 +7,7 @@
 
 **FullPassword** é um cofre de credenciais para MSPs, equipes de TI e prestadores de suporte técnico. O sistema organiza acessos por empresa/cliente, separa dados por módulos operacionais e mantém as informações sensíveis criptografadas no navegador usando a **Web Crypto API**.
 
-A aplicação suporta múltiplos usuários, grupos, permissões granulares, compartilhamento criptográfico de cofres, autenticação com MFA, política de login, política global de senhas, auditoria, backup/restauração criptografada e organização operacional por abas.
+A aplicação suporta múltiplos usuários, grupos, permissões granulares, compartilhamento criptográfico de cofres, autenticação com MFA, política de login, política global de senhas, auditoria, backup/restauração criptografada, Backup Nuvem multi-provedor com automação, notificações de falha por e-mail e organização operacional por abas.
 
 ## 🎯 Características principais
 
@@ -167,6 +167,13 @@ Inclui:
 - Tratamento de registros já existentes para evitar duplicidade em usuários, grupos, vínculos, políticas e auditoria.
 - Mensagens visuais de progresso, sucesso e erro.
 - Compatibilidade com anexos incluídos nos dados criptografados.
+- **Backup V2 recomendado**: pacote ZIP com manifesto, checksums e estrutura preparada para validação antes da restauração.
+- **Backup V1 por compatibilidade**: mantém o envelope legado `.enc.json` para fluxos antigos de restauração.
+- **Seleção de formato por execução**: o Super Admin escolhe entre V1 e V2, e o formato usado fica registrado no histórico.
+- **Frase de criptografia protegida**: a frase nunca retorna em claro para a interface; após salva, é indicada apenas por máscara visual.
+- **Backup Nuvem multi-provedor**: permite envio manual ou agendado para Google Drive, Backblaze B2, MEGA S4 Object Storage e FTP/FTPS.
+- **Histórico paginado**: execuções são listadas em páginas de 10 registros.
+- **Retenção unificada**: o histórico do Backup Nuvem segue o mesmo período de retenção configurado para os arquivos remotos.
 
 ### ⚙️ Configurações do sistema
 
@@ -202,15 +209,85 @@ Se o painel informar que a chave de criptografia não está configurada, execute
 
 ### Backup Nuvem
 
-O Super Admin escolhe em **Configurações do Sistema > Backup Nuvem** no máximo um destino ativo: Google Drive, Backblaze B2, Mega S3 ou FTP/FTPS. Também é permitido manter todos desligados. Desligar ou trocar o destino preserva as credenciais do provedor anterior; as próximas execuções manuais e agendadas usam exclusivamente o provedor selecionado, e não há execução remota quando o estado ativo é `none`.
+O **Backup Nuvem** permite que o Super Admin configure um destino remoto para armazenar backups criptografados do FullPassword, com execução manual ou agendada.
 
-O formato padrão é **Backup V2**. O Super Admin pode escolher **Backup V1** somente para compatibilidade com fluxos antigos de restauração; a seleção vale para execuções manuais e agendadas e fica registrada em cada item do histórico. O V1 mantém o envelope compatível `.enc.json`, enquanto o V2 usa o pacote ZIP com manifesto e checksums.
+#### Provedores suportados
 
-Backblaze B2 e Mega S3 compartilham um adapter S3 com endpoint HTTPS obrigatório, upload multipart por streaming e retenção restrita ao prefixo configurado e aos arquivos `fullpassword-backup-v1-*.enc.json` ou `fullpassword-backup-v2-*.zip`. FTP suporta FTPS e mostra aviso quando o transporte sem TLS é escolhido. Chaves S3 e credenciais FTP são cifradas com `CONFIG_ENCRYPTION_KEY` e nunca retornam à interface.
+| Provedor | Tipo | Status |
+|----------|------|--------|
+| Google Drive | OAuth 2.0 + Google Drive API | Implementado, testado e funcional |
+| Backblaze B2 | S3-Compatible | Implementado, pendente de teste real com credenciais Backblaze |
+| MEGA S4 Object Storage | S3-Compatible | Implementado, não testado em ambiente real |
+| FTP/FTPS | FTP com opção FTPS | Implementado, pendente de teste real em servidor FTP/FTPS |
 
-O Google Drive continua usando OAuth 2.0 server-side, Drive API v3 e somente o escopo `https://www.googleapis.com/auth/drive.file`. Ele cria ou reutiliza a pasta **FullPassword Backups**, envia o formato selecionado por streaming e aplica retenção exclusivamente aos arquivos V1/V2 marcados pelo FullPassword dentro dessa pasta.
+Somente um provedor pode receber novas execuções por vez, mas todos podem ficar desligados. Ao desligar ou trocar de provedor, as credenciais salvas são preservadas; apenas novas execuções deixam de usar o provedor anterior.
 
-Crie um OAuth Client do tipo aplicação Web no Google Cloud, habilite a Drive API, cadastre exatamente a Redirect URI exibida no card e salve o Client ID e o Client Secret pela interface. O Client Secret é cifrado com AES-256-GCM por meio de `CONFIG_ENCRYPTION_KEY`, nunca volta a ser exibido e permanece restrito ao backend.
+#### Formatos de backup
+
+- **Backup V2**: formato recomendado, gerado como pacote ZIP com manifesto e checksums.
+- **Backup V1**: formato de compatibilidade, gerado como envelope `.enc.json`.
+
+A escolha entre V1 e V2 vale para backups manuais e agendados. O histórico registra o formato usado em cada execução.
+
+#### Segurança
+
+- A frase de criptografia do backup é cifrada no backend e nunca retorna em claro para o frontend.
+- Quando já existe uma frase salva, o campo mostra apenas `****************************`.
+- A frase deve ter pelo menos 16 caracteres e precisa ser guardada pelo administrador; sem ela, o backup remoto não pode ser restaurado.
+- Client Secret, refresh token, chaves S3, senha FTP e frase de backup são criptografados com `CONFIG_ENCRYPTION_KEY`.
+- Access tokens do Google Drive ficam apenas em memória.
+- Logs, auditoria, debug seguro, histórico e e-mails não incluem credenciais, tokens, frases de criptografia nem conteúdo do cofre.
+
+> [!CAUTION]
+> Perder ou trocar `CONFIG_ENCRYPTION_KEY` impede a leitura de senhas SMTP, credenciais de provedores, refresh tokens e frases de backup já armazenadas.
+
+#### Automação
+
+Existe somente um agendador de Backup Nuvem. Ele verifica os horários a cada 30 segundos usando `TZ` (padrão `America/Sao_Paulo`), usa o provedor ativo e o formato selecionado no momento da execução e evita duplicidade por slot agendado. O scheduler antigo do Google Drive apenas delega para o singleton genérico e não cria um intervalo paralelo.
+
+#### Histórico e retenção
+
+O histórico de execuções é paginado no backend, com no máximo 10 registros por página. Sua limpeza segue o mesmo período de retenção configurado para os backups remotos e afeta somente `cloud_backup_runs`, sem remover eventos da auditoria do sistema.
+
+#### Notificações e limites
+
+Falhas de backup podem gerar notificações por e-mail usando o SMTP global configurado em **Configurações do Sistema > E-mail / SMTP**. Os destinatários são validados e limitados, e os e-mails não incluem segredos, conteúdo do cofre ou stack trace. Troca/configuração de provedor, teste/execução e WebUpdater usam limitadores independentes.
+
+#### Configuração do Google Drive
+
+O Google Drive usa OAuth 2.0 server-side, Drive API v3 e somente o escopo:
+
+```text
+https://www.googleapis.com/auth/drive.file
+```
+
+Esse escopo restringe o acesso aos arquivos criados ou usados pelo aplicativo. O FullPassword cria ou reutiliza a pasta **FullPassword Backups** e aplica retenção somente aos backups V1/V2 marcados pelo sistema dentro dessa pasta.
+
+Checklist no Google Cloud:
+
+1. Acesse o Google Cloud Console e crie ou selecione o projeto correto.
+2. Em **APIs e serviços > Ativar APIs e serviços**, ative a **Google Drive API**.
+3. Em **APIs e serviços > Credenciais**, crie um **ID do cliente OAuth** do tipo **Aplicativo da Web**.
+4. Defina um nome para o cliente, por exemplo `FullPassword Backup Nuvem`.
+5. Cadastre em **URIs de redirecionamento autorizados** exatamente a URL exibida no FullPassword. Exemplo:
+
+   ```text
+   https://cofre.exemplo.com.br/api/integrations/google-drive/oauth/callback
+   ```
+
+6. Em **Branding** ou **Tela de consentimento OAuth**, informe nome do app, e-mail de suporte, domínio autorizado e e-mail de contato do desenvolvedor.
+7. Se o app estiver em modo de teste, adicione a conta Google em **Audience/Público > Test users**.
+8. Copie o **Client ID** e o **Client Secret**.
+
+No FullPassword:
+
+1. Entre como Super Admin e acesse **Configurações do Sistema > Backup Nuvem**.
+2. Ative **Google Drive**.
+3. Salve Client ID, Client Secret e Redirect URI.
+4. Clique em **Conectar Google Drive** e autorize a conta.
+5. Execute **Testar** e depois um backup manual de validação.
+
+O domínio acima é apenas um exemplo. Cada instalação deve usar seu domínio real, e a Redirect URI cadastrada no Google Cloud deve ser idêntica à URL efetivamente usada.
 
 Como fallback legado, instalações que já usam variáveis de ambiente continuam compatíveis:
 
@@ -222,13 +299,20 @@ GOOGLE_DRIVE_REDIRECT_URI=https://cofre.exemplo.com.br/api/integrations/google-d
 
 Quando existirem credenciais completas no banco, elas têm prioridade sobre o ambiente. No fallback, `GOOGLE_DRIVE_REDIRECT_URI` pode ficar vazio; nesse caso o backend deriva a URI a partir de `APP_ORIGIN`. A URI cadastrada no Google Cloud deve ser idêntica à efetivamente usada.
 
-O Client Secret, o refresh token e a frase usada para cifrar os pacotes automáticos são armazenados com AES-256-GCM por meio de `CONFIG_ENCRYPTION_KEY`. Access tokens permanecem apenas em memória. Tokens, authorization codes e o Client Secret salvo nunca são retornados à interface nem incluídos em logs. A desconexão remove a autorização local, desativa o agendamento e preserva os backups já existentes.
+#### Configuração do Backblaze B2
 
-Existe somente um agendador de Backup Nuvem. Ele verifica os horários a cada 30 segundos usando `TZ` (padrão `America/Sao_Paulo`), resolve o provedor ativo e o formato selecionado no momento da execução, registra cada slot no PostgreSQL e mantém um advisory lock compartilhado com a compatibilidade Google legada. O módulo de scheduler antigo apenas delega ao singleton genérico e não cria um intervalo paralelo. A frase de criptografia deve ter pelo menos 16 caracteres e precisa ser guardada pelo administrador: sem ela, os arquivos externos não podem ser restaurados.
+O Backblaze B2 usa o adapter S3-Compatible do FullPassword. Configure endpoint S3, região, bucket, Access Key/Key ID, Secret Key/Application Key e prefixo remoto. Use um bucket privado e restrinja as credenciais ao menor nível necessário. A retenção atua somente no prefixo configurado e sobre arquivos gerados pelo FullPassword.
 
-O histórico é paginado no backend em blocos de no máximo 10 registros e é limpo usando o mesmo período de retenção configurado para os arquivos remotos. Essa limpeza afeta somente `cloud_backup_runs`; eventos da auditoria do sistema não são removidos. Troca/configuração de provedor, teste/execução e WebUpdater usam limitadores independentes, portanto cliques no Backup Nuvem não consomem o bucket de `/api/system/update`.
+#### Configuração do MEGA S4 Object Storage
 
-Falhas de execução e de teste podem gerar notificações por e-mail por meio do SMTP global já configurado. Os destinatários são validados e limitados a dez; os e-mails e eventos de auditoria não incluem credenciais, tokens, frases de criptografia, conteúdo do cofre ou stack trace. Uma falha no próprio envio SMTP é registrada separadamente e não altera o resultado original do backup.
+O MEGA S4 Object Storage é tratado como armazenamento S3-Compatible e usa o mesmo adapter S3 do Backblaze B2. Configure o endpoint S3 informado pelo painel MEGA S4, região, bucket, Access Key, Secret Key e prefixo remoto.
+
+> [!NOTE]
+> O suporte ao MEGA S4 Object Storage está implementado, mas ainda não foi validado em ambiente real. Antes de usá-lo em produção, execute teste de conexão, backup manual e restauração de validação.
+
+#### Configuração do FTP/FTPS
+
+Configure host, porta, usuário, senha, pasta remota e a opção FTPS. FTP puro não criptografa o tráfego; use FTPS sempre que o servidor permitir. Antes de ativar o agendamento, faça um backup manual e confirme que o arquivo foi gravado na pasta remota correta.
 
 ### Recuperação de acesso
 
@@ -420,6 +504,12 @@ Fluxo resumido:
 - ✅ Bloqueios visuais no front-end conforme permissões.
 - ✅ Backup e restauração criptografados com validação e rollback.
 - ✅ Logs de backup/restauração sanitizados, sem registrar passphrase ou conteúdo do backup.
+- ✅ Backup Nuvem multi-provedor com Google Drive, Backblaze B2, MEGA S4 Object Storage e FTP/FTPS.
+- ✅ Scheduler único para backups remotos manuais e agendados.
+- ✅ Credenciais de provedores remotos criptografadas com `CONFIG_ENCRYPTION_KEY`.
+- ✅ Frase de backup mascarada na interface após salva.
+- ✅ Histórico de Backup Nuvem paginado e com retenção controlada.
+- ✅ Notificações de falha por e-mail via SMTP global.
 - ✅ WebUpdater restrito ao Super Admin, à branch `main`, ao repositório oficial e a serviços permitidos.
 - ✅ Screen protection best-effort sem promessa de bloqueio absoluto de screenshot.
 - ✅ Suporte a SSL/TLS com Let's Encrypt.
@@ -453,6 +543,14 @@ Após aplicar atualizações pelo WebUpdater, validar:
 - Cadastro e leitura de credenciais por módulo.
 - Busca e filtro por servidor/dispositivo.
 - Backup e restauração com arquivo recém-gerado.
+- Backup Nuvem com todos os provedores desligados.
+- Ativação e desativação de cada provedor remoto.
+- Google Drive OAuth com Google Drive API habilitada.
+- Teste de conexão do provedor ativo.
+- Backup manual nos formatos V1 e V2.
+- Histórico paginado com 10 registros por página.
+- Máscara da frase de criptografia após salvar.
+- Notificação de falha por e-mail, se o SMTP estiver configurado.
 - Configurações de segurança, sessões, blacklist/whitelist e política de senhas.
 - Configuração SMTP com um servidor de teste controlado antes de habilitar uso real.
 - Console do navegador sem `ReferenceError`, `OperationError` ou erro fatal.
