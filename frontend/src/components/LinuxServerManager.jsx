@@ -844,16 +844,16 @@ function LinuxServerModal({ title, server, setServer, isSaving, onCancel, onSave
                 const gatewayValidation = validateIpv4(connection.gateway);
                 const isVpn = connection.type === 'VPN';
                 return (
-                  <div key={connection.id} className="w-full overflow-x-auto rounded-md border border-slate-200 bg-slate-50">
-                    <div className={`flex items-center gap-2 p-3 ${isVpn ? 'min-w-[800px]' : 'min-w-[844px]'}`}>
-                      <div className="flex h-10 w-64 shrink-0 items-center gap-2 rounded-md border border-slate-200 bg-white px-2 text-sm text-slate-700">
+                  <div key={connection.id} className="w-full rounded-md border border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-800">
+                    <div className="grid w-full grid-cols-1 items-center gap-2 p-3 md:grid-cols-[minmax(220px,260px)_minmax(0,1fr)_minmax(0,1fr)_24px]">
+                      <div className="flex h-10 w-full min-w-0 items-center gap-2 rounded-md border border-slate-200 bg-white px-2 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
                         <ConnectionIcon type={connection.type} />
                         <span className="shrink-0">{getConnectionLabel(connection, connections)}</span>
-                        <input type="text" aria-label="Nome da conexão" className="min-w-0 flex-1 border-0 bg-transparent p-0 text-sm text-slate-700 placeholder-slate-400 outline-none focus:ring-0" value={connection.name || ''} onChange={(e) => updateConnection(connection.id, 'name', e.target.value)} placeholder="Nome" />
+                        <input type="text" aria-label="Nome da conexão" className="min-w-0 flex-1 border-0 bg-transparent p-0 text-sm text-slate-700 placeholder-slate-400 outline-none focus:ring-0 dark:text-slate-200 dark:placeholder-slate-500" value={connection.name || ''} onChange={(e) => updateConnection(connection.id, 'name', e.target.value)} placeholder="Nome" />
                       </div>
                       {isVpn ? (
                         <>
-                          <select aria-label="Tipo de VPN" className="w-48 shrink-0 border-slate-300 rounded-md shadow-sm p-2 border bg-white" value={connection.vpn || 'OpenVPN'} onChange={(e) => updateConnection(connection.id, 'vpn', e.target.value)}>
+                          <select aria-label="Tipo de VPN" className="h-10 w-full min-w-0 rounded-md border border-slate-300 bg-white p-2 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={connection.vpn || 'OpenVPN'} onChange={(e) => updateConnection(connection.id, 'vpn', e.target.value)}>
                             {connectionVpnOptions.map((option) => <option key={option} value={option}>{option}</option>)}
                           </select>
                           <IpCidrInput
@@ -867,8 +867,8 @@ function LinuxServerModal({ title, server, setServer, isSaving, onCancel, onSave
                             prefix="IPV4/"
                             required={false}
                             showHelperText={false}
-                            containerClassName="w-[250px] shrink-0"
-                            inputWrapperClassName="h-[40px] w-[250px]"
+                            containerClassName="w-full min-w-0"
+                            inputWrapperClassName="h-10 w-full min-w-0"
                             inputClassName="text-sm tracking-normal"
                           />
                         </>
@@ -885,8 +885,8 @@ function LinuxServerModal({ title, server, setServer, isSaving, onCancel, onSave
                             prefix="IPV4/"
                             required={false}
                             showHelperText={false}
-                            containerClassName="w-[250px] shrink-0"
-                            inputWrapperClassName="h-[40px] w-[250px]"
+                            containerClassName="w-full min-w-0"
+                            inputWrapperClassName="h-10 w-full min-w-0"
                             inputClassName="text-sm tracking-normal"
                           />
                           <Ipv4Input
@@ -900,13 +900,13 @@ function LinuxServerModal({ title, server, setServer, isSaving, onCancel, onSave
                             prefix="Gateway/"
                             required={false}
                             showHelperText={false}
-                            containerClassName="w-[250px] shrink-0"
-                            inputWrapperClassName="h-[40px] w-[250px]"
+                            containerClassName="w-full min-w-0"
+                            inputWrapperClassName="h-10 w-full min-w-0"
                             inputClassName="text-sm tracking-normal"
                           />
                         </>
                       )}
-                      <button type="button" title="Remover" aria-label="Remover" onClick={() => removeConnection(connection.id)} className={`inline-flex shrink-0 items-center justify-center rounded-md border border-red-300 text-red-600 hover:bg-red-50 ${isVpn ? 'h-9 w-9' : 'h-10 w-10'}`}>
+                      <button type="button" title="Excluir conexão" aria-label="Excluir conexão" onClick={() => removeConnection(connection.id)} className="inline-flex shrink-0 items-center justify-center justify-self-end text-red-500 hover:text-red-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 dark:text-red-400 dark:hover:text-red-300 dark:focus-visible:ring-offset-slate-800 md:justify-self-center">
                         <Trash2 className="h-4 w-4" />
                       </button>
                     </div>
