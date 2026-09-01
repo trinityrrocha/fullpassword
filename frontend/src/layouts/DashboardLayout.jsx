@@ -9,6 +9,7 @@ import { SCREEN_PROTECTION_CHANGED_EVENT } from '../utils/screenProtection';
 import useClearOnVaultLock from '../hooks/useClearOnVaultLock';
 import UserCryptoIdentitySetup from '../components/UserCryptoIdentitySetup';
 import SecurityNotificationsMenu from '../components/SecurityNotificationsMenu';
+import ThemeToggle from '../components/ThemeToggle';
 
 export default function DashboardLayout() {
   const location = useLocation();
@@ -129,7 +130,7 @@ export default function DashboardLayout() {
 
   return (
     <ScreenProtection enabled={screenProtectionEnabled}>
-      <div className="flex h-screen bg-gray-50">
+      <div className="flex h-screen bg-gray-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
       {/* Sidebar Desktop */}
       <aside className="hidden w-64 bg-slate-900 text-white md:flex md:flex-col">
         <div className="flex items-center justify-center h-16 border-b border-slate-800">
@@ -181,14 +182,17 @@ export default function DashboardLayout() {
       </aside>
 
       {/* Mobile Header & Menu */}
-      <div className="md:hidden fixed top-0 left-0 right-0 h-16 bg-slate-900 text-white flex items-center justify-between px-4 z-50">
+      <div className="md:hidden fixed top-0 left-0 right-0 h-16 bg-slate-900 text-white flex items-center justify-between gap-2 px-4 z-50 dark:border-b dark:border-slate-800 dark:bg-slate-950">
         <div className="flex items-center">
           <Shield className="w-6 h-6 text-indigo-400 mr-2" />
           <span className="text-lg font-bold">FullPassword</span>
         </div>
-        <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}>
-          {isMobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
-        </button>
+        <div className="flex items-center gap-2">
+          <ThemeToggle compact />
+          <button type="button" aria-label={isMobileMenuOpen ? 'Fechar menu' : 'Abrir menu'} onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}>
+            {isMobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+          </button>
+        </div>
       </div>
 
       {/* Mobile Menu Overlay */}
@@ -221,8 +225,9 @@ export default function DashboardLayout() {
 
       {/* Main Content */}
       <main className="flex-1 flex flex-col overflow-hidden pt-16 md:pt-0">
-        {user?.is_super_admin && (
-          <div className="hidden md:flex h-16 shrink-0 items-center justify-end border-b border-slate-200 bg-white px-8">
+        <div className="hidden h-16 shrink-0 items-center justify-end gap-2 border-b border-slate-200 bg-white px-8 md:flex dark:border-slate-800 dark:bg-slate-900">
+          <ThemeToggle />
+          {user?.is_super_admin && (
             <SecurityNotificationsMenu
               notifications={notifications}
               isOpen={isNotificationsOpen}
@@ -230,10 +235,10 @@ export default function DashboardLayout() {
               onClose={closeNotifications}
               onNavigate={openNotification}
             />
-          </div>
-        )}
+          )}
+        </div>
         {user?.password_change_recommended && !mustChangePassword && (
-          <button type="button" onClick={() => setIsProfileModalOpen(true)} className="shrink-0 border-b border-amber-200 bg-amber-50 px-4 py-2 text-left text-sm text-amber-900 md:px-8">
+          <button type="button" onClick={() => setIsProfileModalOpen(true)} className="shrink-0 border-b border-amber-200 bg-amber-50 px-4 py-2 text-left text-sm text-amber-900 md:px-8 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
             Sua senha está antiga. Recomendamos atualizá-la. Clique aqui para abrir seu perfil.
           </button>
         )}

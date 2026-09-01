@@ -19,10 +19,10 @@ function VaultAwareDashboardLayout() {
 
 function RouteErrorFallback() {
   return (
-    <main className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
-      <section role="alert" className="w-full max-w-lg rounded-lg border border-red-200 bg-white p-6 text-center shadow">
-        <h1 className="text-xl font-semibold text-slate-900">Não foi possível abrir esta página</h1>
-        <p className="mt-2 text-sm text-slate-600">
+    <main className="flex min-h-screen items-center justify-center bg-slate-50 px-4 dark:bg-slate-950">
+      <section role="alert" className="w-full max-w-lg rounded-lg border border-red-200 bg-white p-6 text-center shadow dark:border-red-900 dark:bg-slate-900">
+        <h1 className="text-xl font-semibold text-slate-900 dark:text-slate-100">Não foi possível abrir esta página</h1>
+        <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
           Recarregue a aplicação. Se o problema continuar, entre em contato com o administrador.
         </p>
         <button

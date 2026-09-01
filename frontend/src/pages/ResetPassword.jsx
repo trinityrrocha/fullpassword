@@ -112,7 +112,7 @@ export default function ResetPassword() {
 
   if (validation.loading) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
+      <main className="flex min-h-screen items-center justify-center bg-slate-50 px-4 dark:bg-slate-950">
         <p className="text-sm text-slate-600">Validando link de recuperação...</p>
       </main>
     );
@@ -120,8 +120,8 @@ export default function ResetPassword() {
 
   if (!validation.valid) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
-        <section role="alert" className="w-full max-w-md rounded-lg border border-red-200 bg-white p-6 text-center shadow">
+      <main className="flex min-h-screen items-center justify-center bg-slate-50 px-4 dark:bg-slate-950">
+        <section role="alert" className="w-full max-w-md rounded-lg border border-red-200 bg-white p-6 text-center shadow dark:border-red-900 dark:bg-slate-900">
           <ShieldAlert className="mx-auto h-10 w-10 text-red-500" aria-hidden="true" />
           <h1 className="mt-3 text-xl font-semibold text-slate-900">Link inválido ou expirado</h1>
           <p className="mt-2 text-sm text-slate-600">Solicite uma nova recuperação de acesso.</p>
@@ -135,8 +135,8 @@ export default function ResetPassword() {
 
   if (success) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
-        <section className="w-full max-w-md rounded-lg border border-emerald-200 bg-white p-6 text-center shadow">
+      <main className="flex min-h-screen items-center justify-center bg-slate-50 px-4 dark:bg-slate-950">
+        <section className="w-full max-w-md rounded-lg border border-emerald-200 bg-white p-6 text-center shadow dark:border-emerald-900 dark:bg-slate-900">
           <KeyRound className="mx-auto h-10 w-10 text-emerald-600" aria-hidden="true" />
           <h1 className="mt-3 text-xl font-semibold text-slate-900">Acesso redefinido</h1>
           <p className="mt-2 text-sm text-slate-600">{success}</p>
@@ -152,8 +152,8 @@ export default function ResetPassword() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-50 px-4 py-10">
-      <section className="mx-auto w-full max-w-xl rounded-lg border border-slate-200 bg-white p-6 shadow">
+    <main className="min-h-screen bg-slate-50 px-4 py-10 dark:bg-slate-950">
+      <section className="mx-auto w-full max-w-xl rounded-lg border border-slate-200 bg-white p-6 shadow dark:border-slate-800 dark:bg-slate-900">
         <h1 className="text-2xl font-semibold text-slate-900">Redefinir acesso à conta</h1>
         <p className="mt-1 text-sm text-slate-600">Conta: {validation.email_masked}</p>
 

@@ -78,7 +78,7 @@ export default function SecurityNotificationsMenu({
         ref={triggerRef}
         type="button"
         onClick={onToggle}
-        className="relative rounded-full p-2 text-slate-600 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+        className="relative rounded-full p-2 text-slate-600 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:text-slate-300 dark:hover:bg-slate-800"
         aria-label="Notificações de segurança"
         aria-haspopup="dialog"
         aria-expanded={isOpen}
@@ -98,9 +98,9 @@ export default function SecurityNotificationsMenu({
           id="security-notifications-popover"
           role="dialog"
           aria-label="Notificações recentes"
-          className="absolute right-0 z-30 mt-2 w-[min(24rem,calc(100vw-2rem))] overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl"
+          className="absolute right-0 z-30 mt-2 w-[min(24rem,calc(100vw-2rem))] overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-900"
         >
-          <div className="border-b border-slate-200 px-4 py-3 font-medium text-slate-900">
+          <div className="border-b border-slate-200 px-4 py-3 font-medium text-slate-900 dark:border-slate-800 dark:text-slate-100">
             Notificações recentes
           </div>
 
@@ -115,7 +115,7 @@ export default function SecurityNotificationsMenu({
                       <button
                         type="button"
                         onClick={() => onNavigate(item.target_url || '/settings?section=audit')}
-                        className="flex w-full gap-3 px-4 py-3 text-left hover:bg-slate-50 focus:bg-slate-50 focus:outline-none"
+                        className="flex w-full gap-3 px-4 py-3 text-left hover:bg-slate-50 focus:bg-slate-50 focus:outline-none dark:hover:bg-slate-800 dark:focus:bg-slate-800"
                       >
                         <SeverityIcon className={`mt-0.5 h-4 w-4 shrink-0 ${severity.iconClass}`} aria-hidden="true" />
                         <span className="min-w-0 flex-1">
@@ -149,7 +149,7 @@ export default function SecurityNotificationsMenu({
           <button
             type="button"
             onClick={() => onNavigate('/settings?section=audit')}
-            className="block w-full border-t border-slate-200 bg-slate-50 px-4 py-3 text-center text-sm font-medium text-indigo-700 hover:bg-indigo-50 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500"
+            className="block w-full border-t border-slate-200 bg-slate-50 px-4 py-3 text-center text-sm font-medium text-indigo-700 hover:bg-indigo-50 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500 dark:border-slate-800 dark:bg-slate-800 dark:text-indigo-300 dark:hover:bg-indigo-950"
           >
             Auditoria do sistema para mais informações
           </button>

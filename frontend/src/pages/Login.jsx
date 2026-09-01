@@ -113,14 +113,14 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-slate-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8 dark:bg-slate-950">
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
         <div className="flex justify-center">
-          <div className="rounded-full bg-indigo-100 p-3">
+          <div className="rounded-full bg-indigo-100 p-3 dark:bg-indigo-950">
             <Shield className="h-12 w-12 text-indigo-600" />
           </div>
         </div>
-        <h2 className="mt-6 text-center text-3xl font-extrabold text-slate-900">
+        <h2 className="mt-6 text-center text-3xl font-extrabold text-slate-900 dark:text-slate-100">
           FullPassword
         </h2>
         <p className="mt-2 text-center text-sm text-slate-600">
@@ -129,7 +129,7 @@ export default function Login() {
       </div>
 
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
-        <div className="bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10 border border-slate-200">
+        <div className="bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10 border border-slate-200 dark:border-slate-800 dark:bg-slate-900">
           <form className="space-y-6" onSubmit={mfaFlow ? handleMfa : bootstrapRequired ? handleBootstrap : handleLogin}>
             {error && (
               <div className="bg-red-50 border-l-4 border-red-400 p-4">
