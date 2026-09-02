@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Edit2, EthernetPort, Eye, Plus, Router, ShieldCheck, Trash2, UserRound, UserStar, X } from 'lucide-react';
+import { Cctv, Edit2, EthernetPort, Eye, Phone, Plus, Printer, Router, ServerPlus, ShieldCheck, Trash2, UserRound, UserStar, WifiCog, X } from 'lucide-react';
 import CopyButton from './CopyButton';
 import DeleteConfirmationControl from './DeleteConfirmationControl';
 import IpCidrInput from './IpCidrInput';
@@ -12,14 +12,34 @@ import { normalizeVaultAttachments } from '../utils/vaultAttachments';
 import useClearOnVaultLock from '../hooks/useClearOnVaultLock';
 
 const DEVICE_FILE_EXTENSIONS = ['.txt', '.conf', '.json', '.xml', '.log', '.zip', '.rar', '.pdf', '.png', '.jpg', '.jpeg'];
+const DEVICE_TYPE_WIFI_CONTROLLER = 'WIFI/CONTROLLER';
+const DEVICE_TYPE_ROUTER_GATEWAY = 'ROTEADOR/GATEWAY';
+const DEVICE_TYPE_NAS_STORAGE = 'NAS STORAGE';
 const PABX_DEVICE_TYPE = 'PABX-IP/VOIP';
-const LEGACY_PABX_DEVICE_TYPES = ['PABX', 'VOIP'];
-const DEVICE_TYPES = ['NAS', 'DVR', 'IMPRESSORA', 'NAS STORAGE', PABX_DEVICE_TYPE, 'ROTEADOR'];
+const DEVICE_TYPE_ALIASES = {
+  NAS: DEVICE_TYPE_WIFI_CONTROLLER,
+  ROTEADOR: DEVICE_TYPE_ROUTER_GATEWAY,
+  PABX: PABX_DEVICE_TYPE,
+  VOIP: PABX_DEVICE_TYPE
+};
+const DEVICE_TYPES = [DEVICE_TYPE_WIFI_CONTROLLER, 'DVR', 'IMPRESSORA', DEVICE_TYPE_NAS_STORAGE, PABX_DEVICE_TYPE, DEVICE_TYPE_ROUTER_GATEWAY];
+const DEVICE_TYPE_ICONS = {
+  [DEVICE_TYPE_WIFI_CONTROLLER]: WifiCog,
+  DVR: Cctv,
+  IMPRESSORA: Printer,
+  [DEVICE_TYPE_NAS_STORAGE]: ServerPlus,
+  [PABX_DEVICE_TYPE]: Phone,
+  [DEVICE_TYPE_ROUTER_GATEWAY]: Router
+};
 const CONNECTION_OPTIONS = ['Eth1', 'Eth2', 'Eth3', 'Eth4', 'Eth5', 'VPN'];
 const VPN_OPTIONS = ['OpenVPN', 'WireGuard', 'ZeroTier', 'Tailscale', 'Outro'];
 const DIRECTION_OPTIONS = ['Entrada', 'Saída', 'Entrada/Saída'];
 const PROTOCOL_OPTIONS = ['TCP', 'UDP', 'TCP/UDP'];
 const DEVICE_LOGIN_PERMISSIONS = ['Admin', 'User'];
+const RADIO_24_BANDWIDTH_OPTIONS = ['20', '40'];
+const RADIO_5_BANDWIDTH_OPTIONS = ['20', '40', '80', '160'];
+const RADIO_6_BANDWIDTH_OPTIONS = ['20', '40', '80', '160', '320'];
+const WIFI_NETWORK_TYPES = ['Padrão', 'Hotspot', 'IoT'];
 const DEPARTMENT_OPTIONS = [
   'Geral',
   'Comercial',
@@ -42,6 +62,7 @@ const makeId = () => {
 
 const sanitizePortInput = (value = '') => String(value).replace(/\D/g, '').slice(0, 5);
 const sanitizeContractedExtensions = (value = '') => String(value).replace(/\D/g, '').slice(0, 3);
+const sanitizeVlanInput = (value = '') => String(value).replace(/\D/g, '').slice(0, 4);
 const sanitizeIpv4MaskInput = (value = '') => {
   const cleaned = String(value).replace(/[^0-9./]/g, '');
   const [address, ...maskParts] = cleaned.split('/');
@@ -63,6 +84,10 @@ const emptyDevice = () => ({
   pabxPortal: { url: '', login: '', password: '' },
   contractedExtensions: '',
   extensions: [],
+  nasAccess: { url: '', login: '', password: '' },
+  nasUsers: [],
+  wifiControllerAccess: { url: '', login: '', password: '' },
+  wifiNetworks: [],
   portRules: [],
   attachments: []
 });
@@ -142,9 +167,40 @@ const normalizeExtensions = (device = {}) => {
   }));
 };
 
+const normalizeAccessCredentials = (access = {}) => ({
+  url: String(access?.url ?? ''),
+  login: String(access?.login ?? ''),
+  password: String(access?.password ?? '')
+});
+
+const normalizeNasUsers = (device = {}) => {
+  const users = Array.isArray(device.nasUsers) ? device.nasUsers : [];
+  return users.map((user) => ({
+    id: user?.id || makeId(),
+    login: String(user?.login ?? ''),
+    password: String(user?.password ?? ''),
+    department: DEPARTMENT_OPTIONS.includes(user?.department) ? user.department : 'Geral',
+    collaborator: String(user?.collaborator ?? '')
+  }));
+};
+
+const normalizeWifiNetworks = (device = {}) => {
+  const networks = Array.isArray(device.wifiNetworks) ? device.wifiNetworks : [];
+  return networks.map((network) => ({
+    id: network?.id || makeId(),
+    ssid: String(network?.ssid ?? ''),
+    password: String(network?.password ?? ''),
+    radio24Bandwidth: RADIO_24_BANDWIDTH_OPTIONS.includes(String(network?.radio24Bandwidth)) ? String(network.radio24Bandwidth) : '20',
+    radio5Bandwidth: RADIO_5_BANDWIDTH_OPTIONS.includes(String(network?.radio5Bandwidth)) ? String(network.radio5Bandwidth) : '40',
+    radio6Bandwidth: RADIO_6_BANDWIDTH_OPTIONS.includes(String(network?.radio6Bandwidth)) ? String(network.radio6Bandwidth) : '160',
+    vlan: sanitizeVlanInput(network?.vlan),
+    networkType: WIFI_NETWORK_TYPES.includes(network?.networkType) ? network.networkType : 'Padrão'
+  }));
+};
+
 const normalizeDeviceType = (deviceType) => {
-  if (LEGACY_PABX_DEVICE_TYPES.includes(deviceType)) return PABX_DEVICE_TYPE;
-  return DEVICE_TYPES.includes(deviceType) ? deviceType : DEVICE_TYPES[0];
+  const aliasedType = DEVICE_TYPE_ALIASES[deviceType] || deviceType;
+  return DEVICE_TYPES.includes(aliasedType) ? aliasedType : DEVICE_TYPES[0];
 };
 
 const getDuplicateExtensions = (extensions = []) => {
@@ -160,6 +216,8 @@ const getDuplicateExtensions = (extensions = []) => {
 const normalizeDevice = (device = {}) => {
   const deviceType = normalizeDeviceType(device.deviceType || device.type);
   const isPabx = deviceType === PABX_DEVICE_TYPE;
+  const isNasStorage = deviceType === DEVICE_TYPE_NAS_STORAGE;
+  const isWifiController = deviceType === DEVICE_TYPE_WIFI_CONTROLLER;
 
   return {
     id: device.id || makeId(),
@@ -167,12 +225,16 @@ const normalizeDevice = (device = {}) => {
     deviceType,
     notes: device.notes || device.observations || '',
     connections: normalizeConnections(device),
-    pppoeAccounts: deviceType === 'ROTEADOR' ? normalizePppoeAccounts(device) : [],
+    pppoeAccounts: deviceType === DEVICE_TYPE_ROUTER_GATEWAY ? normalizePppoeAccounts(device) : [],
     pabxPortal: isPabx ? normalizePabxPortal(device) : { url: '', login: '', password: '' },
     contractedExtensions: isPabx
       ? sanitizeContractedExtensions(device.contractedExtensions ?? device.extensionContractedQuantity ?? '')
       : '',
     extensions: isPabx ? normalizeExtensions(device) : [],
+    nasAccess: isNasStorage ? normalizeAccessCredentials(device.nasAccess) : { url: '', login: '', password: '' },
+    nasUsers: isNasStorage ? normalizeNasUsers(device) : [],
+    wifiControllerAccess: isWifiController ? normalizeAccessCredentials(device.wifiControllerAccess) : { url: '', login: '', password: '' },
+    wifiNetworks: isWifiController ? normalizeWifiNetworks(device) : [],
     portRules: normalizePortRules(device),
     attachments: normalizeVaultAttachments(device)
   };
@@ -194,12 +256,20 @@ const formatDeviceOptionLabel = (device) => {
 };
 
 const formatPppoeSummary = (device) => {
-  if (device?.deviceType !== 'ROTEADOR') return '';
+  if (device?.deviceType !== DEVICE_TYPE_ROUTER_GATEWAY) return '';
   const accounts = normalizePppoeAccounts(device);
   if (accounts.length === 0) return '';
   const operators = [...new Set(accounts.map((account) => account.operatorName.trim()).filter(Boolean))];
   return `PPPoE: ${accounts.length}${operators.length ? ` - ${operators.join(', ')}` : ''}`;
 };
+
+const formatWifiNetworksSummary = (device) => device?.deviceType === DEVICE_TYPE_WIFI_CONTROLLER
+  ? `Redes Wi-Fi: ${normalizeWifiNetworks(device).length}`
+  : '';
+
+const formatNasUsersSummary = (device) => device?.deviceType === DEVICE_TYPE_NAS_STORAGE
+  ? `Usuários NAS: ${normalizeNasUsers(device).length}`
+  : '';
 
 const formatPabxExtensionsSummary = (device) => {
   if (device?.deviceType !== PABX_DEVICE_TYPE) return '';
@@ -245,6 +315,12 @@ function ConnectionIcon({ type }) {
   const isVpn = String(type || '').toUpperCase() === 'VPN';
   const Icon = isVpn ? ShieldCheck : EthernetPort;
   return <Icon className={isVpn ? 'h-5 w-5 shrink-0 text-indigo-500' : 'h-5 w-5 shrink-0 text-slate-500'} aria-label={isVpn ? 'VPN' : 'Rede'} />;
+}
+
+function DeviceTypeIcon({ type }) {
+  const normalizedType = normalizeDeviceType(type);
+  const Icon = DEVICE_TYPE_ICONS[normalizedType] || Router;
+  return <Icon className="h-5 w-5 shrink-0 text-slate-500 dark:text-slate-400" aria-label={normalizedType} />;
 }
 
 function DeviceLoginIcon({ permission }) {
@@ -316,7 +392,7 @@ export default function DevicesManager({ devicesForm, setDevicesForm, handleSave
       alert(`A porta "${invalidPort.portNumber || 'vazia'}" em "${invalidPort.name || 'Porta'}" é inválida. Informe uma porta entre 1 e 65535.`);
       return false;
     }
-    const invalidPppoe = device.deviceType === 'ROTEADOR'
+    const invalidPppoe = device.deviceType === DEVICE_TYPE_ROUTER_GATEWAY
       ? normalizePppoeAccounts(device).find((account) => !account.operatorName.trim() && !account.login.trim())
       : null;
     if (invalidPppoe) {
@@ -505,10 +581,12 @@ export default function DevicesManager({ devicesForm, setDevicesForm, handleSave
           ) : normalizedForm.devices.map((device) => (
             <div key={device.id} className="flex flex-col justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 sm:flex-row sm:items-center">
               <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm text-slate-500 lg:flex-nowrap">
-                <strong className="flex min-w-0 items-center gap-2 truncate font-medium text-slate-900"><Router className="h-5 w-5 shrink-0 text-slate-500" />{device.name || 'Dispositivo sem nome'} ({device.deviceType || '-'})</strong>
+                <strong className="flex min-w-0 items-center gap-2 truncate font-medium text-slate-900"><DeviceTypeIcon type={device.deviceType} />{device.name || 'Dispositivo sem nome'} ({device.deviceType || '-'})</strong>
                 <span className="whitespace-nowrap">Conexões: {device.connections.length}</span>
                 <span className="whitespace-nowrap">Portas: {device.portRules.length}</span>
                 {formatPppoeSummary(device) && <span className="whitespace-nowrap">{formatPppoeSummary(device)}</span>}
+                {formatWifiNetworksSummary(device) && <span className="whitespace-nowrap">{formatWifiNetworksSummary(device)}</span>}
+                {formatNasUsersSummary(device) && <span className="whitespace-nowrap">{formatNasUsersSummary(device)}</span>}
                 {formatPabxExtensionsSummary(device) && <span className="whitespace-nowrap">{formatPabxExtensionsSummary(device)}</span>}
                 <span className="whitespace-nowrap">Logins: {normalizedForm.deviceLogins.filter((deviceLogin) => deviceLogin.deviceId === device.id).length}</span>
               </div>
@@ -625,13 +703,42 @@ export default function DevicesManager({ devicesForm, setDevicesForm, handleSave
   );
 }
 
+function DeviceAccessReadOnly({ title, access }) {
+  return (
+    <section>
+      <h4 className="mb-2 text-sm font-semibold text-slate-900 dark:text-slate-100">{title}</h4>
+      <div className="grid gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800 sm:grid-cols-3">
+        <div><span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">URL</span><div className="mt-1 flex items-center gap-2 text-slate-900 dark:text-slate-100"><span className="min-w-0 truncate" title={access.url}>{access.url || '-'}</span>{access.url && <CopyButton value={access.url} label="Copiar URL" />}</div></div>
+        <div><span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Login</span><div className="mt-1 flex items-center gap-2 text-slate-900 dark:text-slate-100"><span className="min-w-0 truncate">{access.login || '-'}</span>{access.login && <CopyButton value={access.login} label="Copiar login" />}</div></div>
+        <div><span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Senha</span><div className="mt-1 flex items-center gap-2 text-slate-900 dark:text-slate-100"><span>****</span>{access.password && <CopyButton value={access.password} label="Copiar senha" />}</div></div>
+      </div>
+    </section>
+  );
+}
+
+function DeviceAccessFields({ access, onChange, passwordName }) {
+  return (
+    <div className="grid grid-cols-1 items-end gap-2 md:grid-cols-3">
+      <div>
+        <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">URL</label>
+        <input type="text" inputMode="url" className="h-10 w-full min-w-0 rounded-md border border-slate-300 bg-white px-2 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={access.url} onChange={(event) => onChange('url', event.target.value)} placeholder="https://exemplo.com.br" />
+      </div>
+      <div>
+        <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Login</label>
+        <input type="text" autoComplete="off" className="h-10 w-full min-w-0 rounded-md border border-slate-300 bg-white px-2 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={access.login} onChange={(event) => onChange('login', event.target.value)} placeholder="Login" />
+      </div>
+      <SecurePasswordInput name={passwordName} label="Senha" value={access.password} onChange={(event) => onChange('password', event.target.value)} enableGenerator={false} autoComplete="new-password" />
+    </div>
+  );
+}
+
 function DeviceReadOnlyModal({ device, onClose }) {
   const normalized = normalizeDevice(device);
   return (
     <ReadOnlyDetailsModal title="Visualizar dispositivo" onClose={onClose}>
       <div className="grid gap-4 sm:grid-cols-2">
         <div><p className="text-xs font-medium uppercase tracking-wide text-slate-500">Nome do dispositivo</p><p className="mt-1 text-sm text-slate-900">{normalized.name || '-'}</p></div>
-        <div><p className="text-xs font-medium uppercase tracking-wide text-slate-500">Tipo do dispositivo</p><p className="mt-1 text-sm text-slate-900">{normalized.deviceType || '-'}</p></div>
+        <div><p className="text-xs font-medium uppercase tracking-wide text-slate-500">Tipo do dispositivo</p><div className="mt-1 flex items-center gap-2 text-sm text-slate-900"><DeviceTypeIcon type={normalized.deviceType} /><span>{normalized.deviceType || '-'}</span></div></div>
         <div className="sm:col-span-2"><p className="text-xs font-medium uppercase tracking-wide text-slate-500">Observações</p><p className="mt-1 whitespace-pre-wrap text-sm text-slate-900">{normalized.notes || '-'}</p></div>
       </div>
 
@@ -650,7 +757,52 @@ function DeviceReadOnlyModal({ device, onClose }) {
         )}
       </section>
 
-      {normalized.deviceType === 'ROTEADOR' && normalized.pppoeAccounts.length > 0 && (
+      {normalized.deviceType === DEVICE_TYPE_WIFI_CONTROLLER && (
+        <>
+          <DeviceAccessReadOnly title="Acesso WIFI/CONTROLLER" access={normalized.wifiControllerAccess} />
+          <section>
+            <h4 className="mb-2 text-sm font-semibold text-slate-900 dark:text-slate-100">Redes Wi-Fi</h4>
+            {normalized.wifiNetworks.length === 0 ? <p className="text-sm text-slate-500 dark:text-slate-400">Nenhuma rede Wi-Fi cadastrada.</p> : (
+              <div className="space-y-2">
+                {normalized.wifiNetworks.map((network) => (
+                  <div key={network.id} className="grid gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800 sm:grid-cols-2 lg:grid-cols-4">
+                    <div><span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Rede</span><p className="mt-1 text-slate-900 dark:text-slate-100">{network.ssid || '-'}</p></div>
+                    <div><span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Senha</span><div className="mt-1 flex items-center gap-2 text-slate-900 dark:text-slate-100"><span>****</span>{network.password && <CopyButton value={network.password} label={`Copiar senha da rede ${network.ssid || ''}`.trim()} />}</div></div>
+                    <div><span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">2.4 GHz</span><p className="mt-1 text-slate-900 dark:text-slate-100">{network.radio24Bandwidth} MHz</p></div>
+                    <div><span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">5 GHz</span><p className="mt-1 text-slate-900 dark:text-slate-100">{network.radio5Bandwidth} MHz</p></div>
+                    <div><span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">6 GHz</span><p className="mt-1 text-slate-900 dark:text-slate-100">{network.radio6Bandwidth} MHz</p></div>
+                    <div><span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">VLAN</span><p className="mt-1 text-slate-900 dark:text-slate-100">{network.vlan || '-'}</p></div>
+                    <div><span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Tipo</span><p className="mt-1 text-slate-900 dark:text-slate-100">{network.networkType}</p></div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        </>
+      )}
+
+      {normalized.deviceType === DEVICE_TYPE_NAS_STORAGE && (
+        <>
+          <DeviceAccessReadOnly title="Acesso NAS STORAGE" access={normalized.nasAccess} />
+          <section>
+            <h4 className="mb-2 text-sm font-semibold text-slate-900 dark:text-slate-100">Usuários NAS</h4>
+            {normalized.nasUsers.length === 0 ? <p className="text-sm text-slate-500 dark:text-slate-400">Nenhum usuário NAS cadastrado.</p> : (
+              <div className="space-y-2">
+                {normalized.nasUsers.map((user) => (
+                  <div key={user.id} className="grid gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800 sm:grid-cols-2 lg:grid-cols-4">
+                    <div><span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Login</span><div className="mt-1 flex items-center gap-2 text-slate-900 dark:text-slate-100"><span className="min-w-0 truncate">{user.login || '-'}</span>{user.login && <CopyButton value={user.login} label="Copiar login do usuário NAS" />}</div></div>
+                    <div><span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Senha</span><div className="mt-1 flex items-center gap-2 text-slate-900 dark:text-slate-100"><span>****</span>{user.password && <CopyButton value={user.password} label="Copiar senha do usuário NAS" />}</div></div>
+                    <div><span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Departamento</span><p className="mt-1 text-slate-900 dark:text-slate-100">{user.department}</p></div>
+                    <div><span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Colaborador</span><p className="mt-1 text-slate-900 dark:text-slate-100">{user.collaborator || '-'}</p></div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        </>
+      )}
+
+      {normalized.deviceType === DEVICE_TYPE_ROUTER_GATEWAY && normalized.pppoeAccounts.length > 0 && (
         <section>
           <h4 className="mb-2 text-sm font-semibold text-slate-900 dark:text-slate-100">PPPoE</h4>
           <div className="space-y-2">
@@ -668,14 +820,7 @@ function DeviceReadOnlyModal({ device, onClose }) {
 
       {normalized.deviceType === PABX_DEVICE_TYPE && (
         <>
-          <section>
-            <h4 className="mb-2 text-sm font-semibold text-slate-900 dark:text-slate-100">Portal PABX-IP/VOIP</h4>
-            <div className="grid gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800 sm:grid-cols-3">
-              <div><span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">URL do portal</span><div className="mt-1 flex items-center gap-2 text-slate-900 dark:text-slate-100"><span className="min-w-0 truncate" title={normalized.pabxPortal.url}>{normalized.pabxPortal.url || '-'}</span>{normalized.pabxPortal.url && <CopyButton value={normalized.pabxPortal.url} label="Copiar URL do portal" />}</div></div>
-              <div><span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Login do portal</span><div className="mt-1 flex items-center gap-2 text-slate-900 dark:text-slate-100"><span className="min-w-0 truncate">{normalized.pabxPortal.login || '-'}</span>{normalized.pabxPortal.login && <CopyButton value={normalized.pabxPortal.login} label="Copiar login do portal" />}</div></div>
-              <div><span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Senha do portal</span><div className="mt-1 flex items-center gap-2 text-slate-900 dark:text-slate-100"><span>****</span>{normalized.pabxPortal.password && <CopyButton value={normalized.pabxPortal.password} label="Copiar senha do portal" />}</div></div>
-            </div>
-          </section>
+          <DeviceAccessReadOnly title="Acesso PABX-IP/VOIP" access={normalized.pabxPortal} />
 
           <section>
             <h4 className="mb-1 text-sm font-semibold text-slate-900 dark:text-slate-100">Ramais</h4>
@@ -860,6 +1005,10 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
   const duplicateExtensions = getDuplicateExtensions(extensions);
   const contractedExtensions = sanitizeContractedExtensions(device.contractedExtensions);
   const hasExtensionOverage = Boolean(contractedExtensions) && extensions.length > Number(contractedExtensions);
+  const nasAccess = normalizeAccessCredentials(device.nasAccess);
+  const nasUsers = normalizeNasUsers(device);
+  const wifiControllerAccess = normalizeAccessCredentials(device.wifiControllerAccess);
+  const wifiNetworks = normalizeWifiNetworks(device);
   const portRules = normalizePortRules(device);
   const hasInvalidConnections = connections.some((connection) => (
     validateIpv4Cidr(connection.ipv4).state === 'invalid'
@@ -898,7 +1047,7 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
   };
 
   const handleDeviceTypeChange = (nextDeviceType) => {
-    if (device.deviceType === 'ROTEADOR' && nextDeviceType !== 'ROTEADOR' && pppoeAccounts.length > 0) {
+    if (device.deviceType === DEVICE_TYPE_ROUTER_GATEWAY && nextDeviceType !== DEVICE_TYPE_ROUTER_GATEWAY && pppoeAccounts.length > 0) {
       const confirmed = window.confirm('Este dispositivo possui PPPoE cadastrados. Ao alterar o tipo para outro dispositivo, os dados PPPoE serão removidos. Deseja continuar?');
       if (!confirmed) return;
     }
@@ -911,15 +1060,31 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
       if (!confirmed) return;
     }
 
+    const hasNasData = Object.values(nasAccess).some((value) => value.trim()) || nasUsers.length > 0;
+    if (device.deviceType === DEVICE_TYPE_NAS_STORAGE && nextDeviceType !== DEVICE_TYPE_NAS_STORAGE && hasNasData) {
+      const confirmed = window.confirm('Este dispositivo possui dados de NAS STORAGE cadastrados. Ao alterar o tipo, acesso e usuários serão removidos. Deseja continuar?');
+      if (!confirmed) return;
+    }
+
+    const hasWifiData = Object.values(wifiControllerAccess).some((value) => value.trim()) || wifiNetworks.length > 0;
+    if (device.deviceType === DEVICE_TYPE_WIFI_CONTROLLER && nextDeviceType !== DEVICE_TYPE_WIFI_CONTROLLER && hasWifiData) {
+      const confirmed = window.confirm('Este dispositivo possui dados de WIFI/CONTROLLER cadastrados. Ao alterar o tipo, acesso e redes Wi-Fi serão removidos. Deseja continuar?');
+      if (!confirmed) return;
+    }
+
     setDevice({
       ...device,
       deviceType: nextDeviceType,
-      pppoeAccounts: nextDeviceType === 'ROTEADOR' ? pppoeAccounts : [],
+      pppoeAccounts: nextDeviceType === DEVICE_TYPE_ROUTER_GATEWAY ? pppoeAccounts : [],
       pabxPortal: nextDeviceType === PABX_DEVICE_TYPE ? pabxPortal : { url: '', login: '', password: '' },
       contractedExtensions: nextDeviceType === PABX_DEVICE_TYPE
         ? sanitizeContractedExtensions(device.contractedExtensions)
         : '',
-      extensions: nextDeviceType === PABX_DEVICE_TYPE ? extensions : []
+      extensions: nextDeviceType === PABX_DEVICE_TYPE ? extensions : [],
+      nasAccess: nextDeviceType === DEVICE_TYPE_NAS_STORAGE ? nasAccess : { url: '', login: '', password: '' },
+      nasUsers: nextDeviceType === DEVICE_TYPE_NAS_STORAGE ? nasUsers : [],
+      wifiControllerAccess: nextDeviceType === DEVICE_TYPE_WIFI_CONTROLLER ? wifiControllerAccess : { url: '', login: '', password: '' },
+      wifiNetworks: nextDeviceType === DEVICE_TYPE_WIFI_CONTROLLER ? wifiNetworks : []
     });
   };
 
@@ -966,6 +1131,45 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
     setDevice({ ...device, extensions: extensions.filter((extension) => extension.id !== extensionId) });
   };
 
+  const updateNasAccess = (field, value) => {
+    setDevice({ ...device, nasAccess: { ...nasAccess, [field]: value } });
+  };
+
+  const addNasUser = () => {
+    setDevice({
+      ...device,
+      nasUsers: [{ id: makeId(), login: '', password: '', department: 'Geral', collaborator: '' }, ...nasUsers]
+    });
+  };
+
+  const updateNasUser = (userId, field, value) => {
+    setDevice({ ...device, nasUsers: nasUsers.map((user) => user.id === userId ? { ...user, [field]: value } : user) });
+  };
+
+  const removeNasUser = (userId) => {
+    setDevice({ ...device, nasUsers: nasUsers.filter((user) => user.id !== userId) });
+  };
+
+  const updateWifiControllerAccess = (field, value) => {
+    setDevice({ ...device, wifiControllerAccess: { ...wifiControllerAccess, [field]: value } });
+  };
+
+  const addWifiNetwork = () => {
+    setDevice({
+      ...device,
+      wifiNetworks: [{ id: makeId(), ssid: '', password: '', radio24Bandwidth: '20', radio5Bandwidth: '40', radio6Bandwidth: '160', vlan: '', networkType: 'Padrão' }, ...wifiNetworks]
+    });
+  };
+
+  const updateWifiNetwork = (networkId, field, value) => {
+    const nextValue = field === 'vlan' ? sanitizeVlanInput(value) : value;
+    setDevice({ ...device, wifiNetworks: wifiNetworks.map((network) => network.id === networkId ? { ...network, [field]: nextValue } : network) });
+  };
+
+  const removeWifiNetwork = (networkId) => {
+    setDevice({ ...device, wifiNetworks: wifiNetworks.filter((network) => network.id !== networkId) });
+  };
+
   const addPortRule = () => {
     setDevice({
       ...device,
@@ -1006,20 +1210,65 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
             </div>
           </div>
 
+          {device.deviceType === DEVICE_TYPE_WIFI_CONTROLLER && (
+            <>
+              <div className="border-t border-slate-200 pt-3 dark:border-slate-700">
+                <h4 className="mb-2 text-sm font-semibold text-slate-900 dark:text-slate-100">Acesso WIFI/CONTROLLER</h4>
+                <DeviceAccessFields access={wifiControllerAccess} onChange={updateWifiControllerAccess} passwordName={`device_wifi_controller_password_${device.id}`} />
+              </div>
+              <div className="border-t border-slate-200 pt-3 dark:border-slate-700">
+                <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div><h4 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Redes Wi-Fi</h4><p className="text-xs text-slate-500 dark:text-slate-400">Redes cadastradas: {wifiNetworks.length}</p></div>
+                  <button type="button" onClick={addWifiNetwork} className="inline-flex h-9 items-center justify-center rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"><Plus className="mr-2 h-4 w-4" /> Adicionar rede Wi-Fi</button>
+                </div>
+                <div className="space-y-1.5">
+                  {wifiNetworks.length === 0 ? <p className="text-sm text-slate-500 dark:text-slate-400">Nenhuma rede Wi-Fi adicionada.</p> : wifiNetworks.map((network) => (
+                    <div key={network.id} className="grid w-full grid-cols-1 items-end gap-2 rounded-md border border-slate-200 bg-slate-50 p-2 dark:border-slate-800 dark:bg-slate-800 md:grid-cols-2 xl:grid-cols-4">
+                      <div><label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Nome Wi-Fi</label><input type="text" className="h-10 w-full min-w-0 rounded-md border border-slate-300 bg-white px-2 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={network.ssid} onChange={(event) => updateWifiNetwork(network.id, 'ssid', event.target.value)} placeholder="SSID" /></div>
+                      <SecurePasswordInput name={`device_wifi_network_password_${network.id}`} label="Senha" value={network.password} onChange={(event) => updateWifiNetwork(network.id, 'password', event.target.value)} enableGenerator={false} autoComplete="new-password" />
+                      <div><label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Rádio 2.4 GHz</label><select className="h-10 w-full rounded-md border border-slate-300 bg-white px-2 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={network.radio24Bandwidth} onChange={(event) => updateWifiNetwork(network.id, 'radio24Bandwidth', event.target.value)}>{RADIO_24_BANDWIDTH_OPTIONS.map((option) => <option key={option} value={option}>{option} MHz</option>)}</select></div>
+                      <div><label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Rádio 5 GHz</label><select className="h-10 w-full rounded-md border border-slate-300 bg-white px-2 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={network.radio5Bandwidth} onChange={(event) => updateWifiNetwork(network.id, 'radio5Bandwidth', event.target.value)}>{RADIO_5_BANDWIDTH_OPTIONS.map((option) => <option key={option} value={option}>{option} MHz</option>)}</select></div>
+                      <div><label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Rádio 6 GHz</label><select className="h-10 w-full rounded-md border border-slate-300 bg-white px-2 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={network.radio6Bandwidth} onChange={(event) => updateWifiNetwork(network.id, 'radio6Bandwidth', event.target.value)}>{RADIO_6_BANDWIDTH_OPTIONS.map((option) => <option key={option} value={option}>{option} MHz</option>)}</select></div>
+                      <div><label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">VLAN</label><input type="text" inputMode="numeric" maxLength={4} className="h-10 w-full rounded-md border border-slate-300 bg-white px-2 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={network.vlan} onChange={(event) => updateWifiNetwork(network.id, 'vlan', event.target.value)} placeholder="100" /></div>
+                      <div><label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Tipo</label><select className="h-10 w-full rounded-md border border-slate-300 bg-white px-2 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={network.networkType} onChange={(event) => updateWifiNetwork(network.id, 'networkType', event.target.value)}>{WIFI_NETWORK_TYPES.map((option) => <option key={option} value={option}>{option}</option>)}</select></div>
+                      <button type="button" title="Excluir rede Wi-Fi" aria-label="Excluir rede Wi-Fi" onClick={() => removeWifiNetwork(network.id)} className="inline-flex shrink-0 items-center justify-center justify-self-end p-0 text-red-500 hover:text-red-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 dark:text-red-400 dark:hover:text-red-300 dark:focus-visible:ring-offset-slate-800 xl:mb-3"><Trash2 className="h-4 w-4" /></button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+
+          {device.deviceType === DEVICE_TYPE_NAS_STORAGE && (
+            <>
+              <div className="border-t border-slate-200 pt-3 dark:border-slate-700">
+                <h4 className="mb-2 text-sm font-semibold text-slate-900 dark:text-slate-100">Acesso NAS STORAGE</h4>
+                <DeviceAccessFields access={nasAccess} onChange={updateNasAccess} passwordName={`device_nas_access_password_${device.id}`} />
+              </div>
+              <div className="border-t border-slate-200 pt-3 dark:border-slate-700">
+                <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div><h4 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Usuários</h4><p className="text-xs text-slate-500 dark:text-slate-400">Usuários NAS: {nasUsers.length}</p></div>
+                  <button type="button" onClick={addNasUser} className="inline-flex h-9 items-center justify-center rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"><Plus className="mr-2 h-4 w-4" /> Adicionar usuário</button>
+                </div>
+                <div className="space-y-1.5">
+                  {nasUsers.length === 0 ? <p className="text-sm text-slate-500 dark:text-slate-400">Nenhum usuário NAS adicionado.</p> : nasUsers.map((user) => (
+                    <div key={user.id} className="grid w-full grid-cols-1 items-end gap-2 rounded-md border border-slate-200 bg-slate-50 p-2 dark:border-slate-800 dark:bg-slate-800 md:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_160px_minmax(0,1fr)_24px]">
+                      <div><label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Login</label><input type="text" autoComplete="off" className="h-10 w-full min-w-0 rounded-md border border-slate-300 bg-white px-2 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={user.login} onChange={(event) => updateNasUser(user.id, 'login', event.target.value)} placeholder="Login" /></div>
+                      <SecurePasswordInput name={`device_nas_user_password_${user.id}`} label="Senha" value={user.password} onChange={(event) => updateNasUser(user.id, 'password', event.target.value)} enableGenerator={false} autoComplete="new-password" />
+                      <div><label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Departamento</label><select className="h-10 w-full min-w-0 rounded-md border border-slate-300 bg-white px-2 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={user.department} onChange={(event) => updateNasUser(user.id, 'department', event.target.value)}>{DEPARTMENT_OPTIONS.map((department) => <option key={department} value={department}>{department}</option>)}</select></div>
+                      <div><label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Colaborador</label><input type="text" className="h-10 w-full min-w-0 rounded-md border border-slate-300 bg-white px-2 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={user.collaborator} onChange={(event) => updateNasUser(user.id, 'collaborator', event.target.value)} placeholder="Nome do colaborador" /></div>
+                      <button type="button" title="Excluir usuário NAS" aria-label="Excluir usuário NAS" onClick={() => removeNasUser(user.id)} className="inline-flex shrink-0 items-center justify-center justify-self-end p-0 text-red-500 hover:text-red-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 dark:text-red-400 dark:hover:text-red-300 dark:focus-visible:ring-offset-slate-800 xl:mb-3 xl:justify-self-center"><Trash2 className="h-4 w-4" /></button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+
           {device.deviceType === PABX_DEVICE_TYPE && (
             <>
               <div className="border-t border-slate-200 pt-3 dark:border-slate-700">
-                <div className="grid grid-cols-1 items-end gap-2 md:grid-cols-3">
-                  <div>
-                    <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">URL do portal</label>
-                    <input type="text" inputMode="url" className="h-10 w-full min-w-0 rounded-md border border-slate-300 bg-white px-2 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={pabxPortal.url} onChange={(event) => updatePabxPortal('url', event.target.value)} placeholder="https://sip.pabx.com.br/login" />
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Login do portal</label>
-                    <input type="text" autoComplete="off" className="h-10 w-full min-w-0 rounded-md border border-slate-300 bg-white px-2 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={pabxPortal.login} onChange={(event) => updatePabxPortal('login', event.target.value)} placeholder="Login do portal" />
-                  </div>
-                  <SecurePasswordInput name={`device_pabx_portal_password_${device.id}`} label="Senha do portal" value={pabxPortal.password} onChange={(event) => updatePabxPortal('password', event.target.value)} enableGenerator={false} autoComplete="new-password" />
-                </div>
+                <DeviceAccessFields access={pabxPortal} onChange={updatePabxPortal} passwordName={`device_pabx_portal_password_${device.id}`} />
               </div>
 
               <div className="border-t border-slate-200 pt-3 dark:border-slate-700">
@@ -1080,7 +1329,7 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
             </>
           )}
 
-          {device.deviceType === 'ROTEADOR' && (
+          {device.deviceType === DEVICE_TYPE_ROUTER_GATEWAY && (
             <div className="border-t border-slate-200 pt-5 dark:border-slate-700">
               <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>

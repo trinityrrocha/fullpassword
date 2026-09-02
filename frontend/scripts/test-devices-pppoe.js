@@ -14,12 +14,12 @@ assert.match(devicesSource, /pppoeAccounts: \[\]/, 'Dispositivos antigos devem n
 for (const field of ['operatorName', 'login', 'password', 'supportPhone']) {
   assert.match(devicesSource, new RegExp(`${field}: String\\(`), `Normalização PPPoE sem o campo ${field}`);
 }
-assert.match(devicesSource, /deviceType === 'ROTEADOR'/, 'A seção PPPoE deve ser exclusiva de roteadores');
+assert.match(devicesSource, /deviceType === DEVICE_TYPE_ROUTER_GATEWAY/, 'A seção PPPoE deve ser exclusiva de roteadores');
 assert.match(devicesSource, /Adicionar PPPoE/, 'Roteadores devem permitir adicionar PPPoE');
 assert.match(devicesSource, /pppoeAccounts: \[\.\.\.pppoeAccounts,/, 'Roteadores devem permitir múltiplas contas PPPoE');
 assert.match(devicesSource, /Informe pelo menos a operadora ou o login/, 'Cada PPPoE deve exigir operadora ou login');
 assert.match(devicesSource, /Este dispositivo possui PPPoE cadastrados\./, 'Troca de tipo deve confirmar a remoção de PPPoE');
-assert.match(devicesSource, /pppoeAccounts: nextDeviceType === 'ROTEADOR' \? pppoeAccounts : \[\]/, 'PPPoE não pode permanecer oculto em outro tipo');
+assert.match(devicesSource, /pppoeAccounts: nextDeviceType === DEVICE_TYPE_ROUTER_GATEWAY \? pppoeAccounts : \[\]/, 'PPPoE não pode permanecer oculto em outro tipo');
 assert.match(devicesSource, /const formatPppoeSummary/, 'A lista deve ter resumo PPPoE');
 assert.match(devicesSource, /Senha PPPoE<\/span><div[^>]*><span>\*\*\*\*<\/span>/, 'A visualização deve mascarar a senha PPPoE');
 assert.match(devicesSource, /<SecurePasswordInput[\s\S]*device_pppoe_password_/, 'A edição deve usar o campo seguro de senha');
