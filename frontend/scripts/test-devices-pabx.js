@@ -28,7 +28,8 @@ assert.match(source, /Copiar login do portal/, 'Visualização deve copiar login
 assert.match(source, /Copiar senha do portal/, 'Visualização deve copiar senha do portal');
 
 assert.match(source, /Adicionar ramal/, 'PABX deve permitir adicionar ramais');
-assert.match(source, /extensions: \[\.\.\.extensions,/, 'PABX deve permitir múltiplos ramais');
+assert.match(source, /extensions: \[\{ id: makeId\(\).*\}, \.\.\.extensions\]/, 'Novo ramal deve ser inserido no topo');
+assert.doesNotMatch(source, /extensions: \[\.\.\.extensions, \{ id: makeId\(\)/, 'Novo ramal não pode ser inserido no fim');
 for (const field of ['extension', 'login', 'password', 'collaborator']) {
   assert.match(source, new RegExp(`${field}: String\\(extension\\?\\.${field}`), `Normalização de ramal sem o campo ${field}`);
 }
@@ -44,6 +45,17 @@ assert.match(source, /Ramal duplicado/, 'Aviso de ramal duplicado deve ser exibi
 
 const validateDeviceSource = source.slice(source.indexOf('const validateDevice ='), source.indexOf('const closeCreateDeviceModal'));
 assert.doesNotMatch(validateDeviceSource, /duplicate|duplicado|Ramal duplicado/i, 'Ramal duplicado não pode bloquear o salvamento');
+
+const deviceModalSource = source.slice(source.indexOf('function DeviceModal'));
+assert.doesNotMatch(deviceModalSource, /<h4[^>]*>Portal PABX-IP\/VOIP<\/h4>/, 'Formulário não deve exibir o cabeçalho do portal');
+for (const fieldLabel of ['URL do portal', 'Login do portal', 'Senha do portal']) {
+  assert.match(deviceModalSource, new RegExp(fieldLabel), `Campo ${fieldLabel} deve permanecer no formulário`);
+}
+assert.doesNotMatch(deviceModalSource, />Quantidade de ramais contratada</, 'Label antigo de quantidade deve ser removido');
+assert.match(deviceModalSource, />Quantidade de ramal</, 'Input deve usar o label compacto de quantidade');
+assert.match(source, /sanitizeContractedExtensions = .*replace\(\/\\D\/g, ''\)\.slice\(0, 3\)/, 'Quantidade deve aceitar somente três dígitos');
+assert.match(deviceModalSource, /inputMode="numeric" maxLength=\{3\} className="h-9 w-20/, 'Input de quantidade deve ser compacto e limitado');
+assert.match(deviceModalSource, /'space-y-3 p-5'/, 'Formulário PABX deve usar espaçamento vertical compacto');
 
 assert.match(source, /Este dispositivo possui dados de PABX-IP\/VOIP cadastrados\./, 'Mudança de tipo com dados PABX deve pedir confirmação');
 assert.match(source, /pabxPortal: nextDeviceType === PABX_DEVICE_TYPE \? pabxPortal : \{ url: '', login: '', password: '' \}/, 'Mudança de tipo deve limpar o portal');

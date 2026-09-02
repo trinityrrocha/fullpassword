@@ -41,7 +41,7 @@ const makeId = () => {
 };
 
 const sanitizePortInput = (value = '') => String(value).replace(/\D/g, '').slice(0, 5);
-const sanitizeContractedExtensions = (value = '') => String(value).replace(/\D/g, '');
+const sanitizeContractedExtensions = (value = '') => String(value).replace(/\D/g, '').slice(0, 3);
 const sanitizeIpv4MaskInput = (value = '') => {
   const cleaned = String(value).replace(/[^0-9./]/g, '');
   const [address, ...maskParts] = cleaned.split('/');
@@ -951,7 +951,7 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
   const addExtension = () => {
     setDevice({
       ...device,
-      extensions: [...extensions, { id: makeId(), extension: '', login: '', password: '', department: 'Geral', collaborator: '' }]
+      extensions: [{ id: makeId(), extension: '', login: '', password: '', department: 'Geral', collaborator: '' }, ...extensions]
     });
   };
 
@@ -988,8 +988,8 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
           <button type="button" onClick={onCancel} className="text-slate-400 hover:text-slate-600"><X className="h-5 w-5" /></button>
         </div>
 
-        <div className="space-y-6 p-6">
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div className={device.deviceType === PABX_DEVICE_TYPE ? 'space-y-3 p-5' : 'space-y-6 p-6'}>
+          <div className={`grid grid-cols-1 sm:grid-cols-2 ${device.deviceType === PABX_DEVICE_TYPE ? 'gap-3' : 'gap-4'}`}>
             <div>
               <label className="mb-1 block text-sm font-medium text-slate-700">Nome do dispositivo</label>
               <input type="text" className="w-full rounded-md border border-slate-300 p-2 shadow-sm" value={device.name} onChange={(event) => setDevice({ ...device, name: event.target.value })} placeholder="Ex: DVR Loja" />
@@ -1008,8 +1008,7 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
 
           {device.deviceType === PABX_DEVICE_TYPE && (
             <>
-              <div className="border-t border-slate-200 pt-5 dark:border-slate-700">
-                <h4 className="mb-3 text-sm font-semibold text-slate-900 dark:text-slate-100">Portal PABX-IP/VOIP</h4>
+              <div className="border-t border-slate-200 pt-3 dark:border-slate-700">
                 <div className="grid grid-cols-1 items-end gap-2 md:grid-cols-3">
                   <div>
                     <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">URL do portal</label>
@@ -1023,8 +1022,8 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
                 </div>
               </div>
 
-              <div className="border-t border-slate-200 pt-5 dark:border-slate-700">
-                <div className="mb-3 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+              <div className="border-t border-slate-200 pt-3 dark:border-slate-700">
+                <div className="mb-2 flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
                   <div className="space-y-2">
                     <div>
                       <h4 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Ramais</h4>
@@ -1036,8 +1035,8 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
                   </div>
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
                     <div>
-                      <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">Quantidade de ramais contratada</label>
-                      <input type="text" inputMode="numeric" className="h-9 w-full rounded-md border border-slate-300 bg-white px-2 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 sm:w-56" value={contractedExtensions} onChange={(event) => setDevice({ ...device, contractedExtensions: sanitizeContractedExtensions(event.target.value) })} placeholder="Ex: 20" />
+                      <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">Quantidade de ramal</label>
+                      <input type="text" inputMode="numeric" maxLength={3} className="h-9 w-20 rounded-md border border-slate-300 bg-white px-2 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={contractedExtensions} onChange={(event) => setDevice({ ...device, contractedExtensions: sanitizeContractedExtensions(event.target.value) })} placeholder="20" />
                     </div>
                     <button type="button" onClick={addExtension} className="inline-flex h-9 items-center justify-center rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800">
                       <Plus className="mr-2 h-4 w-4" /> Adicionar ramal
