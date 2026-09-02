@@ -21,7 +21,7 @@ assert.match(devicesSource, /Informe pelo menos a operadora ou o login/, 'Cada P
 assert.match(devicesSource, /Este dispositivo possui PPPoE cadastrados\./, 'Troca de tipo deve confirmar a remoção de PPPoE');
 assert.match(devicesSource, /pppoeAccounts: nextDeviceType === 'ROTEADOR' \? pppoeAccounts : \[\]/, 'PPPoE não pode permanecer oculto em outro tipo');
 assert.match(devicesSource, /const formatPppoeSummary/, 'A lista deve ter resumo PPPoE');
-assert.match(devicesSource, /Senha PPPoE<\/span><p[^>]*>\*\*\*\*<\/p>/, 'A visualização deve mascarar a senha PPPoE');
+assert.match(devicesSource, /Senha PPPoE<\/span><div[^>]*><span>\*\*\*\*<\/span>/, 'A visualização deve mascarar a senha PPPoE');
 assert.match(devicesSource, /<SecurePasswordInput[\s\S]*device_pppoe_password_/, 'A edição deve usar o campo seguro de senha');
 
 const summarySource = devicesSource.slice(

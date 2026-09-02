@@ -12,7 +12,9 @@ import { normalizeVaultAttachments } from '../utils/vaultAttachments';
 import useClearOnVaultLock from '../hooks/useClearOnVaultLock';
 
 const DEVICE_FILE_EXTENSIONS = ['.txt', '.conf', '.json', '.xml', '.log', '.zip', '.rar', '.pdf', '.png', '.jpg', '.jpeg'];
-const DEVICE_TYPES = ['VOIP', 'NAS', 'DVR', 'IMPRESSORA', 'NAS STORAGE', 'PABX', 'ROTEADOR'];
+const PABX_DEVICE_TYPE = 'PABX-IP/VOIP';
+const LEGACY_PABX_DEVICE_TYPES = ['PABX', 'VOIP'];
+const DEVICE_TYPES = ['NAS', 'DVR', 'IMPRESSORA', 'NAS STORAGE', PABX_DEVICE_TYPE, 'ROTEADOR'];
 const CONNECTION_OPTIONS = ['Eth1', 'Eth2', 'Eth3', 'Eth4', 'Eth5', 'VPN'];
 const VPN_OPTIONS = ['OpenVPN', 'WireGuard', 'ZeroTier', 'Tailscale', 'Outro'];
 const DIRECTION_OPTIONS = ['Entrada', 'Saída', 'Entrada/Saída'];
@@ -39,6 +41,7 @@ const makeId = () => {
 };
 
 const sanitizePortInput = (value = '') => String(value).replace(/\D/g, '').slice(0, 5);
+const sanitizeContractedExtensions = (value = '') => String(value).replace(/\D/g, '');
 const sanitizeIpv4MaskInput = (value = '') => {
   const cleaned = String(value).replace(/[^0-9./]/g, '');
   const [address, ...maskParts] = cleaned.split('/');
@@ -57,6 +60,9 @@ const emptyDevice = () => ({
   notes: '',
   connections: [],
   pppoeAccounts: [],
+  pabxPortal: { url: '', login: '', password: '' },
+  contractedExtensions: '',
+  extensions: [],
   portRules: [],
   attachments: []
 });
@@ -118,10 +124,42 @@ const normalizePppoeAccounts = (device = {}) => {
   }));
 };
 
+const normalizePabxPortal = (device = {}) => ({
+  url: String(device.pabxPortal?.url ?? ''),
+  login: String(device.pabxPortal?.login ?? ''),
+  password: String(device.pabxPortal?.password ?? '')
+});
+
+const normalizeExtensions = (device = {}) => {
+  const extensions = Array.isArray(device.extensions) ? device.extensions : [];
+  return extensions.map((extension) => ({
+    id: extension?.id || makeId(),
+    extension: String(extension?.extension ?? ''),
+    login: String(extension?.login ?? ''),
+    password: String(extension?.password ?? ''),
+    department: DEPARTMENT_OPTIONS.includes(extension?.department) ? extension.department : 'Geral',
+    collaborator: String(extension?.collaborator ?? '')
+  }));
+};
+
+const normalizeDeviceType = (deviceType) => {
+  if (LEGACY_PABX_DEVICE_TYPES.includes(deviceType)) return PABX_DEVICE_TYPE;
+  return DEVICE_TYPES.includes(deviceType) ? deviceType : DEVICE_TYPES[0];
+};
+
+const getDuplicateExtensions = (extensions = []) => {
+  const counts = new Map();
+  extensions.forEach((item) => {
+    const normalizedExtension = String(item?.extension ?? '').trim().toLowerCase();
+    if (!normalizedExtension) return;
+    counts.set(normalizedExtension, (counts.get(normalizedExtension) || 0) + 1);
+  });
+  return new Set([...counts.entries()].filter(([, count]) => count > 1).map(([extension]) => extension));
+};
+
 const normalizeDevice = (device = {}) => {
-  const deviceType = DEVICE_TYPES.includes(device.deviceType || device.type)
-    ? (device.deviceType || device.type)
-    : DEVICE_TYPES[0];
+  const deviceType = normalizeDeviceType(device.deviceType || device.type);
+  const isPabx = deviceType === PABX_DEVICE_TYPE;
 
   return {
     id: device.id || makeId(),
@@ -130,6 +168,11 @@ const normalizeDevice = (device = {}) => {
     notes: device.notes || device.observations || '',
     connections: normalizeConnections(device),
     pppoeAccounts: deviceType === 'ROTEADOR' ? normalizePppoeAccounts(device) : [],
+    pabxPortal: isPabx ? normalizePabxPortal(device) : { url: '', login: '', password: '' },
+    contractedExtensions: isPabx
+      ? sanitizeContractedExtensions(device.contractedExtensions ?? device.extensionContractedQuantity ?? '')
+      : '',
+    extensions: isPabx ? normalizeExtensions(device) : [],
     portRules: normalizePortRules(device),
     attachments: normalizeVaultAttachments(device)
   };
@@ -146,7 +189,7 @@ const normalizeDeviceLogin = (deviceLogin = {}) => ({
 
 const formatDeviceOptionLabel = (device) => {
   const name = device?.name || 'Dispositivo sem nome';
-  const type = device?.deviceType || device?.type || 'Sem tipo';
+  const type = normalizeDeviceType(device?.deviceType || device?.type);
   return `${name} (${type})`;
 };
 
@@ -156,6 +199,13 @@ const formatPppoeSummary = (device) => {
   if (accounts.length === 0) return '';
   const operators = [...new Set(accounts.map((account) => account.operatorName.trim()).filter(Boolean))];
   return `PPPoE: ${accounts.length}${operators.length ? ` - ${operators.join(', ')}` : ''}`;
+};
+
+const formatPabxExtensionsSummary = (device) => {
+  if (device?.deviceType !== PABX_DEVICE_TYPE) return '';
+  const usedExtensions = normalizeExtensions(device).length;
+  const contractedExtensions = sanitizeContractedExtensions(device.contractedExtensions);
+  return `Ramais: ${usedExtensions}${contractedExtensions ? `/${contractedExtensions}` : ''}`;
 };
 
 const normalizeDevicesForm = (data = {}) => ({
@@ -459,6 +509,7 @@ export default function DevicesManager({ devicesForm, setDevicesForm, handleSave
                 <span className="whitespace-nowrap">Conexões: {device.connections.length}</span>
                 <span className="whitespace-nowrap">Portas: {device.portRules.length}</span>
                 {formatPppoeSummary(device) && <span className="whitespace-nowrap">{formatPppoeSummary(device)}</span>}
+                {formatPabxExtensionsSummary(device) && <span className="whitespace-nowrap">{formatPabxExtensionsSummary(device)}</span>}
                 <span className="whitespace-nowrap">Logins: {normalizedForm.deviceLogins.filter((deviceLogin) => deviceLogin.deviceId === device.id).length}</span>
               </div>
               <div className="flex shrink-0 gap-2 self-start sm:self-auto">
@@ -606,13 +657,44 @@ function DeviceReadOnlyModal({ device, onClose }) {
             {normalized.pppoeAccounts.map((account) => (
               <div key={account.id} className="grid gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800 sm:grid-cols-2">
                 <div><span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Operadora</span><p className="mt-1 text-slate-900 dark:text-slate-100">{account.operatorName || '-'}</p></div>
-                <div><span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Login PPPoE</span><p className="mt-1 text-slate-900 dark:text-slate-100">{account.login || '-'}</p></div>
-                <div><span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Senha PPPoE</span><p className="mt-1 text-slate-900 dark:text-slate-100">****</p></div>
+                <div><span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Login PPPoE</span><div className="mt-1 flex items-center gap-2 text-slate-900 dark:text-slate-100"><span>{account.login || '-'}</span>{account.login && <CopyButton value={account.login} label="Copiar login PPPoE" />}</div></div>
+                <div><span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Senha PPPoE</span><div className="mt-1 flex items-center gap-2 text-slate-900 dark:text-slate-100"><span>****</span>{account.password && <CopyButton value={account.password} label="Copiar senha PPPoE" />}</div></div>
                 <div><span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Telefone suporte</span><p className="mt-1 text-slate-900 dark:text-slate-100">{account.supportPhone || '-'}</p></div>
               </div>
             ))}
           </div>
         </section>
+      )}
+
+      {normalized.deviceType === PABX_DEVICE_TYPE && (
+        <>
+          <section>
+            <h4 className="mb-2 text-sm font-semibold text-slate-900 dark:text-slate-100">Portal PABX-IP/VOIP</h4>
+            <div className="grid gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800 sm:grid-cols-3">
+              <div><span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">URL do portal</span><div className="mt-1 flex items-center gap-2 text-slate-900 dark:text-slate-100"><span className="min-w-0 truncate" title={normalized.pabxPortal.url}>{normalized.pabxPortal.url || '-'}</span>{normalized.pabxPortal.url && <CopyButton value={normalized.pabxPortal.url} label="Copiar URL do portal" />}</div></div>
+              <div><span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Login do portal</span><div className="mt-1 flex items-center gap-2 text-slate-900 dark:text-slate-100"><span className="min-w-0 truncate">{normalized.pabxPortal.login || '-'}</span>{normalized.pabxPortal.login && <CopyButton value={normalized.pabxPortal.login} label="Copiar login do portal" />}</div></div>
+              <div><span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Senha do portal</span><div className="mt-1 flex items-center gap-2 text-slate-900 dark:text-slate-100"><span>****</span>{normalized.pabxPortal.password && <CopyButton value={normalized.pabxPortal.password} label="Copiar senha do portal" />}</div></div>
+            </div>
+          </section>
+
+          <section>
+            <h4 className="mb-1 text-sm font-semibold text-slate-900 dark:text-slate-100">Ramais</h4>
+            <p className="mb-2 text-xs text-slate-500 dark:text-slate-400">Ramais contratados: {normalized.contractedExtensions || 'não informado'} · Ramais em uso: {normalized.extensions.length}</p>
+            {normalized.extensions.length === 0 ? <p className="text-sm text-slate-500 dark:text-slate-400">Nenhum ramal cadastrado.</p> : (
+              <div className="space-y-2">
+                {normalized.extensions.map((extension) => (
+                  <div key={extension.id} className="grid gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800 sm:grid-cols-2 lg:grid-cols-3">
+                    <div><span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Ramal</span><p className="mt-1 text-slate-900 dark:text-slate-100">{extension.extension || '-'}</p></div>
+                    <div><span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Login</span><div className="mt-1 flex items-center gap-2 text-slate-900 dark:text-slate-100"><span className="min-w-0 truncate">{extension.login || '-'}</span>{extension.login && <CopyButton value={extension.login} label={`Copiar login do ramal ${extension.extension || ''}`.trim()} />}</div></div>
+                    <div><span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Senha</span><div className="mt-1 flex items-center gap-2 text-slate-900 dark:text-slate-100"><span>****</span>{extension.password && <CopyButton value={extension.password} label={`Copiar senha do ramal ${extension.extension || ''}`.trim()} />}</div></div>
+                    <div><span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Departamento</span><p className="mt-1 text-slate-900 dark:text-slate-100">{extension.department}</p></div>
+                    <div><span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Colaborador</span><p className="mt-1 text-slate-900 dark:text-slate-100">{extension.collaborator || '-'}</p></div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        </>
       )}
 
       <section>
@@ -773,6 +855,11 @@ function DeviceLoginModal({
 function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onDelete, deleteConfirmation, setDeleteConfirmation, linkedLoginCount = 0 }) {
   const connections = normalizeConnections(device);
   const pppoeAccounts = normalizePppoeAccounts(device);
+  const pabxPortal = normalizePabxPortal(device);
+  const extensions = normalizeExtensions(device);
+  const duplicateExtensions = getDuplicateExtensions(extensions);
+  const contractedExtensions = sanitizeContractedExtensions(device.contractedExtensions);
+  const hasExtensionOverage = Boolean(contractedExtensions) && extensions.length > Number(contractedExtensions);
   const portRules = normalizePortRules(device);
   const hasInvalidConnections = connections.some((connection) => (
     validateIpv4Cidr(connection.ipv4).state === 'invalid'
@@ -816,10 +903,23 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
       if (!confirmed) return;
     }
 
+    const hasPabxData = Object.values(pabxPortal).some((value) => value.trim())
+      || extensions.length > 0
+      || Boolean(sanitizeContractedExtensions(device.contractedExtensions));
+    if (device.deviceType === PABX_DEVICE_TYPE && nextDeviceType !== PABX_DEVICE_TYPE && hasPabxData) {
+      const confirmed = window.confirm('Este dispositivo possui dados de PABX-IP/VOIP cadastrados. Ao alterar o tipo, portal e ramais serão removidos. Deseja continuar?');
+      if (!confirmed) return;
+    }
+
     setDevice({
       ...device,
       deviceType: nextDeviceType,
-      pppoeAccounts: nextDeviceType === 'ROTEADOR' ? pppoeAccounts : []
+      pppoeAccounts: nextDeviceType === 'ROTEADOR' ? pppoeAccounts : [],
+      pabxPortal: nextDeviceType === PABX_DEVICE_TYPE ? pabxPortal : { url: '', login: '', password: '' },
+      contractedExtensions: nextDeviceType === PABX_DEVICE_TYPE
+        ? sanitizeContractedExtensions(device.contractedExtensions)
+        : '',
+      extensions: nextDeviceType === PABX_DEVICE_TYPE ? extensions : []
     });
   };
 
@@ -842,6 +942,28 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
       ...device,
       pppoeAccounts: pppoeAccounts.filter((account) => account.id !== accountId)
     });
+  };
+
+  const updatePabxPortal = (field, value) => {
+    setDevice({ ...device, pabxPortal: { ...pabxPortal, [field]: value } });
+  };
+
+  const addExtension = () => {
+    setDevice({
+      ...device,
+      extensions: [...extensions, { id: makeId(), extension: '', login: '', password: '', department: 'Geral', collaborator: '' }]
+    });
+  };
+
+  const updateExtension = (extensionId, field, value) => {
+    setDevice({
+      ...device,
+      extensions: extensions.map((extension) => extension.id === extensionId ? { ...extension, [field]: value } : extension)
+    });
+  };
+
+  const removeExtension = (extensionId) => {
+    setDevice({ ...device, extensions: extensions.filter((extension) => extension.id !== extensionId) });
   };
 
   const addPortRule = () => {
@@ -883,6 +1005,81 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
               <textarea rows={3} className="w-full rounded-md border border-slate-300 p-2 shadow-sm" value={device.notes} onChange={(event) => setDevice({ ...device, notes: event.target.value })} placeholder="Observações sobre o dispositivo"></textarea>
             </div>
           </div>
+
+          {device.deviceType === PABX_DEVICE_TYPE && (
+            <>
+              <div className="border-t border-slate-200 pt-5 dark:border-slate-700">
+                <h4 className="mb-3 text-sm font-semibold text-slate-900 dark:text-slate-100">Portal PABX-IP/VOIP</h4>
+                <div className="grid grid-cols-1 items-end gap-2 md:grid-cols-3">
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">URL do portal</label>
+                    <input type="text" inputMode="url" className="h-10 w-full min-w-0 rounded-md border border-slate-300 bg-white px-2 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={pabxPortal.url} onChange={(event) => updatePabxPortal('url', event.target.value)} placeholder="https://sip.pabx.com.br/login" />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Login do portal</label>
+                    <input type="text" autoComplete="off" className="h-10 w-full min-w-0 rounded-md border border-slate-300 bg-white px-2 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={pabxPortal.login} onChange={(event) => updatePabxPortal('login', event.target.value)} placeholder="Login do portal" />
+                  </div>
+                  <SecurePasswordInput name={`device_pabx_portal_password_${device.id}`} label="Senha do portal" value={pabxPortal.password} onChange={(event) => updatePabxPortal('password', event.target.value)} enableGenerator={false} autoComplete="new-password" />
+                </div>
+              </div>
+
+              <div className="border-t border-slate-200 pt-5 dark:border-slate-700">
+                <div className="mb-3 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+                  <div className="space-y-2">
+                    <div>
+                      <h4 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Ramais</h4>
+                      <p className={`text-xs ${hasExtensionOverage ? 'text-amber-700 dark:text-amber-300' : 'text-slate-500 dark:text-slate-400'}`}>
+                        Ramais contratados: {contractedExtensions || 'não informado'} · Ramais em uso: {extensions.length}
+                      </p>
+                    </div>
+                    {duplicateExtensions.size > 0 && <p className="text-xs font-medium text-amber-700 dark:text-amber-300">Ramal duplicado</p>}
+                  </div>
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+                    <div>
+                      <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">Quantidade de ramais contratada</label>
+                      <input type="text" inputMode="numeric" className="h-9 w-full rounded-md border border-slate-300 bg-white px-2 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 sm:w-56" value={contractedExtensions} onChange={(event) => setDevice({ ...device, contractedExtensions: sanitizeContractedExtensions(event.target.value) })} placeholder="Ex: 20" />
+                    </div>
+                    <button type="button" onClick={addExtension} className="inline-flex h-9 items-center justify-center rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800">
+                      <Plus className="mr-2 h-4 w-4" /> Adicionar ramal
+                    </button>
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  {extensions.length === 0 ? (
+                    <p className="text-sm text-slate-500 dark:text-slate-400">Nenhum ramal adicionado.</p>
+                  ) : extensions.map((extension) => {
+                    const normalizedExtension = extension.extension.trim().toLowerCase();
+                    const isDuplicate = Boolean(normalizedExtension) && duplicateExtensions.has(normalizedExtension);
+                    return (
+                      <div key={extension.id} className={`grid w-full grid-cols-1 items-end gap-2 rounded-md border p-2 dark:bg-slate-800 md:grid-cols-2 xl:grid-cols-[100px_minmax(0,1fr)_minmax(0,1fr)_150px_minmax(0,1fr)_24px] ${isDuplicate ? 'border-amber-400 bg-amber-50 dark:border-amber-500' : 'border-slate-200 bg-slate-50 dark:border-slate-800'}`}>
+                        <div>
+                          <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Ramal</label>
+                          <input type="text" inputMode="numeric" className={`h-10 w-full min-w-0 rounded-md border bg-white px-2 text-sm shadow-sm dark:bg-slate-900 dark:text-slate-100 ${isDuplicate ? 'border-amber-400 dark:border-amber-500' : 'border-slate-300 dark:border-slate-700'}`} value={extension.extension} onChange={(event) => updateExtension(extension.id, 'extension', event.target.value)} placeholder="1001" />
+                          {isDuplicate && <p className="mt-1 text-xs font-medium text-amber-700 dark:text-amber-300">Ramal duplicado</p>}
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Login</label>
+                          <input type="text" autoComplete="off" className="h-10 w-full min-w-0 rounded-md border border-slate-300 bg-white px-2 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={extension.login} onChange={(event) => updateExtension(extension.id, 'login', event.target.value)} placeholder="Login do ramal" />
+                        </div>
+                        <SecurePasswordInput name={`device_extension_password_${extension.id}`} label="Senha" value={extension.password} onChange={(event) => updateExtension(extension.id, 'password', event.target.value)} enableGenerator={false} autoComplete="new-password" />
+                        <div>
+                          <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Departamento</label>
+                          <select className="h-10 w-full min-w-0 rounded-md border border-slate-300 bg-white px-2 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={extension.department} onChange={(event) => updateExtension(extension.id, 'department', event.target.value)}>
+                            {DEPARTMENT_OPTIONS.map((department) => <option key={department} value={department}>{department}</option>)}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Colaborador</label>
+                          <input type="text" className="h-10 w-full min-w-0 rounded-md border border-slate-300 bg-white px-2 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={extension.collaborator} onChange={(event) => updateExtension(extension.id, 'collaborator', event.target.value)} placeholder="Nome do colaborador" />
+                        </div>
+                        <button type="button" title="Excluir ramal" aria-label="Excluir ramal" onClick={() => removeExtension(extension.id)} className="inline-flex shrink-0 items-center justify-center justify-self-end p-0 text-red-500 hover:text-red-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 dark:text-red-400 dark:hover:text-red-300 dark:focus-visible:ring-offset-slate-800 xl:mb-3 xl:justify-self-center"><Trash2 className="h-4 w-4" /></button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </>
+          )}
 
           {device.deviceType === 'ROTEADOR' && (
             <div className="border-t border-slate-200 pt-5 dark:border-slate-700">
