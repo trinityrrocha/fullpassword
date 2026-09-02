@@ -858,7 +858,7 @@ function WindowsServerModal({ title, server, setServer, isSaving, onCancel, onSa
               </select>
             </div>
 
-            <div className="space-y-3">
+            <div className="space-y-1.5">
               {connections.length === 0 ? (
                 <p className="text-sm text-slate-500">Nenhuma conexão adicionada.</p>
               ) : connections.map((connection) => {
@@ -867,7 +867,7 @@ function WindowsServerModal({ title, server, setServer, isSaving, onCancel, onSa
                 const isVpn = connection.type === 'VPN';
                 return (
                   <div key={connection.id} className="w-full rounded-md border border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-800">
-                    <div className="grid w-full grid-cols-1 items-center gap-2 p-3 md:grid-cols-[minmax(220px,260px)_minmax(0,1fr)_minmax(0,1fr)_24px]">
+                    <div className="grid w-full grid-cols-1 items-center gap-2 p-2 md:grid-cols-[minmax(220px,260px)_minmax(0,1fr)_minmax(0,1fr)_24px]">
                       <div className="flex h-10 w-full min-w-0 items-center gap-2 rounded-md border border-slate-200 bg-white px-2 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
                         <ConnectionIcon type={connection.type} />
                         <span className="shrink-0">{getConnectionLabel(connection, connections)}</span>

@@ -56,6 +56,7 @@ const emptyDevice = () => ({
   deviceType: DEVICE_TYPES[0],
   notes: '',
   connections: [],
+  pppoeAccounts: [],
   portRules: [],
   attachments: []
 });
@@ -106,17 +107,33 @@ const normalizePortRules = (device = {}) => {
   }));
 };
 
-const normalizeDevice = (device = {}) => ({
-  id: device.id || makeId(),
-  name: device.name || device.deviceName || '',
-  deviceType: DEVICE_TYPES.includes(device.deviceType || device.type)
+const normalizePppoeAccounts = (device = {}) => {
+  const accounts = Array.isArray(device.pppoeAccounts) ? device.pppoeAccounts : [];
+  return accounts.map((account) => ({
+    id: account?.id || makeId(),
+    operatorName: String(account?.operatorName || ''),
+    login: String(account?.login || ''),
+    password: String(account?.password || ''),
+    supportPhone: String(account?.supportPhone || '')
+  }));
+};
+
+const normalizeDevice = (device = {}) => {
+  const deviceType = DEVICE_TYPES.includes(device.deviceType || device.type)
     ? (device.deviceType || device.type)
-    : DEVICE_TYPES[0],
-  notes: device.notes || device.observations || '',
-  connections: normalizeConnections(device),
-  portRules: normalizePortRules(device),
-  attachments: normalizeVaultAttachments(device)
-});
+    : DEVICE_TYPES[0];
+
+  return {
+    id: device.id || makeId(),
+    name: device.name || device.deviceName || '',
+    deviceType,
+    notes: device.notes || device.observations || '',
+    connections: normalizeConnections(device),
+    pppoeAccounts: deviceType === 'ROTEADOR' ? normalizePppoeAccounts(device) : [],
+    portRules: normalizePortRules(device),
+    attachments: normalizeVaultAttachments(device)
+  };
+};
 
 const normalizeDeviceLogin = (deviceLogin = {}) => ({
   id: deviceLogin.id || makeId(),
@@ -131,6 +148,14 @@ const formatDeviceOptionLabel = (device) => {
   const name = device?.name || 'Dispositivo sem nome';
   const type = device?.deviceType || device?.type || 'Sem tipo';
   return `${name} (${type})`;
+};
+
+const formatPppoeSummary = (device) => {
+  if (device?.deviceType !== 'ROTEADOR') return '';
+  const accounts = normalizePppoeAccounts(device);
+  if (accounts.length === 0) return '';
+  const operators = [...new Set(accounts.map((account) => account.operatorName.trim()).filter(Boolean))];
+  return `PPPoE: ${accounts.length}${operators.length ? ` - ${operators.join(', ')}` : ''}`;
 };
 
 const normalizeDevicesForm = (data = {}) => ({
@@ -239,6 +264,13 @@ export default function DevicesManager({ devicesForm, setDevicesForm, handleSave
     const invalidPort = findInvalidPort(device);
     if (invalidPort) {
       alert(`A porta "${invalidPort.portNumber || 'vazia'}" em "${invalidPort.name || 'Porta'}" é inválida. Informe uma porta entre 1 e 65535.`);
+      return false;
+    }
+    const invalidPppoe = device.deviceType === 'ROTEADOR'
+      ? normalizePppoeAccounts(device).find((account) => !account.operatorName.trim() && !account.login.trim())
+      : null;
+    if (invalidPppoe) {
+      alert('Informe pelo menos a operadora ou o login em cada conta PPPoE adicionada.');
       return false;
     }
     return true;
@@ -426,6 +458,7 @@ export default function DevicesManager({ devicesForm, setDevicesForm, handleSave
                 <strong className="flex min-w-0 items-center gap-2 truncate font-medium text-slate-900"><Router className="h-5 w-5 shrink-0 text-slate-500" />{device.name || 'Dispositivo sem nome'} ({device.deviceType || '-'})</strong>
                 <span className="whitespace-nowrap">Conexões: {device.connections.length}</span>
                 <span className="whitespace-nowrap">Portas: {device.portRules.length}</span>
+                {formatPppoeSummary(device) && <span className="whitespace-nowrap">{formatPppoeSummary(device)}</span>}
                 <span className="whitespace-nowrap">Logins: {normalizedForm.deviceLogins.filter((deviceLogin) => deviceLogin.deviceId === device.id).length}</span>
               </div>
               <div className="flex shrink-0 gap-2 self-start sm:self-auto">
@@ -565,6 +598,22 @@ function DeviceReadOnlyModal({ device, onClose }) {
           </div>
         )}
       </section>
+
+      {normalized.deviceType === 'ROTEADOR' && normalized.pppoeAccounts.length > 0 && (
+        <section>
+          <h4 className="mb-2 text-sm font-semibold text-slate-900 dark:text-slate-100">PPPoE</h4>
+          <div className="space-y-2">
+            {normalized.pppoeAccounts.map((account) => (
+              <div key={account.id} className="grid gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800 sm:grid-cols-2">
+                <div><span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Operadora</span><p className="mt-1 text-slate-900 dark:text-slate-100">{account.operatorName || '-'}</p></div>
+                <div><span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Login PPPoE</span><p className="mt-1 text-slate-900 dark:text-slate-100">{account.login || '-'}</p></div>
+                <div><span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Senha PPPoE</span><p className="mt-1 text-slate-900 dark:text-slate-100">****</p></div>
+                <div><span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Telefone suporte</span><p className="mt-1 text-slate-900 dark:text-slate-100">{account.supportPhone || '-'}</p></div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       <section>
         <h4 className="mb-2 text-sm font-semibold text-slate-900">Portas</h4>
@@ -723,6 +772,7 @@ function DeviceLoginModal({
 
 function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onDelete, deleteConfirmation, setDeleteConfirmation, linkedLoginCount = 0 }) {
   const connections = normalizeConnections(device);
+  const pppoeAccounts = normalizePppoeAccounts(device);
   const portRules = normalizePortRules(device);
   const hasInvalidConnections = connections.some((connection) => (
     validateIpv4Cidr(connection.ipv4).state === 'invalid'
@@ -760,6 +810,40 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
     });
   };
 
+  const handleDeviceTypeChange = (nextDeviceType) => {
+    if (device.deviceType === 'ROTEADOR' && nextDeviceType !== 'ROTEADOR' && pppoeAccounts.length > 0) {
+      const confirmed = window.confirm('Este dispositivo possui PPPoE cadastrados. Ao alterar o tipo para outro dispositivo, os dados PPPoE serão removidos. Deseja continuar?');
+      if (!confirmed) return;
+    }
+
+    setDevice({
+      ...device,
+      deviceType: nextDeviceType,
+      pppoeAccounts: nextDeviceType === 'ROTEADOR' ? pppoeAccounts : []
+    });
+  };
+
+  const addPppoeAccount = () => {
+    setDevice({
+      ...device,
+      pppoeAccounts: [...pppoeAccounts, { id: makeId(), operatorName: '', login: '', password: '', supportPhone: '' }]
+    });
+  };
+
+  const updatePppoeAccount = (accountId, field, value) => {
+    setDevice({
+      ...device,
+      pppoeAccounts: pppoeAccounts.map((account) => account.id === accountId ? { ...account, [field]: value } : account)
+    });
+  };
+
+  const removePppoeAccount = (accountId) => {
+    setDevice({
+      ...device,
+      pppoeAccounts: pppoeAccounts.filter((account) => account.id !== accountId)
+    });
+  };
+
   const addPortRule = () => {
     setDevice({
       ...device,
@@ -790,7 +874,7 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
             </div>
             <div>
               <label className="mb-1 block text-sm font-medium text-slate-700">Tipo do dispositivo</label>
-              <select className="w-full rounded-md border border-slate-300 bg-white p-2 shadow-sm" value={device.deviceType} onChange={(event) => setDevice({ ...device, deviceType: event.target.value })}>
+              <select className="w-full rounded-md border border-slate-300 bg-white p-2 shadow-sm" value={device.deviceType} onChange={(event) => handleDeviceTypeChange(event.target.value)}>
                 {DEVICE_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}
               </select>
             </div>
@@ -799,6 +883,42 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
               <textarea rows={3} className="w-full rounded-md border border-slate-300 p-2 shadow-sm" value={device.notes} onChange={(event) => setDevice({ ...device, notes: event.target.value })} placeholder="Observações sobre o dispositivo"></textarea>
             </div>
           </div>
+
+          {device.deviceType === 'ROTEADOR' && (
+            <div className="border-t border-slate-200 pt-5 dark:border-slate-700">
+              <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h4 className="text-sm font-semibold text-slate-900 dark:text-slate-100">PPPoE</h4>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">Cadastre uma ou mais contas de acesso do roteador.</p>
+                </div>
+                <button type="button" onClick={addPppoeAccount} className="inline-flex h-8 items-center justify-center rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800">
+                  <Plus className="mr-2 h-4 w-4" /> Adicionar PPPoE
+                </button>
+              </div>
+              <div className="space-y-1.5">
+                {pppoeAccounts.length === 0 ? (
+                  <p className="text-sm text-slate-500 dark:text-slate-400">Nenhuma conta PPPoE adicionada.</p>
+                ) : pppoeAccounts.map((account) => (
+                  <div key={account.id} className="grid w-full grid-cols-1 items-end gap-2 rounded-md border border-slate-200 bg-slate-50 p-2 dark:border-slate-800 dark:bg-slate-800 md:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_24px]">
+                    <div>
+                      <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Operadora</label>
+                      <input type="text" className="h-10 w-full min-w-0 rounded-md border border-slate-300 bg-white px-2 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={account.operatorName} onChange={(event) => updatePppoeAccount(account.id, 'operatorName', event.target.value)} placeholder="Ex: Vivo" />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Login PPPoE</label>
+                      <input type="text" autoComplete="off" className="h-10 w-full min-w-0 rounded-md border border-slate-300 bg-white px-2 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={account.login} onChange={(event) => updatePppoeAccount(account.id, 'login', event.target.value)} placeholder="Login PPPoE" />
+                    </div>
+                    <SecurePasswordInput name={`device_pppoe_password_${account.id}`} label="Senha PPPoE" value={account.password} onChange={(event) => updatePppoeAccount(account.id, 'password', event.target.value)} enableGenerator={false} autoComplete="new-password" />
+                    <div>
+                      <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Telefone suporte</label>
+                      <input type="text" className="h-10 w-full min-w-0 rounded-md border border-slate-300 bg-white px-2 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={account.supportPhone} onChange={(event) => updatePppoeAccount(account.id, 'supportPhone', event.target.value)} placeholder="0800, WhatsApp ou ramal" />
+                    </div>
+                    <button type="button" title="Excluir PPPoE" aria-label="Excluir PPPoE" onClick={() => removePppoeAccount(account.id)} className="inline-flex shrink-0 items-center justify-center justify-self-end p-0 text-red-500 hover:text-red-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 dark:text-red-400 dark:hover:text-red-300 dark:focus-visible:ring-offset-slate-800 xl:mb-3 xl:justify-self-center"><Trash2 className="h-4 w-4" /></button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div className="border-t border-slate-200 pt-5">
             <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -809,33 +929,33 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
               </select>
             </div>
 
-            <div className="space-y-3">
+            <div className="space-y-1.5">
               {connections.length === 0 ? <p className="text-sm text-slate-500">Nenhuma conexão adicionada.</p> : connections.map((connection) => {
                 const ipv4Validation = validateIpv4Cidr(connection.ipv4);
                 const gatewayValidation = validateIpv4(connection.gateway);
                 const isVpn = connection.type === 'VPN';
                 return (
-                  <div key={connection.id} className="w-full overflow-x-auto rounded-md border border-slate-200 bg-slate-50">
-                    <div className={`flex items-center gap-2 p-3 ${isVpn ? 'min-w-[800px]' : 'min-w-[844px]'}`}>
-                      <div className="flex h-10 w-64 shrink-0 items-center gap-2 rounded-md border border-slate-200 bg-white px-2 text-sm text-slate-700">
+                  <div key={connection.id} className="w-full rounded-md border border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-800">
+                    <div className="grid w-full grid-cols-1 items-center gap-2 p-2 md:grid-cols-[minmax(220px,260px)_minmax(0,1fr)_minmax(0,1fr)_24px]">
+                      <div className="flex h-10 w-full min-w-0 items-center gap-2 rounded-md border border-slate-200 bg-white px-2 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
                         <ConnectionIcon type={connection.type} />
                         <span className="shrink-0">{getConnectionLabel(connection, connections)}</span>
-                        <input type="text" aria-label="Nome da conexão" className="min-w-0 flex-1 border-0 bg-transparent p-0 text-sm text-slate-700 outline-none placeholder:text-slate-400 focus:ring-0" value={connection.name} onChange={(event) => updateConnection(connection.id, 'name', event.target.value)} placeholder="Nome" />
+                        <input type="text" aria-label="Nome da conexão" className="min-w-0 flex-1 border-0 bg-transparent p-0 text-sm text-slate-700 outline-none placeholder:text-slate-400 focus:ring-0 dark:text-slate-200 dark:placeholder-slate-500" value={connection.name} onChange={(event) => updateConnection(connection.id, 'name', event.target.value)} placeholder="Nome" />
                       </div>
                       {isVpn ? (
                         <>
-                          <select aria-label="Tipo de VPN" className="w-48 shrink-0 rounded-md border border-slate-300 bg-white p-2 shadow-sm" value={connection.vpn || VPN_OPTIONS[0]} onChange={(event) => updateConnection(connection.id, 'vpn', event.target.value)}>
+                          <select aria-label="Tipo de VPN" className="h-10 w-full min-w-0 rounded-md border border-slate-300 bg-white p-2 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={connection.vpn || VPN_OPTIONS[0]} onChange={(event) => updateConnection(connection.id, 'vpn', event.target.value)}>
                             {VPN_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
                           </select>
-                          <IpCidrInput value={connection.ipv4} onChange={(value) => updateConnection(connection.id, 'ipv4', value)} state={ipv4Validation.state} error={ipv4Validation.error} label="" ariaLabel="IPV4/CIDR da VPN" placeholder="192.168.1.10/24" prefix="IPV4/" required={false} showHelperText={false} containerClassName="w-[250px] shrink-0" inputWrapperClassName="h-[40px] w-[250px]" inputClassName="text-sm tracking-normal" />
+                          <IpCidrInput value={connection.ipv4} onChange={(value) => updateConnection(connection.id, 'ipv4', value)} state={ipv4Validation.state} error={ipv4Validation.error} label="" ariaLabel="IPV4/CIDR da VPN" placeholder="192.168.1.10/24" prefix="IPV4/" required={false} showHelperText={false} containerClassName="w-full min-w-0" inputWrapperClassName="h-10 w-full min-w-0" inputClassName="text-sm tracking-normal" />
                         </>
                       ) : (
                         <>
-                          <IpCidrInput value={connection.ipv4} onChange={(value) => updateConnection(connection.id, 'ipv4', value)} state={ipv4Validation.state} error={ipv4Validation.error} label="" ariaLabel="IPV4/CIDR" placeholder="192.168.1.10/24" prefix="IPV4/" required={false} showHelperText={false} containerClassName="w-[250px] shrink-0" inputWrapperClassName="h-[40px] w-[250px]" inputClassName="text-sm tracking-normal" />
-                          <Ipv4Input value={connection.gateway} onChange={(value) => updateConnection(connection.id, 'gateway', value)} state={gatewayValidation.state} error={gatewayValidation.error} label="" ariaLabel="Gateway(IPV4)" placeholder="192.168.1.1" prefix="Gateway/" required={false} showHelperText={false} containerClassName="w-[250px] shrink-0" inputWrapperClassName="h-[40px] w-[250px]" inputClassName="text-sm tracking-normal" />
+                          <IpCidrInput value={connection.ipv4} onChange={(value) => updateConnection(connection.id, 'ipv4', value)} state={ipv4Validation.state} error={ipv4Validation.error} label="" ariaLabel="IPV4/CIDR" placeholder="192.168.1.10/24" prefix="IPV4/" required={false} showHelperText={false} containerClassName="w-full min-w-0" inputWrapperClassName="h-10 w-full min-w-0" inputClassName="text-sm tracking-normal" />
+                          <Ipv4Input value={connection.gateway} onChange={(value) => updateConnection(connection.id, 'gateway', value)} state={gatewayValidation.state} error={gatewayValidation.error} label="" ariaLabel="Gateway(IPV4)" placeholder="192.168.1.1" prefix="Gateway/" required={false} showHelperText={false} containerClassName="w-full min-w-0" inputWrapperClassName="h-10 w-full min-w-0" inputClassName="text-sm tracking-normal" />
                         </>
                       )}
-                      <button type="button" title="Remover" aria-label="Remover" onClick={() => setDevice({ ...device, connections: connections.filter((item) => item.id !== connection.id) })} className={`inline-flex shrink-0 items-center justify-center rounded-md border border-red-300 text-red-600 hover:bg-red-50 ${isVpn ? 'h-9 w-9' : 'h-10 w-10'}`}><Trash2 className="h-4 w-4" /></button>
+                      <button type="button" title="Excluir conexão" aria-label="Excluir conexão" onClick={() => setDevice({ ...device, connections: connections.filter((item) => item.id !== connection.id) })} className="inline-flex shrink-0 items-center justify-center justify-self-end p-0 text-red-500 hover:text-red-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 dark:text-red-400 dark:hover:text-red-300 dark:focus-visible:ring-offset-slate-800 md:justify-self-center"><Trash2 className="h-4 w-4" /></button>
                     </div>
                   </div>
                 );

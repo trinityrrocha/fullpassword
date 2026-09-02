@@ -188,7 +188,7 @@ export default function DashboardLayout() {
           <span className="text-lg font-bold">FullPassword</span>
         </div>
         <div className="flex items-center gap-2">
-          <ThemeToggle compact />
+          <ThemeToggle />
           <button type="button" aria-label={isMobileMenuOpen ? 'Fechar menu' : 'Abrir menu'} onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}>
             {isMobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
           </button>

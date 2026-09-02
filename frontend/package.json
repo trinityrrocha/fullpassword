@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "test": "node scripts/test-crypto-key-extractability.js && node scripts/test-vault-lock-cleanup.js && node scripts/test-csp-hardening.js && node scripts/test-user-crypto-identity.js && node scripts/test-smtp-settings.js && node scripts/test-password-reset.js && node scripts/test-mfa-recovery-codes.js && node scripts/test-security-notifications.js && node scripts/test-vault-sharing-selector.js && node scripts/test-google-drive-backup.js && node scripts/test-theme.js",
+    "test": "node scripts/test-crypto-key-extractability.js && node scripts/test-vault-lock-cleanup.js && node scripts/test-csp-hardening.js && node scripts/test-user-crypto-identity.js && node scripts/test-smtp-settings.js && node scripts/test-password-reset.js && node scripts/test-mfa-recovery-codes.js && node scripts/test-security-notifications.js && node scripts/test-vault-sharing-selector.js && node scripts/test-google-drive-backup.js && node scripts/test-theme.js && node scripts/test-devices-pppoe.js",
     "preview": "vite preview"
   },
   "dependencies": {

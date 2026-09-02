@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import {
   THEME_STORAGE_KEY,
   applyTheme,
+  getNextTheme,
   normalizeTheme,
   persistTheme,
   readStoredTheme,
@@ -35,13 +36,19 @@ const createRoot = () => {
   };
 };
 
-assert.equal(readStoredTheme(createStorage()), 'system', 'O tema padrão deve ser system');
+assert.equal(readStoredTheme(createStorage()), 'light', 'O tema padrão deve ser light');
 assert.equal(readStoredTheme(createStorage('dark')), 'dark', 'O tema salvo deve ser lido');
-assert.equal(readStoredTheme(createStorage('invalid')), 'system', 'Tema inválido deve voltar para system');
+const legacyStorage = createStorage('system');
+assert.equal(readStoredTheme(legacyStorage), 'light', 'Tema system legado deve voltar para light');
+assert.equal(legacyStorage.getItem(THEME_STORAGE_KEY), 'light', 'Tema system legado deve ser normalizado no storage');
+const invalidStorage = createStorage('invalid');
+assert.equal(readStoredTheme(invalidStorage), 'light', 'Tema inválido deve voltar para light');
+assert.equal(invalidStorage.getItem(THEME_STORAGE_KEY), 'light', 'Tema inválido deve ser normalizado no storage');
 assert.equal(normalizeTheme('light'), 'light');
-assert.equal(normalizeTheme('invalid'), 'system');
-assert.equal(resolveTheme('system', true), 'dark');
-assert.equal(resolveTheme('system', false), 'light');
+assert.equal(normalizeTheme('invalid'), 'light');
+assert.equal(resolveTheme('system'), 'light');
+assert.equal(getNextTheme('light'), 'dark');
+assert.equal(getNextTheme('dark'), 'light');
 
 const darkRoot = createRoot();
 assert.equal(applyTheme('dark', { root: darkRoot, systemIsDark: false }), 'dark');
@@ -53,25 +60,21 @@ lightRoot.classes.add('dark');
 assert.equal(applyTheme('light', { root: lightRoot, systemIsDark: true }), 'light');
 assert.equal(lightRoot.classes.has('dark'), false, 'Claro deve remover a classe dark');
 
-const systemRoot = createRoot();
-applyTheme('system', { root: systemRoot, systemIsDark: true });
-assert.equal(systemRoot.classes.has('dark'), true, 'Sistema deve seguir prefers-color-scheme escuro');
-applyTheme('system', { root: systemRoot, systemIsDark: false });
-assert.equal(systemRoot.classes.has('dark'), false, 'Sistema deve seguir prefers-color-scheme claro');
-
 const storage = createStorage();
 assert.equal(persistTheme('dark', storage), 'dark');
 assert.equal(storage.getItem(THEME_STORAGE_KEY), 'dark');
 
 const toggleSource = read('src/components/ThemeToggle.jsx');
-for (const label of ['Claro', 'Escuro', 'Sistema']) {
-  assert.ok(toggleSource.includes(`>${label}<`), `Controle de tema sem a opção ${label}`);
-}
-assert.match(toggleSource, /aria-label="Selecionar tema da interface"/);
+assert.doesNotMatch(toggleSource, /<select/);
+assert.match(toggleSource, /<button/);
+assert.match(toggleSource, /Moon/);
+assert.match(toggleSource, /Sun/);
+assert.match(toggleSource, /Ativar tema escuro/);
+assert.match(toggleSource, /Ativar tema claro/);
 
 const providerSource = read('src/context/ThemeContext.jsx');
-assert.match(providerSource, /prefers-color-scheme: dark/);
-assert.match(providerSource, /addEventListener\('change'/);
+assert.doesNotMatch(providerSource, /prefers-color-scheme: dark/);
+assert.doesNotMatch(providerSource, /addEventListener\('change'/);
 
 const indexHtml = read('index.html');
 assert.match(indexHtml, /<script src="\/theme-init\.js"><\/script>/);

@@ -1,7 +1,7 @@
 (function initializeTheme() {
   var storageKey = 'fullpassword-theme';
-  var validThemes = ['light', 'dark', 'system'];
-  var theme = 'system';
+  var validThemes = ['light', 'dark'];
+  var theme = 'light';
 
   try {
     var savedTheme = window.localStorage.getItem(storageKey);
@@ -11,13 +11,9 @@
       window.localStorage.setItem(storageKey, theme);
     }
   } catch {
-    theme = 'system';
+    theme = 'light';
   }
 
-  var systemIsDark = window.matchMedia
-    ? window.matchMedia('(prefers-color-scheme: dark)').matches
-    : false;
-  var isDark = theme === 'dark' || (theme === 'system' && systemIsDark);
-  document.documentElement.classList.toggle('dark', isDark);
+  document.documentElement.classList.toggle('dark', theme === 'dark');
   document.documentElement.dataset.theme = theme;
 })();

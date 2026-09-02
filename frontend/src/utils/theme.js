@@ -1,31 +1,33 @@
 export const THEME_STORAGE_KEY = 'fullpassword-theme';
-export const VALID_THEMES = Object.freeze(['light', 'dark', 'system']);
+export const VALID_THEMES = Object.freeze(['light', 'dark']);
 
-export const normalizeTheme = (value) => VALID_THEMES.includes(value) ? value : 'system';
+export const normalizeTheme = (value) => VALID_THEMES.includes(value) ? value : 'light';
 
 export const readStoredTheme = (storage = globalThis.localStorage) => {
   try {
-    return normalizeTheme(storage?.getItem(THEME_STORAGE_KEY));
+    const storedTheme = storage?.getItem(THEME_STORAGE_KEY);
+    const normalizedTheme = normalizeTheme(storedTheme);
+    if (storedTheme !== null && storedTheme !== normalizedTheme) {
+      storage?.setItem(THEME_STORAGE_KEY, normalizedTheme);
+    }
+    return normalizedTheme;
   } catch {
-    return 'system';
+    return 'light';
   }
 };
 
-export const resolveTheme = (theme, systemIsDark = false) => {
-  const normalizedTheme = normalizeTheme(theme);
-  if (normalizedTheme === 'system') return systemIsDark ? 'dark' : 'light';
-  return normalizedTheme;
-};
+export const resolveTheme = (theme) => normalizeTheme(theme);
+
+export const getNextTheme = (theme) => normalizeTheme(theme) === 'dark' ? 'light' : 'dark';
 
 export const applyTheme = (
   theme,
   {
-    root = globalThis.document?.documentElement,
-    systemIsDark = globalThis.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false
+    root = globalThis.document?.documentElement
   } = {}
 ) => {
   const normalizedTheme = normalizeTheme(theme);
-  const resolvedTheme = resolveTheme(normalizedTheme, systemIsDark);
+  const resolvedTheme = resolveTheme(normalizedTheme);
   root?.classList.toggle('dark', resolvedTheme === 'dark');
   if (root) {
     root.dataset.theme = normalizedTheme;

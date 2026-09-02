@@ -4,26 +4,20 @@ import ThemeContext from './themeContextStore';
 
 export function ThemeProvider({ children }) {
   const [theme, setThemeState] = useState(() => readStoredTheme());
-  const [resolvedTheme, setResolvedTheme] = useState(() => applyTheme(readStoredTheme()));
 
   useEffect(() => {
-    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-    const syncTheme = () => setResolvedTheme(applyTheme(theme, { systemIsDark: mediaQuery.matches }));
-    syncTheme();
-    if (theme !== 'system') return undefined;
-    mediaQuery.addEventListener('change', syncTheme);
-    return () => mediaQuery.removeEventListener('change', syncTheme);
+    applyTheme(theme);
   }, [theme]);
 
   const value = useMemo(() => ({
     theme,
-    resolvedTheme,
+    resolvedTheme: theme,
     setTheme: (nextTheme) => {
       const normalizedTheme = normalizeTheme(nextTheme);
       persistTheme(normalizedTheme);
       setThemeState(normalizedTheme);
     }
-  }), [resolvedTheme, theme]);
+  }), [theme]);
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }
