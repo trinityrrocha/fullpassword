@@ -39,8 +39,10 @@ assert.match(source, /const normalizeNasUsers/, 'Usuários NAS devem ser normali
 assert.match(source, /const normalizeWifiNetworks/, 'Redes Wi-Fi devem ser normalizadas');
 
 assert.match(source, /Acesso NAS STORAGE/, 'Formulário/visualização NAS deve mostrar acesso');
-assert.match(source, /Adicionar usuário/, 'NAS deve permitir vários usuários');
-assert.match(source, /nasUsers: \[\{ id: makeId\(\).*\}, \.\.\.nasUsers\]/, 'Novo usuário NAS deve entrar no topo');
+assert.match(source, /const emptyNasUserDraft/, 'NAS deve usar rascunho isolado para o novo usuário');
+assert.match(source, /nasUsers: \[\{ id: makeId\(\), \.\.\.nasUserDraft \}, \.\.\.nasUsers\]/, 'Novo usuário NAS deve entrar no topo');
+assert.match(source, /setNasUserDraft\(emptyNasUserDraft\(\)\)/, 'Rascunho NAS deve ser limpo depois de adicionar');
+assert.match(source, /Exibir lista de logins e usuários/, 'NAS deve abrir a lista compacta de usuários');
 assert.match(source, /Usuários NAS: \$\{normalizeNasUsers\(device\)\.length\}/, 'Lista deve resumir usuários NAS');
 assert.match(source, /Copiar login do usuário NAS/, 'Read-only NAS deve copiar login');
 assert.match(source, /Copiar senha do usuário NAS/, 'Read-only NAS deve copiar senha');

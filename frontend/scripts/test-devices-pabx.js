@@ -26,9 +26,10 @@ assert.match(source, /device\.deviceType === PABX_DEVICE_TYPE/, 'Portal e ramais
 assert.match(source, /device_pabx_portal_password_/, 'Senha do portal deve usar SecurePasswordInput');
 assert.match(source, /<DeviceAccessReadOnly title="Acesso PABX-IP\/VOIP"/, 'Visualização deve reutilizar acesso read-only com cópia');
 
-assert.match(source, /Adicionar ramal/, 'PABX deve permitir adicionar ramais');
-assert.match(source, /extensions: \[\{ id: makeId\(\).*\}, \.\.\.extensions\]/, 'Novo ramal deve ser inserido no topo');
+assert.match(source, /const emptyPabxExtensionDraft/, 'PABX deve usar rascunho isolado para o novo ramal');
+assert.match(source, /extensions: \[\{ id: makeId\(\), \.\.\.pabxExtensionDraft \}, \.\.\.extensions\]/, 'Novo ramal deve ser inserido no topo');
 assert.doesNotMatch(source, /extensions: \[\.\.\.extensions, \{ id: makeId\(\)/, 'Novo ramal não pode ser inserido no fim');
+assert.match(source, /setPabxExtensionDraft\(emptyPabxExtensionDraft\(\)\)/, 'Rascunho PABX deve ser limpo depois de adicionar');
 for (const field of ['extension', 'login', 'password', 'collaborator']) {
   assert.match(source, new RegExp(`${field}: String\\(extension\\?\\.${field}`), `Normalização de ramal sem o campo ${field}`);
 }
@@ -64,6 +65,6 @@ assert.match(source, /Copiar login PPPoE/, 'Visualização do roteador deve copi
 assert.match(source, /Copiar senha PPPoE/, 'Visualização do roteador deve copiar senha PPPoE');
 assert.match(source, /Senha PPPoE<\/span><div[^>]*><span>\*\*\*\*<\/span>/, 'Senha PPPoE deve permanecer mascarada');
 assert.match(source, /function DeviceAccessReadOnly[\s\S]*<span>\*\*\*\*<\/span>/, 'Senha do acesso deve permanecer mascarada');
-assert.match(source, /<span>\*\*\*\*<\/span>\{extension\.password/, 'Senha dos ramais deve permanecer mascarada');
+assert.match(source, /Senha: \*\*\*\*\{item\.password/, 'Senha dos ramais deve permanecer mascarada');
 
 console.log('Frontend PABX/VOIP device tests passed.');

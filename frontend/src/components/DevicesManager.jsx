@@ -23,6 +23,7 @@ const DEVICE_TYPE_ALIASES = {
   VOIP: PABX_DEVICE_TYPE
 };
 const DEVICE_TYPES = [DEVICE_TYPE_WIFI_CONTROLLER, 'DVR', 'IMPRESSORA', DEVICE_TYPE_NAS_STORAGE, PABX_DEVICE_TYPE, DEVICE_TYPE_ROUTER_GATEWAY];
+const DEVICE_LOGIN_EXCLUDED_TYPES = new Set([DEVICE_TYPE_WIFI_CONTROLLER, DEVICE_TYPE_ROUTER_GATEWAY]);
 const DEVICE_TYPE_ICONS = {
   [DEVICE_TYPE_WIFI_CONTROLLER]: WifiCog,
   DVR: Cctv,
@@ -95,10 +96,27 @@ const emptyDevice = () => ({
 const emptyDeviceLogin = (deviceId = '') => ({
   id: makeId(),
   deviceId,
+  extension: '',
   login: '',
   password: '',
   department: 'Geral',
+  collaborator: '',
   permission: 'User'
+});
+
+const emptyNasUserDraft = () => ({
+  login: '',
+  password: '',
+  department: 'Geral',
+  collaborator: ''
+});
+
+const emptyPabxExtensionDraft = () => ({
+  extension: '',
+  login: '',
+  password: '',
+  department: 'Geral',
+  collaborator: ''
 });
 
 const normalizeConnections = (device = {}) => {
@@ -249,6 +267,40 @@ const normalizeDeviceLogin = (deviceLogin = {}) => ({
   permission: String(deviceLogin.permission || '').toLowerCase() === 'admin' ? 'Admin' : 'User'
 });
 
+const canReceiveDeviceLogin = (device = {}) => !DEVICE_LOGIN_EXCLUDED_TYPES.has(normalizeDeviceType(device.deviceType || device.type));
+
+const getUnifiedDeviceAccessItems = (normalizedForm) => {
+  const devicesById = new Map(normalizedForm.devices.map((device) => [device.id, device]));
+  const withDevice = (item, device, source) => ({
+    ...item,
+    source,
+    deviceId: device?.id || item.deviceId || '',
+    deviceName: device?.name || 'Dispositivo não encontrado',
+    deviceType: device?.deviceType || '',
+    iconType: device?.deviceType || ''
+  });
+
+  const genericItems = normalizedForm.deviceLogins.map((login) => withDevice({
+    ...login,
+    collaborator: '',
+    extension: ''
+  }, devicesById.get(login.deviceId), 'generic'));
+
+  const embeddedItems = normalizedForm.devices.flatMap((device) => [
+    ...normalizeNasUsers(device).map((user) => withDevice({
+      ...user,
+      permission: '',
+      extension: ''
+    }, device, 'nasUser')),
+    ...normalizeExtensions(device).map((extension) => withDevice({
+      ...extension,
+      permission: ''
+    }, device, 'pabxExtension'))
+  ]);
+
+  return [...genericItems, ...embeddedItems];
+};
+
 const formatDeviceOptionLabel = (device) => {
   const name = device?.name || 'Dispositivo sem nome';
   const type = normalizeDeviceType(device?.deviceType || device?.type);
@@ -339,6 +391,8 @@ function CompactInlineInput({ label, value, onChange, placeholder, widthClass = 
 
 export default function DevicesManager({ devicesForm, setDevicesForm, handleSaveData, isSaving, onDeleteModule }) {
   const normalizedForm = useMemo(() => normalizeDevicesForm(devicesForm), [devicesForm]);
+  const eligibleLoginDevices = useMemo(() => normalizedForm.devices.filter(canReceiveDeviceLogin), [normalizedForm.devices]);
+  const unifiedAccessItems = useMemo(() => getUnifiedDeviceAccessItems(normalizedForm), [normalizedForm]);
   const [deviceDraft, setDeviceDraft] = useState(emptyDevice());
   const [editingDevice, setEditingDevice] = useState(null);
   const [viewingDevice, setViewingDevice] = useState(null);
@@ -460,21 +514,39 @@ export default function DevicesManager({ devicesForm, setDevicesForm, handleSave
     return device ? formatDeviceOptionLabel(device) : 'Dispositivo não encontrado';
   };
 
-  const validateDeviceLogin = (deviceLogin) => {
-    if (!normalizedForm.devices.some((device) => device.id === deviceLogin.deviceId)) {
+  const validateDeviceLogin = (deviceLogin, forceGeneric = false) => {
+    const selectedDevice = normalizedForm.devices.find((device) => device.id === deviceLogin.deviceId);
+    if (!selectedDevice || (!forceGeneric && !canReceiveDeviceLogin(selectedDevice))) {
       alert('Selecione um dispositivo válido.');
       return false;
     }
+    if (!DEPARTMENT_OPTIONS.includes(deviceLogin.department)) {
+      alert('Selecione um departamento válido.');
+      return false;
+    }
+
+    if (!forceGeneric && selectedDevice.deviceType === DEVICE_TYPE_NAS_STORAGE) {
+      if (!deviceLogin.login.trim() && !deviceLogin.collaborator.trim()) {
+        alert('Informe pelo menos o login ou o colaborador.');
+        return false;
+      }
+      return true;
+    }
+
+    if (!forceGeneric && selectedDevice.deviceType === PABX_DEVICE_TYPE) {
+      if (!deviceLogin.extension.trim() && !deviceLogin.login.trim() && !deviceLogin.collaborator.trim()) {
+        alert('Informe pelo menos o ramal, o login ou o colaborador.');
+        return false;
+      }
+      return true;
+    }
+
     if (!deviceLogin.login.trim()) {
       alert('Informe o login.');
       return false;
     }
     if (!deviceLogin.password) {
       alert('Informe a senha.');
-      return false;
-    }
-    if (!DEPARTMENT_OPTIONS.includes(deviceLogin.department)) {
-      alert('Selecione um departamento válido.');
       return false;
     }
     if (!DEVICE_LOGIN_PERMISSIONS.includes(deviceLogin.permission)) {
@@ -485,31 +557,54 @@ export default function DevicesManager({ devicesForm, setDevicesForm, handleSave
   };
 
   const openCreateLoginModal = () => {
-    setLoginDraft(emptyDeviceLogin(normalizedForm.devices[0]?.id || ''));
+    setLoginDraft(emptyDeviceLogin(eligibleLoginDevices[0]?.id || ''));
     setShowLoginCreateModal(true);
   };
 
   const closeCreateLoginModal = () => {
-    setLoginDraft(emptyDeviceLogin(normalizedForm.devices[0]?.id || ''));
+    setLoginDraft(emptyDeviceLogin(eligibleLoginDevices[0]?.id || ''));
     setShowLoginCreateModal(false);
   };
 
   const addDeviceLogin = async () => {
     if (!validateDeviceLogin(loginDraft)) return;
-    const newLogin = normalizeDeviceLogin({ ...loginDraft, id: makeId() });
-    const nextForm = {
-      ...normalizedForm,
-      deviceLogins: [newLogin, ...normalizedForm.deviceLogins]
-    };
+    const selectedDevice = normalizedForm.devices.find((device) => device.id === loginDraft.deviceId);
+    const nextId = makeId();
+    let nextForm;
+
+    if (selectedDevice.deviceType === DEVICE_TYPE_NAS_STORAGE) {
+      const newUser = normalizeNasUsers({ nasUsers: [{ ...loginDraft, id: nextId }] })[0];
+      nextForm = {
+        ...normalizedForm,
+        devices: normalizedForm.devices.map((device) => device.id === selectedDevice.id
+          ? { ...device, nasUsers: [newUser, ...normalizeNasUsers(device)] }
+          : device)
+      };
+    } else if (selectedDevice.deviceType === PABX_DEVICE_TYPE) {
+      const newExtension = normalizeExtensions({ extensions: [{ ...loginDraft, id: nextId }] })[0];
+      nextForm = {
+        ...normalizedForm,
+        devices: normalizedForm.devices.map((device) => device.id === selectedDevice.id
+          ? { ...device, extensions: [newExtension, ...normalizeExtensions(device)] }
+          : device)
+      };
+    } else {
+      const newLogin = normalizeDeviceLogin({ ...loginDraft, id: nextId });
+      nextForm = {
+        ...normalizedForm,
+        deviceLogins: [newLogin, ...normalizedForm.deviceLogins]
+      };
+    }
+
     const saved = await persistDevices(nextForm, 'Login do dispositivo cadastrado e salvo no cofre.');
     if (saved) {
-      setLoginDraft(emptyDeviceLogin(normalizedForm.devices[0]?.id || ''));
+      setLoginDraft(emptyDeviceLogin(eligibleLoginDevices[0]?.id || ''));
       setShowLoginCreateModal(false);
     }
   };
 
   const saveEditedLogin = async () => {
-    if (!validateDeviceLogin(editingLogin)) return;
+    if (!validateDeviceLogin(editingLogin, true)) return;
     const normalizedLogin = normalizeDeviceLogin(editingLogin);
     const nextForm = {
       ...normalizedForm,
@@ -540,18 +635,27 @@ export default function DevicesManager({ devicesForm, setDevicesForm, handleSave
     }
   };
 
-  const filteredLogins = normalizedForm.deviceLogins.filter((deviceLogin) => {
-    if (loginDeviceFilter && deviceLogin.deviceId !== loginDeviceFilter) return false;
+  const filteredAccessItems = unifiedAccessItems.filter((accessItem) => {
+    if (loginDeviceFilter && accessItem.deviceId !== loginDeviceFilter) return false;
 
     const search = loginSearch.trim().toLowerCase();
     if (!search) return true;
     return [
-      deviceLogin.login,
-      deviceLogin.permission,
-      deviceLogin.department,
-      getDeviceLabel(deviceLogin.deviceId)
+      accessItem.deviceName,
+      accessItem.deviceType,
+      accessItem.login,
+      accessItem.department,
+      accessItem.collaborator,
+      accessItem.permission,
+      accessItem.extension,
+      accessItem.source
     ].join(' ').toLowerCase().includes(search);
   });
+
+  const filteredAccessGroups = normalizedForm.devices.map((device) => ({
+    device,
+    items: filteredAccessItems.filter((item) => item.deviceId === device.id)
+  })).filter((group) => group.items.length > 0);
 
   return (
     <div className="space-y-4 animate-fadeIn">
@@ -562,8 +666,8 @@ export default function DevicesManager({ devicesForm, setDevicesForm, handleSave
           </button>
           <button
             type="button"
-            disabled={isSaving || normalizedForm.devices.length === 0}
-            title={normalizedForm.devices.length === 0 ? 'Cadastre um dispositivo antes de adicionar logins.' : 'Adicionar login'}
+            disabled={isSaving || eligibleLoginDevices.length === 0}
+            title={eligibleLoginDevices.length === 0 ? 'Cadastre um dispositivo compatível antes de adicionar logins. ROTEADOR/GATEWAY e WIFI/CONTROLLER não recebem logins por este fluxo.' : 'Adicionar login'}
             onClick={openCreateLoginModal}
             className="inline-flex h-8 shrink-0 items-center justify-center rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
           >
@@ -588,7 +692,7 @@ export default function DevicesManager({ devicesForm, setDevicesForm, handleSave
                 {formatWifiNetworksSummary(device) && <span className="whitespace-nowrap">{formatWifiNetworksSummary(device)}</span>}
                 {formatNasUsersSummary(device) && <span className="whitespace-nowrap">{formatNasUsersSummary(device)}</span>}
                 {formatPabxExtensionsSummary(device) && <span className="whitespace-nowrap">{formatPabxExtensionsSummary(device)}</span>}
-                <span className="whitespace-nowrap">Logins: {normalizedForm.deviceLogins.filter((deviceLogin) => deviceLogin.deviceId === device.id).length}</span>
+                <span className="whitespace-nowrap">Logins: {unifiedAccessItems.filter((accessItem) => accessItem.deviceId === device.id).length}</span>
               </div>
               <div className="flex shrink-0 gap-2 self-start sm:self-auto">
                 <button type="button" title="Visualizar" aria-label="Visualizar" onClick={() => setViewingDevice(device)} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"><Eye className="h-4 w-4" /></button>
@@ -601,52 +705,63 @@ export default function DevicesManager({ devicesForm, setDevicesForm, handleSave
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div>
-          <label className="mb-1 block text-sm font-medium text-slate-700">Pesquisar login</label>
+          <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Pesquisar login</label>
           <input
             type="text"
-            className="w-full rounded-md border border-slate-300 p-2 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-            placeholder="Buscar por login, departamento, permissão ou dispositivo..."
+            className="w-full rounded-md border border-slate-300 bg-white p-2 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+            placeholder="Buscar por dispositivo, login, colaborador, departamento ou ramal..."
             value={loginSearch}
             onChange={(event) => setLoginSearch(event.target.value)}
           />
         </div>
         <div>
-          <label className="mb-1 block text-sm font-medium text-slate-700">Filtrar por dispositivo</label>
-          <select className="w-full rounded-md border border-slate-300 bg-white p-2 shadow-sm focus:border-indigo-500 focus:ring-indigo-500" value={loginDeviceFilter} onChange={(event) => setLoginDeviceFilter(event.target.value)}>
+          <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Filtrar por dispositivo</label>
+          <select className="w-full rounded-md border border-slate-300 bg-white p-2 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={loginDeviceFilter} onChange={(event) => setLoginDeviceFilter(event.target.value)}>
             <option value="">Todos os dispositivos</option>
             {normalizedForm.devices.map((device) => <option key={device.id} value={device.id}>{getDeviceLabel(device.id)}</option>)}
           </select>
         </div>
       </div>
 
-      <div className="rounded-lg border border-slate-200 bg-slate-50 px-5 pb-5 pt-3">
-        <h3 className="mb-2 text-lg font-medium text-slate-900">Logins cadastrados</h3>
-        <div className="space-y-2">
-          {filteredLogins.length === 0 ? (
-            <p className="text-sm text-slate-500">
+      <div className="rounded-lg border border-slate-200 bg-slate-50 px-5 pb-5 pt-3 dark:border-slate-700 dark:bg-slate-800/60">
+        <h3 className="mb-2 text-lg font-medium text-slate-900 dark:text-slate-100">Logins cadastrados</h3>
+        <div className="space-y-3">
+          {filteredAccessGroups.length === 0 ? (
+            <p className="text-sm text-slate-500 dark:text-slate-400">
               {loginSearch.trim() || loginDeviceFilter ? 'Nenhum login encontrado.' : 'Nenhum login de dispositivo cadastrado.'}
             </p>
-          ) : filteredLogins.map((deviceLogin) => (
-            <div key={deviceLogin.id} className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm">
-                <span className="inline-flex items-center gap-2 font-medium text-slate-900">
-                  <DeviceLoginIcon permission={deviceLogin.permission} />
-                  <span>{deviceLogin.login || 'Login não informado'}</span>
-                  <CopyButton value={deviceLogin.login} label="Copiar login" />
-                </span>
-                <span className="inline-flex items-center gap-1 text-slate-600">
-                  <span>· Senha: ****</span>
-                  <CopyButton value={deviceLogin.password} label="Copiar senha" />
-                </span>
-                <span className="text-slate-600">· {deviceLogin.permission}</span>
-                <span className="text-slate-600">· {deviceLogin.department}</span>
-                <span className="text-slate-600">· Dispositivo: {getDeviceLabel(deviceLogin.deviceId)}</span>
+          ) : filteredAccessGroups.map(({ device, items }) => (
+            <section key={device.id} className="overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
+              <div className="flex items-center gap-2 border-b border-slate-200 bg-slate-100 px-3 py-2 dark:border-slate-700 dark:bg-slate-800">
+                <DeviceTypeIcon type={device.deviceType} />
+                <h4 className="min-w-0 truncate text-sm font-semibold text-slate-900 dark:text-slate-100">{formatDeviceOptionLabel(device)}</h4>
               </div>
-              <div className="flex shrink-0 gap-2 self-start sm:self-auto">
-                <button type="button" title="Visualizar" aria-label="Visualizar" onClick={() => setViewingLogin(deviceLogin)} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"><Eye className="h-4 w-4" /></button>
-                <button type="button" title="Detalhes" aria-label="Detalhes" onClick={() => { setEditingLogin({ ...deviceLogin }); setLoginDeleteConfirmation(''); }} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"><Edit2 className="h-4 w-4" /></button>
+              <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                {items.map((accessItem) => (
+                  <div key={`${accessItem.source}-${accessItem.deviceId}-${accessItem.id}`} className="flex flex-col gap-2 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+                      <DeviceLoginIcon permission={accessItem.permission} />
+                      {accessItem.extension && <span className="font-medium text-slate-900 dark:text-slate-100">Ramal: {accessItem.extension}</span>}
+                      <span className="inline-flex items-center gap-1 font-medium text-slate-900 dark:text-slate-100">
+                        <span>{accessItem.login || 'Login não informado'}</span>
+                        {accessItem.login && <CopyButton value={accessItem.login} label="Copiar login" />}
+                      </span>
+                      <span className="inline-flex items-center gap-1 text-slate-600 dark:text-slate-300">
+                        <span>· Senha: ****</span>
+                        {accessItem.password && <CopyButton value={accessItem.password} label="Copiar senha" />}
+                      </span>
+                      {accessItem.permission && <span className="text-slate-600 dark:text-slate-300">· Permissão: {accessItem.permission}</span>}
+                      <span className="text-slate-600 dark:text-slate-300">· Departamento: {accessItem.department}</span>
+                      {accessItem.collaborator && <span className="text-slate-600 dark:text-slate-300">· Colaborador: {accessItem.collaborator}</span>}
+                    </div>
+                    <div className="flex shrink-0 gap-2 self-start sm:self-auto">
+                      <button type="button" title="Visualizar" aria-label="Visualizar" onClick={() => setViewingLogin(accessItem)} className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"><Eye className="h-4 w-4" /></button>
+                      {accessItem.source === 'generic' && <button type="button" title="Detalhes" aria-label="Detalhes" onClick={() => { setEditingLogin({ ...accessItem }); setLoginDeleteConfirmation(''); }} className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"><Edit2 className="h-4 w-4" /></button>}
+                    </div>
+                  </div>
+                ))}
               </div>
-            </div>
+            </section>
           ))}
         </div>
       </div>
@@ -658,7 +773,7 @@ export default function DevicesManager({ devicesForm, setDevicesForm, handleSave
           title="Adicionar login"
           deviceLogin={loginDraft}
           setDeviceLogin={setLoginDraft}
-          devices={normalizedForm.devices}
+          devices={eligibleLoginDevices}
           isSaving={isSaving}
           onCancel={closeCreateLoginModal}
           onSave={addDeviceLogin}
@@ -697,6 +812,7 @@ export default function DevicesManager({ devicesForm, setDevicesForm, handleSave
           onCancel={() => setEditingLogin(null)}
           onSave={saveEditedLogin}
           onDelete={deleteEditedLogin}
+          forceGeneric
         />
       )}
     </div>
@@ -732,8 +848,64 @@ function DeviceAccessFields({ access, onChange, passwordName }) {
   );
 }
 
+function DeviceAccessListModal({ device, items, kind, onClose, onRemove }) {
+  const [search, setSearch] = useState('');
+  const isPabx = kind === 'pabxExtension';
+  const duplicateExtensions = isPabx ? getDuplicateExtensions(items) : new Set();
+  const filteredItems = items.filter((item) => {
+    const term = search.trim().toLowerCase();
+    if (!term) return true;
+    return [item.extension, item.login, item.department, item.collaborator].join(' ').toLowerCase().includes(term);
+  });
+
+  useClearOnVaultLock(() => setSearch(''));
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/60 p-4">
+      <div className="max-h-[88vh] w-full max-w-3xl overflow-y-auto rounded-lg bg-white shadow-xl dark:bg-slate-900">
+        <div className="border-b border-slate-200 px-5 py-4 dark:border-slate-700">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Logins e usuários do dispositivo</h3>
+              <p className="mt-1 flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400"><DeviceTypeIcon type={device.deviceType} />{formatDeviceOptionLabel(device)}</p>
+            </div>
+            <button type="button" onClick={onClose} aria-label="Fechar lista de logins e usuários" className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"><X className="h-5 w-5" /></button>
+          </div>
+          <input type="search" aria-label="Pesquisar logins e usuários" className="mt-3 w-full rounded-md border border-slate-300 bg-white p-2 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100" value={search} onChange={(event) => setSearch(event.target.value)} placeholder={isPabx ? 'Pesquisar por ramal, login, departamento ou colaborador...' : 'Pesquisar por login, departamento ou colaborador...'} />
+        </div>
+        <div className="space-y-2 p-5">
+          {filteredItems.length === 0 ? (
+            <p className="text-sm text-slate-500 dark:text-slate-400">{search.trim() ? 'Nenhum login ou usuário encontrado.' : 'Nenhum login ou usuário cadastrado.'}</p>
+          ) : filteredItems.map((item) => {
+            const normalizedExtension = String(item.extension || '').trim().toLowerCase();
+            const isDuplicate = isPabx && Boolean(normalizedExtension) && duplicateExtensions.has(normalizedExtension);
+            return (
+              <div key={item.id} className={`flex flex-col gap-2 rounded-md border px-3 py-2 sm:flex-row sm:items-center sm:justify-between ${isDuplicate ? 'border-amber-400 bg-amber-50 dark:border-amber-500 dark:bg-amber-950/30' : 'border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-800'}`}>
+                <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+                  {isPabx && <span className="font-medium text-slate-900 dark:text-slate-100">Ramal: {item.extension || '-'}</span>}
+                  <span className="inline-flex items-center gap-1 text-slate-900 dark:text-slate-100">Login: {item.login || '-'}{item.login && <CopyButton value={item.login} label={isPabx ? 'Copiar login do ramal' : 'Copiar login do usuário NAS'} />}</span>
+                  <span className="inline-flex items-center gap-1 text-slate-600 dark:text-slate-300">· Senha: ****{item.password && <CopyButton value={item.password} label={isPabx ? 'Copiar senha do ramal' : 'Copiar senha do usuário NAS'} />}</span>
+                  <span className="text-slate-600 dark:text-slate-300">· {item.department}</span>
+                  {item.collaborator && <span className="text-slate-600 dark:text-slate-300">· {item.collaborator}</span>}
+                  {isDuplicate && <span className="font-medium text-amber-700 dark:text-amber-300">· Ramal duplicado</span>}
+                </div>
+                {onRemove && <button type="button" title={isPabx ? 'Excluir ramal' : 'Excluir usuário NAS'} aria-label={isPabx ? 'Excluir ramal' : 'Excluir usuário NAS'} onClick={() => onRemove(item.id)} className="inline-flex h-8 w-8 shrink-0 items-center justify-center self-start rounded-md border border-red-300 text-red-600 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950/30 sm:self-auto"><Trash2 className="h-4 w-4" /></button>}
+              </div>
+            );
+          })}
+        </div>
+        <div className="flex justify-end border-t border-slate-200 bg-slate-50 px-5 py-3 dark:border-slate-700 dark:bg-slate-800">
+          <button type="button" onClick={onClose} className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-700">Fechar</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function DeviceReadOnlyModal({ device, onClose }) {
   const normalized = normalizeDevice(device);
+  const [showAccessList, setShowAccessList] = useState(false);
+  useClearOnVaultLock(() => setShowAccessList(false));
   return (
     <ReadOnlyDetailsModal title="Visualizar dispositivo" onClose={onClose}>
       <div className="grid gap-4 sm:grid-cols-2">
@@ -785,19 +957,7 @@ function DeviceReadOnlyModal({ device, onClose }) {
         <>
           <DeviceAccessReadOnly title="Acesso NAS STORAGE" access={normalized.nasAccess} />
           <section>
-            <h4 className="mb-2 text-sm font-semibold text-slate-900 dark:text-slate-100">Usuários NAS</h4>
-            {normalized.nasUsers.length === 0 ? <p className="text-sm text-slate-500 dark:text-slate-400">Nenhum usuário NAS cadastrado.</p> : (
-              <div className="space-y-2">
-                {normalized.nasUsers.map((user) => (
-                  <div key={user.id} className="grid gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800 sm:grid-cols-2 lg:grid-cols-4">
-                    <div><span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Login</span><div className="mt-1 flex items-center gap-2 text-slate-900 dark:text-slate-100"><span className="min-w-0 truncate">{user.login || '-'}</span>{user.login && <CopyButton value={user.login} label="Copiar login do usuário NAS" />}</div></div>
-                    <div><span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Senha</span><div className="mt-1 flex items-center gap-2 text-slate-900 dark:text-slate-100"><span>****</span>{user.password && <CopyButton value={user.password} label="Copiar senha do usuário NAS" />}</div></div>
-                    <div><span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Departamento</span><p className="mt-1 text-slate-900 dark:text-slate-100">{user.department}</p></div>
-                    <div><span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Colaborador</span><p className="mt-1 text-slate-900 dark:text-slate-100">{user.collaborator || '-'}</p></div>
-                  </div>
-                ))}
-              </div>
-            )}
+            <div className="flex flex-wrap items-center justify-between gap-2"><div><h4 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Usuários NAS</h4><p className="text-xs text-slate-500 dark:text-slate-400">Usuários cadastrados: {normalized.nasUsers.length}</p></div><button type="button" onClick={() => setShowAccessList(true)} className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">Exibir lista de logins e usuários</button></div>
           </section>
         </>
       )}
@@ -823,21 +983,7 @@ function DeviceReadOnlyModal({ device, onClose }) {
           <DeviceAccessReadOnly title="Acesso PABX-IP/VOIP" access={normalized.pabxPortal} />
 
           <section>
-            <h4 className="mb-1 text-sm font-semibold text-slate-900 dark:text-slate-100">Ramais</h4>
-            <p className="mb-2 text-xs text-slate-500 dark:text-slate-400">Ramais contratados: {normalized.contractedExtensions || 'não informado'} · Ramais em uso: {normalized.extensions.length}</p>
-            {normalized.extensions.length === 0 ? <p className="text-sm text-slate-500 dark:text-slate-400">Nenhum ramal cadastrado.</p> : (
-              <div className="space-y-2">
-                {normalized.extensions.map((extension) => (
-                  <div key={extension.id} className="grid gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800 sm:grid-cols-2 lg:grid-cols-3">
-                    <div><span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Ramal</span><p className="mt-1 text-slate-900 dark:text-slate-100">{extension.extension || '-'}</p></div>
-                    <div><span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Login</span><div className="mt-1 flex items-center gap-2 text-slate-900 dark:text-slate-100"><span className="min-w-0 truncate">{extension.login || '-'}</span>{extension.login && <CopyButton value={extension.login} label={`Copiar login do ramal ${extension.extension || ''}`.trim()} />}</div></div>
-                    <div><span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Senha</span><div className="mt-1 flex items-center gap-2 text-slate-900 dark:text-slate-100"><span>****</span>{extension.password && <CopyButton value={extension.password} label={`Copiar senha do ramal ${extension.extension || ''}`.trim()} />}</div></div>
-                    <div><span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Departamento</span><p className="mt-1 text-slate-900 dark:text-slate-100">{extension.department}</p></div>
-                    <div><span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Colaborador</span><p className="mt-1 text-slate-900 dark:text-slate-100">{extension.collaborator || '-'}</p></div>
-                  </div>
-                ))}
-              </div>
-            )}
+            <div className="flex flex-wrap items-center justify-between gap-2"><div><h4 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Ramais</h4><p className="text-xs text-slate-500 dark:text-slate-400">Ramais contratados: {normalized.contractedExtensions || 'não informado'} · Ramais em uso: {normalized.extensions.length}</p></div><button type="button" onClick={() => setShowAccessList(true)} className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">Exibir lista de logins e usuários</button></div>
           </section>
         </>
       )}
@@ -856,12 +1002,14 @@ function DeviceReadOnlyModal({ device, onClose }) {
       </section>
 
       <ReadOnlyAttachments files={normalized.attachments} />
+      {showAccessList && normalized.deviceType === DEVICE_TYPE_NAS_STORAGE && <DeviceAccessListModal device={normalized} items={normalized.nasUsers} kind="nasUser" onClose={() => setShowAccessList(false)} />}
+      {showAccessList && normalized.deviceType === PABX_DEVICE_TYPE && <DeviceAccessListModal device={normalized} items={normalized.extensions} kind="pabxExtension" onClose={() => setShowAccessList(false)} />}
     </ReadOnlyDetailsModal>
   );
 }
 
 function DeviceLoginReadOnlyModal({ deviceLogin, deviceLabel, onClose }) {
-  const normalized = normalizeDeviceLogin(deviceLogin);
+  const normalized = deviceLogin.source ? deviceLogin : { ...normalizeDeviceLogin(deviceLogin), source: 'generic', extension: '', collaborator: '' };
   return (
     <ReadOnlyDetailsModal title="Visualizar login do dispositivo" onClose={onClose}>
       <div className="grid gap-4 sm:grid-cols-2">
@@ -869,6 +1017,12 @@ function DeviceLoginReadOnlyModal({ deviceLogin, deviceLabel, onClose }) {
           <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Dispositivo</p>
           <p className="mt-1 text-sm text-slate-900">{deviceLabel}</p>
         </div>
+        {normalized.extension && (
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Ramal</p>
+            <p className="mt-1 text-sm text-slate-900">{normalized.extension}</p>
+          </div>
+        )}
         <div>
           <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Login</p>
           <div className="mt-1 flex items-center gap-2">
@@ -880,17 +1034,21 @@ function DeviceLoginReadOnlyModal({ deviceLogin, deviceLabel, onClose }) {
           <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Senha</p>
           <div className="mt-1 flex items-center gap-2">
             <span className="text-sm text-slate-900">****</span>
-            <CopyButton value={normalized.password} label="Copiar senha" />
+            {normalized.password && <CopyButton value={normalized.password} label="Copiar senha" />}
           </div>
         </div>
         <div>
           <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Departamento</p>
           <p className="mt-1 text-sm text-slate-900">{normalized.department}</p>
         </div>
-        <div>
+        {normalized.permission && <div>
           <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Permissão</p>
           <p className="mt-1 text-sm text-slate-900">{normalized.permission}</p>
-        </div>
+        </div>}
+        {normalized.collaborator && <div>
+          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Colaborador</p>
+          <p className="mt-1 text-sm text-slate-900">{normalized.collaborator}</p>
+        </div>}
       </div>
     </ReadOnlyDetailsModal>
   );
@@ -906,26 +1064,38 @@ function DeviceLoginModal({
   onSave,
   onDelete,
   deleteConfirmation,
-  setDeleteConfirmation
+  setDeleteConfirmation,
+  forceGeneric = false
 }) {
   const linkedDeviceExists = devices.some((device) => device.id === deviceLogin.deviceId);
+  const selectedDevice = devices.find((device) => device.id === deviceLogin.deviceId);
+  const selectedType = forceGeneric ? '' : selectedDevice?.deviceType;
+  const isNasStorage = selectedType === DEVICE_TYPE_NAS_STORAGE;
+  const isPabx = selectedType === PABX_DEVICE_TYPE;
+  const normalizedDraftExtension = deviceLogin.extension.trim().toLowerCase();
+  const extensionIsDuplicate = isPabx && Boolean(normalizedDraftExtension)
+    && normalizeExtensions(selectedDevice).some((item) => item.extension.trim().toLowerCase() === normalizedDraftExtension);
+
+  const changeDevice = (deviceId) => {
+    setDeviceLogin({ ...emptyDeviceLogin(deviceId), id: deviceLogin.id });
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900 bg-opacity-60 p-4">
-      <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-lg bg-white shadow-xl">
-        <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
-          <h3 className="text-lg font-semibold text-slate-900">{title}</h3>
-          <button type="button" onClick={onCancel} className="text-slate-400 hover:text-slate-600"><X className="h-5 w-5" /></button>
+      <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-lg bg-white shadow-xl dark:bg-slate-900">
+        <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4 dark:border-slate-700">
+          <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">{title}</h3>
+          <button type="button" onClick={onCancel} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"><X className="h-5 w-5" /></button>
         </div>
 
         <div className="space-y-4 p-6">
           <div>
-            <label className="mb-1 block text-sm font-medium text-slate-700">Dispositivo</label>
+            <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Dispositivo</label>
             <select
               required
-              className="w-full rounded-md border border-slate-300 bg-white p-2 shadow-sm"
+              className="w-full rounded-md border border-slate-300 bg-white p-2 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
               value={deviceLogin.deviceId}
-              onChange={(event) => setDeviceLogin({ ...deviceLogin, deviceId: event.target.value })}
+              onChange={(event) => changeDevice(event.target.value)}
             >
               <option value="">Selecione o dispositivo</option>
               {!linkedDeviceExists && deviceLogin.deviceId && <option value={deviceLogin.deviceId}>Dispositivo não encontrado</option>}
@@ -934,51 +1104,72 @@ function DeviceLoginModal({
           </div>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            {isPabx && (
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Ramal</label>
+                <input type="text" inputMode="numeric" className={`w-full rounded-md border bg-white p-2 shadow-sm dark:bg-slate-900 dark:text-slate-100 ${extensionIsDuplicate ? 'border-amber-400 dark:border-amber-500' : 'border-slate-300 dark:border-slate-700'}`} value={deviceLogin.extension} onChange={(event) => setDeviceLogin({ ...deviceLogin, extension: event.target.value })} placeholder="1001" />
+                {extensionIsDuplicate && <p className="mt-1 text-xs font-medium text-amber-700 dark:text-amber-300">Ramal duplicado</p>}
+              </div>
+            )}
             <div>
-              <label className="mb-1 block text-sm font-medium text-slate-700">Login</label>
+              <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Login</label>
               <input
                 type="text"
-                required
+                required={!isNasStorage && !isPabx}
                 autoComplete="username"
-                className="w-full rounded-md border border-slate-300 p-2 shadow-sm"
+                className="w-full rounded-md border border-slate-300 bg-white p-2 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
                 value={deviceLogin.login}
                 onChange={(event) => setDeviceLogin({ ...deviceLogin, login: event.target.value })}
                 placeholder="login"
               />
             </div>
-            <div>
-              <label className="mb-1 block text-sm font-medium text-slate-700">Permissão</label>
+            {(isNasStorage || isPabx) && <SecurePasswordInput
+              name={`device_login_password_${deviceLogin.id}`}
+              label="Senha"
+              value={deviceLogin.password}
+              onChange={(event) => setDeviceLogin({ ...deviceLogin, password: event.target.value })}
+              enableGenerator={false}
+              autoComplete="new-password"
+            />}
+            {!isNasStorage && !isPabx && <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Permissão</label>
               <select
                 required
-                className="w-full rounded-md border border-slate-300 bg-white p-2 shadow-sm"
+                className="w-full rounded-md border border-slate-300 bg-white p-2 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
                 value={deviceLogin.permission}
                 onChange={(event) => setDeviceLogin({ ...deviceLogin, permission: event.target.value })}
               >
                 {DEVICE_LOGIN_PERMISSIONS.map((permission) => <option key={permission} value={permission}>{permission}</option>)}
               </select>
-            </div>
+            </div>}
             <div>
-              <label className="mb-1 block text-sm font-medium text-slate-700">Departamento</label>
+              <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Departamento</label>
               <select
                 required
-                className="w-full rounded-md border border-slate-300 bg-white p-2 shadow-sm"
+                className="w-full rounded-md border border-slate-300 bg-white p-2 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
                 value={deviceLogin.department}
                 onChange={(event) => setDeviceLogin({ ...deviceLogin, department: event.target.value })}
               >
                 {DEPARTMENT_OPTIONS.map((department) => <option key={department} value={department}>{department}</option>)}
               </select>
             </div>
-            <SecurePasswordInput
+            {!isNasStorage && !isPabx && <SecurePasswordInput
               name={`device_login_password_${deviceLogin.id}`}
               label="Senha"
               required
               value={deviceLogin.password}
               onChange={(event) => setDeviceLogin({ ...deviceLogin, password: event.target.value })}
-            />
+            />}
+            {(isNasStorage || isPabx) && (
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Colaborador</label>
+                <input type="text" className="w-full rounded-md border border-slate-300 bg-white p-2 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={deviceLogin.collaborator} onChange={(event) => setDeviceLogin({ ...deviceLogin, collaborator: event.target.value })} placeholder="Nome do colaborador" />
+              </div>
+            )}
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-200 bg-slate-50 px-6 py-4">
+        <div className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-200 bg-slate-50 px-6 py-4 dark:border-slate-700 dark:bg-slate-800">
           {onDelete && (
             <DeleteConfirmationControl
               value={deleteConfirmation}
@@ -988,7 +1179,7 @@ function DeviceLoginModal({
             />
           )}
           <div className="flex justify-end gap-2">
-            <button type="button" onClick={onCancel} className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Cancelar</button>
+            <button type="button" onClick={onCancel} className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800">Cancelar</button>
             <button type="button" disabled={isSaving} onClick={onSave} className="rounded-md border border-transparent bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50">{isSaving ? 'Salvando...' : 'Salvar'}</button>
           </div>
         </div>
@@ -998,11 +1189,16 @@ function DeviceLoginModal({
 }
 
 function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onDelete, deleteConfirmation, setDeleteConfirmation, linkedLoginCount = 0 }) {
+  const [nasUserDraft, setNasUserDraft] = useState(emptyNasUserDraft());
+  const [pabxExtensionDraft, setPabxExtensionDraft] = useState(emptyPabxExtensionDraft());
+  const [showAccessList, setShowAccessList] = useState(false);
   const connections = normalizeConnections(device);
   const pppoeAccounts = normalizePppoeAccounts(device);
   const pabxPortal = normalizePabxPortal(device);
   const extensions = normalizeExtensions(device);
   const duplicateExtensions = getDuplicateExtensions(extensions);
+  const normalizedDraftExtension = pabxExtensionDraft.extension.trim().toLowerCase();
+  const draftExtensionIsDuplicate = Boolean(normalizedDraftExtension) && extensions.some((item) => item.extension.trim().toLowerCase() === normalizedDraftExtension);
   const contractedExtensions = sanitizeContractedExtensions(device.contractedExtensions);
   const hasExtensionOverage = Boolean(contractedExtensions) && extensions.length > Number(contractedExtensions);
   const nasAccess = normalizeAccessCredentials(device.nasAccess);
@@ -1015,6 +1211,12 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
     || (connection.type !== 'VPN' && validateIpv4(connection.gateway).state === 'invalid')
   ));
   const hasInvalidPorts = portRules.some((rule) => !isValidPort(rule.portNumber));
+
+  useClearOnVaultLock(() => {
+    setNasUserDraft(emptyNasUserDraft());
+    setPabxExtensionDraft(emptyPabxExtensionDraft());
+    setShowAccessList(false);
+  });
 
   const canAddConnection = (type) => {
     if (!type) return false;
@@ -1072,6 +1274,9 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
       if (!confirmed) return;
     }
 
+    setNasUserDraft(emptyNasUserDraft());
+    setPabxExtensionDraft(emptyPabxExtensionDraft());
+    setShowAccessList(false);
     setDevice({
       ...device,
       deviceType: nextDeviceType,
@@ -1114,17 +1319,19 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
   };
 
   const addExtension = () => {
+    if (!pabxExtensionDraft.extension.trim() && !pabxExtensionDraft.login.trim() && !pabxExtensionDraft.collaborator.trim()) {
+      alert('Informe pelo menos o ramal, o login ou o colaborador.');
+      return;
+    }
+    if (!DEPARTMENT_OPTIONS.includes(pabxExtensionDraft.department)) {
+      alert('Selecione um departamento válido.');
+      return;
+    }
     setDevice({
       ...device,
-      extensions: [{ id: makeId(), extension: '', login: '', password: '', department: 'Geral', collaborator: '' }, ...extensions]
+      extensions: [{ id: makeId(), ...pabxExtensionDraft }, ...extensions]
     });
-  };
-
-  const updateExtension = (extensionId, field, value) => {
-    setDevice({
-      ...device,
-      extensions: extensions.map((extension) => extension.id === extensionId ? { ...extension, [field]: value } : extension)
-    });
+    setPabxExtensionDraft(emptyPabxExtensionDraft());
   };
 
   const removeExtension = (extensionId) => {
@@ -1136,14 +1343,19 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
   };
 
   const addNasUser = () => {
+    if (!nasUserDraft.login.trim() && !nasUserDraft.collaborator.trim()) {
+      alert('Informe pelo menos o login ou o colaborador.');
+      return;
+    }
+    if (!DEPARTMENT_OPTIONS.includes(nasUserDraft.department)) {
+      alert('Selecione um departamento válido.');
+      return;
+    }
     setDevice({
       ...device,
-      nasUsers: [{ id: makeId(), login: '', password: '', department: 'Geral', collaborator: '' }, ...nasUsers]
+      nasUsers: [{ id: makeId(), ...nasUserDraft }, ...nasUsers]
     });
-  };
-
-  const updateNasUser = (userId, field, value) => {
-    setDevice({ ...device, nasUsers: nasUsers.map((user) => user.id === userId ? { ...user, [field]: value } : user) });
+    setNasUserDraft(emptyNasUserDraft());
   };
 
   const removeNasUser = (userId) => {
@@ -1246,21 +1458,15 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
                 <DeviceAccessFields access={nasAccess} onChange={updateNasAccess} passwordName={`device_nas_access_password_${device.id}`} />
               </div>
               <div className="border-t border-slate-200 pt-3 dark:border-slate-700">
-                <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <div><h4 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Usuários</h4><p className="text-xs text-slate-500 dark:text-slate-400">Usuários NAS: {nasUsers.length}</p></div>
-                  <button type="button" onClick={addNasUser} className="inline-flex h-9 items-center justify-center rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"><Plus className="mr-2 h-4 w-4" /> Adicionar usuário</button>
+                <div className="mb-2"><h4 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Usuários</h4><p className="text-xs text-slate-500 dark:text-slate-400">Usuários NAS: {nasUsers.length}</p></div>
+                <div className="grid grid-cols-1 items-end gap-2 md:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_160px_minmax(0,1fr)_auto]">
+                  <div><label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Login</label><input type="text" autoComplete="off" className="h-10 w-full min-w-0 rounded-md border border-slate-300 bg-white px-2 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={nasUserDraft.login} onChange={(event) => setNasUserDraft({ ...nasUserDraft, login: event.target.value })} placeholder="Login" /></div>
+                  <SecurePasswordInput name={`device_nas_user_draft_password_${device.id}`} label="Senha" value={nasUserDraft.password} onChange={(event) => setNasUserDraft({ ...nasUserDraft, password: event.target.value })} enableGenerator={false} autoComplete="new-password" />
+                  <div><label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Departamento</label><select className="h-10 w-full min-w-0 rounded-md border border-slate-300 bg-white px-2 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={nasUserDraft.department} onChange={(event) => setNasUserDraft({ ...nasUserDraft, department: event.target.value })}>{DEPARTMENT_OPTIONS.map((department) => <option key={department} value={department}>{department}</option>)}</select></div>
+                  <div><label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Colaborador</label><input type="text" className="h-10 w-full min-w-0 rounded-md border border-slate-300 bg-white px-2 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={nasUserDraft.collaborator} onChange={(event) => setNasUserDraft({ ...nasUserDraft, collaborator: event.target.value })} placeholder="Nome do colaborador" /></div>
+                  <button type="button" onClick={addNasUser} className="inline-flex h-10 items-center justify-center rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"><Plus className="mr-2 h-4 w-4" /> Adicionar</button>
                 </div>
-                <div className="space-y-1.5">
-                  {nasUsers.length === 0 ? <p className="text-sm text-slate-500 dark:text-slate-400">Nenhum usuário NAS adicionado.</p> : nasUsers.map((user) => (
-                    <div key={user.id} className="grid w-full grid-cols-1 items-end gap-2 rounded-md border border-slate-200 bg-slate-50 p-2 dark:border-slate-800 dark:bg-slate-800 md:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_160px_minmax(0,1fr)_24px]">
-                      <div><label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Login</label><input type="text" autoComplete="off" className="h-10 w-full min-w-0 rounded-md border border-slate-300 bg-white px-2 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={user.login} onChange={(event) => updateNasUser(user.id, 'login', event.target.value)} placeholder="Login" /></div>
-                      <SecurePasswordInput name={`device_nas_user_password_${user.id}`} label="Senha" value={user.password} onChange={(event) => updateNasUser(user.id, 'password', event.target.value)} enableGenerator={false} autoComplete="new-password" />
-                      <div><label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Departamento</label><select className="h-10 w-full min-w-0 rounded-md border border-slate-300 bg-white px-2 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={user.department} onChange={(event) => updateNasUser(user.id, 'department', event.target.value)}>{DEPARTMENT_OPTIONS.map((department) => <option key={department} value={department}>{department}</option>)}</select></div>
-                      <div><label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Colaborador</label><input type="text" className="h-10 w-full min-w-0 rounded-md border border-slate-300 bg-white px-2 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={user.collaborator} onChange={(event) => updateNasUser(user.id, 'collaborator', event.target.value)} placeholder="Nome do colaborador" /></div>
-                      <button type="button" title="Excluir usuário NAS" aria-label="Excluir usuário NAS" onClick={() => removeNasUser(user.id)} className="inline-flex shrink-0 items-center justify-center justify-self-end p-0 text-red-500 hover:text-red-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 dark:text-red-400 dark:hover:text-red-300 dark:focus-visible:ring-offset-slate-800 xl:mb-3 xl:justify-self-center"><Trash2 className="h-4 w-4" /></button>
-                    </div>
-                  ))}
-                </div>
+                <button type="button" onClick={() => setShowAccessList(true)} className="mt-3 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800">Exibir lista de logins e usuários</button>
               </div>
             </>
           )}
@@ -1287,44 +1493,17 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
                       <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">Quantidade de ramal</label>
                       <input type="text" inputMode="numeric" maxLength={3} className="h-9 w-20 rounded-md border border-slate-300 bg-white px-2 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={contractedExtensions} onChange={(event) => setDevice({ ...device, contractedExtensions: sanitizeContractedExtensions(event.target.value) })} placeholder="20" />
                     </div>
-                    <button type="button" onClick={addExtension} className="inline-flex h-9 items-center justify-center rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800">
-                      <Plus className="mr-2 h-4 w-4" /> Adicionar ramal
-                    </button>
                   </div>
                 </div>
-                <div className="space-y-1.5">
-                  {extensions.length === 0 ? (
-                    <p className="text-sm text-slate-500 dark:text-slate-400">Nenhum ramal adicionado.</p>
-                  ) : extensions.map((extension) => {
-                    const normalizedExtension = extension.extension.trim().toLowerCase();
-                    const isDuplicate = Boolean(normalizedExtension) && duplicateExtensions.has(normalizedExtension);
-                    return (
-                      <div key={extension.id} className={`grid w-full grid-cols-1 items-end gap-2 rounded-md border p-2 dark:bg-slate-800 md:grid-cols-2 xl:grid-cols-[100px_minmax(0,1fr)_minmax(0,1fr)_150px_minmax(0,1fr)_24px] ${isDuplicate ? 'border-amber-400 bg-amber-50 dark:border-amber-500' : 'border-slate-200 bg-slate-50 dark:border-slate-800'}`}>
-                        <div>
-                          <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Ramal</label>
-                          <input type="text" inputMode="numeric" className={`h-10 w-full min-w-0 rounded-md border bg-white px-2 text-sm shadow-sm dark:bg-slate-900 dark:text-slate-100 ${isDuplicate ? 'border-amber-400 dark:border-amber-500' : 'border-slate-300 dark:border-slate-700'}`} value={extension.extension} onChange={(event) => updateExtension(extension.id, 'extension', event.target.value)} placeholder="1001" />
-                          {isDuplicate && <p className="mt-1 text-xs font-medium text-amber-700 dark:text-amber-300">Ramal duplicado</p>}
-                        </div>
-                        <div>
-                          <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Login</label>
-                          <input type="text" autoComplete="off" className="h-10 w-full min-w-0 rounded-md border border-slate-300 bg-white px-2 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={extension.login} onChange={(event) => updateExtension(extension.id, 'login', event.target.value)} placeholder="Login do ramal" />
-                        </div>
-                        <SecurePasswordInput name={`device_extension_password_${extension.id}`} label="Senha" value={extension.password} onChange={(event) => updateExtension(extension.id, 'password', event.target.value)} enableGenerator={false} autoComplete="new-password" />
-                        <div>
-                          <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Departamento</label>
-                          <select className="h-10 w-full min-w-0 rounded-md border border-slate-300 bg-white px-2 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={extension.department} onChange={(event) => updateExtension(extension.id, 'department', event.target.value)}>
-                            {DEPARTMENT_OPTIONS.map((department) => <option key={department} value={department}>{department}</option>)}
-                          </select>
-                        </div>
-                        <div>
-                          <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Colaborador</label>
-                          <input type="text" className="h-10 w-full min-w-0 rounded-md border border-slate-300 bg-white px-2 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={extension.collaborator} onChange={(event) => updateExtension(extension.id, 'collaborator', event.target.value)} placeholder="Nome do colaborador" />
-                        </div>
-                        <button type="button" title="Excluir ramal" aria-label="Excluir ramal" onClick={() => removeExtension(extension.id)} className="inline-flex shrink-0 items-center justify-center justify-self-end p-0 text-red-500 hover:text-red-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 dark:text-red-400 dark:hover:text-red-300 dark:focus-visible:ring-offset-slate-800 xl:mb-3 xl:justify-self-center"><Trash2 className="h-4 w-4" /></button>
-                      </div>
-                    );
-                  })}
+                <div className="grid grid-cols-1 items-end gap-2 md:grid-cols-2 xl:grid-cols-[100px_minmax(0,1fr)_minmax(0,1fr)_150px_minmax(0,1fr)_auto]">
+                  <div><label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Ramal</label><input type="text" inputMode="numeric" className={`h-10 w-full min-w-0 rounded-md border bg-white px-2 text-sm shadow-sm dark:bg-slate-900 dark:text-slate-100 ${draftExtensionIsDuplicate ? 'border-amber-400 dark:border-amber-500' : 'border-slate-300 dark:border-slate-700'}`} value={pabxExtensionDraft.extension} onChange={(event) => setPabxExtensionDraft({ ...pabxExtensionDraft, extension: event.target.value })} placeholder="1001" />{draftExtensionIsDuplicate && <p className="mt-1 text-xs font-medium text-amber-700 dark:text-amber-300">Ramal duplicado</p>}</div>
+                  <div><label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Login</label><input type="text" autoComplete="off" className="h-10 w-full min-w-0 rounded-md border border-slate-300 bg-white px-2 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={pabxExtensionDraft.login} onChange={(event) => setPabxExtensionDraft({ ...pabxExtensionDraft, login: event.target.value })} placeholder="Login do ramal" /></div>
+                  <SecurePasswordInput name={`device_extension_draft_password_${device.id}`} label="Senha" value={pabxExtensionDraft.password} onChange={(event) => setPabxExtensionDraft({ ...pabxExtensionDraft, password: event.target.value })} enableGenerator={false} autoComplete="new-password" />
+                  <div><label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Departamento</label><select className="h-10 w-full min-w-0 rounded-md border border-slate-300 bg-white px-2 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={pabxExtensionDraft.department} onChange={(event) => setPabxExtensionDraft({ ...pabxExtensionDraft, department: event.target.value })}>{DEPARTMENT_OPTIONS.map((department) => <option key={department} value={department}>{department}</option>)}</select></div>
+                  <div><label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Colaborador</label><input type="text" className="h-10 w-full min-w-0 rounded-md border border-slate-300 bg-white px-2 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={pabxExtensionDraft.collaborator} onChange={(event) => setPabxExtensionDraft({ ...pabxExtensionDraft, collaborator: event.target.value })} placeholder="Nome do colaborador" /></div>
+                  <button type="button" onClick={addExtension} className="inline-flex h-10 items-center justify-center rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"><Plus className="mr-2 h-4 w-4" /> Adicionar</button>
                 </div>
+                <button type="button" onClick={() => setShowAccessList(true)} className="mt-3 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800">Exibir lista de logins e usuários</button>
               </div>
             </>
           )}
@@ -1446,6 +1625,8 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
             <button type="button" disabled={isSaving || hasInvalidConnections || hasInvalidPorts} onClick={onSave} className="rounded-md border border-transparent bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50">{isSaving ? 'Salvando...' : 'Salvar'}</button>
           </div>
         </div>
+        {showAccessList && device.deviceType === DEVICE_TYPE_NAS_STORAGE && <DeviceAccessListModal device={device} items={nasUsers} kind="nasUser" onClose={() => setShowAccessList(false)} onRemove={removeNasUser} />}
+        {showAccessList && device.deviceType === PABX_DEVICE_TYPE && <DeviceAccessListModal device={device} items={extensions} kind="pabxExtension" onClose={() => setShowAccessList(false)} onRemove={removeExtension} />}
       </div>
     </div>
   );
