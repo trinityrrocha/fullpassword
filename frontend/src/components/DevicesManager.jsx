@@ -224,11 +224,21 @@ const normalizeDeviceType = (deviceType) => {
 const getDuplicateExtensions = (extensions = []) => {
   const counts = new Map();
   extensions.forEach((item) => {
-    const normalizedExtension = String(item?.extension ?? '').trim().toLowerCase();
+    const normalizedExtension = String(item?.extension ?? '').trim();
     if (!normalizedExtension) return;
     counts.set(normalizedExtension, (counts.get(normalizedExtension) || 0) + 1);
   });
   return new Set([...counts.entries()].filter(([, count]) => count > 1).map(([extension]) => extension));
+};
+
+const getDuplicateLogins = (items = []) => {
+  const counts = new Map();
+  items.forEach((item) => {
+    const normalizedLogin = String(item?.login ?? '').trim().toLowerCase();
+    if (!normalizedLogin) return;
+    counts.set(normalizedLogin, (counts.get(normalizedLogin) || 0) + 1);
+  });
+  return new Set([...counts.entries()].filter(([, count]) => count > 1).map(([login]) => login));
 };
 
 const normalizeDevice = (device = {}) => {
@@ -461,20 +471,21 @@ export default function DevicesManager({ devicesForm, setDevicesForm, handleSave
     setShowCreateModal(false);
   };
 
-  const addDevice = async () => {
-    if (!validateDevice(deviceDraft)) return;
-    const newDevice = normalizeDevice({ ...deviceDraft, id: makeId() });
+  const addDevice = async (deviceToSave = deviceDraft) => {
+    if (!validateDevice(deviceToSave)) return false;
+    const newDevice = normalizeDevice({ ...deviceToSave, id: makeId() });
     const nextForm = { ...normalizedForm, devices: [newDevice, ...normalizedForm.devices] };
     const saved = await persistDevices(nextForm, 'Dispositivo cadastrado e salvo automaticamente no cofre.');
     if (saved) {
       setDeviceDraft(emptyDevice());
       setShowCreateModal(false);
     }
+    return saved;
   };
 
-  const saveEditedDevice = async () => {
-    if (!validateDevice(editingDevice)) return;
-    const normalizedDevice = normalizeDevice(editingDevice);
+  const saveEditedDevice = async (deviceToSave = editingDevice) => {
+    if (!validateDevice(deviceToSave)) return false;
+    const normalizedDevice = normalizeDevice(deviceToSave);
     const nextForm = {
       ...normalizedForm,
       devices: normalizedForm.devices.map((device) => device.id === normalizedDevice.id ? normalizedDevice : device)
@@ -484,6 +495,7 @@ export default function DevicesManager({ devicesForm, setDevicesForm, handleSave
       setEditingDevice(null);
       setDeleteConfirmation('');
     }
+    return saved;
   };
 
   const deleteEditedDevice = async () => {
@@ -604,14 +616,34 @@ export default function DevicesManager({ devicesForm, setDevicesForm, handleSave
   };
 
   const saveEditedLogin = async () => {
-    if (!validateDeviceLogin(editingLogin, true)) return;
-    const normalizedLogin = normalizeDeviceLogin(editingLogin);
-    const nextForm = {
-      ...normalizedForm,
-      deviceLogins: normalizedForm.deviceLogins.map((deviceLogin) => (
-        deviceLogin.id === normalizedLogin.id ? normalizedLogin : deviceLogin
-      ))
-    };
+    const isGeneric = editingLogin.source === 'generic' || !editingLogin.source;
+    if (!validateDeviceLogin(editingLogin, isGeneric)) return;
+    let nextForm;
+    if (editingLogin.source === 'nasUser') {
+      const normalizedUser = normalizeNasUsers({ nasUsers: [editingLogin] })[0];
+      nextForm = {
+        ...normalizedForm,
+        devices: normalizedForm.devices.map((device) => device.id === editingLogin.deviceId
+          ? { ...device, nasUsers: normalizeNasUsers(device).map((user) => user.id === normalizedUser.id ? normalizedUser : user) }
+          : device)
+      };
+    } else if (editingLogin.source === 'pabxExtension') {
+      const normalizedExtension = normalizeExtensions({ extensions: [editingLogin] })[0];
+      nextForm = {
+        ...normalizedForm,
+        devices: normalizedForm.devices.map((device) => device.id === editingLogin.deviceId
+          ? { ...device, extensions: normalizeExtensions(device).map((extension) => extension.id === normalizedExtension.id ? normalizedExtension : extension) }
+          : device)
+      };
+    } else {
+      const normalizedLogin = normalizeDeviceLogin(editingLogin);
+      nextForm = {
+        ...normalizedForm,
+        deviceLogins: normalizedForm.deviceLogins.map((deviceLogin) => (
+          deviceLogin.id === normalizedLogin.id ? normalizedLogin : deviceLogin
+        ))
+      };
+    }
     const saved = await persistDevices(nextForm, 'Login do dispositivo atualizado e salvo no cofre.');
     if (saved) {
       setEditingLogin(null);
@@ -624,10 +656,27 @@ export default function DevicesManager({ devicesForm, setDevicesForm, handleSave
       alert('Para confirmar a exclusão, escreva EXCLUIR no campo de confirmação.');
       return;
     }
-    const nextForm = {
-      ...normalizedForm,
-      deviceLogins: normalizedForm.deviceLogins.filter((deviceLogin) => deviceLogin.id !== editingLogin.id)
-    };
+    let nextForm;
+    if (editingLogin.source === 'nasUser') {
+      nextForm = {
+        ...normalizedForm,
+        devices: normalizedForm.devices.map((device) => device.id === editingLogin.deviceId
+          ? { ...device, nasUsers: normalizeNasUsers(device).filter((user) => user.id !== editingLogin.id) }
+          : device)
+      };
+    } else if (editingLogin.source === 'pabxExtension') {
+      nextForm = {
+        ...normalizedForm,
+        devices: normalizedForm.devices.map((device) => device.id === editingLogin.deviceId
+          ? { ...device, extensions: normalizeExtensions(device).filter((extension) => extension.id !== editingLogin.id) }
+          : device)
+      };
+    } else {
+      nextForm = {
+        ...normalizedForm,
+        deviceLogins: normalizedForm.deviceLogins.filter((deviceLogin) => deviceLogin.id !== editingLogin.id)
+      };
+    }
     const saved = await persistDevices(nextForm, 'Login do dispositivo excluído e cofre atualizado.');
     if (saved) {
       setEditingLogin(null);
@@ -756,7 +805,7 @@ export default function DevicesManager({ devicesForm, setDevicesForm, handleSave
                     </div>
                     <div className="flex shrink-0 gap-2 self-start sm:self-auto">
                       <button type="button" title="Visualizar" aria-label="Visualizar" onClick={() => setViewingLogin(accessItem)} className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"><Eye className="h-4 w-4" /></button>
-                      {accessItem.source === 'generic' && <button type="button" title="Detalhes" aria-label="Detalhes" onClick={() => { setEditingLogin({ ...accessItem }); setLoginDeleteConfirmation(''); }} className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"><Edit2 className="h-4 w-4" /></button>}
+                      <button type="button" title="Detalhes" aria-label="Detalhes" onClick={() => { setEditingLogin({ ...accessItem }); setLoginDeleteConfirmation(''); }} className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"><Edit2 className="h-4 w-4" /></button>
                     </div>
                   </div>
                 ))}
@@ -767,7 +816,7 @@ export default function DevicesManager({ devicesForm, setDevicesForm, handleSave
       </div>
 
       {showCreateModal && <DeviceModal title="Cadastrar dispositivo" device={deviceDraft} setDevice={setDeviceDraft} isSaving={isSaving} onCancel={closeCreateDeviceModal} onSave={addDevice} />}
-      {viewingDevice && <DeviceReadOnlyModal device={viewingDevice} onClose={() => setViewingDevice(null)} />}
+      {viewingDevice && <DeviceReadOnlyModal device={viewingDevice} accessItems={unifiedAccessItems.filter((item) => item.deviceId === viewingDevice.id)} onClose={() => setViewingDevice(null)} />}
       {showLoginCreateModal && (
         <DeviceLoginModal
           title="Adicionar login"
@@ -795,6 +844,8 @@ export default function DevicesManager({ devicesForm, setDevicesForm, handleSave
           deleteConfirmation={deleteConfirmation}
           setDeleteConfirmation={setDeleteConfirmation}
           linkedLoginCount={normalizedForm.deviceLogins.filter((deviceLogin) => deviceLogin.deviceId === editingDevice.id).length}
+          linkedAccessItems={unifiedAccessItems.filter((item) => item.deviceId === editingDevice.id)}
+          onEditLinkedLogin={(accessItem) => { setEditingLogin({ ...accessItem }); setLoginDeleteConfirmation(''); }}
           onCancel={() => setEditingDevice(null)}
           onSave={saveEditedDevice}
           onDelete={deleteEditedDevice}
@@ -812,7 +863,8 @@ export default function DevicesManager({ devicesForm, setDevicesForm, handleSave
           onCancel={() => setEditingLogin(null)}
           onSave={saveEditedLogin}
           onDelete={deleteEditedLogin}
-          forceGeneric
+          forceGeneric={editingLogin.source === 'generic' || !editingLogin.source}
+          lockDeviceSelection={editingLogin.source === 'nasUser' || editingLogin.source === 'pabxExtension'}
         />
       )}
     </div>
@@ -848,10 +900,27 @@ function DeviceAccessFields({ access, onChange, passwordName }) {
   );
 }
 
-function DeviceAccessListModal({ device, items, kind, onClose, onRemove }) {
+function UnsavedChangesDialog({ isSaving, onContinue, onDiscard, onSave }) {
+  return (
+    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/60 p-4">
+      <div role="alertdialog" aria-modal="true" aria-labelledby="unsaved-changes-title" className="w-full max-w-md rounded-lg bg-white p-5 shadow-xl dark:bg-slate-900">
+        <h3 id="unsaved-changes-title" className="text-lg font-semibold text-slate-900 dark:text-slate-100">Alterações não salvas</h3>
+        <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">Existem alterações que ainda não foram salvas. Deseja salvar antes de fechar?</p>
+        <div className="mt-5 flex flex-wrap justify-end gap-2">
+          <button type="button" onClick={onContinue} className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800">Continuar editando</button>
+          <button type="button" onClick={onDiscard} className="rounded-md border border-red-300 bg-white px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50 dark:border-red-800 dark:bg-slate-900 dark:text-red-400 dark:hover:bg-red-950/30">Descartar</button>
+          <button type="button" disabled={isSaving} onClick={onSave} className="rounded-md bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50">{isSaving ? 'Salvando...' : 'Salvar e fechar'}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DeviceAccessListModal({ device, items, kind, onClose, onRemove, onEdit, readOnly = false }) {
   const [search, setSearch] = useState('');
   const isPabx = kind === 'pabxExtension';
   const duplicateExtensions = isPabx ? getDuplicateExtensions(items) : new Set();
+  const duplicateLogins = isPabx ? getDuplicateLogins(items) : new Set();
   const filteredItems = items.filter((item) => {
     const term = search.trim().toLowerCase();
     if (!term) return true;
@@ -871,25 +940,34 @@ function DeviceAccessListModal({ device, items, kind, onClose, onRemove }) {
             </div>
             <button type="button" onClick={onClose} aria-label="Fechar lista de logins e usuários" className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"><X className="h-5 w-5" /></button>
           </div>
-          <input type="search" aria-label="Pesquisar logins e usuários" className="mt-3 w-full rounded-md border border-slate-300 bg-white p-2 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100" value={search} onChange={(event) => setSearch(event.target.value)} placeholder={isPabx ? 'Pesquisar por ramal, login, departamento ou colaborador...' : 'Pesquisar por login, departamento ou colaborador...'} />
+          {!readOnly && <input type="search" aria-label="Pesquisar logins e usuários" className="mt-3 w-full rounded-md border border-slate-300 bg-white p-2 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100" value={search} onChange={(event) => setSearch(event.target.value)} placeholder={isPabx ? 'Pesquisar por ramal, login, departamento ou colaborador...' : 'Pesquisar por login, departamento ou colaborador...'} />}
         </div>
         <div className="space-y-2 p-5">
           {filteredItems.length === 0 ? (
             <p className="text-sm text-slate-500 dark:text-slate-400">{search.trim() ? 'Nenhum login ou usuário encontrado.' : 'Nenhum login ou usuário cadastrado.'}</p>
           ) : filteredItems.map((item) => {
-            const normalizedExtension = String(item.extension || '').trim().toLowerCase();
-            const isDuplicate = isPabx && Boolean(normalizedExtension) && duplicateExtensions.has(normalizedExtension);
+            const normalizedExtension = String(item.extension || '').trim();
+            const normalizedLogin = String(item.login || '').trim().toLowerCase();
+            const isDuplicateExtension = isPabx && Boolean(normalizedExtension) && duplicateExtensions.has(normalizedExtension);
+            const isDuplicateLogin = isPabx && Boolean(normalizedLogin) && duplicateLogins.has(normalizedLogin);
+            const isDuplicate = isDuplicateExtension || isDuplicateLogin;
             return (
               <div key={item.id} className={`flex flex-col gap-2 rounded-md border px-3 py-2 sm:flex-row sm:items-center sm:justify-between ${isDuplicate ? 'border-amber-400 bg-amber-50 dark:border-amber-500 dark:bg-amber-950/30' : 'border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-800'}`}>
                 <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+                  {kind === 'generic' && <DeviceLoginIcon permission={item.permission} />}
                   {isPabx && <span className="font-medium text-slate-900 dark:text-slate-100">Ramal: {item.extension || '-'}</span>}
                   <span className="inline-flex items-center gap-1 text-slate-900 dark:text-slate-100">Login: {item.login || '-'}{item.login && <CopyButton value={item.login} label={isPabx ? 'Copiar login do ramal' : 'Copiar login do usuário NAS'} />}</span>
                   <span className="inline-flex items-center gap-1 text-slate-600 dark:text-slate-300">· Senha: ****{item.password && <CopyButton value={item.password} label={isPabx ? 'Copiar senha do ramal' : 'Copiar senha do usuário NAS'} />}</span>
                   <span className="text-slate-600 dark:text-slate-300">· {item.department}</span>
                   {item.collaborator && <span className="text-slate-600 dark:text-slate-300">· {item.collaborator}</span>}
-                  {isDuplicate && <span className="font-medium text-amber-700 dark:text-amber-300">· Ramal duplicado</span>}
+                  {item.permission && <span className="text-slate-600 dark:text-slate-300">· Permissão: {item.permission}</span>}
+                  {isDuplicateExtension && <span className="font-medium text-amber-700 dark:text-amber-300">· Ramal duplicado</span>}
+                  {isDuplicateLogin && <span className="font-medium text-amber-700 dark:text-amber-300">· Login duplicado</span>}
                 </div>
-                {onRemove && <button type="button" title={isPabx ? 'Excluir ramal' : 'Excluir usuário NAS'} aria-label={isPabx ? 'Excluir ramal' : 'Excluir usuário NAS'} onClick={() => onRemove(item.id)} className="inline-flex h-8 w-8 shrink-0 items-center justify-center self-start rounded-md border border-red-300 text-red-600 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950/30 sm:self-auto"><Trash2 className="h-4 w-4" /></button>}
+                {(onEdit || onRemove) && <div className="flex shrink-0 gap-2 self-start sm:self-auto">
+                  {onEdit && <button type="button" title="Detalhes" aria-label="Detalhes" onClick={() => onEdit(item)} className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"><Edit2 className="h-4 w-4" /></button>}
+                  {onRemove && <button type="button" title={isPabx ? 'Excluir ramal' : kind === 'nasUser' ? 'Excluir usuário NAS' : 'Excluir login'} aria-label={isPabx ? 'Excluir ramal' : kind === 'nasUser' ? 'Excluir usuário NAS' : 'Excluir login'} onClick={() => onRemove(item.id)} className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-red-300 text-red-600 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950/30"><Trash2 className="h-4 w-4" /></button>}
+                </div>}
               </div>
             );
           })}
@@ -902,7 +980,7 @@ function DeviceAccessListModal({ device, items, kind, onClose, onRemove }) {
   );
 }
 
-function DeviceReadOnlyModal({ device, onClose }) {
+function DeviceReadOnlyModal({ device, accessItems = [], onClose }) {
   const normalized = normalizeDevice(device);
   const [showAccessList, setShowAccessList] = useState(false);
   useClearOnVaultLock(() => setShowAccessList(false));
@@ -928,6 +1006,15 @@ function DeviceReadOnlyModal({ device, onClose }) {
           </div>
         )}
       </section>
+
+      {['DVR', 'IMPRESSORA'].includes(normalized.deviceType) && (
+        <section>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div><h4 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Logins e usuários</h4><p className="text-xs text-slate-500 dark:text-slate-400">Logins cadastrados: {accessItems.length}</p></div>
+            <button type="button" onClick={() => setShowAccessList(true)} className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">Exibir lista de logins e usuários</button>
+          </div>
+        </section>
+      )}
 
       {normalized.deviceType === DEVICE_TYPE_WIFI_CONTROLLER && (
         <>
@@ -1002,8 +1089,9 @@ function DeviceReadOnlyModal({ device, onClose }) {
       </section>
 
       <ReadOnlyAttachments files={normalized.attachments} />
-      {showAccessList && normalized.deviceType === DEVICE_TYPE_NAS_STORAGE && <DeviceAccessListModal device={normalized} items={normalized.nasUsers} kind="nasUser" onClose={() => setShowAccessList(false)} />}
-      {showAccessList && normalized.deviceType === PABX_DEVICE_TYPE && <DeviceAccessListModal device={normalized} items={normalized.extensions} kind="pabxExtension" onClose={() => setShowAccessList(false)} />}
+      {showAccessList && normalized.deviceType === DEVICE_TYPE_NAS_STORAGE && <DeviceAccessListModal device={normalized} items={normalized.nasUsers} kind="nasUser" readOnly onClose={() => setShowAccessList(false)} />}
+      {showAccessList && normalized.deviceType === PABX_DEVICE_TYPE && <DeviceAccessListModal device={normalized} items={normalized.extensions} kind="pabxExtension" readOnly onClose={() => setShowAccessList(false)} />}
+      {showAccessList && ['DVR', 'IMPRESSORA'].includes(normalized.deviceType) && <DeviceAccessListModal device={normalized} items={accessItems} kind="generic" readOnly onClose={() => setShowAccessList(false)} />}
     </ReadOnlyDetailsModal>
   );
 }
@@ -1065,19 +1153,36 @@ function DeviceLoginModal({
   onDelete,
   deleteConfirmation,
   setDeleteConfirmation,
-  forceGeneric = false
+  forceGeneric = false,
+  lockDeviceSelection = false
 }) {
+  const [initialDeviceLoginSnapshot] = useState(() => JSON.stringify(deviceLogin));
+  const [showUnsavedDialog, setShowUnsavedDialog] = useState(false);
   const linkedDeviceExists = devices.some((device) => device.id === deviceLogin.deviceId);
   const selectedDevice = devices.find((device) => device.id === deviceLogin.deviceId);
   const selectedType = forceGeneric ? '' : selectedDevice?.deviceType;
   const isNasStorage = selectedType === DEVICE_TYPE_NAS_STORAGE;
   const isPabx = selectedType === PABX_DEVICE_TYPE;
-  const normalizedDraftExtension = deviceLogin.extension.trim().toLowerCase();
+  const normalizedDraftExtension = deviceLogin.extension.trim();
   const extensionIsDuplicate = isPabx && Boolean(normalizedDraftExtension)
-    && normalizeExtensions(selectedDevice).some((item) => item.extension.trim().toLowerCase() === normalizedDraftExtension);
+    && normalizeExtensions(selectedDevice).some((item) => item.id !== deviceLogin.id && item.extension.trim() === normalizedDraftExtension);
+  const normalizedDraftLogin = deviceLogin.login.trim().toLowerCase();
+  const loginIsDuplicate = isPabx && Boolean(normalizedDraftLogin)
+    && normalizeExtensions(selectedDevice).some((item) => item.id !== deviceLogin.id && item.login.trim().toLowerCase() === normalizedDraftLogin);
+  const hasUnsavedChanges = JSON.stringify(deviceLogin) !== initialDeviceLoginSnapshot;
+
+  useClearOnVaultLock(() => setShowUnsavedDialog(false));
 
   const changeDevice = (deviceId) => {
     setDeviceLogin({ ...emptyDeviceLogin(deviceId), id: deviceLogin.id });
+  };
+
+  const requestClose = () => {
+    if (hasUnsavedChanges) {
+      setShowUnsavedDialog(true);
+      return;
+    }
+    onCancel();
   };
 
   return (
@@ -1085,7 +1190,7 @@ function DeviceLoginModal({
       <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-lg bg-white shadow-xl dark:bg-slate-900">
         <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4 dark:border-slate-700">
           <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">{title}</h3>
-          <button type="button" onClick={onCancel} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"><X className="h-5 w-5" /></button>
+          <button type="button" onClick={requestClose} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"><X className="h-5 w-5" /></button>
         </div>
 
         <div className="space-y-4 p-6">
@@ -1093,6 +1198,7 @@ function DeviceLoginModal({
             <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Dispositivo</label>
             <select
               required
+              disabled={lockDeviceSelection}
               className="w-full rounded-md border border-slate-300 bg-white p-2 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
               value={deviceLogin.deviceId}
               onChange={(event) => changeDevice(event.target.value)}
@@ -1122,6 +1228,7 @@ function DeviceLoginModal({
                 onChange={(event) => setDeviceLogin({ ...deviceLogin, login: event.target.value })}
                 placeholder="login"
               />
+              {loginIsDuplicate && <p className="mt-1 text-xs font-medium text-amber-700 dark:text-amber-300">Login duplicado</p>}
             </div>
             {(isNasStorage || isPabx) && <SecurePasswordInput
               name={`device_login_password_${deviceLogin.id}`}
@@ -1179,26 +1286,32 @@ function DeviceLoginModal({
             />
           )}
           <div className="flex justify-end gap-2">
-            <button type="button" onClick={onCancel} className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800">Cancelar</button>
+            <button type="button" onClick={requestClose} className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800">Cancelar</button>
             <button type="button" disabled={isSaving} onClick={onSave} className="rounded-md border border-transparent bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50">{isSaving ? 'Salvando...' : 'Salvar'}</button>
           </div>
         </div>
+        {showUnsavedDialog && <UnsavedChangesDialog isSaving={isSaving} onContinue={() => setShowUnsavedDialog(false)} onDiscard={onCancel} onSave={onSave} />}
       </div>
     </div>
   );
 }
 
-function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onDelete, deleteConfirmation, setDeleteConfirmation, linkedLoginCount = 0 }) {
+function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onDelete, deleteConfirmation, setDeleteConfirmation, linkedLoginCount = 0, linkedAccessItems = [], onEditLinkedLogin }) {
+  const [initialDeviceSnapshot] = useState(() => JSON.stringify(device));
   const [nasUserDraft, setNasUserDraft] = useState(emptyNasUserDraft());
   const [pabxExtensionDraft, setPabxExtensionDraft] = useState(emptyPabxExtensionDraft());
   const [showAccessList, setShowAccessList] = useState(false);
+  const [showUnsavedDialog, setShowUnsavedDialog] = useState(false);
   const connections = normalizeConnections(device);
   const pppoeAccounts = normalizePppoeAccounts(device);
   const pabxPortal = normalizePabxPortal(device);
   const extensions = normalizeExtensions(device);
   const duplicateExtensions = getDuplicateExtensions(extensions);
-  const normalizedDraftExtension = pabxExtensionDraft.extension.trim().toLowerCase();
-  const draftExtensionIsDuplicate = Boolean(normalizedDraftExtension) && extensions.some((item) => item.extension.trim().toLowerCase() === normalizedDraftExtension);
+  const duplicateLogins = getDuplicateLogins(extensions);
+  const normalizedDraftExtension = pabxExtensionDraft.extension.trim();
+  const draftExtensionIsDuplicate = Boolean(normalizedDraftExtension) && extensions.some((item) => item.extension.trim() === normalizedDraftExtension);
+  const normalizedDraftLogin = pabxExtensionDraft.login.trim().toLowerCase();
+  const draftLoginIsDuplicate = Boolean(normalizedDraftLogin) && extensions.some((item) => item.login.trim().toLowerCase() === normalizedDraftLogin);
   const contractedExtensions = sanitizeContractedExtensions(device.contractedExtensions);
   const hasExtensionOverage = Boolean(contractedExtensions) && extensions.length > Number(contractedExtensions);
   const nasAccess = normalizeAccessCredentials(device.nasAccess);
@@ -1211,12 +1324,51 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
     || (connection.type !== 'VPN' && validateIpv4(connection.gateway).state === 'invalid')
   ));
   const hasInvalidPorts = portRules.some((rule) => !isValidPort(rule.portNumber));
+  const hasNasUserDraft = Object.values(nasUserDraft).some((value) => value && value !== 'Geral');
+  const hasPabxExtensionDraft = Object.values(pabxExtensionDraft).some((value) => value && value !== 'Geral');
+  const hasUnsavedChanges = JSON.stringify(device) !== initialDeviceSnapshot || hasNasUserDraft || hasPabxExtensionDraft;
 
   useClearOnVaultLock(() => {
     setNasUserDraft(emptyNasUserDraft());
     setPabxExtensionDraft(emptyPabxExtensionDraft());
     setShowAccessList(false);
+    setShowUnsavedDialog(false);
   });
+
+  const requestClose = () => {
+    if (hasUnsavedChanges) {
+      setShowUnsavedDialog(true);
+      return;
+    }
+    onCancel();
+  };
+
+  const saveDeviceIncludingDrafts = async () => {
+    let deviceToSave = device;
+    if (device.deviceType === DEVICE_TYPE_NAS_STORAGE && hasNasUserDraft) {
+      if (!nasUserDraft.login.trim() && !nasUserDraft.collaborator.trim()) {
+        alert('Informe pelo menos o login ou o colaborador do usuário NAS antes de salvar.');
+        return false;
+      }
+      if (!DEPARTMENT_OPTIONS.includes(nasUserDraft.department)) {
+        alert('Selecione um departamento válido para o usuário NAS.');
+        return false;
+      }
+      deviceToSave = { ...deviceToSave, nasUsers: [{ id: makeId(), ...nasUserDraft }, ...nasUsers] };
+    }
+    if (device.deviceType === PABX_DEVICE_TYPE && hasPabxExtensionDraft) {
+      if (!pabxExtensionDraft.extension.trim() && !pabxExtensionDraft.login.trim() && !pabxExtensionDraft.collaborator.trim()) {
+        alert('Informe pelo menos o ramal, o login ou o colaborador antes de salvar.');
+        return false;
+      }
+      if (!DEPARTMENT_OPTIONS.includes(pabxExtensionDraft.department)) {
+        alert('Selecione um departamento válido para o ramal.');
+        return false;
+      }
+      deviceToSave = { ...deviceToSave, extensions: [{ id: makeId(), ...pabxExtensionDraft }, ...extensions] };
+    }
+    return onSave(deviceToSave);
+  };
 
   const canAddConnection = (type) => {
     if (!type) return false;
@@ -1401,7 +1553,7 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
       <div className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-lg bg-white shadow-xl">
         <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
           <h3 className="text-lg font-semibold text-slate-900">{title}</h3>
-          <button type="button" onClick={onCancel} className="text-slate-400 hover:text-slate-600"><X className="h-5 w-5" /></button>
+          <button type="button" onClick={requestClose} className="text-slate-400 hover:text-slate-600"><X className="h-5 w-5" /></button>
         </div>
 
         <div className={device.deviceType === PABX_DEVICE_TYPE ? 'space-y-3 p-5' : 'space-y-6 p-6'}>
@@ -1486,7 +1638,7 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
                         Ramais contratados: {contractedExtensions || 'não informado'} · Ramais em uso: {extensions.length}
                       </p>
                     </div>
-                    {duplicateExtensions.size > 0 && <p className="text-xs font-medium text-amber-700 dark:text-amber-300">Ramal duplicado</p>}
+                    {(duplicateExtensions.size > 0 || duplicateLogins.size > 0) && <p className="text-xs font-medium text-amber-700 dark:text-amber-300">{duplicateExtensions.size > 0 && 'Ramal duplicado'}{duplicateExtensions.size > 0 && duplicateLogins.size > 0 && ' · '}{duplicateLogins.size > 0 && 'Login duplicado'}</p>}
                   </div>
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
                     <div>
@@ -1497,7 +1649,7 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
                 </div>
                 <div className="grid grid-cols-1 items-end gap-2 md:grid-cols-2 xl:grid-cols-[100px_minmax(0,1fr)_minmax(0,1fr)_150px_minmax(0,1fr)_auto]">
                   <div><label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Ramal</label><input type="text" inputMode="numeric" className={`h-10 w-full min-w-0 rounded-md border bg-white px-2 text-sm shadow-sm dark:bg-slate-900 dark:text-slate-100 ${draftExtensionIsDuplicate ? 'border-amber-400 dark:border-amber-500' : 'border-slate-300 dark:border-slate-700'}`} value={pabxExtensionDraft.extension} onChange={(event) => setPabxExtensionDraft({ ...pabxExtensionDraft, extension: event.target.value })} placeholder="1001" />{draftExtensionIsDuplicate && <p className="mt-1 text-xs font-medium text-amber-700 dark:text-amber-300">Ramal duplicado</p>}</div>
-                  <div><label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Login</label><input type="text" autoComplete="off" className="h-10 w-full min-w-0 rounded-md border border-slate-300 bg-white px-2 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={pabxExtensionDraft.login} onChange={(event) => setPabxExtensionDraft({ ...pabxExtensionDraft, login: event.target.value })} placeholder="Login do ramal" /></div>
+                  <div><label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Login</label><input type="text" autoComplete="off" className={`h-10 w-full min-w-0 rounded-md border bg-white px-2 text-sm shadow-sm dark:bg-slate-900 dark:text-slate-100 ${draftLoginIsDuplicate ? 'border-amber-400 dark:border-amber-500' : 'border-slate-300 dark:border-slate-700'}`} value={pabxExtensionDraft.login} onChange={(event) => setPabxExtensionDraft({ ...pabxExtensionDraft, login: event.target.value })} placeholder="Login do ramal" />{draftLoginIsDuplicate && <p className="mt-1 text-xs font-medium text-amber-700 dark:text-amber-300">Login duplicado</p>}</div>
                   <SecurePasswordInput name={`device_extension_draft_password_${device.id}`} label="Senha" value={pabxExtensionDraft.password} onChange={(event) => setPabxExtensionDraft({ ...pabxExtensionDraft, password: event.target.value })} enableGenerator={false} autoComplete="new-password" />
                   <div><label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Departamento</label><select className="h-10 w-full min-w-0 rounded-md border border-slate-300 bg-white px-2 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={pabxExtensionDraft.department} onChange={(event) => setPabxExtensionDraft({ ...pabxExtensionDraft, department: event.target.value })}>{DEPARTMENT_OPTIONS.map((department) => <option key={department} value={department}>{department}</option>)}</select></div>
                   <div><label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Colaborador</label><input type="text" className="h-10 w-full min-w-0 rounded-md border border-slate-300 bg-white px-2 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={pabxExtensionDraft.collaborator} onChange={(event) => setPabxExtensionDraft({ ...pabxExtensionDraft, collaborator: event.target.value })} placeholder="Nome do colaborador" /></div>
@@ -1506,6 +1658,15 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
                 <button type="button" onClick={() => setShowAccessList(true)} className="mt-3 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800">Exibir lista de logins e usuários</button>
               </div>
             </>
+          )}
+
+          {['DVR', 'IMPRESSORA'].includes(device.deviceType) && (
+            <div className="border-t border-slate-200 pt-3 dark:border-slate-700">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div><h4 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Logins e usuários</h4><p className="text-xs text-slate-500 dark:text-slate-400">Logins cadastrados: {linkedAccessItems.length}</p></div>
+                <button type="button" onClick={() => setShowAccessList(true)} className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800">Exibir lista de logins e usuários</button>
+              </div>
+            </div>
           )}
 
           {device.deviceType === DEVICE_TYPE_ROUTER_GATEWAY && (
@@ -1621,12 +1782,14 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
         <div className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-200 bg-slate-50 px-6 py-4">
           {onDelete && <DeleteConfirmationControl value={deleteConfirmation} onChange={(event) => setDeleteConfirmation(event.target.value)} onDelete={onDelete} disabled={isSaving} />}
           <div className="flex justify-end gap-2">
-            <button type="button" onClick={onCancel} className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Cancelar</button>
-            <button type="button" disabled={isSaving || hasInvalidConnections || hasInvalidPorts} onClick={onSave} className="rounded-md border border-transparent bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50">{isSaving ? 'Salvando...' : 'Salvar'}</button>
+            <button type="button" onClick={requestClose} className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Cancelar</button>
+            <button type="button" disabled={isSaving || hasInvalidConnections || hasInvalidPorts} onClick={saveDeviceIncludingDrafts} className="rounded-md border border-transparent bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50">{isSaving ? 'Salvando...' : 'Salvar'}</button>
           </div>
         </div>
         {showAccessList && device.deviceType === DEVICE_TYPE_NAS_STORAGE && <DeviceAccessListModal device={device} items={nasUsers} kind="nasUser" onClose={() => setShowAccessList(false)} onRemove={removeNasUser} />}
         {showAccessList && device.deviceType === PABX_DEVICE_TYPE && <DeviceAccessListModal device={device} items={extensions} kind="pabxExtension" onClose={() => setShowAccessList(false)} onRemove={removeExtension} />}
+        {showAccessList && ['DVR', 'IMPRESSORA'].includes(device.deviceType) && <DeviceAccessListModal device={device} items={linkedAccessItems} kind="generic" onClose={() => setShowAccessList(false)} onEdit={(item) => { setShowAccessList(false); onEditLinkedLogin?.(item); }} />}
+        {showUnsavedDialog && <UnsavedChangesDialog isSaving={isSaving} onContinue={() => setShowUnsavedDialog(false)} onDiscard={onCancel} onSave={saveDeviceIncludingDrafts} />}
       </div>
     </div>
   );
