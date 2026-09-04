@@ -18,6 +18,9 @@ export const connectionShortLabel = (connection, connections) => {
 export const connectionLabel = (connection, connections) => (
   [connectionShortLabel(connection, connections), connection?.name].filter(Boolean).join(' - ')
 );
+export const connectionIp = (connection) => String(
+  connection?.ipv4Cidr || connection?.ipv4 || connection?.ip || connection?.ipAddress || connection?.address || ''
+);
 
 export const getServerPorts = (server) => [
   ...(server.portRules || []).map((rule, index) => ({

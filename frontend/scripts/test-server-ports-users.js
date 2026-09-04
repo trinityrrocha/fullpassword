@@ -8,7 +8,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { createServer } from 'vite';
 import windowsPlugin from '../viteClientVaultWindowsPlugin.js';
 import {
-  applyPortDraft, connectionLabel, connectionShortLabel, createPortDraft, editablePortDirection, getServerPorts, getWindowsTsAddresses,
+  applyPortDraft, connectionIp, connectionLabel, connectionShortLabel, createPortDraft, editablePortDirection, getServerPorts, getWindowsTsAddresses,
   hasPortDraft, PORT_DIRECTIONS, removeServerPort, sanitizeServerPort, serverHostHref, validatePortDraft
 } from '../src/utils/serverPorts.js';
 
@@ -19,6 +19,11 @@ const linuxSource = read('src/components/LinuxServerManager.jsx');
 const panelSource = read('src/components/ServerPortsPanel.jsx');
 const guardSource = read('src/hooks/useServerFormGuard.jsx');
 const connection = { id: 'eth-1', type: 'Eth1', name: 'TS', ipv4: '', gateway: '' };
+assert.equal(connectionIp({ ipv4: '192.168.1.211', gateway: '192.168.1.1' }), '192.168.1.211');
+assert.equal(connectionIp({ type: 'VPN', ipv4Cidr: '10.15.0.0/24' }), '10.15.0.0/24');
+assert.equal(connectionIp({ ipAddress: '10.0.0.8' }), '10.0.0.8');
+assert.equal(connectionIp({ gateway: '192.168.1.1' }), '');
+assert.equal(connectionIp(undefined), '');
 const server = {
   id: 'server-a', name: 'Servidor A', connections: [connection],
   portRules: [{ id: 'legacy-port', name: 'Antiga', portNumber: '443', protocol: 'HTTPS', direction: 'Entrada', host: 'legacy.example' }],
@@ -52,6 +57,8 @@ const windows = applyPortDraft(server, { ...draft, isTs: true, host: 'new.exampl
 assert.equal(windows.portRules[0].portNumber, '61033');
 assert.equal(windows.portRules[0].isTs, true);
 assert.equal(windows.portRules[0].connectionId, connection.id);
+assert.equal(Object.hasOwn(windows.portRules[0], 'ipv4'), false);
+assert.equal(Object.hasOwn(windows.portRules[0], 'connectionIp'), false);
 assert.deepEqual(windows.portRules.slice(1), server.portRules);
 assert.deepEqual(windows.tsRules, server.tsRules);
 assert.deepEqual(server, original, 'Adding must not mutate legacy data');
@@ -158,7 +165,11 @@ try {
   assert.match(html, /value="Saída"[^>]*>Saí\.<\/option>/);
   assert.doesNotMatch(html, /<option[^>]*value="Entrada\/Saída"/);
   assert.match(html, /title="Eth1 - TS"[^>]*>Eth1<\/option>/);
-  assert.match(html, /sm:flex-nowrap/);
+  assert.match(html, /md:flex-nowrap/);
+  assert.match(html, /readonly="" aria-label="IP da conexão selecionada"/i);
+  assert.match(html, /w-\[120px\]/);
+  assert.match(html, /text-\[13px\]/);
+  assert.doesNotMatch(html, /text-\[10px\]/);
   assert.match(html, /maxLength="5"/);
   const tsHtml = render(panel.default, { ...props, draft: { ...draft, isTs: true } });
   assert.match(tsHtml, /aria-label="Host\/DDNS"/);

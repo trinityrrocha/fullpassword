@@ -2,11 +2,11 @@ import { useState } from 'react';
 import { Edit2, Trash2, X } from 'lucide-react';
 import CopyButton from './CopyButton';
 import ReadOnlyDetailsModal from './ReadOnlyDetailsModal';
-import { applyPortDraft, connectionLabel, connectionShortLabel, createPortDraft, editablePortDirection, getServerPorts, hasPortDraft, PORT_DIRECTIONS, removeServerPort, sanitizeServerPort, serverHostHref, WINDOWS_PORT_PROTOCOLS } from '../utils/serverPorts';
+import { applyPortDraft, connectionIp, connectionLabel, connectionShortLabel, createPortDraft, editablePortDirection, getServerPorts, hasPortDraft, PORT_DIRECTIONS, removeServerPort, sanitizeServerPort, serverHostHref, WINDOWS_PORT_PROTOCOLS } from '../utils/serverPorts';
 
 const fieldClass = 'h-9 w-full min-w-0 rounded-md border border-slate-300 bg-white px-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100';
 const buttonClass = 'h-9 rounded-md border border-slate-300 bg-white px-3 text-xs text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200';
-const compactFieldClass = 'h-8 w-[60px] min-w-0 shrink-0 appearance-none rounded-md border border-slate-300 bg-white px-0.5 text-center text-[10px] leading-none text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100';
+const compactFieldClass = 'h-8 w-[60px] min-w-0 shrink-0 appearance-none rounded-md border border-slate-300 bg-white px-0.5 text-center text-[13px] leading-none text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100';
 
 export default function ServerPortsPanel({ server, onChange, windows = false, protocols = WINDOWS_PORT_PROTOCOLS, readOnly = false, draft, setDraft, disabled = false }) {
   const [showList, setShowList] = useState(false);
@@ -15,6 +15,8 @@ export default function ServerPortsPanel({ server, onChange, windows = false, pr
   const connections = server.connections || [];
   const ports = getServerPorts(server);
   const selectedConnection = draft?.connectionId || connections[0]?.id || '';
+  const getConnectionIp = (connectionId) => connectionIp(connections.find((connection) => connection.id === connectionId));
+  const selectedConnectionIp = getConnectionIp(selectedConnection);
   const updateDraft = (changes) => { setDraft({ ...draft, connectionId: selectedConnection, ...changes }); setError(''); };
   const addPort = () => {
     try {
@@ -38,20 +40,21 @@ export default function ServerPortsPanel({ server, onChange, windows = false, pr
       <h4 className="text-sm font-semibold text-slate-900 dark:text-slate-100">{windows ? 'Portas e TS' : 'Portas'}</h4>
       {!readOnly && (
         <fieldset disabled={disabled} className="rounded-md border border-slate-200 bg-slate-50 p-2 dark:border-slate-700 dark:bg-slate-800">
-          <div className="flex min-w-0 flex-wrap items-center gap-2 sm:flex-nowrap" data-server-port-form>
+          <div className="flex min-w-0 flex-wrap items-center gap-2 md:flex-nowrap" data-server-port-form>
             <select aria-label="Conexão da porta" title={connectionLabel(connections.find((connection) => connection.id === selectedConnection), connections)} className={compactFieldClass} disabled={!connections.length} value={selectedConnection} onChange={(e) => updateDraft({ connectionId: e.target.value })}>
               <option value="" title="Selecione a conexão">—</option>
               {connections.map((connection) => <option key={connection.id} value={connection.id} title={connectionLabel(connection, connections)}>{connectionShortLabel(connection, connections)}</option>)}
             </select>
-            <input aria-label="Porta" title="Porta (1 a 65535)" placeholder="Porta" className={compactFieldClass} inputMode="numeric" maxLength={5} value={draft.portNumber} onChange={(e) => updateDraft({ portNumber: sanitizeServerPort(e.target.value) })} />
+            <input readOnly aria-label="IP da conexão selecionada" title={selectedConnectionIp || 'Conexão sem IP'} value={selectedConnectionIp} placeholder="—" className="h-8 w-[120px] min-w-0 shrink-0 truncate rounded-md border border-slate-300 bg-slate-100 px-1.5 text-[13px] leading-none text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300" />
+            <input aria-label="Porta" title="Porta (1 a 65535)" placeholder="Porta" className={compactFieldClass + ' tabular-nums'} inputMode="numeric" maxLength={5} value={draft.portNumber} onChange={(e) => updateDraft({ portNumber: sanitizeServerPort(e.target.value) })} />
             <select aria-label="Entrada/Saída" title={draft.direction} className={compactFieldClass} value={draft.direction} onChange={(e) => updateDraft({ direction: e.target.value })}>{PORT_DIRECTIONS.map((option) => <option key={option} value={option} title={option}>{option === 'Entrada' ? 'Ent.' : 'Saí.'}</option>)}</select>
             <select aria-label="Protocolo" title={draft.protocol} className={compactFieldClass} value={draft.protocol} onChange={(e) => updateDraft({ protocol: e.target.value })}>{[...new Set([...protocols, draft.protocol])].map((option) => <option key={option} value={option} title={option}>{option === 'TCP/UDP' ? 'T/U' : option}</option>)}</select>
             {windows && <label className="inline-flex h-8 shrink-0 items-center gap-1 text-xs text-slate-600 dark:text-slate-300" title="Terminal Service">
               <input type="checkbox" aria-label="TS" className="h-3.5 w-3.5 accent-indigo-600" checked={draft.isTs} onChange={(e) => updateDraft({ isTs: e.target.checked, host: e.target.checked ? draft.host : '' })} /> TS
             </label>}
-            {(!windows || draft.isTs) && <input aria-label="Host/DDNS" title="Host/DDNS" placeholder="Host/DDNS" className="h-8 min-w-0 flex-1 basis-28 rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 sm:basis-0" value={draft.host} onChange={(e) => updateDraft({ host: e.target.value })} />}
+            {(!windows || draft.isTs) && <input aria-label="Host/DDNS" title="Host/DDNS" placeholder="Host/DDNS" className="h-8 min-w-0 flex-1 basis-28 rounded-md border border-slate-300 bg-white px-2 text-[13px] text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 md:basis-0" value={draft.host} onChange={(e) => updateDraft({ host: e.target.value })} />}
             <div className="ml-auto flex shrink-0 items-center gap-1">
-              <button type="button" data-vault-action={draft.editing ? 'edit' : 'add'} disabled={!connections.length} className="h-8 shrink-0 rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200" onClick={addPort}>{draft.editing ? 'Aplicar edição' : 'Adicionar'}</button>
+              <button type="button" data-vault-action={draft.editing ? 'edit' : 'add'} disabled={!connections.length} className="h-8 shrink-0 rounded-md border border-slate-300 bg-white px-2 text-[13px] text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200" onClick={addPort}>{draft.editing ? 'Aplicar edição' : 'Adicionar'}</button>
               {hasPortDraft(draft) && <button type="button" title="Cancelar rascunho" aria-label="Cancelar rascunho" className="inline-flex h-8 w-6 shrink-0 items-center justify-center rounded text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200" onClick={() => { setDraft(createPortDraft(selectedConnection)); setError(''); }}><X className="h-3.5 w-3.5" /></button>}
             </div>
           </div>
@@ -67,6 +70,7 @@ export default function ServerPortsPanel({ server, onChange, windows = false, pr
           {filtered.map((rule) => <div key={`${rule.source}-${rule.index}`} className="space-y-2 break-words rounded-md border border-slate-200 p-3 text-sm text-slate-700 dark:border-slate-700 dark:text-slate-200">
             {rule.name && <p>{rule.name}</p>}
             <p title={connectionLabel(connections.find((connection) => connection.id === rule.connectionId), connections)}>Conexão: {connectionShortLabel(connections.find((connection) => connection.id === rule.connectionId), connections)}</p>
+            <div className="flex min-w-0 items-center gap-2"><span className="min-w-0 break-all">IP da conexão: {getConnectionIp(rule.connectionId) || '-'}</span>{getConnectionIp(rule.connectionId) && <CopyButton value={getConnectionIp(rule.connectionId)} label="Copiar IP da conexão" />}</div>
             <div className="flex flex-wrap items-center gap-2"><span>Porta: {rule.portNumber}</span><CopyButton value={rule.portNumber} label="Copiar porta" /><span>Entrada/Saída: {rule.direction} · Protocolo: {rule.protocol}</span>{windows && <span>TS: {rule.isTs ? 'Sim' : 'Não'}</span>}</div>
             {rule.host && (!windows || rule.isTs) && <div className="flex min-w-0 items-center gap-2"><span className="min-w-0 break-all">Host/DDNS: {rule.isTs && serverHostHref(rule.host) ? <a className="hover:underline" href={serverHostHref(rule.host)} target="_blank" rel="noopener noreferrer">{rule.host}</a> : rule.host}</span><CopyButton value={rule.host} label="Copiar Host/DDNS" /></div>}
             {!readOnly && <div className="flex gap-2">
