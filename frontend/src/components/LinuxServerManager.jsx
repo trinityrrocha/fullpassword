@@ -10,6 +10,9 @@ import Ipv4Input from './Ipv4Input';
 import { sanitizeIpv4Input, validateIpv4, validateIpv4Cidr } from '../utils/ipCidr';
 import { validateVaultAttachmentSelection } from '../utils/requestLimits';
 import useClearOnVaultLock from '../hooks/useClearOnVaultLock';
+import ServerPortsPanel from './ServerPortsPanel';
+import useServerFormGuard from '../hooks/useServerFormGuard';
+import { applyPortDraft, createPortDraft, hasPortDraft } from '../utils/serverPorts';
 
 const systemOptions = [
   'Ubuntu',
@@ -25,7 +28,6 @@ const systemOptions = [
 const connectionOptions = ['Eth1', 'Eth2', 'Eth3', 'Eth4', 'Eth5', 'VPN'];
 const connectionVpnOptions = ['OpenVPN', 'WireGuard', 'ZeroTier', 'Tailscale', 'Outro'];
 const protocolOptions = ['TCP', 'UDP', 'TCP/UDP', 'HTTPS', 'HTTP', 'ICMP', 'SMB', 'FTP', 'SSH', 'SMTP', 'RPD', 'ANY'];
-const directionOptions = ['Entrada', 'Saída', 'Entrada/Saída'];
 
 const sanitizePortInput = (value = '') => String(value).replace(/\D/g, '');
 const sanitizeIpv4MaskInput = (value = '') => {
@@ -118,6 +120,9 @@ const normalizePortRules = (server = {}) => {
     return server.portRules.map((rule) => ({
       id: rule.id || makeId(),
       name: rule.name || '',
+      connectionId: rule.connectionId || '',
+      isTs: rule.isTs === true,
+      host: String(rule.host || rule.ip || ''),
       portNumber: sanitizePortInput(rule.portNumber || rule.port || ''),
       direction: rule.direction || 'Entrada',
       protocol: rule.protocol || 'TCP'
@@ -211,15 +216,6 @@ function ConnectionIcon({ type }) {
   return <Icon className={isVpn ? 'h-5 w-5 shrink-0 text-indigo-500' : 'h-5 w-5 shrink-0 text-slate-500'} />;
 }
 
-function CompactInlineInput({ label, value, onChange, placeholder, inputMode = 'text' }) {
-  return (
-    <div className="flex h-10 min-w-0 items-center overflow-hidden rounded-md border border-slate-300 bg-white shadow-sm">
-      <div className="flex h-full shrink-0 items-center border-r border-slate-200 bg-slate-50 px-2 text-xs font-medium text-slate-600">{label}</div>
-      <input type="text" inputMode={inputMode} aria-label={label} className="h-full min-w-0 flex-1 border-0 px-2 text-sm outline-none focus:ring-0" value={value} onChange={onChange} placeholder={placeholder} />
-    </div>
-  );
-}
-
 function SilentCopyButton({ value, label }) {
   return <CopyButton value={value} label={`Copiar ${label}`} />;
 }
@@ -272,7 +268,7 @@ function AttachmentRow({ attachment, label, onRemove }) {
   );
 }
 
-export default function LinuxServerManager({ serverForm, setServerForm, handleSaveData, isSaving, onDeleteModule }) {
+export default function LinuxServerManager({ serverForm, setServerForm, handleSaveData, isSaving, onDeleteModule, readOnly = false }) {
   const normalizedForm = useMemo(() => normalizeLinuxForm(serverForm), [serverForm]);
   const [serverDraft, setServerDraft] = useState(emptyLinuxServer());
   const [userDraft, setUserDraft] = useState(emptySshCredential());
@@ -343,18 +339,18 @@ export default function LinuxServerManager({ serverForm, setServerForm, handleSa
     setShowUserCreateModal(false);
   };
 
-  const addServer = async () => {
-    if (!serverDraft.name.trim()) {
+  const addServer = async (serverToSave = serverDraft) => {
+    if (!serverToSave.name.trim()) {
       alert('Informe o nome do servidor.');
       return;
     }
-    const connectionError = getLinuxConnectionError(serverDraft);
+    const connectionError = getLinuxConnectionError(serverToSave);
     if (connectionError) {
       alert(connectionError);
       return;
     }
 
-    const newServer = normalizeLinuxServer({ ...serverDraft, id: makeId() });
+    const newServer = normalizeLinuxServer({ ...serverToSave, id: makeId() });
     const nextForm = {
       ...normalizedForm,
       servers: [newServer, ...normalizedForm.servers]
@@ -367,12 +363,12 @@ export default function LinuxServerManager({ serverForm, setServerForm, handleSa
     }
   };
 
-  const saveEditedServer = async () => {
-    if (!editingServer.name.trim()) {
+  const saveEditedServer = async (serverToSave = editingServer) => {
+    if (!serverToSave.name.trim()) {
       alert('Informe o nome do servidor.');
       return;
     }
-    const connectionError = getLinuxConnectionError(editingServer);
+    const connectionError = getLinuxConnectionError(serverToSave);
     if (connectionError) {
       alert(connectionError);
       return;
@@ -380,7 +376,7 @@ export default function LinuxServerManager({ serverForm, setServerForm, handleSa
 
     const nextForm = {
       ...normalizedForm,
-      servers: normalizedForm.servers.map((server) => server.id === editingServer.id ? normalizeLinuxServer(editingServer) : server)
+      servers: normalizedForm.servers.map((server) => server.id === serverToSave.id ? normalizeLinuxServer(serverToSave) : server)
     };
 
     const saved = await persistLinuxForm(nextForm, 'Servidor Linux atualizado e salvo no cofre.');
@@ -520,7 +516,7 @@ export default function LinuxServerManager({ serverForm, setServerForm, handleSa
                     </>
                   )}
                 </div>
-                <div className="flex shrink-0 gap-2 self-start sm:self-auto"><button type="button" title="Visualizar" aria-label="Visualizar" onClick={() => setViewingServer(server)} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"><Eye className="h-4 w-4" /></button><button type="button" title="Detalhes" aria-label="Detalhes" onClick={() => { setEditingServer(normalizeLinuxServer(server)); setDeleteConfirmation(''); }} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"><Edit2 className="h-4 w-4" /></button></div>
+                <div className="flex shrink-0 gap-2 self-start sm:self-auto"><button type="button" title="Visualizar" aria-label="Visualizar" onClick={() => setViewingServer(server)} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"><Eye className="h-4 w-4" /></button><button type="button" title="Detalhes" aria-label="Detalhes" onClick={() => { if (readOnly) { setViewingServer(server); return; } setEditingServer(normalizeLinuxServer(server)); setDeleteConfirmation(''); }} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"><Edit2 className="h-4 w-4" /></button></div>
               </div>
             );
           })}
@@ -562,7 +558,7 @@ export default function LinuxServerManager({ serverForm, setServerForm, handleSa
                 <span className="text-slate-600">· Porta SSH: {credential.sshPort || '22'}</span>
                 <span className="text-slate-600">· Servidor: {getServerLabel(credential.serverId)}</span>
               </div>
-              <div className="flex shrink-0 gap-2 self-start sm:self-auto"><button type="button" title="Visualizar" aria-label="Visualizar" onClick={() => setViewingUser(credential)} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"><Eye className="h-4 w-4" /></button><button type="button" title="Detalhes" aria-label="Detalhes" onClick={() => { setEditingUser(normalizeSshCredential(credential)); setDeleteUserConfirmation(''); }} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"><Edit2 className="h-4 w-4" /></button></div>
+              <div className="flex shrink-0 gap-2 self-start sm:self-auto"><button type="button" title="Visualizar" aria-label="Visualizar" onClick={() => setViewingUser(credential)} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"><Eye className="h-4 w-4" /></button><button type="button" title="Detalhes" aria-label="Detalhes" onClick={() => { if (readOnly) { setViewingUser(credential); return; } setEditingUser(normalizeSshCredential(credential)); setDeleteUserConfirmation(''); }} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"><Edit2 className="h-4 w-4" /></button></div>
             </div>
           ))}
         </div>
@@ -634,7 +630,7 @@ function LinuxServerReadOnlyModal({ server, onClose }) {
     <div className="grid gap-4 sm:grid-cols-2"><ReadOnlyField label="Servidor" value={normalized.name} /><ReadOnlyField label="Sistema" value={normalized.systemType} /><ReadOnlyField label="Observações" value={normalized.notes} /></div>
     {isProxmoxServer(normalized) && <ReadOnlySection title="Acesso Proxmox"><div className="grid gap-4 sm:grid-cols-2"><ReadOnlyField label="URL">{normalized.proxmoxApi.url || 'não informada'} <SilentCopyButton value={normalized.proxmoxApi.url} label="URL" /></ReadOnlyField><ReadOnlyField label="Login">{normalized.proxmoxApi.username || 'não informado'} <SilentCopyButton value={normalized.proxmoxApi.username} label="login" /></ReadOnlyField><ReadOnlyField label="Senha">**** <SilentCopyButton value={normalized.proxmoxApi.tokenApi} label="senha" /></ReadOnlyField></div></ReadOnlySection>}
     <ReadOnlySection title="Conexões">{normalized.connections.length ? <div className="space-y-2">{normalized.connections.map((connection) => <div key={connection.id} className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">{getConnectionLabel(connection, normalized.connections)}{connection.type === 'VPN' ? ` / ${connection.vpn}` : ''} · {connection.ipv4 || '-'}{connection.type !== 'VPN' ? ` · Gateway: ${connection.gateway || '-'}` : ''}</div>)}</div> : <p className="text-sm text-slate-500">Nenhuma conexão cadastrada.</p>}</ReadOnlySection>
-    <ReadOnlySection title="Portas">{normalized.portRules.length ? <div className="space-y-2">{normalized.portRules.map((rule) => <div key={rule.id} className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">{rule.name || 'Porta'} · {rule.portNumber || '-'} · {rule.direction} · {rule.protocol}</div>)}</div> : <p className="text-sm text-slate-500">Nenhuma porta cadastrada.</p>}</ReadOnlySection>
+    <ServerPortsPanel server={normalized} protocols={protocolOptions} readOnly />
     <ReadOnlyAttachments files={normalized.proxmoxApi.attachments} />
   </ReadOnlyDetailsModal>;
 }
@@ -649,7 +645,19 @@ function SshCredentialReadOnlyModal({ credential, server, onClose }) {
 
 function LinuxServerModal({ title, server, setServer, isSaving, onCancel, onSave, onDelete, deleteConfirmation, setDeleteConfirmation }) {
   const connections = normalizeConnections(server);
-  const portRules = normalizePortRules(server);
+  const [portDraft, setPortDraft] = useState(() => createPortDraft());
+  const [saveError, setSaveError] = useState('');
+  const saveIncludingPortDraft = async () => {
+    try {
+      const normalized = normalizeLinuxServer(server);
+      const payload = hasPortDraft(portDraft)
+        ? applyPortDraft(normalized, { ...portDraft, connectionId: portDraft.connectionId || connections[0]?.id || '' }, false)
+        : normalized;
+      setSaveError('');
+      await onSave(payload);
+    } catch (error) { setSaveError(error.message || 'Não foi possível salvar o servidor.'); }
+  };
+  const { requestClose, dialog } = useServerFormGuard(server, onCancel, saveIncludingPortDraft, isSaving, hasPortDraft(portDraft));
   const proxmoxApi = normalizeProxmoxApi(server.proxmoxApi || {});
   const hasInvalidConnections = connections.some((connection) => (
     validateIpv4Cidr(connection.ipv4).state === 'invalid'
@@ -697,27 +705,6 @@ function LinuxServerModal({ title, server, setServer, isSaving, onCancel, onSave
     });
   };
 
-  const addPortRule = () => {
-    setServer({
-      ...server,
-      portRules: [...portRules, { id: makeId(), name: '', portNumber: '', direction: 'Entrada', protocol: 'TCP' }]
-    });
-  };
-
-  const updatePortRule = (ruleId, field, value) => {
-    setServer({
-      ...server,
-      portRules: portRules.map((rule) => rule.id === ruleId ? { ...rule, [field]: field === 'portNumber' ? sanitizePortInput(value) : value } : rule)
-    });
-  };
-
-  const removePortRule = (ruleId) => {
-    setServer({
-      ...server,
-      portRules: portRules.filter((rule) => rule.id !== ruleId)
-    });
-  };
-
   const updateProxmoxApi = (field, value) => {
     setServer({
       ...server,
@@ -761,9 +748,10 @@ function LinuxServerModal({ title, server, setServer, isSaving, onCancel, onSave
       <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
           <h3 className="text-lg font-semibold text-slate-900">{title}</h3>
-          <button type="button" onClick={onCancel} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5" /></button>
+          <button type="button" onClick={requestClose} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5" /></button>
         </div>
         <div className="p-6 space-y-6">
+          {saveError && <p role="alert" className="text-sm text-red-600 dark:text-red-400">{saveError}</p>}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Nome do Servidor</label>
@@ -916,37 +904,8 @@ function LinuxServerModal({ title, server, setServer, isSaving, onCancel, onSave
             </div>
           </div>
 
-          <div className="border-t border-slate-200 pt-5">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3">
-              <div>
-                <h4 className="text-sm font-semibold text-slate-900">Portas</h4>
-                <p className="text-xs text-slate-500">Adicione regras de firewall sem limite.</p>
-              </div>
-              <button type="button" onClick={addPortRule} className="inline-flex items-center justify-center px-4 py-2 border border-slate-300 rounded-md shadow-sm text-sm font-medium text-slate-700 bg-white hover:bg-slate-50">
-                <Plus className="w-4 h-4 mr-2" /> Adicionar porta
-              </button>
-            </div>
+          <ServerPortsPanel server={{ ...server, connections }} onChange={setServer} protocols={protocolOptions} draft={portDraft} setDraft={setPortDraft} disabled={isSaving} />
 
-            <div className="space-y-2">
-              {portRules.length === 0 ? (
-                <p className="text-sm text-slate-500">Nenhuma porta adicionada.</p>
-              ) : portRules.map((rule) => (
-                <div key={rule.id} className="grid w-full grid-cols-1 items-center gap-2 rounded-md border border-slate-200 bg-slate-50 p-2 sm:grid-cols-2 lg:grid-cols-[minmax(180px,1fr)_120px_128px_96px_36px]">
-                  <CompactInlineInput label="Nome" value={rule.name} onChange={(e) => updatePortRule(rule.id, 'name', e.target.value)} placeholder="Ex: SSH" />
-                  <CompactInlineInput label="Porta" inputMode="numeric" value={rule.portNumber} onChange={(e) => updatePortRule(rule.id, 'portNumber', e.target.value)} placeholder="Ex: 22" />
-                  <select aria-label="Entrada/Saída" className="h-10 w-full rounded-md border border-slate-300 bg-white px-2 text-sm shadow-sm" value={rule.direction} onChange={(e) => updatePortRule(rule.id, 'direction', e.target.value)}>
-                    {directionOptions.map((option) => <option key={option} value={option}>{option}</option>)}
-                  </select>
-                  <select aria-label="Protocolo" className="h-10 w-full rounded-md border border-slate-300 bg-white px-2 text-sm shadow-sm" value={rule.protocol} onChange={(e) => updatePortRule(rule.id, 'protocol', e.target.value)}>
-                    {protocolOptions.map((option) => <option key={option} value={option}>{option}</option>)}
-                  </select>
-                  <button type="button" title="Remover" aria-label="Remover" onClick={() => removePortRule(rule.id)} className="inline-flex h-9 w-9 shrink-0 items-center justify-center justify-self-end rounded-md border border-red-300 text-red-600 hover:bg-red-50 sm:col-span-2 lg:col-span-1">
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
 
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-200 bg-slate-50 px-6 py-4">
@@ -954,16 +913,18 @@ function LinuxServerModal({ title, server, setServer, isSaving, onCancel, onSave
             <DeleteConfirmationControl value={deleteConfirmation} onChange={(e) => setDeleteConfirmation(e.target.value)} onDelete={onDelete} disabled={isSaving} />
           )}
           <div className="flex gap-2 justify-end">
-            <button type="button" onClick={onCancel} className="px-4 py-2 border border-slate-300 rounded-md text-sm font-medium text-slate-700 bg-white hover:bg-slate-50">Cancelar</button>
-            <button type="button" disabled={isSaving || hasInvalidConnections} onClick={onSave} className="px-4 py-2 border border-transparent rounded-md text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50">{isSaving ? 'Salvando...' : 'Salvar'}</button>
+            <button type="button" onClick={requestClose} className="px-4 py-2 border border-slate-300 rounded-md text-sm font-medium text-slate-700 bg-white hover:bg-slate-50">Cancelar</button>
+            <button type="button" disabled={isSaving || hasInvalidConnections} onClick={saveIncludingPortDraft} className="px-4 py-2 border border-transparent rounded-md text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50">{isSaving ? 'Salvando...' : 'Salvar'}</button>
           </div>
         </div>
       </div>
+      {dialog}
     </div>
   );
 }
 
 function SshCredentialModal({ title, credential, setCredential, servers, getServerLabel, isSaving, onCancel, onSave, onDelete, deleteConfirmation, setDeleteConfirmation }) {
+  const { requestClose, dialog } = useServerFormGuard(credential, onCancel, onSave, isSaving);
   const updateAttachment = async (field, files) => {
     try {
       const [attachment] = await readFilesAsAttachments(files);
@@ -979,7 +940,7 @@ function SshCredentialModal({ title, credential, setCredential, servers, getServ
       <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
           <h3 className="text-lg font-semibold text-slate-900">{title}</h3>
-          <button type="button" onClick={onCancel} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5" /></button>
+          <button type="button" onClick={requestClose} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5" /></button>
         </div>
         <div className="p-6 space-y-5">
           <div className="border border-slate-200 rounded-lg p-4 bg-slate-50">
@@ -1042,11 +1003,12 @@ function SshCredentialModal({ title, credential, setCredential, servers, getServ
             <DeleteConfirmationControl value={deleteConfirmation} onChange={(e) => setDeleteConfirmation(e.target.value)} onDelete={onDelete} disabled={isSaving} />
           )}
           <div className="flex gap-2 justify-end">
-            <button type="button" onClick={onCancel} className="px-4 py-2 border border-slate-300 rounded-md text-sm font-medium text-slate-700 bg-white hover:bg-slate-50">Cancelar</button>
+            <button type="button" onClick={requestClose} className="px-4 py-2 border border-slate-300 rounded-md text-sm font-medium text-slate-700 bg-white hover:bg-slate-50">Cancelar</button>
             <button type="button" disabled={isSaving} onClick={onSave} className="px-4 py-2 border border-transparent rounded-md text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50">{isSaving ? 'Salvando...' : 'Salvar'}</button>
           </div>
         </div>
       </div>
+      {dialog}
     </div>
   );
 }

@@ -44,6 +44,7 @@ export default function clientVaultLinuxPlugin() {
         /[ ]{10}\{activeModuleId === 'linuxServer' && \(\r?\n[\s\S]*?\r?\n[ ]{10}\)\}\r?\n[ ]{8}<\/div>/,
         `          {activeModuleId === 'linuxServer' && (
             <LinuxServerManager
+              readOnly={!(effectiveVaultPermissions.is_owner || effectiveVaultPermissions.is_admin || effectiveVaultPermissions.can_edit || effectiveVaultPermissions.can_add || effectiveVaultPermissions.can_delete)}
               serverForm={serverForm}
               setServerForm={setServerForm}
               handleSaveData={handleSaveData}

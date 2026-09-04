@@ -50,6 +50,8 @@ const shouldLockButton = (button, permissions) => {
 };
 
 const lockControl = (control) => {
+  // Opt-in search fields only filter in-memory lists; they never edit vault data.
+  if (control.tagName === 'INPUT' && control.type === 'search' && control.dataset.vaultSearch === 'true') return;
   if (control.dataset.vaultReadonlyLocked === 'true') return;
 
   control.dataset.vaultReadonlyLocked = 'true';

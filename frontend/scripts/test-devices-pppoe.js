@@ -41,7 +41,10 @@ for (const [name, source] of managerSources) {
   assert.match(source, /md:grid-cols-\[minmax\(220px,260px\)_minmax\(0,1fr\)_minmax\(0,1fr\)_24px\]/, `${name} deve usar a grade responsiva de conexões`);
   assert.match(source, /aria-label="Excluir conexão"/, `${name} deve manter rótulo acessível na exclusão`);
   const connectionStart = source.lastIndexOf('>Conexões</h4>');
-  const connectionEnd = source.indexOf('<div className="border-t border-slate-200 pt-5">', connectionStart);
+  const connectionEnd = name === 'Dispositivos'
+    ? source.indexOf('<div className="border-t border-slate-200 pt-5">', connectionStart)
+    : source.indexOf('<ServerPortsPanel', connectionStart);
+  assert.ok(connectionEnd > connectionStart, `Fim da seção de conexões de ${name} deve ser localizado`);
   const connectionSection = source.slice(connectionStart, connectionEnd);
   assert.doesNotMatch(connectionSection, /overflow-x-auto|overflow-x-scroll|min-w-\[/, `Conexões de ${name} não devem criar rolagem horizontal`);
   const deleteConnectionButton = connectionSection.match(/<button[^\n]+aria-label="Excluir conexão"[^\n]+className="([^"]+)"/);

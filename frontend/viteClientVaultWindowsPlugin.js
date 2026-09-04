@@ -27,6 +27,10 @@ const windowsNormalizeTsForm = `const normalizeTsForm = (data = {}) => {
   const normalizePortRules = (server = {}) => {
     if (Array.isArray(server.portRules)) {
       return server.portRules.map((rule) => ({
+        ...rule,
+        connectionId: rule.connectionId || '',
+        host: String(rule.host || rule.ip || ''),
+        isTs: rule.isTs === true,
         id: rule.id || makeId(),
         name: rule.name || '',
         portNumber: sanitizePortInput(rule.portNumber || rule.port || ''),
@@ -62,6 +66,8 @@ const windowsNormalizeTsForm = `const normalizeTsForm = (data = {}) => {
     if (!Array.isArray(server.tsRules)) return [];
 
     return server.tsRules.map((rule) => ({
+      ...rule,
+      connectionId: rule.connectionId || '',
       id: rule.id || makeId(),
       name: rule.name || '',
       host: rule.host || rule.ip || '',
@@ -70,6 +76,7 @@ const windowsNormalizeTsForm = `const normalizeTsForm = (data = {}) => {
   };
 
   const normalizeServer = (server = {}) => ({
+    ...server,
     id: server.id || makeId(),
     name: server.name || server.domain || '',
     notes: server.notes || server.observations || '',
@@ -201,6 +208,7 @@ export default function clientVaultWindowsPlugin() {
         /[ ]{10}\{activeModuleId === 'windowsServer' && \(\r?\n[\s\S]*?\r?\n[ ]{10}\)\}\r?\n\r?\n[ ]{10}\{activeModuleId === 'linuxServer' && \(/,
         `          {activeModuleId === 'windowsServer' && (
             <WindowsServerManager
+              readOnly={!(effectiveVaultPermissions.is_owner || effectiveVaultPermissions.is_admin || effectiveVaultPermissions.can_edit || effectiveVaultPermissions.can_add || effectiveVaultPermissions.can_delete)}
               tsForm={tsForm}
               setTsForm={setTsForm}
               handleSaveData={handleSaveData}

@@ -10,6 +10,9 @@ import Ipv4Input from './Ipv4Input';
 import { sanitizeIpv4Input, validateIpv4, validateIpv4Cidr } from '../utils/ipCidr';
 import { normalizeVaultAttachments } from '../utils/vaultAttachments';
 import useClearOnVaultLock from '../hooks/useClearOnVaultLock';
+import ServerPortsPanel from './ServerPortsPanel';
+import useServerFormGuard from '../hooks/useServerFormGuard';
+import { applyPortDraft, createPortDraft, hasPortDraft, getWindowsTsAddresses } from '../utils/serverPorts';
 
 const WINDOWS_SERVER_FILE_EXTENSIONS = ['.txt', '.conf', '.json', '.xml', '.log', '.zip', '.rar'];
 
@@ -68,25 +71,6 @@ function ConnectionIcon({ type }) {
   return <Icon className={isVpn ? 'h-5 w-5 shrink-0 text-indigo-500' : 'h-5 w-5 shrink-0 text-slate-500'} aria-label={isVpn ? 'VPN' : 'Rede'} />;
 }
 
-function CompactInlineInput({ label, value, onChange, placeholder, widthClass = 'w-[150px]', inputMode = 'text' }) {
-  return (
-    <div className={`flex h-10 shrink-0 items-center overflow-hidden rounded-md border border-slate-300 bg-white shadow-sm ${widthClass}`}>
-      <div className="flex h-full shrink-0 items-center border-r border-slate-200 bg-slate-50 px-2 text-xs font-medium text-slate-600">
-        {label}
-      </div>
-      <input
-        type="text"
-        inputMode={inputMode}
-        aria-label={label}
-        className="h-full min-w-0 flex-1 border-0 px-2 text-sm outline-none focus:ring-0"
-        value={value}
-        onChange={onChange}
-        placeholder={placeholder}
-      />
-    </div>
-  );
-}
-
 const makeId = () => {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -137,6 +121,8 @@ const normalizePortRules = (server = {}) => {
     return server.portRules.map((rule) => ({
       id: rule.id || makeId(),
       name: rule.name || '',
+      connectionId: rule.connectionId || '',
+      isTs: rule.isTs === true,
       host: rule.host || rule.ip || '',
       portNumber: sanitizePortInput(rule.portNumber || rule.port || ''),
       direction: rule.direction || 'Entrada',
@@ -175,6 +161,7 @@ const normalizeTsRules = (server = {}) => {
   return server.tsRules.map((rule) => ({
     id: rule.id || makeId(),
     name: rule.name || '',
+    connectionId: rule.connectionId || '',
     host: rule.host || rule.ip || '',
     port: sanitizePortInput(rule.port || ''),
     direction: directionOptions.includes(rule.direction) ? rule.direction : 'Entrada',
@@ -279,7 +266,7 @@ const getConnectionLabel = (connection, allConnections = []) => {
   return `VPN ${vpnIndex + 1}`;
 };
 
-export default function WindowsServerManager({ tsForm, setTsForm, handleSaveData, isSaving, onDeleteModule }) {
+export default function WindowsServerManager({ tsForm, setTsForm, handleSaveData, isSaving, onDeleteModule, readOnly = false }) {
   const normalizedForm = useMemo(() => normalizeWindowsForm(tsForm), [tsForm]);
   const [serverDraft, setServerDraft] = useState(emptyServer());
   const [userDraft, setUserDraft] = useState(emptyUser());
@@ -287,6 +274,7 @@ export default function WindowsServerManager({ tsForm, setTsForm, handleSaveData
   const [editingUser, setEditingUser] = useState(null);
   const [viewingServer, setViewingServer] = useState(null);
   const [viewingUser, setViewingUser] = useState(null);
+  const [usersServer, setUsersServer] = useState(null);
   const [deleteServerConfirmation, setDeleteServerConfirmation] = useState('');
   const [deleteUserConfirmation, setDeleteUserConfirmation] = useState('');
   const [showServerCreateModal, setShowServerCreateModal] = useState(false);
@@ -301,6 +289,7 @@ export default function WindowsServerManager({ tsForm, setTsForm, handleSaveData
     setEditingUser(null);
     setViewingServer(null);
     setViewingUser(null);
+    setUsersServer(null);
     setDeleteServerConfirmation('');
     setDeleteUserConfirmation('');
     setShowServerCreateModal(false);
@@ -331,8 +320,8 @@ export default function WindowsServerManager({ tsForm, setTsForm, handleSaveData
     setShowServerCreateModal(true);
   };
 
-  const openCreateUserModal = () => {
-    setUserDraft(emptyUser(normalizedForm.servers[0]?.id || ''));
+  const openCreateUserModal = (serverId = normalizedForm.servers[0]?.id || '') => {
+    setUserDraft(emptyUser(serverId));
     setShowUserCreateModal(true);
   };
 
@@ -346,19 +335,19 @@ export default function WindowsServerManager({ tsForm, setTsForm, handleSaveData
     setShowUserCreateModal(false);
   };
 
-  const addServer = async () => {
-    if (!serverDraft.name.trim()) {
+  const addServer = async (serverToSave = serverDraft) => {
+    if (!serverToSave.name.trim()) {
       alert('Informe o nome do servidor.');
       return;
     }
-    const connectionError = getWindowsConnectionError(serverDraft);
+    const connectionError = getWindowsConnectionError(serverToSave);
     if (connectionError) {
       alert(connectionError);
       return;
     }
-    if (!validateWindowsServerPorts(serverDraft)) return;
+    if (!validateWindowsServerPorts(serverToSave)) return;
 
-    const newServer = { ...serverDraft, id: makeId() };
+    const newServer = { ...serverToSave, id: makeId() };
     const nextForm = {
       ...normalizedForm,
       servers: [newServer, ...normalizedForm.servers]
@@ -372,21 +361,21 @@ export default function WindowsServerManager({ tsForm, setTsForm, handleSaveData
     }
   };
 
-  const saveEditedServer = async () => {
-    if (!editingServer.name.trim()) {
+  const saveEditedServer = async (serverToSave = editingServer) => {
+    if (!serverToSave.name.trim()) {
       alert('Informe o nome do servidor.');
       return;
     }
-    const connectionError = getWindowsConnectionError(editingServer);
+    const connectionError = getWindowsConnectionError(serverToSave);
     if (connectionError) {
       alert(connectionError);
       return;
     }
-    if (!validateWindowsServerPorts(editingServer)) return;
+    if (!validateWindowsServerPorts(serverToSave)) return;
 
     const nextForm = {
       ...normalizedForm,
-      servers: normalizedForm.servers.map((server) => server.id === editingServer.id ? editingServer : server)
+      servers: normalizedForm.servers.map((server) => server.id === serverToSave.id ? serverToSave : server)
     };
 
     const saved = await persistWindowsForm(nextForm, 'Servidor atualizado e salvo no cofre.');
@@ -499,7 +488,7 @@ export default function WindowsServerManager({ tsForm, setTsForm, handleSaveData
           <button type="button" disabled={isSaving} onClick={openCreateServerModal} className="inline-flex h-8 shrink-0 items-center justify-center rounded-md border border-transparent bg-indigo-600 px-3 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 disabled:opacity-50">
             <Plus className="mr-2 h-4 w-4" /> Adicionar Servidor
           </button>
-          <button type="button" disabled={isSaving} onClick={openCreateUserModal} className="inline-flex h-8 shrink-0 items-center justify-center rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50">
+          <button type="button" disabled={isSaving} onClick={() => openCreateUserModal()} className="inline-flex h-8 shrink-0 items-center justify-center rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50">
             <Plus className="mr-2 h-4 w-4" /> Adicionar usuário
           </button>
         </div>
@@ -517,13 +506,15 @@ export default function WindowsServerManager({ tsForm, setTsForm, handleSaveData
                 <strong className="flex min-w-0 items-center gap-2 truncate font-medium text-slate-900"><Server className="h-5 w-5 shrink-0 text-slate-500" />{server.name || 'Servidor sem nome'}</strong>
                 <span className="whitespace-nowrap">Conexões: {server.connections?.length || 0}</span>
                 <span className="whitespace-nowrap">Portas: {server.portRules?.length || 0}</span>
-                <span className="whitespace-nowrap">TS: {server.tsRules?.length || 0}</span>
+                <span className="min-w-0 break-all">TS: {getWindowsTsAddresses(server).length > 1 ? `${getWindowsTsAddresses(server).length} configurados` : getWindowsTsAddresses(server)[0]?.host || '-'}</span>
               </div>
-              <div className="flex shrink-0 gap-2 self-start sm:self-auto">
+              <div className="flex flex-wrap gap-2 self-start sm:self-auto">
+                {!readOnly && <button type="button" disabled={isSaving} onClick={() => openCreateUserModal(server.id)} className="h-9 rounded-md border border-slate-300 px-2 text-xs text-slate-700 dark:text-slate-200">Adicionar login</button>}
+                <button type="button" onClick={() => setUsersServer({ id: server.id, readOnly })} className="h-9 rounded-md border border-slate-300 px-2 text-xs text-slate-700 dark:text-slate-200">Exibir lista de usuários</button>
                 <button type="button" title="Visualizar" aria-label="Visualizar" onClick={() => setViewingServer(server)} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50">
                   <Eye className="h-4 w-4" />
                 </button>
-                <button type="button" title="Detalhes" aria-label="Detalhes" onClick={() => { setEditingServer({ ...server }); setDeleteServerConfirmation(''); }} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50">
+                <button type="button" title="Detalhes" aria-label="Detalhes" onClick={() => { if (readOnly) { setViewingServer(server); return; } setEditingServer({ ...server }); setDeleteServerConfirmation(''); }} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50">
                   <Edit2 className="h-4 w-4" />
                 </button>
               </div>
@@ -553,7 +544,7 @@ export default function WindowsServerManager({ tsForm, setTsForm, handleSaveData
             <p className="text-sm text-slate-500">{userSearch.trim() || userServerFilter ? 'Nenhum usuário encontrado.' : 'Nenhum usuário cadastrado.'}</p>
           ) : filteredUsers.map((user) => {
             const selectedServer = getServerById(user.serverId);
-            const tsAddresses = selectedServer ? normalizeTsRules(selectedServer).filter((rule) => rule.host.trim() && rule.port) : [];
+            const tsAddresses = selectedServer ? getWindowsTsAddresses(selectedServer) : [];
             return (
             <div key={user.id} className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm">
@@ -569,7 +560,7 @@ export default function WindowsServerManager({ tsForm, setTsForm, handleSaveData
                 <button type="button" title="Visualizar" aria-label="Visualizar" onClick={() => setViewingUser(user)} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50">
                   <Eye className="h-4 w-4" />
                 </button>
-                <button type="button" title="Detalhes" aria-label="Detalhes" onClick={() => { setEditingUser({ ...user }); setDeleteUserConfirmation(''); }} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50">
+                <button type="button" title="Detalhes" aria-label="Detalhes" onClick={() => { if (readOnly) { setViewingUser(user); return; } setEditingUser({ ...user }); setDeleteUserConfirmation(''); }} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50">
                   <Edit2 className="h-4 w-4" />
                 </button>
               </div>
@@ -604,12 +595,20 @@ export default function WindowsServerManager({ tsForm, setTsForm, handleSaveData
       )}
 
       {viewingServer && (
-        <WindowsServerReadOnlyModal server={viewingServer} onClose={() => setViewingServer(null)} />
+        <WindowsServerReadOnlyModal server={viewingServer} onClose={() => setViewingServer(null)} onShowUsers={() => setUsersServer({ id: viewingServer.id, readOnly: true })} />
       )}
 
       {viewingUser && (
         <WindowsUserReadOnlyModal user={viewingUser} servers={normalizedForm.servers} onClose={() => setViewingUser(null)} />
       )}
+
+      {usersServer && <WindowsUsersListModal
+        server={getServerById(usersServer.id)}
+        users={normalizedForm.users.filter((user) => user.serverId === usersServer.id)}
+        readOnly={usersServer.readOnly}
+        onClose={() => setUsersServer(null)}
+        onEdit={(user) => { setUsersServer(null); setEditingUser({ ...user }); setDeleteUserConfirmation(''); }}
+      />}
 
       {editingServer && (
         <WindowsServerModal
@@ -644,10 +643,8 @@ export default function WindowsServerManager({ tsForm, setTsForm, handleSaveData
   );
 }
 
-function WindowsServerReadOnlyModal({ server, onClose }) {
+function WindowsServerReadOnlyModal({ server, onClose, onShowUsers }) {
   const connections = normalizeConnections(server);
-  const portRules = normalizePortRules(server);
-  const tsRules = normalizeTsRules(server);
   const attachments = normalizeVaultAttachments(server);
 
   return (
@@ -672,23 +669,8 @@ function WindowsServerReadOnlyModal({ server, onClose }) {
         )}
       </section>
 
-      <section>
-        <h4 className="mb-2 text-sm font-semibold text-slate-900">Portas e TS</h4>
-        {portRules.length === 0 && tsRules.length === 0 ? <p className="text-sm text-slate-500">Nenhuma porta ou TS cadastrado.</p> : (
-          <div className="space-y-2">
-            {portRules.map((rule) => (
-              <div key={`port-${rule.id}`} className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
-                <span className="font-medium">{rule.name || 'Porta'}</span> · {[rule.host, rule.portNumber].filter(Boolean).join(':') || '-'} · {rule.direction} · {rule.protocol}
-              </div>
-            ))}
-            {tsRules.map((rule) => (
-              <div key={`ts-${rule.id}`} className="rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-slate-700">
-                <span className="font-medium">{rule.name || 'TS'}</span> · {[rule.host, rule.port].filter(Boolean).join(':') || '-'} · {rule.direction} · {rule.protocol}
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
+      <ServerPortsPanel server={normalizeServer(server)} windows readOnly />
+      {onShowUsers && <button type="button" className="rounded-md border px-3 py-2 text-sm text-slate-700 dark:text-slate-200" onClick={onShowUsers}>Exibir lista de usuários</button>}
 
       <ReadOnlyAttachments files={attachments} />
     </ReadOnlyDetailsModal>
@@ -698,7 +680,7 @@ function WindowsServerReadOnlyModal({ server, onClose }) {
 function WindowsUserReadOnlyModal({ user, servers, onClose }) {
   const selectedServer = servers.find((server) => server.id === user.serverId);
   const tsAddresses = selectedServer
-    ? normalizeTsRules(selectedServer).filter((rule) => rule.host.trim() && rule.port)
+    ? getWindowsTsAddresses(selectedServer)
     : [];
 
   return (
@@ -719,7 +701,7 @@ function WindowsUserReadOnlyModal({ user, servers, onClose }) {
             {tsAddresses.map((rule) => {
               const address = `${rule.host}:${rule.port}`;
               return (
-                <div key={rule.id} className="flex items-center gap-2 rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm">
+                <div key={rule.id} className="flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
                   <span className="min-w-[120px] font-medium text-slate-700">{rule.name || 'TS'}</span>
                   <span className="min-w-0 flex-1 truncate font-mono text-slate-700" title={address}>{address}</span>
                   <CopyButton value={address} label="Copiar endereço TS" className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50" iconClassName="h-4 w-4" />
@@ -736,8 +718,19 @@ function WindowsUserReadOnlyModal({ user, servers, onClose }) {
 
 function WindowsServerModal({ title, server, setServer, isSaving, onCancel, onSave, onDelete, deleteConfirmation, setDeleteConfirmation }) {
   const connections = normalizeConnections(server);
-  const portRules = normalizePortRules(server);
-  const tsRules = normalizeTsRules(server);
+  const [portDraft, setPortDraft] = useState(() => createPortDraft());
+  const [saveError, setSaveError] = useState('');
+  const saveIncludingPortDraft = async () => {
+    try {
+      const normalized = normalizeServer(server);
+      const payload = hasPortDraft(portDraft)
+        ? applyPortDraft(normalized, { ...portDraft, connectionId: portDraft.connectionId || connections[0]?.id || '' }, true)
+        : normalized;
+      setSaveError('');
+      await onSave(payload);
+    } catch (error) { setSaveError(error.message || 'Não foi possível salvar o servidor.'); }
+  };
+  const { requestClose, dialog } = useServerFormGuard(server, onCancel, saveIncludingPortDraft, isSaving, hasPortDraft(portDraft));
   const hasInvalidConnections = connections.some((connection) => (
     validateIpv4Cidr(connection.ipv4).state === 'invalid'
     || (
@@ -784,57 +777,15 @@ function WindowsServerModal({ title, server, setServer, isSaving, onCancel, onSa
     });
   };
 
-  const addPortItem = (type) => {
-    if (type === 'porta') {
-      setServer({
-        ...server,
-        portRules: [...portRules, { id: makeId(), name: '', host: '', portNumber: '', direction: 'Entrada', protocol: 'TCP' }]
-      });
-    }
-    if (type === 'ts') {
-      setServer({
-        ...server,
-        tsRules: [...tsRules, { id: makeId(), name: '', host: '', port: '', direction: 'Entrada', protocol: 'TCP' }]
-      });
-    }
-  };
-
-  const updatePortRule = (ruleId, field, value) => {
-    setServer({
-      ...server,
-      portRules: portRules.map((rule) => rule.id === ruleId ? { ...rule, [field]: field === 'portNumber' ? sanitizePortInput(value) : value } : rule)
-    });
-  };
-
-  const removePortRule = (ruleId) => {
-    setServer({
-      ...server,
-      portRules: portRules.filter((rule) => rule.id !== ruleId)
-    });
-  };
-
-  const updateTsRule = (ruleId, field, value) => {
-    setServer({
-      ...server,
-      tsRules: tsRules.map((rule) => rule.id === ruleId ? { ...rule, [field]: field === 'port' ? sanitizePortInput(value) : value } : rule)
-    });
-  };
-
-  const removeTsRule = (ruleId) => {
-    setServer({
-      ...server,
-      tsRules: tsRules.filter((rule) => rule.id !== ruleId)
-    });
-  };
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900 bg-opacity-60 p-4">
       <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
           <h3 className="text-lg font-semibold text-slate-900">{title}</h3>
-          <button type="button" onClick={onCancel} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5" /></button>
+          <button type="button" onClick={requestClose} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5" /></button>
         </div>
         <div className="p-6 space-y-6">
+          {saveError && <p role="alert" className="text-sm text-red-600 dark:text-red-400">{saveError}</p>}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Nome do servidor</label>
@@ -938,57 +889,7 @@ function WindowsServerModal({ title, server, setServer, isSaving, onCancel, onSa
             </div>
           </div>
 
-          <div className="border-t border-slate-200 pt-5">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3">
-              <div>
-                <h4 className="text-sm font-semibold text-slate-900">Portas e TS</h4>
-                <p className="text-xs text-slate-500">Adicione regras de firewall ou acessos TS sem limite.</p>
-              </div>
-              <select value="" onChange={(e) => { addPortItem(e.target.value); e.target.value = ''; }} className="w-full sm:w-56 border-slate-300 rounded-md shadow-sm p-2 border bg-white text-sm">
-                <option value="">Adicionar porta...</option>
-                <option value="porta">Porta</option>
-                <option value="ts">TS</option>
-              </select>
-            </div>
-
-            <div className="overflow-x-auto">
-              <div className="space-y-2">
-                {portRules.length === 0 && tsRules.length === 0 ? (
-                  <p className="text-sm text-slate-500">Nenhuma porta ou TS adicionada.</p>
-                ) : null}
-
-                {portRules.map((rule) => (
-                  <div key={rule.id} className="grid w-full grid-cols-[180px_minmax(220px,1fr)_120px_128px_96px_36px] items-center gap-2 rounded-md border border-slate-200 bg-slate-50 p-2">
-                    <CompactInlineInput label="Nome" widthClass="w-[180px]" value={rule.name} onChange={(e) => updatePortRule(rule.id, 'name', e.target.value)} placeholder="Ex: ERP Web" />
-                    <CompactInlineInput label="IP/HOST" widthClass="w-full" value={rule.host} onChange={(e) => updatePortRule(rule.id, 'host', e.target.value)} placeholder="Ex: srv.exemplo.com.br" />
-                    <CompactInlineInput label="Porta" widthClass="w-[120px]" inputMode="numeric" value={rule.portNumber} onChange={(e) => updatePortRule(rule.id, 'portNumber', e.target.value)} placeholder="Ex: 443" />
-                    <select aria-label="Entrada/Saída" className="h-10 w-[128px] shrink-0 rounded-md border border-slate-300 bg-white px-2 text-sm shadow-sm" value={rule.direction} onChange={(e) => updatePortRule(rule.id, 'direction', e.target.value)}>
-                      {directionOptions.map((option) => <option key={option} value={option}>{option}</option>)}
-                    </select>
-                    <select aria-label="Protocolo" className="h-10 w-[96px] shrink-0 rounded-md border border-slate-300 bg-white px-2 text-sm shadow-sm" value={rule.protocol} onChange={(e) => updatePortRule(rule.id, 'protocol', e.target.value)}>
-                      {(tsProtocolOptions.includes(rule.protocol) ? tsProtocolOptions : [rule.protocol, ...tsProtocolOptions]).map((option) => <option key={option} value={option}>{option}</option>)}
-                    </select>
-                    <button type="button" title="Remover" aria-label="Remover" onClick={() => removePortRule(rule.id)} className="inline-flex h-9 w-9 shrink-0 items-center justify-center justify-self-end rounded-md border border-red-300 text-red-600 hover:bg-red-50">
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  </div>
-                ))}
-
-                {tsRules.map((rule) => (
-                  <div key={rule.id} className="grid w-full grid-cols-[180px_minmax(220px,1fr)_120px_128px_96px_36px] items-center gap-2 rounded-md border border-sky-200 bg-sky-50 p-2">
-                    <CompactInlineInput label="Nome" widthClass="w-[180px]" value={rule.name} onChange={(e) => updateTsRule(rule.id, 'name', e.target.value)} placeholder="Ex: Acesso TS" />
-                    <CompactInlineInput label="IP/HOST" widthClass="w-full" value={rule.host} onChange={(e) => updateTsRule(rule.id, 'host', e.target.value)} placeholder="Ex: ts.empresa.com.br" />
-                    <CompactInlineInput label="Porta" widthClass="w-[120px]" inputMode="numeric" value={rule.port} onChange={(e) => updateTsRule(rule.id, 'port', e.target.value)} placeholder="Ex: 3389" />
-                    <select aria-label="Entrada/Saída" className="h-10 w-[128px] shrink-0 rounded-md border border-slate-300 bg-white px-2 text-sm shadow-sm" value={rule.direction} onChange={(e) => updateTsRule(rule.id, 'direction', e.target.value)}>{directionOptions.map((option) => <option key={option} value={option}>{option}</option>)}</select>
-                    <select aria-label="Protocolo" className="h-10 w-[96px] shrink-0 rounded-md border border-slate-300 bg-white px-2 text-sm shadow-sm" value={rule.protocol} onChange={(e) => updateTsRule(rule.id, 'protocol', e.target.value)}>{tsProtocolOptions.map((option) => <option key={option} value={option}>{option}</option>)}</select>
-                    <button type="button" title="Remover" aria-label="Remover" onClick={() => removeTsRule(rule.id)} className="inline-flex h-9 w-9 shrink-0 items-center justify-center justify-self-end rounded-md border border-red-300 text-red-600 hover:bg-red-50">
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
+          <ServerPortsPanel server={{ ...server, connections }} onChange={setServer} windows draft={portDraft} setDraft={setPortDraft} disabled={isSaving} />
 
           <VaultAttachmentsField
             title="Arquivos do Servidor Windows"
@@ -1004,19 +905,21 @@ function WindowsServerModal({ title, server, setServer, isSaving, onCancel, onSa
             <DeleteConfirmationControl value={deleteConfirmation} onChange={(e) => setDeleteConfirmation(e.target.value)} onDelete={onDelete} disabled={isSaving} />
           )}
           <div className="flex gap-2 justify-end">
-            <button type="button" onClick={onCancel} className="px-4 py-2 border border-slate-300 rounded-md text-sm font-medium text-slate-700 bg-white hover:bg-slate-50">Cancelar</button>
-            <button type="button" disabled={isSaving || hasInvalidConnections} onClick={onSave} className="px-4 py-2 border border-transparent rounded-md text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50">{isSaving ? 'Salvando...' : 'Salvar'}</button>
+            <button type="button" onClick={requestClose} className="px-4 py-2 border border-slate-300 rounded-md text-sm font-medium text-slate-700 bg-white hover:bg-slate-50">Cancelar</button>
+            <button type="button" disabled={isSaving || hasInvalidConnections} onClick={saveIncludingPortDraft} className="px-4 py-2 border border-transparent rounded-md text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50">{isSaving ? 'Salvando...' : 'Salvar'}</button>
           </div>
         </div>
       </div>
+      {dialog}
     </div>
   );
 }
 
 function WindowsUserModal({ title, user, setUser, servers, getServerLabel, isSaving, onCancel, onSave, onDelete, deleteConfirmation, setDeleteConfirmation }) {
+  const { requestClose, dialog } = useServerFormGuard(user, onCancel, onSave, isSaving);
   const selectedServer = servers.find((server) => server.id === user.serverId);
   const tsAddresses = selectedServer
-    ? normalizeTsRules(selectedServer).filter((rule) => rule.host.trim() && rule.port)
+    ? getWindowsTsAddresses(selectedServer)
     : [];
 
   return (
@@ -1024,7 +927,7 @@ function WindowsUserModal({ title, user, setUser, servers, getServerLabel, isSav
       <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
           <h3 className="text-lg font-semibold text-slate-900">{title}</h3>
-          <button type="button" onClick={onCancel} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5" /></button>
+          <button type="button" onClick={requestClose} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5" /></button>
         </div>
         <div className="p-6 space-y-4">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -1070,7 +973,7 @@ function WindowsUserModal({ title, user, setUser, servers, getServerLabel, isSav
                   {tsAddresses.map((rule) => {
                     const address = `${rule.host}:${rule.port}`;
                     return (
-                      <div key={rule.id} className="flex items-center gap-2 rounded-md border border-sky-200 bg-white px-3 py-2 text-sm">
+                      <div key={rule.id} className="flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm">
                         <span className="min-w-[120px] font-medium text-slate-700">{rule.name || 'TS'}</span>
                         <span className="min-w-0 flex-1 truncate font-mono text-slate-700" title={address}>{address}</span>
                         <CopyButton value={address} label="Copiar endereço TS" className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-slate-300 text-slate-600 hover:bg-slate-50" iconClassName="h-4 w-4" />
@@ -1088,11 +991,29 @@ function WindowsUserModal({ title, user, setUser, servers, getServerLabel, isSav
             <DeleteConfirmationControl value={deleteConfirmation} onChange={(e) => setDeleteConfirmation(e.target.value)} onDelete={onDelete} disabled={isSaving} />
           )}
           <div className="flex gap-2 justify-end">
-            <button type="button" onClick={onCancel} className="px-4 py-2 border border-slate-300 rounded-md text-sm font-medium text-slate-700 bg-white hover:bg-slate-50">Cancelar</button>
+            <button type="button" onClick={requestClose} className="px-4 py-2 border border-slate-300 rounded-md text-sm font-medium text-slate-700 bg-white hover:bg-slate-50">Cancelar</button>
             <button type="button" disabled={isSaving} onClick={onSave} className="px-4 py-2 border border-transparent rounded-md text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50">{isSaving ? 'Salvando...' : 'Salvar'}</button>
           </div>
         </div>
       </div>
+      {dialog}
     </div>
   );
+}
+function WindowsUsersListModal({ server, users, readOnly, onClose, onEdit }) {
+  const [search, setSearch] = useState('');
+  const filtered = users.filter((user) => [user.name, user.username, user.department, user.permission].join(' ').toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()));
+  return <ReadOnlyDetailsModal title={`Usuários — ${server?.name || 'Servidor'}`} onClose={onClose}>
+    <input type="search" data-vault-search="true" aria-label="Pesquisar usuários do servidor" placeholder="Pesquisar usuários..." value={search} onChange={(e) => setSearch(e.target.value)} className="h-9 w-full rounded-md border border-slate-300 bg-white px-2 text-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" />
+    {!filtered.length && <p className="text-sm text-slate-500">Nenhum usuário encontrado.</p>}
+    {filtered.map((user) => <div key={user.id} className="flex flex-wrap items-center gap-2 break-all rounded-md border border-slate-200 p-2 text-sm text-slate-700 dark:border-slate-700 dark:text-slate-200">
+      <PermissionIcon permission={user.permission} /><span>{user.name} · Login: {user.username}</span><CopyButton value={user.username} label="Copiar login" />
+      <span>Senha: ****</span><CopyButton value={user.password} label="Copiar senha" />
+      <span>{user.department} · {user.permission}</span>
+      {!readOnly && <div className="ml-auto flex gap-2">
+        <button type="button" data-vault-action="edit" title="Editar usuário" aria-label="Editar usuário" className="rounded border p-2" onClick={() => onEdit(user)}><Edit2 className="h-4 w-4" /></button>
+        <button type="button" data-vault-action="delete" title="Excluir usuário (abrir confirmação)" aria-label="Excluir usuário (abrir confirmação)" className="rounded p-2 text-red-600 dark:text-red-400" onClick={() => onEdit(user)}><Trash2 className="h-4 w-4" /></button>
+      </div>}
+    </div>)}
+  </ReadOnlyDetailsModal>;
 }
