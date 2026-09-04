@@ -8,8 +8,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { createServer } from 'vite';
 import windowsPlugin from '../viteClientVaultWindowsPlugin.js';
 import {
-  applyPortDraft, connectionLabel, createPortDraft, getServerPorts, getWindowsTsAddresses,
-  hasPortDraft, removeServerPort, sanitizeServerPort, serverHostHref, validatePortDraft
+  applyPortDraft, connectionLabel, connectionShortLabel, createPortDraft, editablePortDirection, getServerPorts, getWindowsTsAddresses,
+  hasPortDraft, PORT_DIRECTIONS, removeServerPort, sanitizeServerPort, serverHostHref, validatePortDraft
 } from '../src/utils/serverPorts.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -27,7 +27,13 @@ const server = {
 const original = structuredClone(server);
 const draft = { ...createPortDraft(connection.id), portNumber: '61033' };
 assert.equal(createPortDraft().isTs, false);
-assert.equal(createPortDraft().direction, 'Entrada/Saída');
+assert.equal(createPortDraft().direction, 'Entrada');
+assert.deepEqual(PORT_DIRECTIONS, ['Entrada', 'Saída']);
+assert.equal(editablePortDirection('Entrada/Saída'), 'Entrada');
+assert.equal(editablePortDirection('Saída'), 'Saída');
+const historical = { ...server, portRules: [{ ...server.portRules[0], direction: 'Entrada/Saída' }] };
+assert.equal(getServerPorts(historical)[0].direction, 'Entrada/Saída');
+assert.match(validatePortDraft({ ...draft, direction: 'Entrada/Saída' }, [connection], true), /Entrada ou Saída/);
 assert.equal(createPortDraft().protocol, 'TCP');
 assert.equal(createPortDraft().host, '');
 assert.equal(hasPortDraft(createPortDraft()), false);
@@ -65,6 +71,8 @@ const linux = applyPortDraft({ ...server, tsRules: [] }, { ...draft, host: 'web.
 assert.equal(linux.portRules[0].host, 'web.example');
 assert.equal(linux.portRules[0].isTs, false);
 assert.equal(connectionLabel(connection, [connection]), 'Eth1 - TS');
+assert.equal(connectionShortLabel(connection, [connection]), 'Eth1');
+assert.equal(connectionShortLabel({ id: 'vpn', type: 'VPN', name: 'Matriz' }, [{ id: 'vpn', type: 'VPN' }]), 'VPN 1');
 assert.equal(connectionLabel({ id: 'vpn', type: 'VPN', name: 'Matriz' }, [{ id: 'vpn', type: 'VPN' }]), 'VPN 1 - Matriz');
 assert.equal(connectionLabel(null, []), 'Sem vínculo (legado)');
 for (const host of ['javascript:alert(1)', 'data:text/html,example', '//evil.example', 'https://user:password@example.org']) {
@@ -143,10 +151,18 @@ try {
   const html = render(panel.default, props);
   for (const label of ['Conexão da porta', 'Porta', 'Entrada/Saída', 'Protocolo', 'TS', 'Exibir portas configuradas']) assert.ok(html.includes(label), label);
   assert.doesNotMatch(html, /aria-label="Host\/DDNS"/);
-  assert.match(html, /<option selected="">Não<\/option>/);
+  assert.match(html, /type="checkbox" aria-label="TS"/);
+  assert.doesNotMatch(html, /<select[^>]*aria-label="TS"|<option[^>]*>Não<\/option>/);
+  assert.doesNotMatch(html, /type="checkbox"[^>]*checked/);
+  assert.match(html, /value="Entrada"[^>]*>Ent\.<\/option>/);
+  assert.match(html, /value="Saída"[^>]*>Saí\.<\/option>/);
+  assert.doesNotMatch(html, /<option[^>]*value="Entrada\/Saída"/);
+  assert.match(html, /title="Eth1 - TS"[^>]*>Eth1<\/option>/);
+  assert.match(html, /sm:flex-nowrap/);
   assert.match(html, /maxLength="5"/);
   const tsHtml = render(panel.default, { ...props, draft: { ...draft, isTs: true } });
   assert.match(tsHtml, /aria-label="Host\/DDNS"/);
+  assert.match(tsHtml, /type="checkbox"[^>]*checked/);
   const linuxHtml = render(panel.default, { ...props, windows: false, protocols: ['TCP', 'HTTPS', 'SSH'] });
   assert.match(linuxHtml, /aria-label="Host\/DDNS"/);
   assert.doesNotMatch(linuxHtml, /aria-label="TS"/);

@@ -1,20 +1,23 @@
-export const PORT_DIRECTIONS = ['Entrada', 'Saída', 'Entrada/Saída'];
+export const PORT_DIRECTIONS = ['Entrada', 'Saída'];
+export const editablePortDirection = (direction) => PORT_DIRECTIONS.includes(direction) ? direction : 'Entrada';
 export const WINDOWS_PORT_PROTOCOLS = ['TCP', 'UDP', 'TCP/UDP'];
 
 export const sanitizeServerPort = (value = '') => String(value).replace(/\D/g, '').slice(0, 5);
 export const createPortDraft = (connectionId = '') => ({
-  connectionId, portNumber: '', direction: 'Entrada/Saída', protocol: 'TCP', isTs: false, host: ''
+  connectionId, portNumber: '', direction: 'Entrada', protocol: 'TCP', isTs: false, host: ''
 });
 export const hasPortDraft = (draft) => Boolean(draft.editing || draft.portNumber || draft.host
-  || draft.isTs || draft.direction !== 'Entrada/Saída' || draft.protocol !== 'TCP');
+  || draft.isTs || draft.direction !== 'Entrada' || draft.protocol !== 'TCP');
 
-export const connectionLabel = (connection, connections) => {
+export const connectionShortLabel = (connection, connections) => {
   if (!connection) return 'Sem vínculo (legado)';
-  const type = connection.type === 'VPN'
+  return connection.type === 'VPN'
     ? `VPN ${connections.filter((item) => item.type === 'VPN').findIndex((item) => item.id === connection.id) + 1}`
     : connection.type;
-  return [type, connection.name].filter(Boolean).join(' - ');
 };
+export const connectionLabel = (connection, connections) => (
+  [connectionShortLabel(connection, connections), connection?.name].filter(Boolean).join(' - ')
+);
 
 export const getServerPorts = (server) => [
   ...(server.portRules || []).map((rule, index) => ({
@@ -35,6 +38,7 @@ export const getWindowsTsAddresses = (server) => getServerPorts(server)
 
 export const validatePortDraft = (draft, connections, windows) => {
   if (!connections.some((connection) => connection.id === draft.connectionId)) return 'Selecione uma conexão deste servidor.';
+  if (!PORT_DIRECTIONS.includes(draft.direction)) return 'Selecione Entrada ou Saída.';
   if (!/^\d{1,5}$/.test(draft.portNumber) || Number(draft.portNumber) < 1 || Number(draft.portNumber) > 65535) {
     return 'Informe uma porta entre 1 e 65535.';
   }

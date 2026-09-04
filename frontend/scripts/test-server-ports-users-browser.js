@@ -17,7 +17,7 @@ import { AuthContext } from '/src/context/AuthContext.jsx';
 import VaultReadOnlyGuard from '/src/components/VaultReadOnlyGuard.jsx';
 import '/src/index.css';
 const servers = [
-  { id: 'srv-a', name: 'Servidor A', connections: [{ id: 'eth-a', type: 'Eth1', name: 'Principal', ipv4: '', gateway: '' }], portRules: [{ id: 'old', portNumber: '443', host: 'legacy.example', protocol: 'HTTPS', direction: 'Entrada' }], tsRules: [{ id: 'old-ts', host: 'ts.example', port: '3389' }] },
+  { id: 'srv-a', name: 'Servidor A', connections: [{ id: 'eth-a', type: 'Eth1', name: 'Principal', ipv4: '', gateway: '' }], portRules: [{ id: 'old', portNumber: '443', host: 'legacy.example', protocol: 'HTTPS', direction: 'Entrada/Saída' }], tsRules: [{ id: 'old-ts', host: 'ts.example', port: '3389' }] },
   { id: 'srv-b', name: 'Servidor B', connections: [{ id: 'eth-b', type: 'Eth1', name: 'Filial', ipv4: '', gateway: '' }], portRules: [], tsRules: [] }
 ];
 const users = [{ id: 'u-a', serverId: 'srv-a', name: 'Pessoa A', username: 'login-a', password: 'TEST-FIXTURE-PASSWORD', permission: 'user', department: 'TI' }, { id: 'u-b', serverId: 'srv-b', name: 'Pessoa B', username: 'login-b', password: 'TEST-FIXTURE-PASSWORD', permission: 'user' }];
@@ -76,6 +76,26 @@ try {
   await page.getByRole('heading', { name: 'Servidores cadastrados', exact: true }).waitFor();
   const clickExact = (name) => (name === 'Fechar' ? page.locator('div.fixed').last() : page).getByRole('button', { name, exact: true }).last().click();
   const assertNoOverflow = async () => assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, 'Page must not overflow horizontally');
+  const assertCompactLayout = async (desktop) => {
+    const row = page.locator('[data-server-port-form]');
+    const bounds = await row.locator('select, input:not([type="checkbox"]), button').evaluateAll(elements => elements.map(element => {
+      const rect = element.getBoundingClientRect();
+      return { label: element.getAttribute('aria-label') || element.textContent, x: rect.x, y: rect.y, width: rect.width, right: rect.right };
+    }));
+    for (const label of ['Conexão da porta', 'Porta', 'Entrada/Saída', 'Protocolo']) {
+      assert.equal(bounds.find(item => item.label === label).width, 40, label + ' must be 40px');
+    }
+    const rowBounds = await row.boundingBox();
+    for (const item of bounds) assert.ok(item.x >= rowBounds.x - 1 && item.right <= rowBounds.x + rowBounds.width + 1, item.label + ' must stay inside the card');
+    if (desktop) {
+      assert.ok(Math.max(...bounds.map(item => item.y)) - Math.min(...bounds.map(item => item.y)) < 2, 'All fields and actions must share one desktop row');
+      const host = bounds.find(item => item.label === 'Host/DDNS');
+      if (host) assert.ok(host.width > 100, 'Host must consume remaining space');
+    }
+    assert.deepEqual(await page.getByLabel('Entrada/Saída', { exact: true }).locator('option').evaluateAll(options => options.map(option => option.value)), ['Entrada', 'Saída']);
+    assert.equal(await page.getByLabel('Conexão da porta').locator('option:checked').textContent(), 'Eth1');
+    await assertNoOverflow();
+  };
 
   await page.getByRole('button', { name: 'Adicionar login', exact: true }).nth(1).click();
   assert.equal(await page.locator('select').last().count(), 1);
@@ -97,7 +117,15 @@ try {
   await clickExact('Fechar');
 
   await page.getByRole('button', { name: 'Detalhes', exact: true }).first().click();
-  assert.equal(await page.getByLabel('TS', { exact: true }).inputValue(), 'Não');
+  assert.equal(await page.getByRole('checkbox', { name: 'TS', exact: true }).isChecked(), false);
+  assert.equal(await page.locator('select[aria-label="TS"]').count(), 0);
+  await assertCompactLayout(true);
+  await page.getByRole('button', { name: /Exibir portas configuradas/ }).click();
+  assert.match(await page.locator('div.fixed').last().innerText(), /Entrada\/Saída: Entrada\/Saída/);
+  await page.getByLabel('Pesquisar portas').fill('443');
+  await page.getByRole('button', { name: 'Editar porta', exact: true }).click();
+  assert.equal(await page.getByLabel('Entrada/Saída', { exact: true }).inputValue(), 'Entrada');
+  await clickExact('Cancelar rascunho');
   assert.equal(await page.getByLabel('Host/DDNS', { exact: true }).count(), 0);
   await page.getByLabel('Porta', { exact: true }).fill('a123456b');
   assert.match(await page.getByLabel('Porta', { exact: true }).inputValue(), /^\d{1,5}$/);
@@ -107,15 +135,24 @@ try {
   await clickExact('Adicionar');
   await page.getByRole('alert').filter({ hasText: '1 e 65535' }).waitFor();
   await page.getByLabel('Porta', { exact: true }).fill('61033');
-  await page.getByLabel('TS', { exact: true }).selectOption('Sim');
+  await page.getByRole('checkbox', { name: 'TS', exact: true }).check();
   await clickExact('Adicionar');
   await page.getByRole('alert').filter({ hasText: 'Host/DDNS' }).waitFor();
   await page.getByLabel('Host/DDNS', { exact: true }).fill('new.example');
-  for (const width of [1280, 390]) {
+  await page.getByRole('checkbox', { name: 'TS', exact: true }).uncheck();
+  assert.equal(await page.getByLabel('Host/DDNS', { exact: true }).count(), 0);
+  await page.getByRole('checkbox', { name: 'TS', exact: true }).check();
+  assert.equal(await page.getByLabel('Host/DDNS', { exact: true }).inputValue(), '');
+  await page.getByLabel('Host/DDNS', { exact: true }).fill('new.example');
+  for (const width of [1280, 768, 390]) {
     await page.setViewportSize({ width, height: 900 });
     for (const dark of [false, true]) {
       await page.evaluate(enabled => document.documentElement.classList.toggle('dark', enabled), dark);
-      await assertNoOverflow();
+      await assertCompactLayout(width >= 640);
+      if (process.env.SERVER_PORT_SCREENSHOT_DIR) {
+        const system = await page.getByRole('checkbox', { name: 'TS', exact: true }).count() ? 'windows' : 'linux';
+        await page.locator('[data-server-port-form]').screenshot({ path: path.join(process.env.SERVER_PORT_SCREENSHOT_DIR, system + '-' + width + '-' + (dark ? 'dark' : 'light') + '.png') });
+      }
     }
   }
   await page.setViewportSize({ width: 1280, height: 1000 });
@@ -123,7 +160,7 @@ try {
   assert.equal(await page.getByLabel('Porta', { exact: true }).inputValue(), '');
   assert.equal(await page.getByLabel('Conexão da porta').inputValue(), 'eth-a');
   await page.getByRole('button', { name: /Exibir portas configuradas/ }).click();
-  assert.match(await page.locator('div.fixed').last().innerText(), /61033.*Entrada\/Saída/s);
+  assert.match(await page.locator('div.fixed').last().innerText(), /61033.*Entrada/s);
   await page.getByLabel('Pesquisar portas').fill('new.example');
   assert.equal(await page.getByRole('button', { name: 'Editar porta', exact: true }).count(), 1);
   await page.getByRole('button', { name: 'Editar porta', exact: true }).click();
@@ -175,13 +212,13 @@ try {
   await page.getByLabel('Protocolo', { exact: true }).selectOption('HTTPS');
   await page.getByLabel('Host/DDNS', { exact: true }).fill('web.example');
   await clickExact('Adicionar');
-  for (const width of [1280, 390]) {
+  for (const width of [1280, 768, 390]) {
     await page.setViewportSize({ width, height: 900 });
     for (const dark of [false, true]) {
       await page.evaluate(enabled => document.documentElement.classList.toggle('dark', enabled), dark);
-      await assertNoOverflow();
+      await assertCompactLayout(width >= 640);
       const portBounds = await page.getByLabel('Porta', { exact: true }).boundingBox();
-      assert.ok(portBounds.width > 100);
+      assert.equal(portBounds.width, 40);
     }
   }
   await page.getByRole('button', { name: /Exibir portas configuradas/ }).click();
