@@ -36,6 +36,14 @@ const CONNECTION_OPTIONS = ['Eth1', 'Eth2', 'Eth3', 'Eth4', 'Eth5', 'VPN'];
 const VPN_OPTIONS = ['OpenVPN', 'WireGuard', 'ZeroTier', 'Tailscale', 'Outro'];
 const DIRECTION_OPTIONS = ['Entrada', 'Saída', 'Entrada/Saída'];
 const PROTOCOL_OPTIONS = ['TCP', 'UDP', 'TCP/UDP'];
+const DVR_PORT_FIELDS = [
+  ['tcpPort', 'PORTA TCP'],
+  ['httpsPort', 'PORTA HTTPS'],
+  ['httpPort', 'PORTA HTTP'],
+  ['rtspPort', 'PORTA RTSP'],
+  ['ntpPort', 'PORTA NTP'],
+  ['posPort', 'PORTA POS']
+];
 const DEVICE_LOGIN_PERMISSIONS = ['Admin', 'User'];
 const RADIO_24_BANDWIDTH_OPTIONS = ['20', '40'];
 const RADIO_5_BANDWIDTH_OPTIONS = ['20', '40', '80', '160'];
@@ -80,6 +88,7 @@ const emptyDevice = () => ({
   name: '',
   deviceType: DEVICE_TYPES[0],
   notes: '',
+  dvrAccess: { ip: '', tcpPort: '', httpsPort: '', httpPort: '', rtspPort: '', ntpPort: '', posPort: '', deviceId: '', mac: '', ddns: '' },
   connections: [],
   pppoeAccounts: [],
   pabxPortal: { url: '', login: '', password: '' },
@@ -143,6 +152,24 @@ const normalizeConnections = (device = {}) => {
     gateway: String(connection.gateway || connection.gatewayIpv4 || '').trim()
   }));
 };
+
+const normalizeDvrAccess = (device = {}) => {
+  const access = device.dvrAccess || {};
+  return {
+    ip: sanitizeIpv4Input(access.ip ?? ''),
+    tcpPort: sanitizePortInput(access.tcpPort ?? ''),
+    httpsPort: sanitizePortInput(access.httpsPort ?? ''),
+    httpPort: sanitizePortInput(access.httpPort ?? ''),
+    rtspPort: sanitizePortInput(access.rtspPort ?? ''),
+    ntpPort: sanitizePortInput(access.ntpPort ?? ''),
+    posPort: sanitizePortInput(access.posPort ?? ''),
+    deviceId: String(access.deviceId ?? ''),
+    mac: String(access.mac ?? ''),
+    ddns: String(access.ddns ?? '')
+  };
+};
+
+const isOptionalValidPort = (value) => !value || isValidPort(value);
 
 const normalizePortRules = (device = {}) => {
   const rules = Array.isArray(device.portRules) ? device.portRules : Array.isArray(device.ports) ? device.ports : [];
@@ -252,6 +279,7 @@ const normalizeDevice = (device = {}) => {
     name: device.name || device.deviceName || '',
     deviceType,
     notes: device.notes || device.observations || '',
+    dvrAccess: normalizeDvrAccess(device),
     connections: normalizeConnections(device),
     pppoeAccounts: deviceType === DEVICE_TYPE_ROUTER_GATEWAY ? normalizePppoeAccounts(device) : [],
     pabxPortal: isPabx ? normalizePabxPortal(device) : { url: '', login: '', password: '' },
@@ -338,6 +366,17 @@ const formatPabxExtensionsSummary = (device) => {
   const usedExtensions = normalizeExtensions(device).length;
   const contractedExtensions = sanitizeContractedExtensions(device.contractedExtensions);
   return `Ramais: ${usedExtensions}${contractedExtensions ? `/${contractedExtensions}` : ''}`;
+};
+
+const formatDvrSummary = (device) => {
+  if (device?.deviceType !== 'DVR') return '';
+  const access = normalizeDvrAccess(device);
+  return [
+    access.ip && `IP: ${access.ip}`,
+    access.tcpPort && `TCP: ${access.tcpPort}`,
+    access.httpPort && `HTTP: ${access.httpPort}`,
+    access.ddns && 'DDNS configurado'
+  ].filter(Boolean).join(' · ');
 };
 
 const normalizeDevicesForm = (data = {}) => ({
@@ -446,14 +485,22 @@ export default function DevicesManager({ devicesForm, setDevicesForm, handleSave
       alert('Selecione o tipo do dispositivo.');
       return false;
     }
-    const connectionError = getDeviceConnectionError(device);
+    const connectionError = device.deviceType === 'DVR' ? '' : getDeviceConnectionError(device);
     if (connectionError) {
       alert(connectionError);
       return false;
     }
-    const invalidPort = findInvalidPort(device);
+    const invalidPort = device.deviceType === 'DVR' ? null : findInvalidPort(device);
     if (invalidPort) {
       alert(`A porta "${invalidPort.portNumber || 'vazia'}" em "${invalidPort.name || 'Porta'}" é inválida. Informe uma porta entre 1 e 65535.`);
+      return false;
+    }
+    const dvrAccess = normalizeDvrAccess(device);
+    const invalidDvrPort = device.deviceType === 'DVR'
+      ? DVR_PORT_FIELDS.find(([field]) => !isOptionalValidPort(dvrAccess[field]))
+      : null;
+    if (invalidDvrPort) {
+      alert(`A ${invalidDvrPort[1]} do DVR é inválida. Informe uma porta entre 1 e 65535.`);
       return false;
     }
     const invalidPppoe = device.deviceType === DEVICE_TYPE_ROUTER_GATEWAY
@@ -736,8 +783,11 @@ export default function DevicesManager({ devicesForm, setDevicesForm, handleSave
             <div key={device.id} className="flex flex-col justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 sm:flex-row sm:items-center">
               <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm text-slate-500 lg:flex-nowrap">
                 <strong className="flex min-w-0 items-center gap-2 truncate font-medium text-slate-900"><DeviceTypeIcon type={device.deviceType} />{device.name || 'Dispositivo sem nome'} ({device.deviceType || '-'})</strong>
-                <span className="whitespace-nowrap">Conexões: {device.connections.length}</span>
-                <span className="whitespace-nowrap">Portas: {device.portRules.length}</span>
+                {device.deviceType === 'DVR' ? (
+                  formatDvrSummary(device) && <span className="min-w-0 break-words">{formatDvrSummary(device)}</span>
+                ) : (
+                  <><span className="whitespace-nowrap">Conexões: {device.connections.length}</span><span className="whitespace-nowrap">Portas: {device.portRules.length}</span></>
+                )}
                 {formatPppoeSummary(device) && <span className="whitespace-nowrap">{formatPppoeSummary(device)}</span>}
                 {formatWifiNetworksSummary(device) && <span className="whitespace-nowrap">{formatWifiNetworksSummary(device)}</span>}
                 {formatNasUsersSummary(device) && <span className="whitespace-nowrap">{formatNasUsersSummary(device)}</span>}
@@ -993,7 +1043,9 @@ function DeviceReadOnlyModal({ device, accessItems = [], onClose }) {
         <div className="sm:col-span-2"><p className="text-xs font-medium uppercase tracking-wide text-slate-500">Observações</p><p className="mt-1 whitespace-pre-wrap text-sm text-slate-900">{normalized.notes || '-'}</p></div>
       </div>
 
-      <section>
+      {normalized.deviceType === 'DVR' && <DvrAccessReadOnly access={normalized.dvrAccess} />}
+
+      {normalized.deviceType !== 'DVR' && <section>
         <h4 className="mb-2 text-sm font-semibold text-slate-900">Conexões</h4>
         {normalized.connections.length === 0 ? <p className="text-sm text-slate-500">Nenhuma conexão cadastrada.</p> : (
           <div className="space-y-2">
@@ -1006,7 +1058,7 @@ function DeviceReadOnlyModal({ device, accessItems = [], onClose }) {
             ))}
           </div>
         )}
-      </section>
+      </section>}
 
       {['DVR', 'IMPRESSORA'].includes(normalized.deviceType) && (
         <section>
@@ -1076,7 +1128,7 @@ function DeviceReadOnlyModal({ device, accessItems = [], onClose }) {
         </>
       )}
 
-      <section>
+      {normalized.deviceType !== 'DVR' && <section>
         <h4 className="mb-2 text-sm font-semibold text-slate-900">Portas</h4>
         {normalized.portRules.length === 0 ? <p className="text-sm text-slate-500">Nenhuma porta cadastrada.</p> : (
           <div className="space-y-2">
@@ -1087,13 +1139,36 @@ function DeviceReadOnlyModal({ device, accessItems = [], onClose }) {
             ))}
           </div>
         )}
-      </section>
+      </section>}
 
       <ReadOnlyAttachments files={normalized.attachments} />
       {showAccessList && normalized.deviceType === DEVICE_TYPE_NAS_STORAGE && <DeviceAccessListModal device={normalized} items={normalized.nasUsers} kind="nasUser" readOnly onClose={() => setShowAccessList(false)} />}
       {showAccessList && normalized.deviceType === PABX_DEVICE_TYPE && <DeviceAccessListModal device={normalized} items={normalized.extensions} kind="pabxExtension" readOnly onClose={() => setShowAccessList(false)} />}
       {showAccessList && ['DVR', 'IMPRESSORA'].includes(normalized.deviceType) && <DeviceAccessListModal device={normalized} items={accessItems} kind="generic" readOnly onClose={() => setShowAccessList(false)} />}
     </ReadOnlyDetailsModal>
+  );
+}
+
+function DvrAccessReadOnly({ access }) {
+  const fields = [
+    ['IP', 'ip'], ...DVR_PORT_FIELDS.map(([field, label]) => [label, field]),
+    ['ID', 'deviceId'], ['MAC', 'mac'], ['DDNS', 'ddns']
+  ];
+  return (
+    <section>
+      <h4 className="mb-2 text-sm font-semibold text-slate-900 dark:text-slate-100">Acesso DVR</h4>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {fields.map(([label, field]) => (
+          <div key={field}>
+            <p className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">{label}</p>
+            <div className="mt-1 flex min-w-0 items-center gap-2 text-sm text-slate-900 dark:text-slate-100">
+              <span className="min-w-0 break-all">{access[field] || '-'}</span>
+              {['ip', 'deviceId', 'mac', 'ddns'].includes(field) && access[field] && <CopyButton value={access[field]} label={`Copiar ${label}`} />}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -1320,11 +1395,14 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
   const wifiControllerAccess = normalizeAccessCredentials(device.wifiControllerAccess);
   const wifiNetworks = normalizeWifiNetworks(device);
   const portRules = normalizePortRules(device);
-  const hasInvalidConnections = connections.some((connection) => (
+  const dvrAccess = normalizeDvrAccess(device);
+  const isExistingDevice = Boolean(onDelete);
+  const hasInvalidConnections = device.deviceType !== 'DVR' && connections.some((connection) => (
     validateIpv4Cidr(connection.ipv4).state === 'invalid'
     || (connection.type !== 'VPN' && validateIpv4(connection.gateway).state === 'invalid')
   ));
-  const hasInvalidPorts = portRules.some((rule) => !isValidPort(rule.portNumber));
+  const hasInvalidPorts = device.deviceType !== 'DVR' && portRules.some((rule) => !isValidPort(rule.portNumber));
+  const hasInvalidDvrPorts = device.deviceType === 'DVR' && DVR_PORT_FIELDS.some(([field]) => !isOptionalValidPort(dvrAccess[field]));
   const hasNasUserDraft = Object.values(nasUserDraft).some((value) => value && value !== 'Geral');
   const hasPabxExtensionDraft = Object.values(pabxExtensionDraft).some((value) => value && value !== 'Geral');
   const hasUnsavedChanges = JSON.stringify(device) !== initialDeviceSnapshot || hasNasUserDraft || hasPabxExtensionDraft;
@@ -1402,6 +1480,7 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
   };
 
   const handleDeviceTypeChange = (nextDeviceType) => {
+    if (isExistingDevice) return;
     if (device.deviceType === DEVICE_TYPE_ROUTER_GATEWAY && nextDeviceType !== DEVICE_TYPE_ROUTER_GATEWAY && pppoeAccounts.length > 0) {
       const confirmed = window.confirm('Este dispositivo possui PPPoE cadastrados. Ao alterar o tipo para outro dispositivo, os dados PPPoE serão removidos. Deseja continuar?');
       if (!confirmed) return;
@@ -1442,8 +1521,18 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
       nasAccess: nextDeviceType === DEVICE_TYPE_NAS_STORAGE ? nasAccess : { url: '', login: '', password: '' },
       nasUsers: nextDeviceType === DEVICE_TYPE_NAS_STORAGE ? nasUsers : [],
       wifiControllerAccess: nextDeviceType === DEVICE_TYPE_WIFI_CONTROLLER ? wifiControllerAccess : { url: '', login: '', password: '' },
-      wifiNetworks: nextDeviceType === DEVICE_TYPE_WIFI_CONTROLLER ? wifiNetworks : []
+      wifiNetworks: nextDeviceType === DEVICE_TYPE_WIFI_CONTROLLER ? wifiNetworks : [],
+      dvrAccess: nextDeviceType === 'DVR' ? dvrAccess : normalizeDvrAccess()
     });
+  };
+
+  const updateDvrAccess = (field, value) => {
+    const nextValue = field === 'ip'
+      ? sanitizeIpv4Input(value)
+      : DVR_PORT_FIELDS.some(([portField]) => portField === field)
+        ? sanitizePortInput(value)
+        : value;
+    setDevice({ ...device, dvrAccess: { ...dvrAccess, [field]: nextValue } });
   };
 
   const addPppoeAccount = () => {
@@ -1565,7 +1654,7 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
             </div>
             <div>
               <label className="mb-1 block text-sm font-medium text-slate-700">Tipo do dispositivo</label>
-              <select className="w-full rounded-md border border-slate-300 bg-white p-2 shadow-sm" value={device.deviceType} onChange={(event) => handleDeviceTypeChange(event.target.value)}>
+              <select disabled={isExistingDevice} title={isExistingDevice ? 'O tipo do dispositivo não pode ser alterado após o cadastro.' : 'Selecione o tipo do dispositivo'} className="w-full rounded-md border border-slate-300 bg-white p-2 shadow-sm disabled:cursor-not-allowed disabled:opacity-60" value={device.deviceType} onChange={(event) => handleDeviceTypeChange(event.target.value)}>
                 {DEVICE_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}
               </select>
             </div>
@@ -1670,6 +1759,25 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
             </div>
           )}
 
+          {device.deviceType === 'DVR' && (
+            <section className="space-y-3 border-t border-slate-200 pt-4 dark:border-slate-700">
+              <h4 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Acesso DVR</h4>
+              <div className="flex flex-wrap items-end gap-2">
+                <label className="block">
+                  <span className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">IP</span>
+                  <input type="text" inputMode="decimal" aria-label="IP do DVR" className={`h-[32px] w-[120px] rounded-md border bg-white px-2 text-[13px] shadow-sm outline-none dark:bg-slate-900 dark:text-slate-100 ${validateIpv4(dvrAccess.ip).state === 'invalid' ? 'border-red-400 dark:border-red-500' : 'border-slate-300 dark:border-slate-700'}`} value={dvrAccess.ip} onChange={(event) => updateDvrAccess('ip', event.target.value)} placeholder="192.168.1.10" />
+                </label>
+                {DVR_PORT_FIELDS.map(([field, label]) => {
+                  const invalid = !isOptionalValidPort(dvrAccess[field]);
+                  return <label key={field} className="block"><span className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">{label}</span><input type="text" inputMode="numeric" aria-label={label} className={`h-[32px] w-[60px] rounded-md border bg-white px-2 text-[13px] shadow-sm outline-none dark:bg-slate-900 dark:text-slate-100 ${invalid ? 'border-red-400 dark:border-red-500' : 'border-slate-300 dark:border-slate-700'}`} value={dvrAccess[field]} onChange={(event) => updateDvrAccess(field, event.target.value)} /></label>;
+                })}
+              </div>
+              <div className="flex flex-wrap items-end gap-2">
+                {[['deviceId', 'ID'], ['mac', 'MAC'], ['ddns', 'DDNS']].map(([field, label]) => <label key={field} className="block"><span className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">{label}</span><input type="text" aria-label={label} className="h-[32px] w-[250px] max-w-full rounded-md border border-slate-300 bg-white px-2 text-[13px] shadow-sm outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={dvrAccess[field]} onChange={(event) => updateDvrAccess(field, event.target.value)} /></label>)}
+              </div>
+            </section>
+          )}
+
           {device.deviceType === DEVICE_TYPE_ROUTER_GATEWAY && (
             <div className="border-t border-slate-200 pt-5 dark:border-slate-700">
               <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -1706,7 +1814,7 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
             </div>
           )}
 
-          <div className="border-t border-slate-200 pt-5">
+          {device.deviceType !== 'DVR' && <div className="border-t border-slate-200 pt-5">
             <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div><h4 className="text-sm font-semibold text-slate-900">Conexões</h4><p className="text-xs text-slate-500">Eth1 até Eth5 apenas uma vez. VPN pode ser adicionada até 5 vezes.</p></div>
               <select value="" onChange={(event) => { addConnection(event.target.value); event.target.value = ''; }} className="w-full rounded-md border border-slate-300 bg-white p-2 text-sm shadow-sm sm:w-56">
@@ -1747,9 +1855,9 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
                 );
               })}
             </div>
-          </div>
+          </div>}
 
-          <div className="border-t border-slate-200 pt-5">
+          {device.deviceType !== 'DVR' && <div className="border-t border-slate-200 pt-5">
             <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div><h4 className="text-sm font-semibold text-slate-900">Portas</h4><p className="text-xs text-slate-500">Adicione regras de acesso sem limite.</p></div>
               <button type="button" onClick={addPortRule} className="inline-flex items-center justify-center rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"><Plus className="mr-2 h-4 w-4" /> Adicionar porta</button>
@@ -1768,7 +1876,7 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
                 ))}
               </div>
             </div>
-          </div>
+          </div>}
 
           <VaultAttachmentsField title="Arquivos do dispositivo" helpText="Arquivos de texto, configuração, documentos e imagens." attachments={device.attachments} allowedExtensions={DEVICE_FILE_EXTENSIONS} onChange={(attachments) => setDevice({ ...device, attachments })} />
         </div>
@@ -1784,7 +1892,7 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
           {onDelete && <DeleteConfirmationControl value={deleteConfirmation} onChange={(event) => setDeleteConfirmation(event.target.value)} onDelete={onDelete} disabled={isSaving} />}
           <div className="flex justify-end gap-2">
             <button type="button" onClick={requestClose} className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Cancelar</button>
-            <button type="button" disabled={isSaving || hasInvalidConnections || hasInvalidPorts} onClick={saveDeviceIncludingDrafts} className="rounded-md border border-transparent bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50">{isSaving ? 'Salvando...' : 'Salvar'}</button>
+            <button type="button" disabled={isSaving || hasInvalidConnections || hasInvalidPorts || hasInvalidDvrPorts} onClick={saveDeviceIncludingDrafts} className="rounded-md border border-transparent bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50">{isSaving ? 'Salvando...' : 'Salvar'}</button>
           </div>
         </div>
         {showAccessList && device.deviceType === DEVICE_TYPE_NAS_STORAGE && <DeviceAccessListModal device={device} items={nasUsers} kind="nasUser" onClose={() => setShowAccessList(false)} onRemove={removeNasUser} />}

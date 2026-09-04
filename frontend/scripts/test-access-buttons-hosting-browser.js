@@ -20,9 +20,11 @@ import '/src/index.css';
 const root = createRoot(document.getElementById('root'));
 let key = 0;
 const noop = () => {};
+window.fixtureSaves = [];
+const save = async (category, payload) => { window.fixtureSaves.push({ category, payload }); return true; };
 window.renderFixture = ({ mode, data, isSaving = false }) => {
   const [Component, prop, setter] = { windows: [Windows, 'tsForm', 'setTsForm'], linux: [Linux, 'serverForm', 'setServerForm'], hosting: [Hosting, 'cpanelForm', 'setCpanelForm'], devices: [Devices, 'devicesForm', 'setDevicesForm'], vpn: [Vpn, 'vpnForm', 'setVpnForm'] }[mode];
-  root.render(<AuthContext.Provider value={{ registerVaultLockCleanup: () => () => {} }}><main className="mx-auto max-w-5xl p-4"><Component key={key++} {...{ [prop]: data, [setter]: noop }} handleSaveData={async () => true} isSaving={isSaving} /></main></AuthContext.Provider>);
+  root.render(<AuthContext.Provider value={{ registerVaultLockCleanup: () => () => {} }}><main className="mx-auto max-w-5xl p-4"><Component key={key++} {...{ [prop]: data, [setter]: noop }} handleSaveData={save} isSaving={isSaving} /></main></AuthContext.Provider>);
 };
 window.renderFixture({ mode: 'hosting', data: { cpanels: [], users: [] } });
 `;
@@ -84,6 +86,72 @@ try {
   for (const deviceType of ['ROTEADOR/GATEWAY', 'WIFI/CONTROLLER', 'NAS STORAGE', 'PABX-IP/VOIP', 'DVR', 'IMPRESSORA']) {
     await checkButton('devices', { devices: [{ id: 'parent', name: 'Dispositivo teste', deviceType }], logins: [] }, !['ROTEADOR/GATEWAY', 'WIFI/CONTROLLER'].includes(deviceType));
   }
+  await render('devices', { devices: [], deviceLogins: [] });
+  await page.getByRole('button', { name: 'Adicionar dispositivo', exact: true }).click();
+  let deviceModal = page.locator('div.fixed').first();
+  const createType = deviceModal.locator('select').first();
+  assert.equal(await createType.isEnabled(), true);
+  await createType.selectOption('DVR');
+  for (const label of ['IP do DVR', 'PORTA TCP', 'PORTA HTTPS', 'PORTA HTTP', 'PORTA RTSP', 'PORTA NTP', 'PORTA POS', 'ID', 'MAC', 'DDNS']) {
+    assert.equal(await deviceModal.getByLabel(label, { exact: true }).count(), 1, label);
+  }
+  assert.deepEqual(await deviceModal.getByLabel('IP do DVR').evaluate(el => { const style = getComputedStyle(el); return [style.width, style.height, style.fontSize]; }), ['120px', '32px', '13px']);
+  for (const label of ['PORTA TCP', 'PORTA HTTPS', 'PORTA HTTP', 'PORTA RTSP', 'PORTA NTP', 'PORTA POS']) {
+    const field = deviceModal.getByLabel(label, { exact: true });
+    assert.equal(await field.evaluate(el => getComputedStyle(el).width), '60px');
+    assert.equal(await field.evaluate(el => getComputedStyle(el).height), '32px');
+    assert.equal(await field.evaluate(el => getComputedStyle(el).fontSize), '13px');
+  }
+  for (const label of ['ID', 'MAC', 'DDNS']) assert.deepEqual(await deviceModal.getByLabel(label, { exact: true }).evaluate(el => { const style = getComputedStyle(el); return [style.width, style.height, style.fontSize]; }), ['250px', '32px', '13px']);
+  for (const forbidden of ['Adicionar conexão', 'Adicionar porta', 'Exibir portas configuradas']) assert.equal(await deviceModal.getByText(forbidden, { exact: false }).count(), 0);
+  await deviceModal.getByLabel('PORTA TCP').fill('abc123456');
+  assert.equal(await deviceModal.getByLabel('PORTA TCP').inputValue(), '12345');
+  await deviceModal.getByLabel('PORTA TCP').fill('65536');
+  assert.equal(await deviceModal.getByRole('button', { name: 'Salvar', exact: true }).isEnabled(), false);
+  await deviceModal.getByLabel('PORTA TCP').fill('65535');
+  assert.equal(await deviceModal.getByRole('button', { name: 'Salvar', exact: true }).isEnabled(), true);
+  await deviceModal.getByRole('button', { name: 'Cancelar', exact: true }).click();
+  await page.getByRole('button', { name: 'Descartar', exact: true }).click();
+
+  const legacyDvr = { id: 'dvr', name: 'DVR Loja 1', deviceType: 'DVR', notes: '', dvrAccess: { ip: '192.168.1.10', tcpPort: '37777', httpsPort: '443', httpPort: '80', rtspPort: '554', ntpPort: '123', posPort: '9000', deviceId: 'DVR-ID', mac: 'AA:BB:CC:DD:EE:FF', ddns: 'loja.example' }, connections: [{ id: 'legacy-connection', type: 'Eth1', ipv4: '10.0.0.1' }], portRules: [{ id: 'legacy-port', name: 'Antiga', portNumber: '4567', direction: 'Entrada', protocol: 'TCP' }] };
+  await render('devices', { devices: [legacyDvr], deviceLogins: [{ id: 'login', deviceId: 'dvr', login: 'operador', password: 'TEST-FIXTURE-SECRET', department: 'Geral', permission: 'User' }] });
+  assert.match(await page.locator('main').innerText(), /DVR Loja 1.*IP: 192\.168\.1\.10.*TCP: 37777.*HTTP: 80.*Logins: 1/s);
+  await page.getByRole('button', { name: 'Detalhes', exact: true }).first().click();
+  deviceModal = page.locator('div.fixed').first();
+  const editType = deviceModal.locator('select').first();
+  assert.equal(await editType.isEnabled(), false);
+  assert.equal(await editType.getAttribute('title'), 'O tipo do dispositivo não pode ser alterado após o cadastro.');
+  await editType.evaluate(el => el[Object.keys(el).find(key => key.startsWith('__reactProps$'))].onChange({ target: { value: 'IMPRESSORA' } }));
+  assert.equal(await editType.inputValue(), 'DVR');
+  assert.equal(await deviceModal.getByText('Exibir lista de logins e usuários', { exact: true }).count(), 1);
+  for (const forbidden of ['Adicionar conexão', 'Adicionar porta', 'Exibir portas configuradas']) assert.equal(await deviceModal.getByText(forbidden, { exact: false }).count(), 0);
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: 1000 });
+    for (const dark of [false, true]) {
+      await page.evaluate(value => document.documentElement.classList.toggle('dark', value), dark);
+      await page.evaluate(() => Promise.all(document.getAnimations().map(animation => animation.finished.catch(() => {}))));
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+      if (process.env.DVR_SCREENSHOT_DIR) await deviceModal.screenshot({ path: path.join(process.env.DVR_SCREENSHOT_DIR, `dvr-${width}-${dark ? 'dark' : 'light'}.png`) });
+    }
+  }
+  await deviceModal.getByRole('button', { name: 'Salvar', exact: true }).click();
+  const savedDvr = await page.evaluate(() => window.fixtureSaves.at(-1).payload.devices.find(device => device.id === 'dvr'));
+  assert.equal(savedDvr.dvrAccess.tcpPort, '37777');
+  assert.equal(savedDvr.connections[0].id, 'legacy-connection');
+  assert.equal(savedDvr.portRules[0].id, 'legacy-port');
+  await page.getByRole('button', { name: 'Visualizar', exact: true }).first().click();
+  const readOnlyDvr = page.locator('div.fixed').first();
+  for (const value of ['192.168.1.10', '37777', '443', '80', '554', '123', '9000', 'DVR-ID', 'AA:BB:CC:DD:EE:FF', 'loja.example']) assert.match(await readOnlyDvr.innerText(), new RegExp(value.replaceAll('.', '\\.')));
+  assert.doesNotMatch(await readOnlyDvr.innerText(), /Conexões|Portas\s*$|legacy-connection|4567/m);
+  assert.equal(await readOnlyDvr.getByText('Exibir lista de logins e usuários', { exact: true }).count(), 1);
+  assert.doesNotMatch(await readOnlyDvr.innerText(), /TEST-FIXTURE-SECRET/);
+  await readOnlyDvr.getByRole('button', { name: 'Fechar', exact: true }).last().click();
+
+  await render('devices', { devices: [{ id: 'old-dvr', name: 'DVR antigo', deviceType: 'DVR', connections: [{ id: 'old-eth', type: 'Eth1', ipv4: '10.0.0.1' }], portRules: [{ id: 'old-port', portNumber: '1234' }] }], deviceLogins: [] });
+  await page.getByRole('button', { name: 'Visualizar', exact: true }).first().click();
+  assert.equal(await page.locator('div.fixed').first().getByText('Acesso DVR', { exact: true }).count(), 1);
+  await page.locator('div.fixed').first().getByRole('button', { name: 'Fechar', exact: true }).last().click();
+
   const data = {
     cpanels: [{ id: 'a', domain: 'principal.example' }, { id: 'b', domain: 'backup.example' }, { id: 'empty', domain: 'vazio.example' }],
     users: [' ERP ', 'sistema', 'Financeiro', 'RH', ''].map((department, index) => ({ id: `u${index}`, cpanelId: ['a', 'a', 'b', 'missing', ''][index], name: `Pessoa ${index}`, login: `login${index}`, password: 'TEST-FIXTURE-SECRET', department }))
