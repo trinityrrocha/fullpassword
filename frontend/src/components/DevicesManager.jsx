@@ -1769,7 +1769,7 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
                 </label>
                 {DVR_PORT_FIELDS.map(([field, label]) => {
                   const invalid = !isOptionalValidPort(dvrAccess[field]);
-                  return <label key={field} className="block"><span className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">{label}</span><input type="text" inputMode="numeric" aria-label={label} className={`h-[32px] w-[60px] rounded-md border bg-white px-2 text-[13px] shadow-sm outline-none dark:bg-slate-900 dark:text-slate-100 ${invalid ? 'border-red-400 dark:border-red-500' : 'border-slate-300 dark:border-slate-700'}`} value={dvrAccess[field]} onChange={(event) => updateDvrAccess(field, event.target.value)} /></label>;
+                  return <label key={field} className="block"><span className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">{label}</span><input type="text" inputMode="numeric" aria-label={label} className={`h-[32px] w-[77px] rounded-md border bg-white px-2 text-[13px] shadow-sm outline-none dark:bg-slate-900 dark:text-slate-100 ${invalid ? 'border-red-400 dark:border-red-500' : 'border-slate-300 dark:border-slate-700'}`} value={dvrAccess[field]} onChange={(event) => updateDvrAccess(field, event.target.value)} /></label>;
                 })}
               </div>
               <div className="flex flex-wrap items-end gap-2">

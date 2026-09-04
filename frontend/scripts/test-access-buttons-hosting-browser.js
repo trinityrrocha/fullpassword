@@ -98,7 +98,7 @@ try {
   assert.deepEqual(await deviceModal.getByLabel('IP do DVR').evaluate(el => { const style = getComputedStyle(el); return [style.width, style.height, style.fontSize]; }), ['120px', '32px', '13px']);
   for (const label of ['PORTA TCP', 'PORTA HTTPS', 'PORTA HTTP', 'PORTA RTSP', 'PORTA NTP', 'PORTA POS']) {
     const field = deviceModal.getByLabel(label, { exact: true });
-    assert.equal(await field.evaluate(el => getComputedStyle(el).width), '60px');
+    assert.equal(await field.evaluate(el => getComputedStyle(el).width), '77px');
     assert.equal(await field.evaluate(el => getComputedStyle(el).height), '32px');
     assert.equal(await field.evaluate(el => getComputedStyle(el).fontSize), '13px');
   }
