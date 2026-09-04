@@ -27,12 +27,14 @@ const makeId = () => {
 };
 
 function DepartmentIcon({ department }) {
-  const normalized = String(department || '').trim().toLowerCase();
+  const departmentName = String(department || '').trim() || 'Não informado';
+  const normalized = departmentName.toLowerCase();
   const Icon = normalized === 'erp' || normalized === 'sistema' ? MonitorCog : BriefcaseBusiness;
-  const label = `Departamento: ${String(department || '').trim() || 'Não informado'}`;
+  const label = `Departamento: ${departmentName}`;
   return (
-    <span title={label} className="inline-flex items-center">
+    <span title={label} className="inline-flex items-center gap-1 text-slate-600 dark:text-slate-300">
       <Icon role="img" aria-label={label} className="h-4 w-4 shrink-0 text-slate-500 dark:text-slate-400" />
+      <span>{departmentName}</span>
     </span>
   );
 }

@@ -97,7 +97,11 @@ try {
   assert.equal(await groups.getByRole('img', { name: /^Departamento:/ }).count(), 5);
   for (const icon of await groups.locator('svg[aria-label^="Departamento:"]').all()) {
     assert.equal(await icon.getAttribute('aria-label'), await icon.locator('..').getAttribute('title'));
+    const departmentName = (await icon.getAttribute('aria-label')).replace(/^Departamento: /, '');
+    assert.equal(await icon.locator('..').innerText(), departmentName, 'Department must show its name alongside the icon, without the prefix');
   }
+  assert.equal(await groups.getByText('Financeiro', { exact: true }).count(), 1);
+  assert.equal(await groups.getByText('ERP', { exact: true }).count(), 1);
   assert.doesNotMatch((await groups.allTextContents()).join(' '), /TEST-FIXTURE-SECRET|Departamento:/);
   assert.match(await page.locator('main').innerText(), /Senha: \*\*\*\*/);
   await groups.getByRole('button', { name: 'Copiar login', exact: true }).first().click();
