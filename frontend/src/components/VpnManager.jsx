@@ -387,7 +387,7 @@ export default function VpnManager({ vpnForm, setVpnForm, handleSaveData, isSavi
             <Plus className="mr-2 h-4 w-4" /> Adicionar usuário
           </button>
         </div>
-        {onDeleteModule && <button type="button" title="Excluir servidor" aria-label="Excluir servidor" onClick={onDeleteModule} className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-red-300 text-red-600 hover:bg-red-50"><Trash2 className="h-4 w-4" /></button>}
+        {onDeleteModule && <button type="button" title="Excluir servidor" aria-label="Excluir servidor" onClick={onDeleteModule} className="action-icon-button action-icon-delete"><Trash2 className="h-4 w-4" /></button>}
       </div>
 
       <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 pb-4 pt-3">
@@ -403,7 +403,7 @@ export default function VpnManager({ vpnForm, setVpnForm, handleSaveData, isSavi
                 <span className="whitespace-nowrap">IPv4 local: {server.ipv4Local || '-'}</span>
                 <span className="whitespace-nowrap">Porta: {server.port || '-'}</span>
               </div>
-              <div className="flex shrink-0 gap-2 self-start sm:self-auto"><button type="button" title="Visualizar" aria-label="Visualizar" onClick={() => setViewingServer(server)} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"><Eye className="h-4 w-4" /></button><button type="button" title="Detalhes" aria-label="Detalhes" onClick={() => { setEditingServer({ ...server, attachments: normalizeAttachments(server) }); setDeleteServerConfirmation(''); }} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"><Edit2 className="h-4 w-4" /></button></div>
+              <div className="flex shrink-0 gap-2 self-start sm:self-auto"><button type="button" title="Visualizar" aria-label="Visualizar" onClick={() => setViewingServer(server)} className="action-icon-button action-icon-view"><Eye className="h-4 w-4" /></button><button type="button" title="Detalhes" aria-label="Detalhes" onClick={() => { setEditingServer({ ...server, attachments: normalizeAttachments(server) }); setDeleteServerConfirmation(''); }} className="action-icon-button action-icon-edit"><Edit2 className="h-4 w-4" /></button></div>
             </div>
           ))}
         </div>
@@ -442,7 +442,7 @@ export default function VpnManager({ vpnForm, setVpnForm, handleSaveData, isSavi
                 </span>
                 <span className="text-slate-600">· IPv4 Local: {getServerAccessSummary(user.serverId)}</span>
               </div>
-              <div className="flex shrink-0 gap-2 self-start sm:self-auto"><button type="button" title="Visualizar" aria-label="Visualizar" onClick={() => setViewingUser(user)} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"><Eye className="h-4 w-4" /></button><button type="button" title="Detalhes" aria-label="Detalhes" onClick={() => { setEditingUser({ ...user }); setDeleteUserConfirmation(''); }} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"><Edit2 className="h-4 w-4" /></button></div>
+              <div className="flex shrink-0 gap-2 self-start sm:self-auto"><button type="button" title="Visualizar" aria-label="Visualizar" onClick={() => setViewingUser(user)} className="action-icon-button action-icon-view"><Eye className="h-4 w-4" /></button><button type="button" title="Detalhes" aria-label="Detalhes" onClick={() => { setEditingUser({ ...user }); setDeleteUserConfirmation(''); }} className="action-icon-button action-icon-edit"><Edit2 className="h-4 w-4" /></button></div>
             </div>
           ))}
         </div>

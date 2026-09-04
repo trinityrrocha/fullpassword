@@ -126,7 +126,7 @@ export default function ManualIpRulesCard() {
                 <tr key={rule.id} className="border-t">
                   <td className="px-2 py-[7px] font-mono">{rule.ip_address}</td>
                   <td className="px-2 py-[7px]"><span className="inline-flex items-center gap-1 text-xs"><span className={`h-2 w-2 rounded-full ${isAllowed ? 'bg-green-500' : 'bg-red-500'}`} />{isAllowed ? 'Whitelist' : 'Bloqueado'}</span></td>
-                  <td className="px-2 py-[7px]"><button type="button" onClick={() => setSelectedRule(rule)} title="Ver motivo" aria-label={`Ver motivo da regra ${rule.ip_address}`} className="rounded p-1 text-indigo-600 hover:bg-indigo-50"><Eye className="h-4 w-4" /></button></td>
+                  <td className="px-2 py-[7px]"><button type="button" onClick={() => setSelectedRule(rule)} title="Ver motivo" aria-label={`Ver motivo da regra ${rule.ip_address}`} className="action-icon-button action-icon-view"><Eye className="h-4 w-4" /></button></td>
                   <td className="px-2 py-[7px]">{rule.created_by_email || '-'}</td>
                   <td className="whitespace-nowrap px-2 py-[7px]">{formatDateTimeShort(rule.created_at)}</td>
                   <td className="px-2 py-[7px]"><button type="button" onClick={() => deactivateRule(rule.id)} className="rounded px-2 py-1 text-xs text-red-600 hover:bg-red-50">Desativar regra</button></td>

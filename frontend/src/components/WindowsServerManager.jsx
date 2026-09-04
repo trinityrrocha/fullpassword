@@ -492,7 +492,7 @@ export default function WindowsServerManager({ tsForm, setTsForm, handleSaveData
             <Plus className="mr-2 h-4 w-4" /> Adicionar usuário
           </button>
         </div>
-        {onDeleteModule && <button type="button" title="Excluir servidor" aria-label="Excluir servidor" onClick={onDeleteModule} className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-red-300 text-red-600 hover:bg-red-50"><Trash2 className="h-4 w-4" /></button>}
+        {onDeleteModule && <button type="button" title="Excluir servidor" aria-label="Excluir servidor" onClick={onDeleteModule} className="action-icon-button action-icon-delete"><Trash2 className="h-4 w-4" /></button>}
       </div>
 
       <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 pb-4 pt-3">
@@ -511,10 +511,10 @@ export default function WindowsServerManager({ tsForm, setTsForm, handleSaveData
               <div className="flex flex-wrap gap-2 self-start sm:self-auto">
                 {!readOnly && <button type="button" disabled={isSaving} onClick={() => openCreateUserModal(server.id)} className="h-9 rounded-md border border-slate-300 px-2 text-xs text-slate-700 dark:text-slate-200">Adicionar login</button>}
                 <button type="button" onClick={() => setUsersServer({ id: server.id, readOnly })} className="h-9 rounded-md border border-slate-300 px-2 text-xs text-slate-700 dark:text-slate-200">Exibir lista de usuários</button>
-                <button type="button" title="Visualizar" aria-label="Visualizar" onClick={() => setViewingServer(server)} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50">
+                <button type="button" title="Visualizar" aria-label="Visualizar" onClick={() => setViewingServer(server)} className="action-icon-button action-icon-view">
                   <Eye className="h-4 w-4" />
                 </button>
-                <button type="button" title="Detalhes" aria-label="Detalhes" onClick={() => { if (readOnly) { setViewingServer(server); return; } setEditingServer({ ...server }); setDeleteServerConfirmation(''); }} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50">
+                <button type="button" title="Detalhes" aria-label="Detalhes" onClick={() => { if (readOnly) { setViewingServer(server); return; } setEditingServer({ ...server }); setDeleteServerConfirmation(''); }} className="action-icon-button action-icon-edit">
                   <Edit2 className="h-4 w-4" />
                 </button>
               </div>
@@ -557,10 +557,10 @@ export default function WindowsServerManager({ tsForm, setTsForm, handleSaveData
                 {tsAddresses.map((rule, index) => <span key={rule.id} className="inline-flex items-center gap-1 text-slate-600"><span>· TS{index + 1}</span><CopyButton value={`${rule.host}:${rule.port}`} label="Copiar endereço TS" /></span>)}
               </div>
               <div className="flex shrink-0 gap-2 self-start sm:self-auto">
-                <button type="button" title="Visualizar" aria-label="Visualizar" onClick={() => setViewingUser(user)} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50">
+                <button type="button" title="Visualizar" aria-label="Visualizar" onClick={() => setViewingUser(user)} className="action-icon-button action-icon-view">
                   <Eye className="h-4 w-4" />
                 </button>
-                <button type="button" title="Detalhes" aria-label="Detalhes" onClick={() => { if (readOnly) { setViewingUser(user); return; } setEditingUser({ ...user }); setDeleteUserConfirmation(''); }} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50">
+                <button type="button" title="Detalhes" aria-label="Detalhes" onClick={() => { if (readOnly) { setViewingUser(user); return; } setEditingUser({ ...user }); setDeleteUserConfirmation(''); }} className="action-icon-button action-icon-edit">
                   <Edit2 className="h-4 w-4" />
                 </button>
               </div>
@@ -879,7 +879,7 @@ function WindowsServerModal({ title, server, setServer, isSaving, onCancel, onSa
                           />
                         </>
                       )}
-                      <button type="button" title="Excluir conexão" aria-label="Excluir conexão" onClick={() => removeConnection(connection.id)} className="inline-flex shrink-0 items-center justify-center justify-self-end text-red-500 hover:text-red-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 dark:text-red-400 dark:hover:text-red-300 dark:focus-visible:ring-offset-slate-800 md:justify-self-center">
+                      <button type="button" title="Excluir conexão" aria-label="Excluir conexão" onClick={() => removeConnection(connection.id)} className="action-icon-button action-icon-delete justify-self-end md:justify-self-center">
                         <Trash2 className="h-4 w-4" />
                       </button>
                     </div>
@@ -1011,8 +1011,8 @@ function WindowsUsersListModal({ server, users, readOnly, onClose, onEdit }) {
       <span>Senha: ****</span><CopyButton value={user.password} label="Copiar senha" />
       <span>{user.department} · {user.permission}</span>
       {!readOnly && <div className="ml-auto flex gap-2">
-        <button type="button" data-vault-action="edit" title="Editar usuário" aria-label="Editar usuário" className="rounded border p-2" onClick={() => onEdit(user)}><Edit2 className="h-4 w-4" /></button>
-        <button type="button" data-vault-action="delete" title="Excluir usuário (abrir confirmação)" aria-label="Excluir usuário (abrir confirmação)" className="rounded p-2 text-red-600 dark:text-red-400" onClick={() => onEdit(user)}><Trash2 className="h-4 w-4" /></button>
+        <button type="button" data-vault-action="edit" title="Editar usuário" aria-label="Editar usuário" className="action-icon-button action-icon-edit" onClick={() => onEdit(user)}><Edit2 className="h-4 w-4" /></button>
+        <button type="button" data-vault-action="delete" title="Excluir usuário (abrir confirmação)" aria-label="Excluir usuário (abrir confirmação)" className="action-icon-button action-icon-delete" onClick={() => onEdit(user)}><Trash2 className="h-4 w-4" /></button>
       </div>}
     </div>)}
   </ReadOnlyDetailsModal>;

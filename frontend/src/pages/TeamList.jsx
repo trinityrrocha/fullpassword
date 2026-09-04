@@ -617,7 +617,7 @@ function ModalFooter({ isSaving, formId, submitLabel, onCancel, showDelete = fal
     <div className="flex flex-wrap items-center justify-end gap-2 bg-slate-50 px-4 py-3 sm:px-6">
       {showDelete && (
         <>
-          <button type="button" title="Excluir usuário" aria-label="Excluir usuário" disabled={deleteConfirmation.trim() !== 'EXCLUIR' || isSaving} onClick={onDelete} className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-red-300 text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50">
+          <button type="button" title="Excluir usuário" aria-label="Excluir usuário" disabled={deleteConfirmation.trim() !== 'EXCLUIR' || isSaving} onClick={onDelete} className="action-icon-button action-icon-delete">
             <Trash2 className="h-4 w-4" />
           </button>
           <label htmlFor="deleteSystemUserConfirmation" className="sr-only">Digite EXCLUIR para confirmar a exclusão do usuário</label>

@@ -74,9 +74,48 @@ try {
   page.on('dialog', dialog => dialog.accept());
   await page.goto(`http://127.0.0.1:${address.port}/__server_flows`);
   await page.getByRole('heading', { name: 'Servidores cadastrados', exact: true }).waitFor();
-  const clickExact = (name) => (name === 'Fechar' ? page.locator('div.fixed').last() : page).getByRole('button', { name, exact: true }).last().click();
+  const assertActionIcons = async () => {
+    const buttons = await page.locator('button.action-icon-button').evaluateAll(elements => elements.filter(el => el.getClientRects().length).map(el => {
+      const rect = el.getBoundingClientRect();
+      const svg = el.querySelector('svg').getBoundingClientRect();
+      const style = getComputedStyle(el);
+      return { width: rect.width, height: rect.height, svgWidth: svg.width, svgHeight: svg.height,
+        background: style.backgroundColor, border: style.borderWidth, shadow: style.boxShadow,
+        padding: style.padding, type: el.type, label: el.getAttribute('aria-label'), title: el.title };
+    }));
+    for (const button of buttons) {
+      assert.equal(button.width, 16, button.label);
+      assert.equal(button.height, 16, button.label);
+      assert.equal(button.svgWidth, 16);
+      assert.equal(button.svgHeight, 16);
+      assert.equal(button.background, 'rgba(0, 0, 0, 0)');
+      assert.equal(button.border, '0px');
+      assert.equal(button.shadow, 'none');
+      assert.equal(button.padding, '0px');
+      assert.equal(button.type, 'button');
+      assert.ok(button.label && button.title);
+    }
+  };
+  const clickExact = async (name) => {
+    await assertActionIcons();
+    await (name === 'Fechar' ? page.locator('div.fixed').last() : page).getByRole('button', { name, exact: true }).last().click();
+  };
+  for (const dark of [false, true]) {
+    await page.evaluate(enabled => document.documentElement.classList.toggle('dark', enabled), dark);
+    for (const variant of ['view', 'edit']) {
+      const button = page.locator('.action-icon-' + variant).first();
+      await page.mouse.move(0, 0);
+      const original = await button.evaluate(el => getComputedStyle(el).color);
+      await button.hover();
+      assert.notEqual(await button.evaluate(el => getComputedStyle(el).color), original, 'Hover must change icon color');
+      await assertActionIcons();
+    }
+    if (process.env.ACTION_ICON_SCREENSHOT_DIR) await page.screenshot({ path: path.join(process.env.ACTION_ICON_SCREENSHOT_DIR, `actions-${dark ? 'dark' : 'light'}.png`) });
+  }
+  await page.mouse.move(0, 0);
   const assertNoOverflow = async () => assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, 'Page must not overflow horizontally');
   const assertCompactLayout = async (desktop) => {
+    await assertActionIcons();
     const row = page.locator('[data-server-port-form]');
     const bounds = await row.locator('select, input:not([type="checkbox"]), button').evaluateAll(elements => elements.map(element => {
       const rect = element.getBoundingClientRect();
@@ -251,11 +290,21 @@ try {
   await page.getByLabel('Pesquisar portas').fill('web.example');
   assert.match(await page.locator('div.fixed').last().innerText(), /HTTPS/);
   assert.match(await page.locator('div.fixed').last().innerText(), /IP da conexão: 192\.168\.1\.211/);
+  const deletePort = page.getByRole('button', { name: 'Excluir porta', exact: true });
+  await page.mouse.move(0, 0);
+  const deleteColor = await deletePort.evaluate(el => getComputedStyle(el).color);
+  await deletePort.hover();
+  assert.notEqual(await deletePort.evaluate(el => getComputedStyle(el).color), deleteColor);
+  await assertActionIcons();
   await assertNoOverflow();
+  if (process.env.ACTION_ICON_SCREENSHOT_DIR) await page.screenshot({ path: path.join(process.env.ACTION_ICON_SCREENSHOT_DIR, 'actions-port-modal.png') });
+  await deletePort.click();
+  assert.equal(await page.getByRole('button', { name: 'Excluir porta', exact: true }).count(), 0);
   await clickExact('Fechar');
   await clickExact('Salvar');
   await page.getByRole('heading', { name: 'Detalhes do servidor Linux', exact: true }).waitFor({ state: 'detached' });
-  assert.equal(await page.evaluate(() => window.fixtureSaves.at(-1).payload.servers[0].portRules[0].host), 'web.example');
+  assert.equal(await page.evaluate(() => window.fixtureSaves.at(-1).payload.servers[0].portRules.some(rule => rule.host === 'web.example')), false);
+  assert.equal(await page.evaluate(() => window.fixtureSaves.at(-1).payload.servers[0].portRules[0].portNumber), '22');
   assert.deepEqual(errors, []);
   console.log('Browser fixture passed: Windows users, ports, draft/failure handling, readonly search, Linux ports, desktop/mobile and light/dark.');
 } finally {

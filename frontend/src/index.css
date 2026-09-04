@@ -2,6 +2,30 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer components {
+  /* Only icon-only view/edit/delete actions opt in; text buttons stay unchanged. */
+  .action-icon-button {
+    @apply inline-flex h-auto w-auto shrink-0 items-center justify-center self-center justify-self-center p-0 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .action-icon-button:focus-visible {
+    outline: 1px solid currentColor;
+    outline-offset: 2px;
+  }
+
+  .action-icon-view {
+    @apply text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200;
+  }
+
+  .action-icon-edit {
+    @apply text-indigo-500 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300;
+  }
+
+  .action-icon-delete {
+    @apply text-red-500 hover:text-red-600 dark:text-red-400 dark:hover:text-red-300;
+  }
+}
+
 @layer base {
   html {
     @apply bg-gray-50;

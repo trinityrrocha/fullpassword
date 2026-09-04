@@ -9,7 +9,7 @@ export default function DeleteConfirmationControl({ value, onChange, onDelete, d
         aria-label="Excluir"
         disabled={disabled}
         onClick={onDelete}
-        className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-red-300 text-red-600 hover:bg-red-50 disabled:opacity-50"
+        className="action-icon-button action-icon-delete"
       >
         <Trash2 className="h-4 w-4" />
       </button>

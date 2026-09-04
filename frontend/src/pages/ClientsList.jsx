@@ -344,8 +344,8 @@ export default function ClientsList() {
                   </div>
                 </Link>
                 <div className="flex shrink-0 items-center gap-2">
-                  {canEdit && <button type="button" title="Alterar cliente" aria-label="Alterar cliente" onClick={() => openEditClient(client)} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"><Pencil className="h-4 w-4" /></button>}
-                  <button type="button" title="Visualizar cliente" aria-label="Visualizar cliente" onClick={() => openViewClient(client)} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"><Eye className="h-4 w-4" /></button>
+                  {canEdit && <button type="button" title="Alterar cliente" aria-label="Alterar cliente" onClick={() => openEditClient(client)} className="action-icon-button action-icon-edit"><Pencil className="h-4 w-4" /></button>}
+                  <button type="button" title="Visualizar cliente" aria-label="Visualizar cliente" onClick={() => openViewClient(client)} className="action-icon-button action-icon-view"><Eye className="h-4 w-4" /></button>
                 </div>
               </li>
             );
@@ -424,7 +424,7 @@ export default function ClientsList() {
             <div className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-200 bg-slate-50 px-6 py-3">
               {(editClient.is_owner || editClient.is_admin || editClient.can_delete) && (
                 <>
-                  <button type="button" title="Excluir empresa" aria-label="Excluir empresa" disabled={deleteConfirmation.trim() !== 'EXCLUIR' || isSaving} onClick={deleteClient} className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-red-300 text-red-600 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"><Trash2 className="h-4 w-4" /></button>
+                  <button type="button" title="Excluir empresa" aria-label="Excluir empresa" disabled={deleteConfirmation.trim() !== 'EXCLUIR' || isSaving} onClick={deleteClient} className="action-icon-button action-icon-delete"><Trash2 className="h-4 w-4" /></button>
                   <label htmlFor="deleteClientConfirmation" className="sr-only">Digite EXCLUIR para confirmar a exclusão da empresa</label>
                   <input id="deleteClientConfirmation" value={deleteConfirmation} onChange={(event) => setDeleteConfirmation(event.target.value)} placeholder="EXCLUIR" title="Digite EXCLUIR para confirmar a exclusão da empresa" autoComplete="off" className="h-9 w-28 rounded-md border border-red-300 bg-white px-2 text-sm" />
                 </>

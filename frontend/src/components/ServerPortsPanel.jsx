@@ -74,8 +74,8 @@ export default function ServerPortsPanel({ server, onChange, windows = false, pr
             <div className="flex flex-wrap items-center gap-2"><span>Porta: {rule.portNumber}</span><CopyButton value={rule.portNumber} label="Copiar porta" /><span>Entrada/Saída: {rule.direction} · Protocolo: {rule.protocol}</span>{windows && <span>TS: {rule.isTs ? 'Sim' : 'Não'}</span>}</div>
             {rule.host && (!windows || rule.isTs) && <div className="flex min-w-0 items-center gap-2"><span className="min-w-0 break-all">Host/DDNS: {rule.isTs && serverHostHref(rule.host) ? <a className="hover:underline" href={serverHostHref(rule.host)} target="_blank" rel="noopener noreferrer">{rule.host}</a> : rule.host}</span><CopyButton value={rule.host} label="Copiar Host/DDNS" /></div>}
             {!readOnly && <div className="flex gap-2">
-              <button type="button" data-vault-action="edit" disabled={disabled} aria-label="Editar porta" className={buttonClass} onClick={() => editPort(rule)}><Edit2 className="h-4 w-4" /></button>
-              <button type="button" disabled={disabled || Boolean(draft.editing)} aria-label="Excluir porta" className="text-red-600 dark:text-red-400" onClick={() => { if (window.confirm('Excluir esta porta? A alteração será aplicada ao salvar o servidor.')) onChange(removeServerPort(server, rule)); }}><Trash2 className="h-4 w-4" /></button>
+              <button type="button" data-vault-action="edit" disabled={disabled} aria-label="Editar porta" className="action-icon-button action-icon-edit" title="Editar porta" onClick={() => editPort(rule)}><Edit2 className="h-4 w-4" /></button>
+              <button type="button" disabled={disabled || Boolean(draft.editing)} aria-label="Excluir porta" className="action-icon-button action-icon-delete" title="Excluir porta" onClick={() => { if (window.confirm('Excluir esta porta? A alteração será aplicada ao salvar o servidor.')) onChange(removeServerPort(server, rule)); }}><Trash2 className="h-4 w-4" /></button>
             </div>}
           </div>)}
         </div>

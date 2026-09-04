@@ -723,7 +723,7 @@ export default function DevicesManager({ devicesForm, setDevicesForm, handleSave
             <Plus className="mr-2 h-4 w-4" /> Adicionar login
           </button>
         </div>
-        {onDeleteModule && <button type="button" title="Excluir dispositivos" aria-label="Excluir dispositivos" onClick={onDeleteModule} className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-red-300 text-red-600 hover:bg-red-50"><Trash2 className="h-4 w-4" /></button>}
+        {onDeleteModule && <button type="button" title="Excluir dispositivos" aria-label="Excluir dispositivos" onClick={onDeleteModule} className="action-icon-button action-icon-delete"><Trash2 className="h-4 w-4" /></button>}
       </div>
 
       <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 pb-4 pt-3">
@@ -744,8 +744,8 @@ export default function DevicesManager({ devicesForm, setDevicesForm, handleSave
                 <span className="whitespace-nowrap">Logins: {unifiedAccessItems.filter((accessItem) => accessItem.deviceId === device.id).length}</span>
               </div>
               <div className="flex shrink-0 gap-2 self-start sm:self-auto">
-                <button type="button" title="Visualizar" aria-label="Visualizar" onClick={() => setViewingDevice(device)} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"><Eye className="h-4 w-4" /></button>
-                <button type="button" title="Detalhes" aria-label="Detalhes" onClick={() => { setEditingDevice({ ...device }); setDeleteConfirmation(''); }} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"><Edit2 className="h-4 w-4" /></button>
+                <button type="button" title="Visualizar" aria-label="Visualizar" onClick={() => setViewingDevice(device)} className="action-icon-button action-icon-view"><Eye className="h-4 w-4" /></button>
+                <button type="button" title="Detalhes" aria-label="Detalhes" onClick={() => { setEditingDevice({ ...device }); setDeleteConfirmation(''); }} className="action-icon-button action-icon-edit"><Edit2 className="h-4 w-4" /></button>
               </div>
             </div>
           ))}
@@ -804,8 +804,8 @@ export default function DevicesManager({ devicesForm, setDevicesForm, handleSave
                       {accessItem.collaborator && <span className="text-slate-600 dark:text-slate-300">· Colaborador: {accessItem.collaborator}</span>}
                     </div>
                     <div className="flex shrink-0 gap-2 self-start sm:self-auto">
-                      <button type="button" title="Visualizar" aria-label="Visualizar" onClick={() => setViewingLogin(accessItem)} className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"><Eye className="h-4 w-4" /></button>
-                      <button type="button" title="Detalhes" aria-label="Detalhes" onClick={() => { setEditingLogin({ ...accessItem }); setLoginDeleteConfirmation(''); }} className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"><Edit2 className="h-4 w-4" /></button>
+                      <button type="button" title="Visualizar" aria-label="Visualizar" onClick={() => setViewingLogin(accessItem)} className="action-icon-button action-icon-view"><Eye className="h-4 w-4" /></button>
+                      <button type="button" title="Detalhes" aria-label="Detalhes" onClick={() => { setEditingLogin({ ...accessItem }); setLoginDeleteConfirmation(''); }} className="action-icon-button action-icon-edit"><Edit2 className="h-4 w-4" /></button>
                     </div>
                   </div>
                 ))}
@@ -965,8 +965,8 @@ function DeviceAccessListModal({ device, items, kind, onClose, onRemove, onEdit,
                   {isDuplicateLogin && <span className="font-medium text-amber-700 dark:text-amber-300">· Login duplicado</span>}
                 </div>
                 {(onEdit || onRemove) && <div className="flex shrink-0 gap-2 self-start sm:self-auto">
-                  {onEdit && <button type="button" title="Detalhes" aria-label="Detalhes" onClick={() => onEdit(item)} className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"><Edit2 className="h-4 w-4" /></button>}
-                  {onRemove && <button type="button" title={isPabx ? 'Excluir ramal' : kind === 'nasUser' ? 'Excluir usuário NAS' : 'Excluir login'} aria-label={isPabx ? 'Excluir ramal' : kind === 'nasUser' ? 'Excluir usuário NAS' : 'Excluir login'} onClick={() => onRemove(item.id)} className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-red-300 text-red-600 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950/30"><Trash2 className="h-4 w-4" /></button>}
+                  {onEdit && <button type="button" title="Detalhes" aria-label="Detalhes" onClick={() => onEdit(item)} className="action-icon-button action-icon-edit"><Edit2 className="h-4 w-4" /></button>}
+                  {onRemove && <button type="button" title={isPabx ? 'Excluir ramal' : kind === 'nasUser' ? 'Excluir usuário NAS' : 'Excluir login'} aria-label={isPabx ? 'Excluir ramal' : kind === 'nasUser' ? 'Excluir usuário NAS' : 'Excluir login'} onClick={() => onRemove(item.id)} className="action-icon-button action-icon-delete"><Trash2 className="h-4 w-4" /></button>}
                 </div>}
               </div>
             );
@@ -1595,7 +1595,7 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
                       <div><label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Rádio 6 GHz</label><select className="h-10 w-full rounded-md border border-slate-300 bg-white px-2 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={network.radio6Bandwidth} onChange={(event) => updateWifiNetwork(network.id, 'radio6Bandwidth', event.target.value)}>{RADIO_6_BANDWIDTH_OPTIONS.map((option) => <option key={option} value={option}>{option} MHz</option>)}</select></div>
                       <div><label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">VLAN</label><input type="text" inputMode="numeric" maxLength={4} className="h-10 w-full rounded-md border border-slate-300 bg-white px-2 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={network.vlan} onChange={(event) => updateWifiNetwork(network.id, 'vlan', event.target.value)} placeholder="100" /></div>
                       <div><label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Tipo</label><select className="h-10 w-full rounded-md border border-slate-300 bg-white px-2 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={network.networkType} onChange={(event) => updateWifiNetwork(network.id, 'networkType', event.target.value)}>{WIFI_NETWORK_TYPES.map((option) => <option key={option} value={option}>{option}</option>)}</select></div>
-                      <button type="button" title="Excluir rede Wi-Fi" aria-label="Excluir rede Wi-Fi" onClick={() => removeWifiNetwork(network.id)} className="inline-flex shrink-0 items-center justify-center justify-self-end p-0 text-red-500 hover:text-red-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 dark:text-red-400 dark:hover:text-red-300 dark:focus-visible:ring-offset-slate-800 xl:mb-3"><Trash2 className="h-4 w-4" /></button>
+                      <button type="button" title="Excluir rede Wi-Fi" aria-label="Excluir rede Wi-Fi" onClick={() => removeWifiNetwork(network.id)} className="action-icon-button action-icon-delete justify-self-end xl:mb-3"><Trash2 className="h-4 w-4" /></button>
                     </div>
                   ))}
                 </div>
@@ -1698,7 +1698,7 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
                       <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Telefone suporte</label>
                       <input type="text" className="h-10 w-full min-w-0 rounded-md border border-slate-300 bg-white px-2 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={account.supportPhone} onChange={(event) => updatePppoeAccount(account.id, 'supportPhone', event.target.value)} placeholder="0800, WhatsApp ou ramal" />
                     </div>
-                    <button type="button" title="Excluir PPPoE" aria-label="Excluir PPPoE" onClick={() => removePppoeAccount(account.id)} className="inline-flex shrink-0 items-center justify-center justify-self-end p-0 text-red-500 hover:text-red-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 dark:text-red-400 dark:hover:text-red-300 dark:focus-visible:ring-offset-slate-800 xl:mb-3 xl:justify-self-center"><Trash2 className="h-4 w-4" /></button>
+                    <button type="button" title="Excluir PPPoE" aria-label="Excluir PPPoE" onClick={() => removePppoeAccount(account.id)} className="action-icon-button action-icon-delete justify-self-end xl:mb-3 xl:justify-self-center"><Trash2 className="h-4 w-4" /></button>
                   </div>
                 ))}
               </div>
@@ -1740,7 +1740,7 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
                           <Ipv4Input value={connection.gateway} onChange={(value) => updateConnection(connection.id, 'gateway', value)} state={gatewayValidation.state} error={gatewayValidation.error} label="" ariaLabel="Gateway(IPV4)" placeholder="192.168.1.1" prefix="Gateway/" required={false} showHelperText={false} containerClassName="w-full min-w-0" inputWrapperClassName="h-10 w-full min-w-0" inputClassName="text-sm tracking-normal" />
                         </>
                       )}
-                      <button type="button" title="Excluir conexão" aria-label="Excluir conexão" onClick={() => setDevice({ ...device, connections: connections.filter((item) => item.id !== connection.id) })} className="inline-flex shrink-0 items-center justify-center justify-self-end p-0 text-red-500 hover:text-red-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 dark:text-red-400 dark:hover:text-red-300 dark:focus-visible:ring-offset-slate-800 md:justify-self-center"><Trash2 className="h-4 w-4" /></button>
+                      <button type="button" title="Excluir conexão" aria-label="Excluir conexão" onClick={() => setDevice({ ...device, connections: connections.filter((item) => item.id !== connection.id) })} className="action-icon-button action-icon-delete justify-self-end md:justify-self-center"><Trash2 className="h-4 w-4" /></button>
                     </div>
                   </div>
                 );
@@ -1762,7 +1762,7 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
                     <CompactInlineInput label="Porta" widthClass="w-[120px]" inputMode="numeric" value={rule.portNumber} onChange={(event) => updatePortRule(rule.id, 'portNumber', event.target.value)} placeholder="Ex: 443" />
                     <select aria-label="Entrada/Saída" className="h-10 w-[128px] shrink-0 rounded-md border border-slate-300 bg-white px-2 text-sm shadow-sm" value={rule.direction} onChange={(event) => updatePortRule(rule.id, 'direction', event.target.value)}>{DIRECTION_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}</select>
                     <select aria-label="Protocolo" className="h-10 w-[96px] shrink-0 rounded-md border border-slate-300 bg-white px-2 text-sm shadow-sm" value={rule.protocol} onChange={(event) => updatePortRule(rule.id, 'protocol', event.target.value)}>{PROTOCOL_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}</select>
-                    <button type="button" title="Remover" aria-label="Remover" onClick={() => setDevice({ ...device, portRules: portRules.filter((item) => item.id !== rule.id) })} className="inline-flex h-9 w-9 shrink-0 items-center justify-center justify-self-end rounded-md border border-red-300 text-red-600 hover:bg-red-50"><Trash2 className="h-4 w-4" /></button>
+                    <button type="button" title="Remover" aria-label="Remover" onClick={() => setDevice({ ...device, portRules: portRules.filter((item) => item.id !== rule.id) })} className="action-icon-button action-icon-delete justify-self-end"><Trash2 className="h-4 w-4" /></button>
                   </div>
                 ))}
               </div>
