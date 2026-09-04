@@ -83,7 +83,7 @@ try {
       return { label: element.getAttribute('aria-label') || element.textContent, x: rect.x, y: rect.y, width: rect.width, right: rect.right };
     }));
     for (const label of ['Conexão da porta', 'Porta', 'Entrada/Saída', 'Protocolo']) {
-      assert.equal(bounds.find(item => item.label === label).width, 40, label + ' must be 40px');
+      assert.equal(bounds.find(item => item.label === label).width, 60, label + ' must be 60px');
     }
     const rowBounds = await row.boundingBox();
     for (const item of bounds) assert.ok(item.x >= rowBounds.x - 1 && item.right <= rowBounds.x + rowBounds.width + 1, item.label + ' must stay inside the card');
@@ -218,7 +218,7 @@ try {
       await page.evaluate(enabled => document.documentElement.classList.toggle('dark', enabled), dark);
       await assertCompactLayout(width >= 640);
       const portBounds = await page.getByLabel('Porta', { exact: true }).boundingBox();
-      assert.equal(portBounds.width, 40);
+      assert.equal(portBounds.width, 60);
     }
   }
   await page.getByRole('button', { name: /Exibir portas configuradas/ }).click();

@@ -6,7 +6,7 @@ import { applyPortDraft, connectionLabel, connectionShortLabel, createPortDraft,
 
 const fieldClass = 'h-9 w-full min-w-0 rounded-md border border-slate-300 bg-white px-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100';
 const buttonClass = 'h-9 rounded-md border border-slate-300 bg-white px-3 text-xs text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200';
-const compactFieldClass = 'h-8 w-10 min-w-0 shrink-0 appearance-none rounded-md border border-slate-300 bg-white px-0.5 text-center text-[10px] leading-none text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100';
+const compactFieldClass = 'h-8 w-[60px] min-w-0 shrink-0 appearance-none rounded-md border border-slate-300 bg-white px-0.5 text-center text-[10px] leading-none text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100';
 
 export default function ServerPortsPanel({ server, onChange, windows = false, protocols = WINDOWS_PORT_PROTOCOLS, readOnly = false, draft, setDraft, disabled = false }) {
   const [showList, setShowList] = useState(false);
