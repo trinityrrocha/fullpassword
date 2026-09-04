@@ -569,6 +569,7 @@ export default function DevicesManager({ devicesForm, setDevicesForm, handleSave
   };
 
   const openCreateLoginModal = () => {
+    if (isSaving || eligibleLoginDevices.length === 0) return;
     setLoginDraft(emptyDeviceLogin(eligibleLoginDevices[0]?.id || ''));
     setShowLoginCreateModal(true);
   };

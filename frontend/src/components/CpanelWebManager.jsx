@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Plus, Edit2, Trash2, X, Eye, Globe } from 'lucide-react';
+import { Plus, Edit2, Trash2, X, Eye, Globe, Server, MonitorCog, BriefcaseBusiness } from 'lucide-react';
 import SecurePasswordInput from './SecurePasswordInput';
 import DeleteConfirmationControl from './DeleteConfirmationControl';
 import ReadOnlyDetailsModal, { ReadOnlyAttachments, ReadOnlyField } from './ReadOnlyDetailsModal';
@@ -25,6 +25,17 @@ const makeId = () => {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 };
+
+function DepartmentIcon({ department }) {
+  const normalized = String(department || '').trim().toLowerCase();
+  const Icon = normalized === 'erp' || normalized === 'sistema' ? MonitorCog : BriefcaseBusiness;
+  const label = `Departamento: ${String(department || '').trim() || 'Não informado'}`;
+  return (
+    <span title={label} className="inline-flex items-center">
+      <Icon role="img" aria-label={label} className="h-4 w-4 shrink-0 text-slate-500 dark:text-slate-400" />
+    </span>
+  );
+}
 
 const emptyCpanel = () => ({
   id: makeId(),
@@ -175,6 +186,7 @@ export default function CpanelWebManager({ cpanelForm, setCpanelForm, handleSave
   };
 
   const openCreateUserModal = () => {
+    if (isSaving || normalizedForm.cpanels.length === 0) return;
     setUserDraft(emptyCpanelUser(normalizedForm.cpanels[0]?.id || ''));
     setShowUserCreateModal(true);
   };
@@ -339,6 +351,16 @@ export default function CpanelWebManager({ cpanelForm, setCpanelForm, handleSave
     ].join(' ').toLowerCase().includes(search);
   });
 
+  const userGroups = new Map();
+  for (const user of filteredUsers) {
+    const server = getCpanelById(user.cpanelId);
+    const key = server ? `server-${server.id}` : 'unlinked';
+    if (!userGroups.has(key)) {
+      userGroups.set(key, { key, label: server ? getCpanelLabel(server.id) : 'Sem servidor vinculado', users: [] });
+    }
+    userGroups.get(key).users.push(user);
+  }
+
   return (
     <div className="space-y-4 animate-fadeIn">
       <div className="flex min-h-10 w-full flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1 shadow-sm sm:h-10 sm:flex-nowrap sm:py-0">
@@ -346,7 +368,7 @@ export default function CpanelWebManager({ cpanelForm, setCpanelForm, handleSave
           <button type="button" disabled={isSaving} onClick={openCreateCpanelModal} className="inline-flex h-8 shrink-0 items-center justify-center rounded-md border border-transparent bg-indigo-600 px-3 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 disabled:opacity-50">
             <Plus className="mr-2 h-4 w-4" /> Adicionar Servidor
           </button>
-          <button type="button" disabled={isSaving} onClick={openCreateUserModal} className="inline-flex h-8 shrink-0 items-center justify-center rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50">
+          <button type="button" disabled={isSaving || normalizedForm.cpanels.length === 0} title={normalizedForm.cpanels.length === 0 ? 'Cadastre um servidor antes de adicionar usuários.' : 'Adicionar usuário'} onClick={openCreateUserModal} className="inline-flex h-8 shrink-0 items-center justify-center rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50">
             <Plus className="mr-2 h-4 w-4" /> Adicionar usuário
           </button>
         </div>
@@ -391,23 +413,27 @@ export default function CpanelWebManager({ cpanelForm, setCpanelForm, handleSave
         <div className="space-y-2">
           {filteredUsers.length === 0 ? (
             <p className="text-sm text-slate-500">{userSearch.trim() || userCpanelFilter ? 'Nenhum usuário encontrado.' : 'Nenhum usuário cadastrado.'}</p>
-          ) : filteredUsers.map((user) => (
-            <div key={user.id} className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm">
-                <p className="font-medium text-slate-900">{user.name || 'Usuário sem nome'}</p>
-                <span className="inline-flex items-center gap-1 text-slate-600">
-                  <span>· Login: {getUserLoginWithDomain(user)}</span>
-                  <CopyButton value={getUserLoginWithDomain(user)} label="Copiar login" />
-                </span>
-                <span className="inline-flex items-center gap-1 text-slate-600">
-                  <span>· Senha: ****</span>
-                  <CopyButton value={user.password} label="Copiar senha" />
-                </span>
-                <span className="text-slate-600">· Departamento: {user.department || '-'}</span>
-                <span className="text-slate-600">· Domínio: {getCpanelAccessLabel(user.cpanelId)}</span>
-              </div>
-              <div className="flex shrink-0 gap-2 self-start sm:self-auto"><button type="button" title="Visualizar" aria-label="Visualizar" onClick={() => setViewingUser(user)} className="action-icon-button action-icon-view"><Eye className="h-4 w-4" /></button><button type="button" title="Detalhes" aria-label="Detalhes" onClick={() => { setEditingUser({ ...user }); setDeleteUserConfirmation(''); }} className="action-icon-button action-icon-edit"><Edit2 className="h-4 w-4" /></button></div>
-            </div>
+          ) : [...userGroups.values()].map((group) => (
+            <section key={group.key} aria-label={group.label} className="space-y-2">
+              <h4 className="flex min-w-0 items-center gap-2 pt-2 text-sm font-medium text-slate-700 dark:text-slate-200"><Server className="h-4 w-4 shrink-0 text-slate-500 dark:text-slate-400" /><span className="break-words">{group.label}</span></h4>
+              {group.users.map((user) => (
+                <div key={user.id} className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+                    <p className="font-medium text-slate-900">{user.name || 'Usuário sem nome'}</p>
+                    <span className="inline-flex items-center gap-1 text-slate-600">
+                      <span>· Login: {getUserLoginWithDomain(user)}</span>
+                      <CopyButton value={getUserLoginWithDomain(user)} label="Copiar login" />
+                    </span>
+                    <span className="inline-flex items-center gap-1 text-slate-600">
+                      <span>· Senha: ****</span>
+                      <CopyButton value={user.password} label="Copiar senha" />
+                    </span>
+                    <DepartmentIcon department={user.department} />
+                  </div>
+                  <div className="flex shrink-0 gap-2 self-start sm:self-auto"><button type="button" title="Visualizar" aria-label="Visualizar" onClick={() => setViewingUser(user)} className="action-icon-button action-icon-view"><Eye className="h-4 w-4" /></button><button type="button" title="Detalhes" aria-label="Detalhes" onClick={() => { setEditingUser({ ...user }); setDeleteUserConfirmation(''); }} className="action-icon-button action-icon-edit"><Edit2 className="h-4 w-4" /></button></div>
+                </div>
+              ))}
+            </section>
           ))}
         </div>
       </div>

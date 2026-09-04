@@ -325,6 +325,7 @@ export default function LinuxServerManager({ serverForm, setServerForm, handleSa
   };
 
   const openCreateUserModal = () => {
+    if (isSaving || normalizedForm.servers.length === 0) return;
     setUserDraft(emptySshCredential(normalizedForm.servers[0]?.id || ''));
     setShowUserCreateModal(true);
   };
@@ -482,7 +483,7 @@ export default function LinuxServerManager({ serverForm, setServerForm, handleSa
           <button type="button" disabled={isSaving} onClick={openCreateServerModal} className="inline-flex h-8 shrink-0 items-center justify-center rounded-md border border-transparent bg-indigo-600 px-3 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 disabled:opacity-50">
             <Plus className="mr-2 h-4 w-4" /> Adicionar Servidor
           </button>
-          <button type="button" disabled={isSaving} onClick={openCreateUserModal} className="inline-flex h-8 shrink-0 items-center justify-center rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50">
+          <button type="button" disabled={isSaving || normalizedForm.servers.length === 0} title={normalizedForm.servers.length === 0 ? 'Cadastre um servidor antes de adicionar usuários.' : 'Adicionar usuário'} onClick={openCreateUserModal} className="inline-flex h-8 shrink-0 items-center justify-center rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50">
             <Plus className="mr-2 h-4 w-4" /> Adicionar usuário
           </button>
         </div>
