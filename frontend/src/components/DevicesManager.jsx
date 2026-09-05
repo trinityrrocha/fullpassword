@@ -1660,7 +1660,7 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
             </div>
             <div className="sm:col-span-2">
               <label className="mb-1 block text-sm font-medium text-slate-700">Observações</label>
-              <textarea rows={3} className="w-full rounded-md border border-slate-300 p-2 shadow-sm" value={device.notes} onChange={(event) => setDevice({ ...device, notes: event.target.value })} placeholder="Observações sobre o dispositivo"></textarea>
+              <textarea rows={3} className="h-[45px] min-h-[45px] max-h-[45px] w-full resize-none overflow-y-auto rounded-md border border-slate-300 p-2 shadow-sm" value={device.notes} onChange={(event) => setDevice({ ...device, notes: event.target.value })} placeholder="Observações sobre o dispositivo"></textarea>
             </div>
           </div>
 

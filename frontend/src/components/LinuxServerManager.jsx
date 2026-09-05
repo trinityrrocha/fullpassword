@@ -766,7 +766,7 @@ function LinuxServerModal({ title, server, setServer, isSaving, onCancel, onSave
             </div>
             <div className="sm:col-span-2">
               <label className="block text-sm font-medium text-slate-700 mb-1">Observações</label>
-              <textarea rows={3} className="w-full border-slate-300 rounded-md shadow-sm p-2 border" value={server.notes} onChange={(e) => setServer({ ...server, notes: e.target.value })} placeholder="Observações sobre o servidor Linux"></textarea>
+              <textarea rows={3} className="h-[45px] min-h-[45px] max-h-[45px] w-full resize-none overflow-y-auto border-slate-300 rounded-md shadow-sm p-2 border" value={server.notes} onChange={(e) => setServer({ ...server, notes: e.target.value })} placeholder="Observações sobre o servidor Linux"></textarea>
             </div>
           </div>
 

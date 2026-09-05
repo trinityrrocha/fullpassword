@@ -1019,7 +1019,7 @@ export default function ClientVault() {
                   </div>
                   <div className="sm:col-span-2 lg:col-span-2">
                     <label className="block text-sm font-medium text-slate-700 mb-1">Observações</label>
-                    <textarea rows={2} className="w-full border-slate-300 rounded-md shadow-sm p-2 border" value={serverDraft.notes} onChange={(e) => updateServerDraft('notes', e.target.value)} placeholder="Observações sobre o servidor"></textarea>
+                    <textarea rows={2} className="h-[45px] min-h-[45px] max-h-[45px] w-full resize-none overflow-y-auto border-slate-300 rounded-md shadow-sm p-2 border" value={serverDraft.notes} onChange={(e) => updateServerDraft('notes', e.target.value)} placeholder="Observações sobre o servidor"></textarea>
                   </div>
                 </div>
                 <div className="mt-4 flex justify-end">
@@ -1392,7 +1392,7 @@ export default function ClientVault() {
                 </div>
                 <div className="sm:col-span-2">
                   <label className="block text-sm font-medium text-slate-700 mb-1">Observações</label>
-                  <textarea rows={3} className="w-full border-slate-300 rounded-md shadow-sm p-2 border" value={editingServer.notes} onChange={(e) => setEditingServer({ ...editingServer, notes: e.target.value })}></textarea>
+                  <textarea rows={3} className="h-[45px] min-h-[45px] max-h-[45px] w-full resize-none overflow-y-auto border-slate-300 rounded-md shadow-sm p-2 border" value={editingServer.notes} onChange={(e) => setEditingServer({ ...editingServer, notes: e.target.value })}></textarea>
                 </div>
               </div>
 
