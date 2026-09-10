@@ -36,6 +36,10 @@ const CONNECTION_OPTIONS = ['Eth1', 'Eth2', 'Eth3', 'Eth4', 'Eth5', 'VPN'];
 const VPN_OPTIONS = ['OpenVPN', 'WireGuard', 'ZeroTier', 'Tailscale', 'Outro'];
 const DIRECTION_OPTIONS = ['Entrada', 'Saída', 'Entrada/Saída'];
 const PROTOCOL_OPTIONS = ['TCP', 'UDP', 'TCP/UDP'];
+const WAN_OPTIONS = ['WAN1', 'WAN2', 'WAN3', 'WAN4', 'WAN5'];
+const WAN_PROTOCOL_OPTIONS = ['TCP', 'UDP'];
+const WAN_DIRECTION_OPTIONS = ['Entrada', 'Saída'];
+const WAN_DIRECTION_LABELS = { Entrada: 'Ent.', Saída: 'Saí.' };
 const DVR_PORT_FIELDS = [
   ['tcpPort', 'PORTA TCP'],
   ['httpsPort', 'PORTA HTTPS'],
@@ -91,6 +95,7 @@ const emptyDevice = () => ({
   dvrAccess: { ip: '', tcpPort: '', httpsPort: '', httpPort: '', rtspPort: '', ntpPort: '', posPort: '', deviceId: '', mac: '', ddns: '' },
   connections: [],
   pppoeAccounts: [],
+  wanPortRules: [],
   pabxPortal: { url: '', login: '', password: '' },
   contractedExtensions: '',
   extensions: [],
@@ -126,6 +131,13 @@ const emptyPabxExtensionDraft = () => ({
   password: '',
   department: 'Geral',
   collaborator: ''
+});
+
+const emptyWanPortDraft = () => ({
+  wan: WAN_OPTIONS[0],
+  portNumber: '',
+  protocol: WAN_PROTOCOL_OPTIONS[0],
+  direction: WAN_DIRECTION_OPTIONS[0]
 });
 
 const normalizeConnections = (device = {}) => {
@@ -185,13 +197,35 @@ const normalizePortRules = (device = {}) => {
 
 const normalizePppoeAccounts = (device = {}) => {
   const accounts = Array.isArray(device.pppoeAccounts) ? device.pppoeAccounts : [];
-  return accounts.map((account) => ({
-    id: account?.id || makeId(),
-    operatorName: String(account?.operatorName || ''),
-    login: String(account?.login || ''),
-    password: String(account?.password || ''),
-    supportPhone: String(account?.supportPhone || '')
-  }));
+  return accounts.map((account) => {
+    const wan = String(account?.wan || '').toUpperCase();
+    return {
+      id: account?.id || makeId(),
+      login: String(account?.login ?? account?.pppoeLogin ?? account?.loginPppoe ?? ''),
+      pppoe: String(account?.pppoe ?? account?.pppoeIdentifier ?? ''),
+      password: String(account?.password ?? account?.pppoePassword ?? ''),
+      mac: String(account?.mac ?? ''),
+      wan: WAN_OPTIONS.includes(wan) ? wan : WAN_OPTIONS[0],
+      publicIp: sanitizeIpv4Input(account?.publicIp ?? account?.publicIP ?? ''),
+      operatorName: String(account?.operatorName ?? account?.operator ?? account?.provider ?? ''),
+      supportPhone: String(account?.supportPhone ?? account?.phone ?? '')
+    };
+  });
+};
+
+const normalizeWanPortRules = (device = {}) => {
+  const rules = Array.isArray(device.wanPortRules) ? device.wanPortRules : [];
+  return rules.map((rule) => {
+    const wan = String(rule?.wan || '').toUpperCase();
+    const direction = rule?.direction === 'Ent.' ? 'Entrada' : rule?.direction === 'Saí.' ? 'Saída' : rule?.direction;
+    return {
+      id: rule?.id || makeId(),
+      wan: WAN_OPTIONS.includes(wan) ? wan : WAN_OPTIONS[0],
+      portNumber: sanitizePortInput(rule?.portNumber ?? rule?.port ?? ''),
+      protocol: WAN_PROTOCOL_OPTIONS.includes(rule?.protocol) ? rule.protocol : WAN_PROTOCOL_OPTIONS[0],
+      direction: WAN_DIRECTION_OPTIONS.includes(direction) ? direction : WAN_DIRECTION_OPTIONS[0]
+    };
+  });
 };
 
 const normalizePabxPortal = (device = {}) => ({
@@ -282,6 +316,7 @@ const normalizeDevice = (device = {}) => {
     dvrAccess: normalizeDvrAccess(device),
     connections: normalizeConnections(device),
     pppoeAccounts: deviceType === DEVICE_TYPE_ROUTER_GATEWAY ? normalizePppoeAccounts(device) : [],
+    wanPortRules: deviceType === DEVICE_TYPE_ROUTER_GATEWAY ? normalizeWanPortRules(device) : [],
     pabxPortal: isPabx ? normalizePabxPortal(device) : { url: '', login: '', password: '' },
     contractedExtensions: isPabx
       ? sanitizeContractedExtensions(device.contractedExtensions ?? device.extensionContractedQuantity ?? '')
@@ -345,12 +380,11 @@ const formatDeviceOptionLabel = (device) => {
   return `${name} (${type})`;
 };
 
-const formatPppoeSummary = (device) => {
+const formatRouterSummary = (device) => {
   if (device?.deviceType !== DEVICE_TYPE_ROUTER_GATEWAY) return '';
   const accounts = normalizePppoeAccounts(device);
-  if (accounts.length === 0) return '';
-  const operators = [...new Set(accounts.map((account) => account.operatorName.trim()).filter(Boolean))];
-  return `PPPoE: ${accounts.length}${operators.length ? ` - ${operators.join(', ')}` : ''}`;
+  const ports = normalizeWanPortRules(device);
+  return `PPPoE: ${accounts.length} · Portas WAN: ${ports.length}`;
 };
 
 const formatWifiNetworksSummary = (device) => device?.deviceType === DEVICE_TYPE_WIFI_CONTROLLER
@@ -485,12 +519,13 @@ export default function DevicesManager({ devicesForm, setDevicesForm, handleSave
       alert('Selecione o tipo do dispositivo.');
       return false;
     }
-    const connectionError = device.deviceType === 'DVR' ? '' : getDeviceConnectionError(device);
+    const usesGenericNetworkRules = !['DVR', DEVICE_TYPE_ROUTER_GATEWAY].includes(device.deviceType);
+    const connectionError = usesGenericNetworkRules ? getDeviceConnectionError(device) : '';
     if (connectionError) {
       alert(connectionError);
       return false;
     }
-    const invalidPort = device.deviceType === 'DVR' ? null : findInvalidPort(device);
+    const invalidPort = usesGenericNetworkRules ? findInvalidPort(device) : null;
     if (invalidPort) {
       alert(`A porta "${invalidPort.portNumber || 'vazia'}" em "${invalidPort.name || 'Porta'}" é inválida. Informe uma porta entre 1 e 65535.`);
       return false;
@@ -508,6 +543,20 @@ export default function DevicesManager({ devicesForm, setDevicesForm, handleSave
       : null;
     if (invalidPppoe) {
       alert('Informe pelo menos a operadora ou o login em cada conta PPPoE adicionada.');
+      return false;
+    }
+    const invalidPppoePublicIp = device.deviceType === DEVICE_TYPE_ROUTER_GATEWAY
+      ? normalizePppoeAccounts(device).find((account) => validateIpv4(account.publicIp).state === 'invalid')
+      : null;
+    if (invalidPppoePublicIp) {
+      alert('Corrija o IP Público inválido antes de salvar.');
+      return false;
+    }
+    const invalidWanPort = device.deviceType === DEVICE_TYPE_ROUTER_GATEWAY
+      ? normalizeWanPortRules(device).find((rule) => !isValidPort(rule.portNumber))
+      : null;
+    if (invalidWanPort) {
+      alert('Corrija a porta WAN inválida. Informe um número entre 1 e 65535.');
       return false;
     }
     return true;
@@ -785,10 +834,11 @@ export default function DevicesManager({ devicesForm, setDevicesForm, handleSave
                 <strong className="flex min-w-0 items-center gap-2 truncate font-medium text-slate-900"><DeviceTypeIcon type={device.deviceType} />{device.name || 'Dispositivo sem nome'} ({device.deviceType || '-'})</strong>
                 {device.deviceType === 'DVR' ? (
                   formatDvrSummary(device) && <span className="min-w-0 break-words">{formatDvrSummary(device)}</span>
+                ) : device.deviceType === DEVICE_TYPE_ROUTER_GATEWAY ? (
+                  <span className="whitespace-nowrap">{formatRouterSummary(device)}</span>
                 ) : (
                   <><span className="whitespace-nowrap">Conexões: {device.connections.length}</span><span className="whitespace-nowrap">Portas: {device.portRules.length}</span></>
                 )}
-                {formatPppoeSummary(device) && <span className="whitespace-nowrap">{formatPppoeSummary(device)}</span>}
                 {formatWifiNetworksSummary(device) && <span className="whitespace-nowrap">{formatWifiNetworksSummary(device)}</span>}
                 {formatNasUsersSummary(device) && <span className="whitespace-nowrap">{formatNasUsersSummary(device)}</span>}
                 {formatPabxExtensionsSummary(device) && <span className="whitespace-nowrap">{formatPabxExtensionsSummary(device)}</span>}
@@ -1031,10 +1081,66 @@ function DeviceAccessListModal({ device, items, kind, onClose, onRemove, onEdit,
   );
 }
 
+function WanPortRulesModal({ device, rules, readOnly = false, onClose, onUpdate, onRemove }) {
+  const [search, setSearch] = useState('');
+  useClearOnVaultLock(onClose);
+  const filteredRules = rules.filter((rule) => {
+    const query = search.trim().toLowerCase();
+    return !query || [rule.wan, rule.portNumber, rule.protocol, rule.direction].join(' ').toLowerCase().includes(query);
+  });
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/70 p-4">
+      <div className="max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-lg bg-white shadow-xl dark:bg-slate-900">
+        <div className="border-b border-slate-200 p-5 dark:border-slate-700">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Portas configuradas</h3>
+              <p className="mt-1 flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400"><DeviceTypeIcon type={device.deviceType} />{formatDeviceOptionLabel(device)}</p>
+            </div>
+            <button type="button" onClick={onClose} aria-label="Fechar portas configuradas" className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"><X className="h-5 w-5" /></button>
+          </div>
+          <input type="search" aria-label="Pesquisar portas configuradas" className="mt-3 w-full rounded-md border border-slate-300 bg-white p-2 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Pesquisar por WAN, porta, protocolo ou direção..." />
+        </div>
+        <div className="space-y-2 p-5">
+          {filteredRules.length === 0 ? (
+            <p className="text-sm text-slate-500 dark:text-slate-400">{search.trim() ? 'Nenhuma porta encontrada.' : 'Nenhuma porta configurada.'}</p>
+          ) : filteredRules.map((rule) => (
+            readOnly ? (
+              <div key={rule.id} className="grid gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800 sm:grid-cols-4">
+                <div><span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">WAN</span><p className="mt-1 text-slate-900 dark:text-slate-100">{rule.wan}</p></div>
+                <div><span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Porta</span><div className="mt-1 flex items-center gap-2 text-slate-900 dark:text-slate-100"><span>{rule.portNumber}</span><CopyButton value={rule.portNumber} label={`Copiar porta ${rule.portNumber}`} /></div></div>
+                <div><span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Protocolo</span><p className="mt-1 text-slate-900 dark:text-slate-100">{rule.protocol}</p></div>
+                <div><span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Direção</span><p className="mt-1 text-slate-900 dark:text-slate-100">{rule.direction}</p></div>
+              </div>
+            ) : (
+              <div key={rule.id} className="flex flex-wrap items-end gap-2 rounded-md border border-slate-200 bg-slate-50 p-2 dark:border-slate-700 dark:bg-slate-800">
+                <label><span className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">WAN</span><select aria-label={`WAN da porta ${rule.portNumber}`} className="h-[32px] w-[60px] rounded-md border border-slate-300 bg-white px-0.5 text-[13px] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={rule.wan} onChange={(event) => onUpdate(rule.id, 'wan', event.target.value)}>{WAN_OPTIONS.map((wan) => <option key={wan} value={wan}>{wan}</option>)}</select></label>
+                <label><span className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">Porta</span><input type="text" inputMode="numeric" maxLength={5} aria-label={`Editar porta ${rule.portNumber}`} className={`h-[32px] w-[60px] rounded-md border bg-white px-1 text-[13px] dark:bg-slate-900 dark:text-slate-100 ${isValidPort(rule.portNumber) ? 'border-slate-300 dark:border-slate-700' : 'border-red-500'}`} value={rule.portNumber} onChange={(event) => onUpdate(rule.id, 'portNumber', event.target.value)} /></label>
+                <label><span className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">Protocolo</span><select aria-label={`Protocolo da porta ${rule.portNumber}`} className="h-[32px] w-[60px] rounded-md border border-slate-300 bg-white px-1 text-[13px] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={rule.protocol} onChange={(event) => onUpdate(rule.id, 'protocol', event.target.value)}>{WAN_PROTOCOL_OPTIONS.map((protocol) => <option key={protocol} value={protocol}>{protocol}</option>)}</select></label>
+                <label><span className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">Direção</span><select aria-label={`Direção da porta ${rule.portNumber}`} className="h-[32px] w-[60px] rounded-md border border-slate-300 bg-white px-1 text-[13px] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={rule.direction} onChange={(event) => onUpdate(rule.id, 'direction', event.target.value)}>{WAN_DIRECTION_OPTIONS.map((direction) => <option key={direction} value={direction}>{WAN_DIRECTION_LABELS[direction]}</option>)}</select></label>
+                <CopyButton value={rule.portNumber} label={`Copiar porta ${rule.portNumber}`} />
+                <button type="button" title="Excluir porta WAN" aria-label="Excluir porta WAN" onClick={() => onRemove(rule.id)} className="action-icon-button action-icon-delete"><Trash2 className="h-4 w-4" /></button>
+              </div>
+            )
+          ))}
+        </div>
+        <div className="flex justify-end border-t border-slate-200 bg-slate-50 px-5 py-3 dark:border-slate-700 dark:bg-slate-800">
+          <button type="button" onClick={onClose} className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-700">Fechar</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function DeviceReadOnlyModal({ device, accessItems = [], onClose }) {
   const normalized = normalizeDevice(device);
   const [showAccessList, setShowAccessList] = useState(false);
-  useClearOnVaultLock(() => setShowAccessList(false));
+  const [showWanPortList, setShowWanPortList] = useState(false);
+  useClearOnVaultLock(() => {
+    setShowAccessList(false);
+    setShowWanPortList(false);
+  });
   return (
     <ReadOnlyDetailsModal title="Visualizar dispositivo" onClose={onClose}>
       <div className="grid gap-4 sm:grid-cols-2">
@@ -1045,7 +1151,7 @@ function DeviceReadOnlyModal({ device, accessItems = [], onClose }) {
 
       {normalized.deviceType === 'DVR' && <DvrAccessReadOnly access={normalized.dvrAccess} />}
 
-      {normalized.deviceType !== 'DVR' && <section>
+      {!['DVR', DEVICE_TYPE_ROUTER_GATEWAY].includes(normalized.deviceType) && <section>
         <h4 className="mb-2 text-sm font-semibold text-slate-900">Conexões</h4>
         {normalized.connections.length === 0 ? <p className="text-sm text-slate-500">Nenhuma conexão cadastrada.</p> : (
           <div className="space-y-2">
@@ -1102,20 +1208,34 @@ function DeviceReadOnlyModal({ device, accessItems = [], onClose }) {
         </>
       )}
 
-      {normalized.deviceType === DEVICE_TYPE_ROUTER_GATEWAY && normalized.pppoeAccounts.length > 0 && (
-        <section>
-          <h4 className="mb-2 text-sm font-semibold text-slate-900 dark:text-slate-100">PPPoE</h4>
-          <div className="space-y-2">
-            {normalized.pppoeAccounts.map((account) => (
-              <div key={account.id} className="grid gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800 sm:grid-cols-2">
-                <div><span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Operadora</span><p className="mt-1 text-slate-900 dark:text-slate-100">{account.operatorName || '-'}</p></div>
-                <div><span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Login PPPoE</span><div className="mt-1 flex items-center gap-2 text-slate-900 dark:text-slate-100"><span>{account.login || '-'}</span>{account.login && <CopyButton value={account.login} label="Copiar login PPPoE" />}</div></div>
-                <div><span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Senha PPPoE</span><div className="mt-1 flex items-center gap-2 text-slate-900 dark:text-slate-100"><span>****</span>{account.password && <CopyButton value={account.password} label="Copiar senha PPPoE" />}</div></div>
-                <div><span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Telefone suporte</span><p className="mt-1 text-slate-900 dark:text-slate-100">{account.supportPhone || '-'}</p></div>
+      {normalized.deviceType === DEVICE_TYPE_ROUTER_GATEWAY && (
+        <>
+          <section>
+            <h4 className="mb-2 text-sm font-semibold text-slate-900 dark:text-slate-100">PPPoE</h4>
+            {normalized.pppoeAccounts.length === 0 ? <p className="text-sm text-slate-500 dark:text-slate-400">Nenhuma conta PPPoE cadastrada.</p> : (
+              <div className="space-y-2">
+                {normalized.pppoeAccounts.map((account) => (
+                  <div key={account.id} className="grid gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800 sm:grid-cols-2 lg:grid-cols-4">
+                    <div><span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">WAN</span><p className="mt-1 text-slate-900 dark:text-slate-100">{account.wan}</p></div>
+                    <div><span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Login</span><div className="mt-1 flex items-center gap-2 text-slate-900 dark:text-slate-100"><span className="min-w-0 break-all">{account.login || '-'}</span>{account.login && <CopyButton value={account.login} label="Copiar login PPPoE" />}</div></div>
+                    <div><span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">PPPoE</span><p className="mt-1 break-all text-slate-900 dark:text-slate-100">{account.pppoe || '-'}</p></div>
+                    <div><span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Senha PPPoE</span><div className="mt-1 flex items-center gap-2 text-slate-900 dark:text-slate-100"><span>****</span>{account.password && <CopyButton value={account.password} label="Copiar senha PPPoE" />}</div></div>
+                    <div><span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">MAC</span><div className="mt-1 flex items-center gap-2 text-slate-900 dark:text-slate-100"><span>{account.mac || '-'}</span>{account.mac && <CopyButton value={account.mac} label="Copiar MAC do PPPoE" />}</div></div>
+                    <div><span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">IP Público</span><div className="mt-1 flex items-center gap-2 text-slate-900 dark:text-slate-100"><span>{account.publicIp || '-'}</span>{account.publicIp && <CopyButton value={account.publicIp} label="Copiar IP Público" />}</div></div>
+                    <div><span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Operadora</span><p className="mt-1 text-slate-900 dark:text-slate-100">{account.operatorName || '-'}</p></div>
+                    <div><span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Telefone</span><p className="mt-1 text-slate-900 dark:text-slate-100">{account.supportPhone || '-'}</p></div>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        </section>
+            )}
+          </section>
+          <section>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div><h4 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Portas WAN</h4><p className="text-xs text-slate-500 dark:text-slate-400">Portas configuradas: {normalized.wanPortRules.length}</p></div>
+              <button type="button" onClick={() => setShowWanPortList(true)} className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">Exibir portas configuradas</button>
+            </div>
+          </section>
+        </>
       )}
 
       {normalized.deviceType === PABX_DEVICE_TYPE && (
@@ -1128,7 +1248,7 @@ function DeviceReadOnlyModal({ device, accessItems = [], onClose }) {
         </>
       )}
 
-      {normalized.deviceType !== 'DVR' && <section>
+      {!['DVR', DEVICE_TYPE_ROUTER_GATEWAY].includes(normalized.deviceType) && <section>
         <h4 className="mb-2 text-sm font-semibold text-slate-900">Portas</h4>
         {normalized.portRules.length === 0 ? <p className="text-sm text-slate-500">Nenhuma porta cadastrada.</p> : (
           <div className="space-y-2">
@@ -1145,6 +1265,7 @@ function DeviceReadOnlyModal({ device, accessItems = [], onClose }) {
       {showAccessList && normalized.deviceType === DEVICE_TYPE_NAS_STORAGE && <DeviceAccessListModal device={normalized} items={normalized.nasUsers} kind="nasUser" readOnly onClose={() => setShowAccessList(false)} />}
       {showAccessList && normalized.deviceType === PABX_DEVICE_TYPE && <DeviceAccessListModal device={normalized} items={normalized.extensions} kind="pabxExtension" readOnly onClose={() => setShowAccessList(false)} />}
       {showAccessList && ['DVR', 'IMPRESSORA'].includes(normalized.deviceType) && <DeviceAccessListModal device={normalized} items={accessItems} kind="generic" readOnly onClose={() => setShowAccessList(false)} />}
+      {showWanPortList && normalized.deviceType === DEVICE_TYPE_ROUTER_GATEWAY && <WanPortRulesModal device={normalized} rules={normalized.wanPortRules} readOnly onClose={() => setShowWanPortList(false)} />}
     </ReadOnlyDetailsModal>
   );
 }
@@ -1376,10 +1497,13 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
   const [initialDeviceSnapshot] = useState(() => JSON.stringify(device));
   const [nasUserDraft, setNasUserDraft] = useState(emptyNasUserDraft());
   const [pabxExtensionDraft, setPabxExtensionDraft] = useState(emptyPabxExtensionDraft());
+  const [wanPortDraft, setWanPortDraft] = useState(emptyWanPortDraft());
   const [showAccessList, setShowAccessList] = useState(false);
+  const [showWanPortList, setShowWanPortList] = useState(false);
   const [showUnsavedDialog, setShowUnsavedDialog] = useState(false);
   const connections = normalizeConnections(device);
   const pppoeAccounts = normalizePppoeAccounts(device);
+  const wanPortRules = normalizeWanPortRules(device);
   const pabxPortal = normalizePabxPortal(device);
   const extensions = normalizeExtensions(device);
   const duplicateExtensions = getDuplicateExtensions(extensions);
@@ -1397,20 +1521,27 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
   const portRules = normalizePortRules(device);
   const dvrAccess = normalizeDvrAccess(device);
   const isExistingDevice = Boolean(onDelete);
-  const hasInvalidConnections = device.deviceType !== 'DVR' && connections.some((connection) => (
+  const usesGenericNetworkRules = !['DVR', DEVICE_TYPE_ROUTER_GATEWAY].includes(device.deviceType);
+  const hasInvalidConnections = usesGenericNetworkRules && connections.some((connection) => (
     validateIpv4Cidr(connection.ipv4).state === 'invalid'
     || (connection.type !== 'VPN' && validateIpv4(connection.gateway).state === 'invalid')
   ));
-  const hasInvalidPorts = device.deviceType !== 'DVR' && portRules.some((rule) => !isValidPort(rule.portNumber));
+  const hasInvalidPorts = usesGenericNetworkRules && portRules.some((rule) => !isValidPort(rule.portNumber));
   const hasInvalidDvrPorts = device.deviceType === 'DVR' && DVR_PORT_FIELDS.some(([field]) => !isOptionalValidPort(dvrAccess[field]));
+  const hasInvalidPppoePublicIp = device.deviceType === DEVICE_TYPE_ROUTER_GATEWAY && pppoeAccounts.some((account) => validateIpv4(account.publicIp).state === 'invalid');
+  const hasInvalidWanPorts = device.deviceType === DEVICE_TYPE_ROUTER_GATEWAY && wanPortRules.some((rule) => !isValidPort(rule.portNumber));
+  const hasWanPortDraft = Boolean(wanPortDraft.portNumber);
+  const hasInvalidWanPortDraft = hasWanPortDraft && !isValidPort(wanPortDraft.portNumber);
   const hasNasUserDraft = Object.values(nasUserDraft).some((value) => value && value !== 'Geral');
   const hasPabxExtensionDraft = Object.values(pabxExtensionDraft).some((value) => value && value !== 'Geral');
-  const hasUnsavedChanges = JSON.stringify(device) !== initialDeviceSnapshot || hasNasUserDraft || hasPabxExtensionDraft;
+  const hasUnsavedChanges = JSON.stringify(device) !== initialDeviceSnapshot || hasNasUserDraft || hasPabxExtensionDraft || JSON.stringify(wanPortDraft) !== JSON.stringify(emptyWanPortDraft());
 
   useClearOnVaultLock(() => {
     setNasUserDraft(emptyNasUserDraft());
     setPabxExtensionDraft(emptyPabxExtensionDraft());
+    setWanPortDraft(emptyWanPortDraft());
     setShowAccessList(false);
+    setShowWanPortList(false);
     setShowUnsavedDialog(false);
   });
 
@@ -1445,6 +1576,13 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
         return false;
       }
       deviceToSave = { ...deviceToSave, extensions: [{ id: makeId(), ...pabxExtensionDraft }, ...extensions] };
+    }
+    if (device.deviceType === DEVICE_TYPE_ROUTER_GATEWAY && hasWanPortDraft) {
+      if (!isValidPort(wanPortDraft.portNumber)) {
+        alert('Informe uma porta WAN entre 1 e 65535 antes de salvar.');
+        return false;
+      }
+      deviceToSave = { ...deviceToSave, wanPortRules: [{ id: makeId(), ...wanPortDraft }, ...wanPortRules] };
     }
     return onSave(deviceToSave);
   };
@@ -1481,8 +1619,8 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
 
   const handleDeviceTypeChange = (nextDeviceType) => {
     if (isExistingDevice) return;
-    if (device.deviceType === DEVICE_TYPE_ROUTER_GATEWAY && nextDeviceType !== DEVICE_TYPE_ROUTER_GATEWAY && pppoeAccounts.length > 0) {
-      const confirmed = window.confirm('Este dispositivo possui PPPoE cadastrados. Ao alterar o tipo para outro dispositivo, os dados PPPoE serão removidos. Deseja continuar?');
+    if (device.deviceType === DEVICE_TYPE_ROUTER_GATEWAY && nextDeviceType !== DEVICE_TYPE_ROUTER_GATEWAY && (pppoeAccounts.length > 0 || wanPortRules.length > 0)) {
+      const confirmed = window.confirm('Este dispositivo possui PPPoE ou portas WAN cadastrados. Ao alterar o tipo para outro dispositivo, esses dados serão removidos. Deseja continuar?');
       if (!confirmed) return;
     }
 
@@ -1508,11 +1646,14 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
 
     setNasUserDraft(emptyNasUserDraft());
     setPabxExtensionDraft(emptyPabxExtensionDraft());
+    setWanPortDraft(emptyWanPortDraft());
     setShowAccessList(false);
+    setShowWanPortList(false);
     setDevice({
       ...device,
       deviceType: nextDeviceType,
       pppoeAccounts: nextDeviceType === DEVICE_TYPE_ROUTER_GATEWAY ? pppoeAccounts : [],
+      wanPortRules: nextDeviceType === DEVICE_TYPE_ROUTER_GATEWAY ? wanPortRules : [],
       pabxPortal: nextDeviceType === PABX_DEVICE_TYPE ? pabxPortal : { url: '', login: '', password: '' },
       contractedExtensions: nextDeviceType === PABX_DEVICE_TYPE
         ? sanitizeContractedExtensions(device.contractedExtensions)
@@ -1538,14 +1679,15 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
   const addPppoeAccount = () => {
     setDevice({
       ...device,
-      pppoeAccounts: [...pppoeAccounts, { id: makeId(), operatorName: '', login: '', password: '', supportPhone: '' }]
+      pppoeAccounts: [{ id: makeId(), login: '', pppoe: '', password: '', mac: '', wan: WAN_OPTIONS[0], publicIp: '', operatorName: '', supportPhone: '' }, ...pppoeAccounts]
     });
   };
 
   const updatePppoeAccount = (accountId, field, value) => {
+    const nextValue = field === 'publicIp' ? sanitizeIpv4Input(value) : value;
     setDevice({
       ...device,
-      pppoeAccounts: pppoeAccounts.map((account) => account.id === accountId ? { ...account, [field]: value } : account)
+      pppoeAccounts: pppoeAccounts.map((account) => account.id === accountId ? { ...account, [field]: nextValue } : account)
     });
   };
 
@@ -1554,6 +1696,24 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
       ...device,
       pppoeAccounts: pppoeAccounts.filter((account) => account.id !== accountId)
     });
+  };
+
+  const addWanPortRule = () => {
+    if (!isValidPort(wanPortDraft.portNumber)) {
+      alert('Informe uma porta entre 1 e 65535.');
+      return;
+    }
+    setDevice({ ...device, wanPortRules: [{ id: makeId(), ...wanPortDraft }, ...wanPortRules] });
+    setWanPortDraft({ ...wanPortDraft, portNumber: '' });
+  };
+
+  const updateWanPortRule = (ruleId, field, value) => {
+    const nextValue = field === 'portNumber' ? sanitizePortInput(value) : value;
+    setDevice({ ...device, wanPortRules: wanPortRules.map((rule) => rule.id === ruleId ? { ...rule, [field]: nextValue } : rule) });
+  };
+
+  const removeWanPortRule = (ruleId) => {
+    setDevice({ ...device, wanPortRules: wanPortRules.filter((rule) => rule.id !== ruleId) });
   };
 
   const updatePabxPortal = (field, value) => {
@@ -1779,7 +1939,7 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
           )}
 
           {device.deviceType === DEVICE_TYPE_ROUTER_GATEWAY && (
-            <div className="border-t border-slate-200 pt-5 dark:border-slate-700">
+            <section className="border-t border-slate-200 pt-5 dark:border-slate-700">
               <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <h4 className="text-sm font-semibold text-slate-900 dark:text-slate-100">PPPoE</h4>
@@ -1793,28 +1953,44 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
                 {pppoeAccounts.length === 0 ? (
                   <p className="text-sm text-slate-500 dark:text-slate-400">Nenhuma conta PPPoE adicionada.</p>
                 ) : pppoeAccounts.map((account) => (
-                  <div key={account.id} className="grid w-full grid-cols-1 items-end gap-2 rounded-md border border-slate-200 bg-slate-50 p-2 dark:border-slate-800 dark:bg-slate-800 md:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_24px]">
-                    <div>
-                      <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Operadora</label>
-                      <input type="text" className="h-10 w-full min-w-0 rounded-md border border-slate-300 bg-white px-2 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={account.operatorName} onChange={(event) => updatePppoeAccount(account.id, 'operatorName', event.target.value)} placeholder="Ex: Vivo" />
+                  <div key={account.id} className="space-y-2 rounded-md border border-slate-200 bg-slate-50 p-2 dark:border-slate-800 dark:bg-slate-800">
+                    <div className="grid w-full grid-cols-1 items-end gap-2 md:grid-cols-2 lg:grid-cols-[minmax(120px,1fr)_minmax(100px,.75fr)_minmax(140px,1fr)_minmax(150px,1fr)_90px_24px]">
+                      <div><label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Login</label><input type="text" aria-label="Login do PPPoE" autoComplete="off" className="h-10 w-full min-w-0 rounded-md border border-slate-300 bg-white px-2 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={account.login} onChange={(event) => updatePppoeAccount(account.id, 'login', event.target.value)} placeholder="Login" /></div>
+                      <div><label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">PPPoE</label><input type="text" aria-label="PPPoE" autoComplete="off" className="h-10 w-full min-w-0 rounded-md border border-slate-300 bg-white px-2 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={account.pppoe} onChange={(event) => updatePppoeAccount(account.id, 'pppoe', event.target.value)} placeholder="Identificador" /></div>
+                      <SecurePasswordInput name={`device_pppoe_password_${account.id}`} label="Senha PPPoE" value={account.password} onChange={(event) => updatePppoeAccount(account.id, 'password', event.target.value)} enableGenerator={false} autoComplete="new-password" />
+                      <div><label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">MAC</label><input type="text" aria-label="MAC do PPPoE" className="h-10 w-full min-w-0 rounded-md border border-slate-300 bg-white px-2 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={account.mac} onChange={(event) => updatePppoeAccount(account.id, 'mac', event.target.value)} placeholder="AA:BB:CC:DD:EE:FF" /></div>
+                      <div><label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">WAN</label><select aria-label="WAN do PPPoE" className="h-10 w-full rounded-md border border-slate-300 bg-white px-2 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={account.wan} onChange={(event) => updatePppoeAccount(account.id, 'wan', event.target.value)}>{WAN_OPTIONS.map((wan) => <option key={wan} value={wan}>{wan}</option>)}</select></div>
+                      <button type="button" title="Excluir PPPoE" aria-label="Excluir PPPoE" onClick={() => removePppoeAccount(account.id)} className="action-icon-button action-icon-delete justify-self-end lg:mb-3 lg:justify-self-center"><Trash2 className="h-4 w-4" /></button>
                     </div>
-                    <div>
-                      <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Login PPPoE</label>
-                      <input type="text" autoComplete="off" className="h-10 w-full min-w-0 rounded-md border border-slate-300 bg-white px-2 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={account.login} onChange={(event) => updatePppoeAccount(account.id, 'login', event.target.value)} placeholder="Login PPPoE" />
+                    <div className="grid grid-cols-1 items-start gap-2 md:grid-cols-3">
+                      <Ipv4Input value={account.publicIp} onChange={(value) => updatePppoeAccount(account.id, 'publicIp', value)} state={validateIpv4(account.publicIp).state} error={validateIpv4(account.publicIp).error} label="IP Público" ariaLabel="IP Público do PPPoE" placeholder="187.110.167.94" required={false} showHelperText={false} containerClassName="w-full min-w-0 [&_label]:dark:text-slate-300" inputWrapperClassName="h-10 w-full min-w-0 dark:border-slate-700 dark:bg-slate-900" inputClassName="text-sm tracking-normal dark:text-slate-100 dark:placeholder-slate-500" />
+                      <div><label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Operadora</label><input type="text" aria-label="Operadora do PPPoE" className="h-10 w-full min-w-0 rounded-md border border-slate-300 bg-white px-2 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={account.operatorName} onChange={(event) => updatePppoeAccount(account.id, 'operatorName', event.target.value)} placeholder="Ex: Vivo" /></div>
+                      <div><label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Telefone</label><input type="text" aria-label="Telefone do PPPoE" className="h-10 w-full min-w-0 rounded-md border border-slate-300 bg-white px-2 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={account.supportPhone} onChange={(event) => updatePppoeAccount(account.id, 'supportPhone', event.target.value)} placeholder="0800, WhatsApp ou ramal" /></div>
                     </div>
-                    <SecurePasswordInput name={`device_pppoe_password_${account.id}`} label="Senha PPPoE" value={account.password} onChange={(event) => updatePppoeAccount(account.id, 'password', event.target.value)} enableGenerator={false} autoComplete="new-password" />
-                    <div>
-                      <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Telefone suporte</label>
-                      <input type="text" className="h-10 w-full min-w-0 rounded-md border border-slate-300 bg-white px-2 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={account.supportPhone} onChange={(event) => updatePppoeAccount(account.id, 'supportPhone', event.target.value)} placeholder="0800, WhatsApp ou ramal" />
-                    </div>
-                    <button type="button" title="Excluir PPPoE" aria-label="Excluir PPPoE" onClick={() => removePppoeAccount(account.id)} className="action-icon-button action-icon-delete justify-self-end xl:mb-3 xl:justify-self-center"><Trash2 className="h-4 w-4" /></button>
                   </div>
                 ))}
               </div>
-            </div>
+            </section>
           )}
 
-          {device.deviceType !== 'DVR' && <div className="border-t border-slate-200 pt-5">
+          {device.deviceType === DEVICE_TYPE_ROUTER_GATEWAY && (
+            <section className="border-t border-slate-200 pt-5 dark:border-slate-700">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <div><h4 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Portas WAN</h4><p className="text-xs text-slate-500 dark:text-slate-400">Cadastre portas específicas para cada WAN.</p></div>
+                <button type="button" onClick={() => setShowWanPortList(true)} className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800">Exibir portas configuradas</button>
+              </div>
+              <div className="flex flex-wrap items-end gap-2 rounded-md border border-slate-200 bg-slate-50 p-2 dark:border-slate-700 dark:bg-slate-800">
+                <label><span className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">WAN</span><select aria-label="WAN da nova porta" className="h-[32px] w-[60px] rounded-md border border-slate-300 bg-white px-0.5 text-[13px] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={wanPortDraft.wan} onChange={(event) => setWanPortDraft({ ...wanPortDraft, wan: event.target.value })}>{WAN_OPTIONS.map((wan) => <option key={wan} value={wan}>{wan}</option>)}</select></label>
+                <label><span className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">Porta</span><input type="text" inputMode="numeric" maxLength={5} aria-label="Porta WAN" className={`h-[32px] w-[60px] rounded-md border bg-white px-1 text-[13px] dark:bg-slate-900 dark:text-slate-100 ${hasInvalidWanPortDraft ? 'border-red-500' : 'border-slate-300 dark:border-slate-700'}`} value={wanPortDraft.portNumber} onChange={(event) => setWanPortDraft({ ...wanPortDraft, portNumber: sanitizePortInput(event.target.value) })} placeholder="443" /></label>
+                <label><span className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">Protocolo</span><select aria-label="Protocolo da porta WAN" className="h-[32px] w-[60px] rounded-md border border-slate-300 bg-white px-1 text-[13px] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={wanPortDraft.protocol} onChange={(event) => setWanPortDraft({ ...wanPortDraft, protocol: event.target.value })}>{WAN_PROTOCOL_OPTIONS.map((protocol) => <option key={protocol} value={protocol}>{protocol}</option>)}</select></label>
+                <label><span className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">Direção</span><select aria-label="Direção da porta WAN" className="h-[32px] w-[60px] rounded-md border border-slate-300 bg-white px-1 text-[13px] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={wanPortDraft.direction} onChange={(event) => setWanPortDraft({ ...wanPortDraft, direction: event.target.value })}>{WAN_DIRECTION_OPTIONS.map((direction) => <option key={direction} value={direction}>{WAN_DIRECTION_LABELS[direction]}</option>)}</select></label>
+                <button type="button" disabled={!isValidPort(wanPortDraft.portNumber)} onClick={addWanPortRule} className="inline-flex h-[32px] items-center justify-center rounded-md border border-slate-300 bg-white px-3 text-[13px] font-medium text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"><Plus className="mr-1 h-4 w-4" /> Adicionar</button>
+              </div>
+              <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">Portas configuradas: {wanPortRules.length}</p>
+            </section>
+          )}
+
+          {!['DVR', DEVICE_TYPE_ROUTER_GATEWAY].includes(device.deviceType) && <div className="border-t border-slate-200 pt-5">
             <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div><h4 className="text-sm font-semibold text-slate-900">Conexões</h4><p className="text-xs text-slate-500">Eth1 até Eth5 apenas uma vez. VPN pode ser adicionada até 5 vezes.</p></div>
               <select value="" onChange={(event) => { addConnection(event.target.value); event.target.value = ''; }} className="w-full rounded-md border border-slate-300 bg-white p-2 text-sm shadow-sm sm:w-56">
@@ -1857,7 +2033,7 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
             </div>
           </div>}
 
-          {device.deviceType !== 'DVR' && <div className="border-t border-slate-200 pt-5">
+          {!['DVR', DEVICE_TYPE_ROUTER_GATEWAY].includes(device.deviceType) && <div className="border-t border-slate-200 pt-5">
             <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div><h4 className="text-sm font-semibold text-slate-900">Portas</h4><p className="text-xs text-slate-500">Adicione regras de acesso sem limite.</p></div>
               <button type="button" onClick={addPortRule} className="inline-flex items-center justify-center rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"><Plus className="mr-2 h-4 w-4" /> Adicionar porta</button>
@@ -1892,12 +2068,13 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
           {onDelete && <DeleteConfirmationControl value={deleteConfirmation} onChange={(event) => setDeleteConfirmation(event.target.value)} onDelete={onDelete} disabled={isSaving} />}
           <div className="flex justify-end gap-2">
             <button type="button" onClick={requestClose} className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Cancelar</button>
-            <button type="button" disabled={isSaving || hasInvalidConnections || hasInvalidPorts || hasInvalidDvrPorts} onClick={saveDeviceIncludingDrafts} className="rounded-md border border-transparent bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50">{isSaving ? 'Salvando...' : 'Salvar'}</button>
+            <button type="button" disabled={isSaving || hasInvalidConnections || hasInvalidPorts || hasInvalidDvrPorts || hasInvalidPppoePublicIp || hasInvalidWanPorts || hasInvalidWanPortDraft} onClick={saveDeviceIncludingDrafts} className="rounded-md border border-transparent bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50">{isSaving ? 'Salvando...' : 'Salvar'}</button>
           </div>
         </div>
         {showAccessList && device.deviceType === DEVICE_TYPE_NAS_STORAGE && <DeviceAccessListModal device={device} items={nasUsers} kind="nasUser" onClose={() => setShowAccessList(false)} onRemove={removeNasUser} />}
         {showAccessList && device.deviceType === PABX_DEVICE_TYPE && <DeviceAccessListModal device={device} items={extensions} kind="pabxExtension" onClose={() => setShowAccessList(false)} onRemove={removeExtension} />}
         {showAccessList && ['DVR', 'IMPRESSORA'].includes(device.deviceType) && <DeviceAccessListModal device={device} items={linkedAccessItems} kind="generic" onClose={() => setShowAccessList(false)} onEdit={(item) => { setShowAccessList(false); onEditLinkedLogin?.(item); }} />}
+        {showWanPortList && device.deviceType === DEVICE_TYPE_ROUTER_GATEWAY && <WanPortRulesModal device={device} rules={wanPortRules} onClose={() => setShowWanPortList(false)} onUpdate={updateWanPortRule} onRemove={removeWanPortRule} />}
         {showUnsavedDialog && <UnsavedChangesDialog isSaving={isSaving} onContinue={() => setShowUnsavedDialog(false)} onDiscard={onCancel} onSave={saveDeviceIncludingDrafts} />}
       </div>
     </div>
