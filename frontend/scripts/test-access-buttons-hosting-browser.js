@@ -162,13 +162,14 @@ try {
     portRules: [{ id: 'legacy-router-port', name: 'Legada', portNumber: '9090', direction: 'Entrada', protocol: 'TCP' }]
   };
   await render('devices', { devices: [legacyRouter], deviceLogins: [] });
-  assert.match(await page.locator('main').innerText(), /Roteador Matriz \(ROTEADOR\/GATEWAY\).*PPPoE: 1 · Portas WAN: 0/s);
+  assert.match(await page.locator('main').innerText(), /Roteador Matriz \(ROTEADOR\/GATEWAY\).*PPPoE: 1 · Portas WAN: 0 · LAN: 0/s);
   assert.doesNotMatch(await page.locator('main').innerText(), /Conexões: 1|Portas: 1/);
   await page.getByRole('button', { name: 'Detalhes', exact: true }).first().click();
   const routerModal = page.locator('div.fixed').first();
   assert.equal(await routerModal.locator('textarea').first().evaluate(el => getComputedStyle(el).height), '45px');
   assert.equal(await routerModal.getByText('Adicionar conexão', { exact: false }).count(), 0);
   assert.equal(await routerModal.getByRole('button', { name: 'Adicionar porta', exact: true }).count(), 0);
+  assert.equal(await routerModal.getByText('Rede LAN', { exact: true }).count(), 1);
   assert.equal(await routerModal.getByText('Portas WAN', { exact: true }).count(), 1);
   assert.equal(await routerModal.getByLabel('WAN do PPPoE').inputValue(), 'WAN1');
   assert.deepEqual(await routerModal.getByLabel('WAN do PPPoE').locator('option').allTextContents(), ['WAN1', 'WAN2', 'WAN3', 'WAN4', 'WAN5']);
@@ -176,6 +177,10 @@ try {
   assert.equal(await routerModal.getByLabel('MAC do PPPoE').inputValue(), '');
   await routerModal.getByRole('button', { name: 'Adicionar PPPoE', exact: true }).click();
   assert.equal(await routerModal.getByLabel('WAN do PPPoE').count(), 2);
+  assert.equal(await routerModal.getByLabel('WAN do PPPoE').first().inputValue(), 'WAN2');
+  assert.equal(await routerModal.getByLabel('WAN do PPPoE').first().locator('option[value="WAN1"]').isDisabled(), true);
+  assert.equal(await routerModal.getByLabel('WAN do PPPoE').last().locator('option[value="WAN1"]').isDisabled(), false);
+  assert.equal(await routerModal.getByLabel('WAN do PPPoE').last().locator('option[value="WAN2"]').isDisabled(), true);
   await routerModal.getByLabel('Login do PPPoE').first().fill('novo@provedor');
   await routerModal.getByLabel('PPPoE', { exact: true }).first().fill('pppoe-matriz');
   await routerModal.getByLabel('Senha PPPoE', { exact: true }).first().fill('NEW-PPPOE-SECRET');
@@ -190,17 +195,54 @@ try {
   await routerModal.getByLabel('Telefone do PPPoE').first().fill('0800 111 2222');
   assert.equal(await routerModal.getByRole('button', { name: 'Salvar', exact: true }).isEnabled(), true);
 
+  const lanIpField = routerModal.getByLabel('IP da nova rede LAN', { exact: true });
+  const lanMaskField = routerModal.getByLabel('Máscara da nova rede LAN', { exact: true });
+  const lanGatewayField = routerModal.getByLabel('Gateway da nova rede LAN', { exact: true });
+  const lanVlanField = routerModal.getByLabel('VLAN da nova rede LAN', { exact: true });
+  const addLanButton = lanIpField.locator('xpath=../..').getByRole('button', { name: 'Adicionar', exact: true });
+  await lanIpField.fill('999.999.999.999');
+  assert.equal(await addLanButton.isEnabled(), false);
+  await lanIpField.fill('192.168.10.1');
+  await lanMaskField.fill('255.0.255.0');
+  assert.equal(await addLanButton.isEnabled(), false);
+  await lanMaskField.fill('/24');
+  await lanGatewayField.fill('192.168.10.999');
+  assert.equal(await addLanButton.isEnabled(), false);
+  await lanGatewayField.fill('192.168.10.254');
+  await lanVlanField.fill('12ab345');
+  assert.equal(await lanVlanField.inputValue(), '1234');
+  await lanVlanField.fill('5000');
+  assert.equal(await addLanButton.isEnabled(), false);
+  await lanVlanField.fill('10');
+  assert.equal(await addLanButton.isEnabled(), true);
+  await addLanButton.click();
+  for (const field of [lanIpField, lanMaskField, lanGatewayField, lanVlanField]) assert.equal(await field.inputValue(), '');
+  await routerModal.getByText('Redes configuradas: 1', { exact: true }).waitFor();
+  await routerModal.getByRole('button', { name: 'Exibir redes LAN', exact: true }).click();
+  const editableLanModal = page.locator('div.fixed').last();
+  assert.equal(await editableLanModal.getByLabel('Editar IP da rede 192.168.10.1').inputValue(), '192.168.10.1');
+  assert.equal(await editableLanModal.getByRole('button', { name: 'Excluir rede LAN', exact: true }).count(), 1);
+  const lanSearch = editableLanModal.getByLabel('Pesquisar redes LAN');
+  await lanSearch.fill('192.168.10.254');
+  assert.equal(await editableLanModal.getByLabel('Editar gateway da rede 192.168.10.1').count(), 1);
+  await lanSearch.fill('');
+  await editableLanModal.getByLabel('Editar máscara da rede 192.168.10.1').fill('255.255.255.0');
+  await editableLanModal.getByRole('button', { name: 'Fechar', exact: true }).click();
+
   const wanField = routerModal.getByLabel('WAN da nova porta', { exact: true });
   const wanPortField = routerModal.getByLabel('Porta WAN', { exact: true });
   const wanProtocolField = routerModal.getByLabel('Protocolo da porta WAN', { exact: true });
   const wanDirectionField = routerModal.getByLabel('Direção da porta WAN', { exact: true });
+  const wanNotesField = routerModal.getByLabel('Observação da porta WAN', { exact: true });
   for (const field of [wanField, wanPortField, wanProtocolField, wanDirectionField]) {
     assert.deepEqual(await field.evaluate(el => { const style = getComputedStyle(el); return [style.width, style.height, style.fontSize]; }), ['60px', '32px', '13px']);
   }
   assert.deepEqual(await wanField.locator('option').allTextContents(), ['WAN1', 'WAN2', 'WAN3', 'WAN4', 'WAN5']);
   assert.deepEqual(await wanProtocolField.locator('option').allTextContents(), ['TCP', 'UDP']);
   assert.deepEqual(await wanDirectionField.locator('option').allTextContents(), ['Ent.', 'Saí.']);
-  const addWanPortButton = routerModal.getByRole('button', { name: 'Adicionar', exact: true });
+  assert.deepEqual(await wanNotesField.evaluate(el => { const style = getComputedStyle(el); return [style.height, style.fontSize, style.flexGrow]; }), ['32px', '13px', '0']);
+  assert.equal(await wanNotesField.locator('xpath=..').evaluate(el => getComputedStyle(el).flexGrow), '1');
+  const addWanPortButton = wanField.locator('xpath=../..').getByRole('button', { name: 'Adicionar', exact: true });
   await wanPortField.fill('abc12');
   assert.equal(await wanPortField.inputValue(), '12');
   await wanPortField.fill('123456');
@@ -211,13 +253,16 @@ try {
   await wanField.selectOption('WAN2');
   await wanProtocolField.selectOption('UDP');
   await wanDirectionField.selectOption('Saída');
+  await wanNotesField.fill('HTTPS externo');
   await addWanPortButton.click();
   assert.equal(await wanPortField.inputValue(), '');
   assert.equal(await wanField.inputValue(), 'WAN2');
   assert.equal(await wanProtocolField.inputValue(), 'UDP');
   assert.equal(await wanDirectionField.inputValue(), 'Saída');
+  assert.equal(await wanNotesField.inputValue(), '');
   await wanField.selectOption('WAN1');
   await wanPortField.fill('22');
+  await wanNotesField.fill('SSH interno');
   await addWanPortButton.click();
   await routerModal.getByText('Portas configuradas: 2', { exact: true }).waitFor();
   await routerModal.getByRole('button', { name: 'Exibir portas configuradas', exact: true }).click();
@@ -225,11 +270,12 @@ try {
   assert.deepEqual(await editableWanModal.locator('input[aria-label^="Editar porta"]').evaluateAll(inputs => inputs.map(input => input.value)), ['22', '443']);
   assert.equal(await editableWanModal.getByRole('button', { name: 'Excluir porta WAN', exact: true }).count(), 2);
   const wanSearch = editableWanModal.getByLabel('Pesquisar portas configuradas');
-  await wanSearch.fill('443');
+  await wanSearch.fill('HTTPS externo');
   assert.equal(await editableWanModal.getByLabel('Editar porta 22').count(), 0);
   assert.equal(await editableWanModal.getByLabel('Editar porta 443').count(), 1);
   await wanSearch.fill('');
   await editableWanModal.getByLabel('Direção da porta 443').selectOption('Entrada');
+  await editableWanModal.getByLabel('Editar observação da porta 443').fill('HTTPS publicado');
   assert.equal(await editableWanModal.getByLabel('Direção da porta 443').inputValue(), 'Entrada');
   await editableWanModal.getByRole('button', { name: 'Copiar porta 22', exact: true }).click();
   assert.equal(await page.evaluate(() => navigator.clipboard.readText()), '22');
@@ -263,13 +309,15 @@ try {
   assert.equal(savedRouter.pppoeAccounts[1].wan, 'WAN1');
   assert.equal(savedRouter.pppoeAccounts[1].mac, '');
   assert.equal(savedRouter.pppoeAccounts[1].publicIp, '');
+  assert.deepEqual(savedRouter.lanNetworks.map(network => ({ ip: network.ip, mask: network.mask, gateway: network.gateway, vlan: network.vlan })), [{ ip: '192.168.10.1', mask: '255.255.255.0', gateway: '192.168.10.254', vlan: '10' }]);
   assert.deepEqual(savedRouter.wanPortRules.map(rule => rule.portNumber), ['22', '443']);
+  assert.deepEqual(savedRouter.wanPortRules.map(rule => rule.notes), ['SSH interno', 'HTTPS publicado']);
   assert.equal(savedRouter.wanPortRules[1].protocol, 'UDP');
   assert.equal(savedRouter.wanPortRules[1].direction, 'Entrada');
   assert.equal(savedRouter.connections[0].id, 'legacy-router-connection');
   assert.equal(savedRouter.portRules[0].id, 'legacy-router-port');
   await render('devices', { devices: [savedRouter], deviceLogins: [] });
-  assert.match(await page.locator('main').innerText(), /PPPoE: 2 · Portas WAN: 2/);
+  assert.match(await page.locator('main').innerText(), /PPPoE: 2 · Portas WAN: 2 · LAN: 1/);
 
   await page.getByRole('button', { name: 'Visualizar', exact: true }).first().click();
   const readOnlyRouter = page.locator('div.fixed').first();
@@ -281,15 +329,36 @@ try {
   assert.equal(await page.evaluate(() => navigator.clipboard.readText()), 'novo@provedor');
   await readOnlyRouter.getByRole('button', { name: 'Copiar senha PPPoE', exact: true }).first().click();
   assert.equal(await page.evaluate(() => navigator.clipboard.readText()), 'NEW-PPPOE-SECRET');
+  await readOnlyRouter.getByRole('button', { name: 'Exibir redes LAN', exact: true }).click();
+  const readOnlyLanModal = page.locator('div.fixed').last();
+  assert.match(await readOnlyLanModal.innerText(), /192\.168\.10\.1[\s\S]*255\.255\.255\.0[\s\S]*192\.168\.10\.254[\s\S]*10/);
+  assert.equal(await readOnlyLanModal.getByRole('button', { name: 'Excluir rede LAN', exact: true }).count(), 0);
+  await readOnlyLanModal.getByRole('button', { name: 'Copiar IP 192.168.10.1', exact: true }).click();
+  assert.equal(await page.evaluate(() => navigator.clipboard.readText()), '192.168.10.1');
+  await readOnlyLanModal.getByRole('button', { name: 'Fechar', exact: true }).click();
   await readOnlyRouter.getByRole('button', { name: 'Exibir portas configuradas', exact: true }).click();
   const readOnlyWanModal = page.locator('div.fixed').last();
-  assert.match(await readOnlyWanModal.innerText(), /WAN[\s\S]*WAN1[\s\S]*Porta[\s\S]*22[\s\S]*UDP[\s\S]*Saída/i);
+  assert.match(await readOnlyWanModal.innerText(), /WAN[\s\S]*WAN1[\s\S]*Porta[\s\S]*22[\s\S]*UDP[\s\S]*Saída[\s\S]*SSH interno/i);
   assert.equal(await readOnlyWanModal.locator('select').count(), 0);
   assert.equal(await readOnlyWanModal.getByRole('button', { name: 'Excluir porta WAN', exact: true }).count(), 0);
   await readOnlyWanModal.getByRole('button', { name: 'Copiar porta 22', exact: true }).click();
   assert.equal(await page.evaluate(() => navigator.clipboard.readText()), '22');
   await readOnlyWanModal.getByRole('button', { name: 'Fechar', exact: true }).click();
   await readOnlyRouter.getByRole('button', { name: 'Fechar', exact: true }).last().click();
+
+  await render('devices', { devices: [{ ...legacyRouter, id: 'legacy-wan-router', pppoeAccounts: [{ id: 'assigned', login: 'assigned', wan: 'WAN1' }, { id: 'without-wan', login: 'legacy' }] }], deviceLogins: [] });
+  await page.getByRole('button', { name: 'Detalhes', exact: true }).first().click();
+  const legacyWanRouterModal = page.locator('div.fixed').first();
+  assert.deepEqual(await legacyWanRouterModal.getByLabel('WAN do PPPoE').evaluateAll(selects => selects.map(select => select.value)), ['WAN1', 'WAN2']);
+  assert.equal(await legacyWanRouterModal.getByLabel('WAN do PPPoE').last().locator('option[value="WAN1"]').isDisabled(), true);
+  await legacyWanRouterModal.getByRole('button', { name: 'Cancelar', exact: true }).click();
+
+  await render('devices', { devices: [{ ...legacyRouter, id: 'duplicated-router', pppoeAccounts: [{ id: 'dup-a', login: 'a', wan: 'WAN1' }, { id: 'dup-b', login: 'b', wan: 'WAN1' }] }], deviceLogins: [] });
+  await page.getByRole('button', { name: 'Visualizar', exact: true }).first().click();
+  const duplicateRouterModal = page.locator('div.fixed').first();
+  assert.equal(await duplicateRouterModal.getByText('WAN duplicada em dado antigo', { exact: true }).count(), 2);
+  assert.equal((await duplicateRouterModal.innerText()).match(/WAN1/g)?.length >= 2, true);
+  await duplicateRouterModal.getByRole('button', { name: 'Fechar', exact: true }).last().click();
 
   const data = {
     cpanels: [{ id: 'a', domain: 'principal.example' }, { id: 'b', domain: 'backup.example' }, { id: 'empty', domain: 'vazio.example' }],
