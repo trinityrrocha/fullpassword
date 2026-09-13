@@ -8,6 +8,7 @@ const BACKUP_TABLES = Object.freeze([
   'vault_items',
   'vault_shares',
   'vault_access_audit',
+  'domain_expiration_notifications',
   'user_mfa_settings',
   'user_mfa_recovery_codes',
   'password_policy_settings',

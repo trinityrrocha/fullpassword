@@ -45,7 +45,10 @@ const emptyCpanel = () => ({
   url: '',
   username: '',
   password: '',
-  notes: ''
+  notes: '',
+  domainExpirationDate: '',
+  domainExpirationNotifyEnabled: false,
+  domainExpirationNotifyEmails: []
 });
 
 const emptyCpanelUser = (cpanelId = '') => ({
@@ -67,7 +70,12 @@ const normalizeCpanelForm = (data = {}) => {
             url: item.url || '',
             username: item.username || '',
             password: item.password || '',
-            notes: item.notes || ''
+            notes: item.notes || '',
+            domainExpirationDate: item.domainExpirationDate || '',
+            domainExpirationNotifyEnabled: Boolean(item.domainExpirationNotifyEnabled),
+            domainExpirationNotifyEmails: Array.isArray(item.domainExpirationNotifyEmails)
+              ? [...new Set(item.domainExpirationNotifyEmails.map((email) => String(email || '').trim().toLowerCase()).filter(Boolean))]
+              : []
           }))
         : [],
       users: Array.isArray(data.users)
@@ -91,7 +99,10 @@ const normalizeCpanelForm = (data = {}) => {
         url: data.url || '',
         username: data.username || '',
         password: data.password || '',
-        notes: data.isSystem === false ? 'Acesso pessoa física' : 'Acesso sistema'
+        notes: data.isSystem === false ? 'Acesso pessoa física' : 'Acesso sistema',
+        domainExpirationDate: '',
+        domainExpirationNotifyEnabled: false,
+        domainExpirationNotifyEmails: []
       }]
     : [];
 
@@ -123,6 +134,65 @@ const cleanDomain = (value = '') => {
     .split(':')[0];
 };
 
+const isValidEmail = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || '').trim());
+
+const isValidIsoDate = (value) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ''))) return false;
+  const [year, month, day] = value.split('-').map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+};
+
+const formatExpirationDate = (value) => {
+  if (!isValidIsoDate(value)) return 'não informado';
+  const [year, month, day] = value.split('-');
+  return `${day}/${month}/${year}`;
+};
+
+const validateDomainExpiration = (cpanel) => {
+  if (cpanel.domainExpirationDate && !isValidIsoDate(cpanel.domainExpirationDate)) {
+    return 'Informe uma data de vencimento válida.';
+  }
+  if (cpanel.domainExpirationNotifyEnabled) {
+    if (!cleanDomain(cpanel.domain)) return 'Informe o domínio antes de ativar a notificação.';
+    if (!isValidIsoDate(cpanel.domainExpirationDate)) return 'Informe a data de vencimento antes de ativar a notificação.';
+    if (!cpanel.domainExpirationNotifyEmails.length) return 'Adicione pelo menos um e-mail para ativar a notificação.';
+    if (cpanel.domainExpirationNotifyEmails.some((email) => !isValidEmail(email))) return 'Remova ou corrija os e-mails inválidos.';
+  }
+  return '';
+};
+
+function DomainExpirationFields({ cpanel, onChange, emailDraft, setEmailDraft }) {
+  const emails = Array.isArray(cpanel.domainExpirationNotifyEmails) ? cpanel.domainExpirationNotifyEmails : [];
+  const addEmail = () => {
+    const email = String(emailDraft || '').trim().toLowerCase();
+    if (!isValidEmail(email)) {
+      alert('Informe um e-mail válido.');
+      return;
+    }
+    if (emails.includes(email)) {
+      alert('Este e-mail já foi adicionado.');
+      return;
+    }
+    onChange({ ...cpanel, domainExpirationNotifyEmails: [...emails, email] });
+    setEmailDraft('');
+  };
+
+  return (
+    <section className="space-y-3 rounded-md border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800 sm:col-span-2">
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label><span className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Data de vencimento do domínio</span><input type="date" className={`w-full rounded-md border bg-white p-2 shadow-sm dark:bg-slate-900 dark:text-slate-100 ${cpanel.domainExpirationDate && !isValidIsoDate(cpanel.domainExpirationDate) ? 'border-red-500' : 'border-slate-300 dark:border-slate-700'}`} value={cpanel.domainExpirationDate} onChange={(event) => onChange({ ...cpanel, domainExpirationDate: event.target.value })} /></label>
+        <label className="flex items-center gap-2 self-end rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"><input type="checkbox" checked={cpanel.domainExpirationNotifyEnabled} onChange={(event) => onChange({ ...cpanel, domainExpirationNotifyEnabled: event.target.checked })} /><span>Notificar vencimento do domínio por e-mail</span></label>
+      </div>
+      <div>
+        <span className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">E-mails para notificação</span>
+        <div className="flex flex-col gap-2 sm:flex-row"><input type="email" className={`min-w-0 flex-1 rounded-md border bg-white p-2 shadow-sm dark:bg-slate-900 dark:text-slate-100 ${emailDraft && !isValidEmail(emailDraft) ? 'border-red-500' : 'border-slate-300 dark:border-slate-700'}`} value={emailDraft} onChange={(event) => setEmailDraft(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); addEmail(); } }} placeholder="responsavel@empresa.com.br" /><button type="button" onClick={addEmail} className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-700">Adicionar e-mail</button></div>
+        <div className="mt-2 flex flex-wrap gap-2">{emails.map((email) => <span key={email} className="inline-flex items-center gap-1 rounded-full bg-slate-200 px-2 py-1 text-xs text-slate-700 dark:bg-slate-700 dark:text-slate-200"><span>{email}</span><button type="button" title={`Remover ${email}`} aria-label={`Remover ${email}`} onClick={() => onChange({ ...cpanel, domainExpirationNotifyEmails: emails.filter((item) => item !== email) })} className="text-slate-500 hover:text-red-600 dark:text-slate-300"><X className="h-3 w-3" /></button></span>)}</div>
+      </div>
+    </section>
+  );
+}
+
 export default function CpanelWebManager({ cpanelForm, setCpanelForm, handleSaveData, isSaving, onDeleteModule }) {
   const normalizedForm = useMemo(() => normalizeCpanelForm(cpanelForm), [cpanelForm]);
   const [cpanelDraft, setCpanelDraft] = useState(emptyCpanel());
@@ -137,6 +207,8 @@ export default function CpanelWebManager({ cpanelForm, setCpanelForm, handleSave
   const [showUserCreateModal, setShowUserCreateModal] = useState(false);
   const [userSearch, setUserSearch] = useState('');
   const [userCpanelFilter, setUserCpanelFilter] = useState('');
+  const [cpanelEmailDraft, setCpanelEmailDraft] = useState('');
+  const [editingCpanelEmailDraft, setEditingCpanelEmailDraft] = useState('');
 
   useClearOnVaultLock(() => {
     setCpanelDraft(emptyCpanel());
@@ -151,6 +223,8 @@ export default function CpanelWebManager({ cpanelForm, setCpanelForm, handleSave
     setShowUserCreateModal(false);
     setUserSearch('');
     setUserCpanelFilter('');
+    setCpanelEmailDraft('');
+    setEditingCpanelEmailDraft('');
   });
 
   const getCpanelById = (cpanelId) => normalizedForm.cpanels.find((item) => item.id === cpanelId);
@@ -184,6 +258,7 @@ export default function CpanelWebManager({ cpanelForm, setCpanelForm, handleSave
 
   const openCreateCpanelModal = () => {
     setCpanelDraft(emptyCpanel());
+    setCpanelEmailDraft('');
     setShowCpanelCreateModal(true);
   };
 
@@ -195,6 +270,7 @@ export default function CpanelWebManager({ cpanelForm, setCpanelForm, handleSave
 
   const closeCreateCpanelModal = () => {
     setCpanelDraft(emptyCpanel());
+    setCpanelEmailDraft('');
     setShowCpanelCreateModal(false);
   };
 
@@ -216,6 +292,11 @@ export default function CpanelWebManager({ cpanelForm, setCpanelForm, handleSave
     }
     if (!cpanelDraft.username.trim()) {
       alert('Informe o usuário de hospedagem.');
+      return;
+    }
+    const expirationError = validateDomainExpiration(cpanelDraft);
+    if (expirationError) {
+      alert(expirationError);
       return;
     }
 
@@ -240,6 +321,11 @@ export default function CpanelWebManager({ cpanelForm, setCpanelForm, handleSave
     }
     if (!editingCpanel.username.trim()) {
       alert('Informe o usuário de hospedagem.');
+      return;
+    }
+    const expirationError = validateDomainExpiration(editingCpanel);
+    if (expirationError) {
+      alert(expirationError);
       return;
     }
 
@@ -389,8 +475,10 @@ export default function CpanelWebManager({ cpanelForm, setCpanelForm, handleSave
                 <span className="inline-flex min-w-0 items-center"><span className="truncate">URL: {cpanel.url || '-'}</span><CopyValueButton value={cpanel.url} label="URL" /></span>
                 <span className="inline-flex shrink-0 items-center"><span>Login: {cpanel.username || '-'}</span><CopyValueButton value={cpanel.username} label="login" /></span>
                 <span className="inline-flex shrink-0 items-center"><span>Senha: ****</span><CopyValueButton value={cpanel.password} label="senha" /></span>
+                <span className="shrink-0">Vencimento: {formatExpirationDate(cpanel.domainExpirationDate)}</span>
+                <span className="shrink-0">Notificação: {cpanel.domainExpirationNotifyEnabled ? `ativa · E-mails: ${cpanel.domainExpirationNotifyEmails.length}` : 'inativa'}</span>
               </div>
-              <div className="flex shrink-0 gap-2 self-start sm:self-auto"><button type="button" title="Visualizar" aria-label="Visualizar" onClick={() => setViewingCpanel(cpanel)} className="action-icon-button action-icon-view"><Eye className="h-4 w-4" /></button><button type="button" title="Detalhes" aria-label="Detalhes" onClick={() => { setEditingCpanel({ ...cpanel }); setDeleteCpanelConfirmation(''); }} className="action-icon-button action-icon-edit"><Edit2 className="h-4 w-4" /></button></div>
+              <div className="flex shrink-0 gap-2 self-start sm:self-auto"><button type="button" title="Visualizar" aria-label="Visualizar" onClick={() => setViewingCpanel(cpanel)} className="action-icon-button action-icon-view"><Eye className="h-4 w-4" /></button><button type="button" title="Detalhes" aria-label="Detalhes" onClick={() => { setEditingCpanel({ ...cpanel }); setEditingCpanelEmailDraft(''); setDeleteCpanelConfirmation(''); }} className="action-icon-button action-icon-edit"><Edit2 className="h-4 w-4" /></button></div>
             </div>
           ))}
         </div>
@@ -468,6 +556,7 @@ export default function CpanelWebManager({ cpanelForm, setCpanelForm, handleSave
                   <label className="block text-sm font-medium text-slate-700 mb-1">Observações</label>
                   <textarea rows={3} className="h-[45px] min-h-[45px] max-h-[45px] w-full resize-none overflow-y-auto border-slate-300 rounded-md shadow-sm p-2 border" value={cpanelDraft.notes} onChange={(e) => setCpanelDraft({ ...cpanelDraft, notes: e.target.value })} placeholder="Observações do domínio / hospedagem"></textarea>
                 </div>
+                <DomainExpirationFields cpanel={cpanelDraft} onChange={setCpanelDraft} emailDraft={cpanelEmailDraft} setEmailDraft={setCpanelEmailDraft} />
               </div>
             </div>
             <div className="flex justify-end gap-3 px-6 py-4 border-t border-slate-200 bg-slate-50">
@@ -552,6 +641,7 @@ export default function CpanelWebManager({ cpanelForm, setCpanelForm, handleSave
                   <label className="block text-sm font-medium text-slate-700 mb-1">Observações</label>
                   <textarea rows={3} className="h-[45px] min-h-[45px] max-h-[45px] w-full resize-none overflow-y-auto border-slate-300 rounded-md shadow-sm p-2 border" value={editingCpanel.notes} onChange={(e) => setEditingCpanel({ ...editingCpanel, notes: e.target.value })}></textarea>
                 </div>
+                <DomainExpirationFields cpanel={editingCpanel} onChange={setEditingCpanel} emailDraft={editingCpanelEmailDraft} setEmailDraft={setEditingCpanelEmailDraft} />
               </div>
             </div>
             <div className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-200 bg-slate-50 px-6 py-4">
@@ -619,7 +709,7 @@ function CopyValueButton({ value, label }) {
 }
 
 function CpanelReadOnlyModal({ cpanel, onClose }) {
-  return <ReadOnlyDetailsModal title="Visualizar Servidor hospedagem" onClose={onClose}><div className="grid gap-4 sm:grid-cols-2"><ReadOnlyField label="Domínio">{cpanel.domain || '-'}<CopyValueButton value={cpanel.domain} label="domínio" /></ReadOnlyField><ReadOnlyField label="URL">{cpanel.url || '-'}<CopyValueButton value={cpanel.url} label="URL" /></ReadOnlyField><ReadOnlyField label="Usuário">{cpanel.username || '-'}<CopyValueButton value={cpanel.username} label="usuário" /></ReadOnlyField><ReadOnlyField label="Senha">****<CopyValueButton value={cpanel.password} label="senha" /></ReadOnlyField><ReadOnlyField label="Observações" value={cpanel.notes} /></div><ReadOnlyAttachments files={normalizeVaultAttachments(cpanel)} /></ReadOnlyDetailsModal>;
+  return <ReadOnlyDetailsModal title="Visualizar Servidor hospedagem" onClose={onClose}><div className="grid gap-4 sm:grid-cols-2"><ReadOnlyField label="Domínio">{cpanel.domain || '-'}<CopyValueButton value={cpanel.domain} label="domínio" /></ReadOnlyField><ReadOnlyField label="URL">{cpanel.url || '-'}<CopyValueButton value={cpanel.url} label="URL" /></ReadOnlyField><ReadOnlyField label="Usuário">{cpanel.username || '-'}<CopyValueButton value={cpanel.username} label="usuário" /></ReadOnlyField><ReadOnlyField label="Senha">****<CopyValueButton value={cpanel.password} label="senha" /></ReadOnlyField><ReadOnlyField label="Data de vencimento do domínio" value={formatExpirationDate(cpanel.domainExpirationDate)} /><ReadOnlyField label="Notificação" value={cpanel.domainExpirationNotifyEnabled ? 'Ativa' : 'Inativa'} /><ReadOnlyField label="E-mails de notificação" value={cpanel.domainExpirationNotifyEmails?.length ? cpanel.domainExpirationNotifyEmails.join(', ') : '-'} /><ReadOnlyField label="Observações" value={cpanel.notes} /></div><ReadOnlyAttachments files={normalizeVaultAttachments(cpanel)} /></ReadOnlyDetailsModal>;
 }
 
 function CpanelUserReadOnlyModal({ user, cpanel, login, onClose }) {

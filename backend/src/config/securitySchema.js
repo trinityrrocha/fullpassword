@@ -374,6 +374,24 @@ const ensureSecuritySchema = async () => {
     await client.query('CREATE INDEX IF NOT EXISTS idx_ip_security_rules_created ON ip_security_rules (created_at DESC)');
 
     await client.query(`
+      CREATE TABLE IF NOT EXISTS domain_expiration_notifications (
+        client_id UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+        hosting_server_id TEXT NOT NULL,
+        domain VARCHAR(253) NOT NULL,
+        expiration_date DATE NOT NULL,
+        notify_emails JSONB NOT NULL DEFAULT '[]'::jsonb,
+        sent_keys JSONB NOT NULL DEFAULT '[]'::jsonb,
+        updated_by UUID REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (client_id, hosting_server_id),
+        CHECK (jsonb_typeof(notify_emails) = 'array'),
+        CHECK (jsonb_typeof(sent_keys) = 'array')
+      )
+    `);
+    await client.query('CREATE INDEX IF NOT EXISTS idx_domain_expiration_notifications_date ON domain_expiration_notifications (expiration_date)');
+
+    await client.query(`
       CREATE OR REPLACE FUNCTION protect_super_admin_user()
       RETURNS TRIGGER AS $$
       BEGIN

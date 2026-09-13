@@ -466,6 +466,20 @@ export default function ClientVault() {
 
       await api.post(`/vault-items/${id}`, payload);
 
+      if (category === 'cPanel') {
+        const notifications = (Array.isArray(normalizedData.cpanels) ? normalizedData.cpanels : [])
+          .filter((cpanel) => cpanel?.domainExpirationNotifyEnabled)
+          .map((cpanel) => ({
+            hostingServerId: String(cpanel.id || ''),
+            domain: String(cpanel.domain || '').trim().toLowerCase(),
+            expirationDate: String(cpanel.domainExpirationDate || ''),
+            emails: Array.isArray(cpanel.domainExpirationNotifyEmails)
+              ? cpanel.domainExpirationNotifyEmails.map((email) => String(email || '').trim().toLowerCase())
+              : []
+          }));
+        await api.put(`/clients/${id}/domain-expiration-notifications`, { notifications });
+      }
+
       if (showSuccess) {
         alert(successMessage || `Dados de ${category} salvos com sucesso e criptografados localmente!`);
       }

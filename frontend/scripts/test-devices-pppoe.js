@@ -50,9 +50,13 @@ assert.match(devicesSource, /prefix >= 0 && prefix <= 32/, 'Máscara LAN deve ac
 assert.match(devicesSource, /\^1\*0\*\$/, 'Máscara LAN decimal deve exigir bits contíguos');
 assert.match(devicesSource, /sanitizeVlanInput/, 'VLAN deve aceitar somente números e limitar quatro dígitos');
 assert.match(devicesSource, /vlan >= 1 && vlan <= 4094/, 'VLAN preenchida deve respeitar o intervalo válido');
-for (const label of ['IP da nova rede LAN', 'Máscara da nova rede LAN', 'Gateway da nova rede LAN', 'VLAN da nova rede LAN']) {
+for (const label of ['IP da nova rede LAN', 'Máscara da nova rede LAN', 'VLAN da nova rede LAN', 'Tipo da nova rede LAN', 'Observação da nova rede LAN']) {
   assert.match(devicesSource, new RegExp(`aria-label="${label}"`), `Rede LAN deve exibir o campo ${label}`);
 }
+const lanDraftSection = devicesSource.slice(devicesSource.indexOf('aria-label="IP da nova rede LAN"'), devicesSource.indexOf('Redes configuradas:', devicesSource.indexOf('aria-label="IP da nova rede LAN"')));
+assert.doesNotMatch(lanDraftSection, /Gateway da nova rede LAN/, 'Novas redes LAN não devem exibir gateway');
+assert.match(devicesSource, /const LAN_NETWORK_TYPES = \['Padrão', 'Hotspot', 'IoT'\]/, 'Rede LAN deve oferecer Padrão, Hotspot e IoT');
+assert.match(devicesSource, /gateway: sanitizeIpv4Input\(network\?\.gateway/, 'Gateway legado deve continuar preservado pela normalização');
 assert.match(devicesSource, /wanPortRules: \[\{ id: makeId\(\), \.\.\.wanPortDraft \}, \.\.\.wanPortRules\]/, 'Nova porta WAN deve entrar no topo');
 assert.match(devicesSource, /notes: String\(rule\?\.notes \?\? rule\?\.observation \?\? ''\)/, 'Porta WAN antiga sem observação deve normalizar notes como vazio');
 assert.match(devicesSource, /aria-label="Observação da porta WAN"/, 'Card de portas WAN deve permitir informar observação');

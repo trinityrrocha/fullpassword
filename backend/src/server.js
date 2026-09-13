@@ -36,6 +36,7 @@ const groupRoutes = require('./routes/groupRoutes');
 const integrationRoutes = require('./routes/integrationRoutes');
 const cloudBackupRoutes = require('./routes/cloudBackupRoutes');
 const { startCloudBackupScheduler } = require('./services/cloudBackupScheduler');
+const { startDomainExpirationScheduler } = require('./services/domainExpirationScheduler');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -148,6 +149,7 @@ const startServer = async () => {
       console.log(`Servidor backend rodando na porta ${PORT}`);
       console.log(`Ambiente: ${process.env.NODE_ENV || 'development'}`);
       startCloudBackupScheduler();
+      startDomainExpirationScheduler();
     });
   } catch (error) {
     safeLogError('Falha ao garantir o schema de segurança.', error);

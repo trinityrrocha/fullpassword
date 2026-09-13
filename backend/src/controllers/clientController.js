@@ -2,6 +2,7 @@ const db = require('../config/database');
 const { ensureSharingSchema, requireClientPermission, logVaultAccess } = require('../services/accessControlService');
 const { isSuperAdmin } = require('../config/security');
 const { safeLogError } = require('../utils/safeLogger');
+const { syncDomainExpirationNotifications } = require('../services/domainExpirationService');
 
 // GET /api/clients - Lista apenas cofres próprios ou compartilhados com grupos que podem visualizar
 const getClients = async (req, res) => {
@@ -140,6 +141,27 @@ const updateClientModules = async (req, res) => {
   }
 };
 
+const updateDomainExpirationNotifications = async (req, res) => {
+  try {
+    await ensureSharingSchema();
+    await requireClientPermission(req.params.clientId, req.user, 'edit');
+    const synchronized = await syncDomainExpirationNotifications(
+      req.params.clientId,
+      req.body?.notifications,
+      req.user.id
+    );
+    return res.status(200).json({ synchronized });
+  } catch (error) {
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({
+        error: error.statusCode === 404 ? 'Cofre não encontrado' : error.message || 'Acesso negado'
+      });
+    }
+    safeLogError('Erro ao sincronizar alertas de vencimento de domínio.', error);
+    return res.status(500).json({ error: 'Não foi possível sincronizar os alertas de vencimento de domínio' });
+  }
+};
+
 const deleteClientModule = async (req, res) => {
   let transaction;
   let committed = false;
@@ -182,6 +204,10 @@ const deleteClientModule = async (req, res) => {
       'DELETE FROM vault_items WHERE client_id = $1 AND category = ANY($2::text[]) RETURNING id',
       [clientId, categories]
     );
+
+    if (moduleId === 'cpanelWeb') {
+      await transaction.query('DELETE FROM domain_expiration_notifications WHERE client_id = $1', [clientId]);
+    }
 
     await transaction.query(
       'UPDATE clients SET enabled_modules = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
@@ -279,5 +305,6 @@ module.exports = {
   deleteClient,
   getClientModules,
   updateClientModules,
+  updateDomainExpirationNotifications,
   deleteClientModule
 };

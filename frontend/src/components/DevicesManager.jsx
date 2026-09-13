@@ -40,6 +40,8 @@ const WAN_OPTIONS = ['WAN1', 'WAN2', 'WAN3', 'WAN4', 'WAN5'];
 const WAN_PROTOCOL_OPTIONS = ['TCP', 'UDP'];
 const WAN_DIRECTION_OPTIONS = ['Entrada', 'Saída'];
 const WAN_DIRECTION_LABELS = { Entrada: 'Ent.', Saída: 'Saí.' };
+const DHCP_OPTIONS = ['On', 'Off'];
+const LAN_NETWORK_TYPES = ['Padrão', 'Hotspot', 'IoT'];
 const DVR_PORT_FIELDS = [
   ['tcpPort', 'PORTA TCP'],
   ['httpsPort', 'PORTA HTTPS'],
@@ -124,6 +126,8 @@ const emptyDevice = () => ({
   pppoeAccounts: [],
   lanNetworks: [],
   wanPortRules: [],
+  printerNetwork: { ip: '', mask: '', gateway: '', printPort: '', mac: '', dhcp: DHCP_OPTIONS[0], notes: '' },
+  pabxNetwork: { ip: '', mask: '', gateway: '', mac: '', dhcp: DHCP_OPTIONS[0], notes: '' },
   pabxPortal: { url: '', login: '', password: '' },
   contractedExtensions: '',
   extensions: [],
@@ -172,8 +176,9 @@ const emptyWanPortDraft = () => ({
 const emptyLanNetworkDraft = () => ({
   ip: '',
   mask: '',
-  gateway: '',
-  vlan: ''
+  vlan: '',
+  networkType: LAN_NETWORK_TYPES[0],
+  notes: ''
 });
 
 const normalizeConnections = (device = {}) => {
@@ -274,9 +279,21 @@ const normalizeLanNetworks = (device = {}) => {
     ip: sanitizeIpv4Input(network?.ip ?? ''),
     mask: sanitizeLanMaskInput(network?.mask ?? network?.subnetMask ?? ''),
     gateway: sanitizeIpv4Input(network?.gateway ?? ''),
-    vlan: sanitizeVlanInput(network?.vlan ?? '')
+    vlan: sanitizeVlanInput(network?.vlan ?? ''),
+    networkType: LAN_NETWORK_TYPES.includes(network?.networkType) ? network.networkType : LAN_NETWORK_TYPES[0],
+    notes: String(network?.notes ?? network?.observation ?? '')
   }));
 };
+
+const normalizeStaticNetwork = (network = {}, { printer = false } = {}) => ({
+  ip: sanitizeIpv4Input(network?.ip ?? ''),
+  mask: sanitizeLanMaskInput(network?.mask ?? network?.subnetMask ?? ''),
+  gateway: sanitizeIpv4Input(network?.gateway ?? ''),
+  ...(printer ? { printPort: sanitizePortInput(network?.printPort ?? network?.port ?? '') } : {}),
+  mac: String(network?.mac ?? ''),
+  dhcp: DHCP_OPTIONS.includes(network?.dhcp) ? network.dhcp : DHCP_OPTIONS[0],
+  notes: String(network?.notes ?? network?.observation ?? '')
+});
 
 const normalizeWanPortRules = (device = {}) => {
   const rules = Array.isArray(device.wanPortRules) ? device.wanPortRules : [];
@@ -384,6 +401,8 @@ const normalizeDevice = (device = {}) => {
     pppoeAccounts: deviceType === DEVICE_TYPE_ROUTER_GATEWAY ? normalizePppoeAccounts(device) : [],
     lanNetworks: deviceType === DEVICE_TYPE_ROUTER_GATEWAY ? normalizeLanNetworks(device) : [],
     wanPortRules: deviceType === DEVICE_TYPE_ROUTER_GATEWAY ? normalizeWanPortRules(device) : [],
+    printerNetwork: deviceType === 'IMPRESSORA' ? normalizeStaticNetwork(device.printerNetwork, { printer: true }) : normalizeStaticNetwork({}, { printer: true }),
+    pabxNetwork: isPabx ? normalizeStaticNetwork(device.pabxNetwork) : normalizeStaticNetwork(),
     pabxPortal: isPabx ? normalizePabxPortal(device) : { url: '', login: '', password: '' },
     contractedExtensions: isPabx
       ? sanitizeContractedExtensions(device.contractedExtensions ?? device.extensionContractedQuantity ?? '')
@@ -453,6 +472,18 @@ const formatRouterSummary = (device) => {
   const lanNetworks = normalizeLanNetworks(device);
   const ports = normalizeWanPortRules(device);
   return `PPPoE: ${accounts.length} · Portas WAN: ${ports.length} · LAN: ${lanNetworks.length}`;
+};
+
+const formatStaticNetworkSummary = (device) => {
+  if (device?.deviceType === 'IMPRESSORA') {
+    const network = normalizeStaticNetwork(device.printerNetwork, { printer: true });
+    return `IP: ${network.ip || '-'} · Porta: ${network.printPort || '-'} · DHCP: ${network.dhcp}`;
+  }
+  if (device?.deviceType === PABX_DEVICE_TYPE) {
+    const network = normalizeStaticNetwork(device.pabxNetwork);
+    return `IP: ${network.ip || '-'} · DHCP: ${network.dhcp}`;
+  }
+  return '';
 };
 
 const formatWifiNetworksSummary = (device) => device?.deviceType === DEVICE_TYPE_WIFI_CONTROLLER
@@ -624,12 +655,27 @@ export default function DevicesManager({ devicesForm, setDevicesForm, handleSave
       ? normalizeLanNetworks(device).find((network) => (
           (network.ip && validateIpv4(network.ip).state === 'invalid')
           || validateLanMask(network.mask).state === 'invalid'
-          || (network.gateway && validateIpv4(network.gateway).state === 'invalid')
           || !isValidOptionalVlan(network.vlan)
+          || !LAN_NETWORK_TYPES.includes(network.networkType)
         ))
       : null;
     if (invalidLanNetwork) {
       alert('Corrija os dados inválidos da Rede LAN antes de salvar.');
+      return false;
+    }
+    const staticNetwork = device.deviceType === 'IMPRESSORA'
+      ? normalizeStaticNetwork(device.printerNetwork, { printer: true })
+      : device.deviceType === PABX_DEVICE_TYPE
+        ? normalizeStaticNetwork(device.pabxNetwork)
+        : null;
+    if (staticNetwork && (
+      (staticNetwork.ip && validateIpv4(staticNetwork.ip).state === 'invalid')
+      || validateLanMask(staticNetwork.mask).state === 'invalid'
+      || (staticNetwork.gateway && validateIpv4(staticNetwork.gateway).state === 'invalid')
+      || !DHCP_OPTIONS.includes(staticNetwork.dhcp)
+      || ('printPort' in staticNetwork && !isOptionalValidPort(staticNetwork.printPort))
+    )) {
+      alert(`Corrija os dados de rede ${device.deviceType === 'IMPRESSORA' ? 'da impressora' : 'do PABX'} antes de salvar.`);
       return false;
     }
     const invalidWanPort = device.deviceType === DEVICE_TYPE_ROUTER_GATEWAY
@@ -921,6 +967,7 @@ export default function DevicesManager({ devicesForm, setDevicesForm, handleSave
                 )}
                 {formatWifiNetworksSummary(device) && <span className="whitespace-nowrap">{formatWifiNetworksSummary(device)}</span>}
                 {formatNasUsersSummary(device) && <span className="whitespace-nowrap">{formatNasUsersSummary(device)}</span>}
+                {formatStaticNetworkSummary(device) && <span className="whitespace-nowrap">{formatStaticNetworkSummary(device)}</span>}
                 {formatPabxExtensionsSummary(device) && <span className="whitespace-nowrap">{formatPabxExtensionsSummary(device)}</span>}
                 <span className="whitespace-nowrap">Logins: {unifiedAccessItems.filter((accessItem) => accessItem.deviceId === device.id).length}</span>
               </div>
@@ -1166,7 +1213,7 @@ function LanNetworksModal({ device, networks, readOnly = false, onClose, onUpdat
   useClearOnVaultLock(onClose);
   const filteredNetworks = networks.filter((network) => {
     const query = search.trim().toLowerCase();
-    return !query || [network.ip, network.mask, network.gateway, network.vlan].join(' ').toLowerCase().includes(query);
+    return !query || [network.ip, network.mask, network.vlan, network.networkType, network.notes].join(' ').toLowerCase().includes(query);
   });
 
   return (
@@ -1180,25 +1227,27 @@ function LanNetworksModal({ device, networks, readOnly = false, onClose, onUpdat
             </div>
             <button type="button" onClick={onClose} aria-label="Fechar redes LAN" className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"><X className="h-5 w-5" /></button>
           </div>
-          <input type="search" aria-label="Pesquisar redes LAN" className="mt-3 w-full rounded-md border border-slate-300 bg-white p-2 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Pesquisar por IP, máscara, gateway ou VLAN..." />
+          <input type="search" aria-label="Pesquisar redes LAN" className="mt-3 w-full rounded-md border border-slate-300 bg-white p-2 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Pesquisar por IP, máscara, VLAN, tipo ou observação..." />
         </div>
         <div className="space-y-2 p-5">
           {filteredNetworks.length === 0 ? (
             <p className="text-sm text-slate-500 dark:text-slate-400">{search.trim() ? 'Nenhuma rede LAN encontrada.' : 'Nenhuma rede LAN configurada.'}</p>
           ) : filteredNetworks.map((network) => (
             readOnly ? (
-              <div key={network.id} className="grid gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800 sm:grid-cols-2 lg:grid-cols-4">
+              <div key={network.id} className="grid gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800 sm:grid-cols-2 lg:grid-cols-5">
                 <div><span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">IP</span><div className="mt-1 flex items-center gap-2 text-slate-900 dark:text-slate-100"><span>{network.ip || '-'}</span>{network.ip && <CopyButton value={network.ip} label={`Copiar IP ${network.ip}`} />}</div></div>
                 <div><span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Máscara</span><p className="mt-1 text-slate-900 dark:text-slate-100">{network.mask || '-'}</p></div>
-                <div><span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Gateway</span><div className="mt-1 flex items-center gap-2 text-slate-900 dark:text-slate-100"><span>{network.gateway || '-'}</span>{network.gateway && <CopyButton value={network.gateway} label={`Copiar gateway ${network.gateway}`} />}</div></div>
                 <div><span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">VLAN</span><div className="mt-1 flex items-center gap-2 text-slate-900 dark:text-slate-100"><span>{network.vlan || '-'}</span>{network.vlan && <CopyButton value={network.vlan} label={`Copiar VLAN ${network.vlan}`} />}</div></div>
+                <div><span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Tipo</span><p className="mt-1 text-slate-900 dark:text-slate-100">{network.networkType}</p></div>
+                <div><span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Observação</span><p className="mt-1 whitespace-pre-wrap text-slate-900 dark:text-slate-100">{network.notes || '-'}</p></div>
               </div>
             ) : (
-              <div key={network.id} className="grid grid-cols-1 items-end gap-2 rounded-md border border-slate-200 bg-slate-50 p-2 dark:border-slate-700 dark:bg-slate-800 sm:grid-cols-2 lg:grid-cols-[minmax(130px,1fr)_minmax(120px,1fr)_minmax(130px,1fr)_80px_32px]">
+              <div key={network.id} className="grid grid-cols-1 items-end gap-2 rounded-md border border-slate-200 bg-slate-50 p-2 dark:border-slate-700 dark:bg-slate-800 sm:grid-cols-2 lg:grid-cols-[minmax(130px,1fr)_minmax(120px,1fr)_80px_100px_minmax(160px,1fr)_32px]">
                 <label><span className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">IP</span><input type="text" inputMode="decimal" aria-label={`Editar IP da rede ${network.ip || 'LAN'}`} className={`h-[32px] w-full rounded-md border bg-white px-2 text-[13px] dark:bg-slate-900 dark:text-slate-100 ${!network.ip || validateIpv4(network.ip).state !== 'invalid' ? 'border-slate-300 dark:border-slate-700' : 'border-red-500'}`} value={network.ip} onChange={(event) => onUpdate(network.id, 'ip', event.target.value)} /></label>
                 <label><span className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">Máscara</span><input type="text" inputMode="decimal" aria-label={`Editar máscara da rede ${network.ip || 'LAN'}`} className={`h-[32px] w-full rounded-md border bg-white px-2 text-[13px] dark:bg-slate-900 dark:text-slate-100 ${validateLanMask(network.mask).state !== 'invalid' ? 'border-slate-300 dark:border-slate-700' : 'border-red-500'}`} value={network.mask} onChange={(event) => onUpdate(network.id, 'mask', event.target.value)} /></label>
-                <label><span className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">Gateway</span><input type="text" inputMode="decimal" aria-label={`Editar gateway da rede ${network.ip || 'LAN'}`} className={`h-[32px] w-full rounded-md border bg-white px-2 text-[13px] dark:bg-slate-900 dark:text-slate-100 ${!network.gateway || validateIpv4(network.gateway).state !== 'invalid' ? 'border-slate-300 dark:border-slate-700' : 'border-red-500'}`} value={network.gateway} onChange={(event) => onUpdate(network.id, 'gateway', event.target.value)} /></label>
                 <label><span className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">VLAN</span><input type="text" inputMode="numeric" aria-label={`Editar VLAN da rede ${network.ip || 'LAN'}`} className={`h-[32px] w-full rounded-md border bg-white px-2 text-[13px] dark:bg-slate-900 dark:text-slate-100 ${isValidOptionalVlan(network.vlan) ? 'border-slate-300 dark:border-slate-700' : 'border-red-500'}`} value={network.vlan} onChange={(event) => onUpdate(network.id, 'vlan', event.target.value)} /></label>
+                <label><span className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">Tipo</span><select aria-label={`Editar tipo da rede ${network.ip || 'LAN'}`} className="h-[32px] w-full rounded-md border border-slate-300 bg-white px-2 text-[13px] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={network.networkType} onChange={(event) => onUpdate(network.id, 'networkType', event.target.value)}>{LAN_NETWORK_TYPES.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
+                <label><span className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">Observação</span><input type="text" aria-label={`Editar observação da rede ${network.ip || 'LAN'}`} className="h-[32px] w-full min-w-0 rounded-md border border-slate-300 bg-white px-2 text-[13px] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={network.notes} onChange={(event) => onUpdate(network.id, 'notes', event.target.value)} /></label>
                 <button type="button" title="Excluir rede LAN" aria-label="Excluir rede LAN" onClick={() => onRemove(network.id)} className="action-icon-button action-icon-delete justify-self-end lg:justify-self-center"><Trash2 className="h-4 w-4" /></button>
               </div>
             )
@@ -1266,6 +1315,35 @@ function WanPortRulesModal({ device, rules, readOnly = false, onClose, onUpdate,
   );
 }
 
+function StaticNetworkReadOnly({ title, network, printer = false }) {
+  const fields = [
+    ['IP', network.ip, true],
+    ['Máscara', network.mask, false],
+    ['Gateway', network.gateway, true],
+    ...(printer ? [['Porta de impressão', network.printPort, true]] : []),
+    ['MAC', network.mac, true],
+    ['DHCP', network.dhcp, false],
+    ['Observação', network.notes, false]
+  ];
+
+  return (
+    <section>
+      <h4 className="mb-2 text-sm font-semibold text-slate-900 dark:text-slate-100">{title}</h4>
+      <div className="grid gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800 sm:grid-cols-2 lg:grid-cols-4">
+        {fields.map(([label, value, copyable]) => (
+          <div key={label} className={label === 'Observação' ? 'sm:col-span-2' : ''}>
+            <span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">{label}</span>
+            <div className="mt-1 flex items-center gap-2 text-slate-900 dark:text-slate-100">
+              <span className={label === 'Observação' ? 'whitespace-pre-wrap' : 'break-all'}>{value || '-'}</span>
+              {copyable && value && <CopyButton value={value} label={`Copiar ${label.toLowerCase()}`} />}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function DeviceReadOnlyModal({ device, accessItems = [], onClose }) {
   const normalized = normalizeDevice(device);
   const duplicatePppoeWans = getDuplicatePppoeWans(normalized.pppoeAccounts);
@@ -1286,6 +1364,14 @@ function DeviceReadOnlyModal({ device, accessItems = [], onClose }) {
       </div>
 
       {normalized.deviceType === 'DVR' && <DvrAccessReadOnly access={normalized.dvrAccess} />}
+
+      {normalized.deviceType === 'IMPRESSORA' && (
+        <StaticNetworkReadOnly title="Rede da impressora" network={normalized.printerNetwork} printer />
+      )}
+
+      {normalized.deviceType === PABX_DEVICE_TYPE && (
+        <StaticNetworkReadOnly title="Rede do PABX-IP/VOIP" network={normalized.pabxNetwork} />
+      )}
 
       {!['DVR', DEVICE_TYPE_ROUTER_GATEWAY].includes(normalized.deviceType) && <section>
         <h4 className="mb-2 text-sm font-semibold text-slate-900">Conexões</h4>
@@ -1653,6 +1739,8 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
   const firstAvailablePppoeWan = WAN_OPTIONS.find((wan) => !usedPppoeWans.has(wan)) || '';
   const lanNetworks = normalizeLanNetworks(device);
   const wanPortRules = normalizeWanPortRules(device);
+  const printerNetwork = normalizeStaticNetwork(device.printerNetwork, { printer: true });
+  const pabxNetwork = normalizeStaticNetwork(device.pabxNetwork);
   const pabxPortal = normalizePabxPortal(device);
   const extensions = normalizeExtensions(device);
   const duplicateExtensions = getDuplicateExtensions(extensions);
@@ -1671,6 +1759,8 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
   const dvrAccess = normalizeDvrAccess(device);
   const isExistingDevice = Boolean(onDelete);
   const usesGenericNetworkRules = !['DVR', DEVICE_TYPE_ROUTER_GATEWAY].includes(device.deviceType);
+  const vpnOnlyConnections = ['IMPRESSORA', PABX_DEVICE_TYPE].includes(device.deviceType);
+  const availableConnectionOptions = vpnOnlyConnections ? ['VPN'] : CONNECTION_OPTIONS;
   const hasInvalidConnections = usesGenericNetworkRules && connections.some((connection) => (
     validateIpv4Cidr(connection.ipv4).state === 'invalid'
     || (connection.type !== 'VPN' && validateIpv4(connection.gateway).state === 'invalid')
@@ -1686,14 +1776,27 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
   ));
   const lanDraftIpValidation = validateIpv4(lanNetworkDraft.ip);
   const lanDraftMaskValidation = validateLanMask(lanNetworkDraft.mask);
-  const lanDraftGatewayValidation = validateIpv4(lanNetworkDraft.gateway);
-  const hasLanNetworkDraft = Object.values(lanNetworkDraft).some((value) => String(value).trim());
+  const hasLanNetworkDraft = Boolean(
+    lanNetworkDraft.ip
+    || lanNetworkDraft.mask
+    || lanNetworkDraft.vlan
+    || lanNetworkDraft.notes.trim()
+    || lanNetworkDraft.networkType !== LAN_NETWORK_TYPES[0]
+  );
   const canAddLanNetwork = Boolean(lanNetworkDraft.ip)
     && lanDraftIpValidation.state === 'valid'
     && lanDraftMaskValidation.state !== 'invalid'
-    && (!lanNetworkDraft.gateway || lanDraftGatewayValidation.state === 'valid')
-    && isValidOptionalVlan(lanNetworkDraft.vlan);
+    && isValidOptionalVlan(lanNetworkDraft.vlan)
+    && LAN_NETWORK_TYPES.includes(lanNetworkDraft.networkType);
   const hasInvalidWanPorts = device.deviceType === DEVICE_TYPE_ROUTER_GATEWAY && wanPortRules.some((rule) => !isValidPort(rule.portNumber));
+  const activeStaticNetwork = device.deviceType === 'IMPRESSORA' ? printerNetwork : device.deviceType === PABX_DEVICE_TYPE ? pabxNetwork : null;
+  const hasInvalidStaticNetwork = Boolean(activeStaticNetwork && (
+    (activeStaticNetwork.ip && validateIpv4(activeStaticNetwork.ip).state === 'invalid')
+    || validateLanMask(activeStaticNetwork.mask).state === 'invalid'
+    || (activeStaticNetwork.gateway && validateIpv4(activeStaticNetwork.gateway).state === 'invalid')
+    || !DHCP_OPTIONS.includes(activeStaticNetwork.dhcp)
+    || ('printPort' in activeStaticNetwork && !isOptionalValidPort(activeStaticNetwork.printPort))
+  ));
   const hasWanPortDraftChanges = Boolean(wanPortDraft.portNumber || wanPortDraft.notes.trim());
   const hasWanPortDraft = Boolean(wanPortDraft.portNumber);
   const hasInvalidWanPortDraft = hasWanPortDraft && !isValidPort(wanPortDraft.portNumber);
@@ -1763,6 +1866,7 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
 
   const canAddConnection = (type) => {
     if (!type) return false;
+    if (vpnOnlyConnections && type !== 'VPN') return false;
     if (type === 'VPN') return connections.filter((connection) => connection.type === 'VPN').length < 5;
     return !connections.some((connection) => connection.type === type);
   };
@@ -1770,7 +1874,11 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
   const addConnection = (type) => {
     if (!type) return;
     if (!canAddConnection(type)) {
-      alert(type === 'VPN' ? 'A conexão VPN pode ser adicionada no máximo 5 vezes.' : `${type} já foi adicionada neste dispositivo.`);
+      alert(vpnOnlyConnections && type !== 'VPN'
+        ? 'Este tipo de dispositivo permite somente novas conexões VPN.'
+        : type === 'VPN'
+          ? 'A conexão VPN pode ser adicionada no máximo 5 vezes.'
+          : `${type} já foi adicionada neste dispositivo.`);
       return;
     }
     setDevice({
@@ -1831,6 +1939,8 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
       pppoeAccounts: nextDeviceType === DEVICE_TYPE_ROUTER_GATEWAY ? pppoeAccounts : [],
       lanNetworks: nextDeviceType === DEVICE_TYPE_ROUTER_GATEWAY ? lanNetworks : [],
       wanPortRules: nextDeviceType === DEVICE_TYPE_ROUTER_GATEWAY ? wanPortRules : [],
+      printerNetwork: nextDeviceType === 'IMPRESSORA' ? printerNetwork : normalizeStaticNetwork({}, { printer: true }),
+      pabxNetwork: nextDeviceType === PABX_DEVICE_TYPE ? pabxNetwork : normalizeStaticNetwork(),
       pabxPortal: nextDeviceType === PABX_DEVICE_TYPE ? pabxPortal : { url: '', login: '', password: '' },
       contractedExtensions: nextDeviceType === PABX_DEVICE_TYPE
         ? sanitizeContractedExtensions(device.contractedExtensions)
@@ -1851,6 +1961,18 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
         ? sanitizePortInput(value)
         : value;
     setDevice({ ...device, dvrAccess: { ...dvrAccess, [field]: nextValue } });
+  };
+
+  const updateStaticNetwork = (target, field, value) => {
+    const current = target === 'printerNetwork' ? printerNetwork : pabxNetwork;
+    const nextValue = field === 'ip' || field === 'gateway'
+      ? sanitizeIpv4Input(value)
+      : field === 'mask'
+        ? sanitizeLanMaskInput(value)
+        : field === 'printPort'
+          ? sanitizePortInput(value)
+          : value;
+    setDevice({ ...device, [target]: { ...current, [field]: nextValue } });
   };
 
   const addPppoeAccount = () => {
@@ -1885,7 +2007,7 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
 
   const addLanNetwork = () => {
     if (!canAddLanNetwork) {
-      alert('Informe um IP válido e corrija máscara, gateway ou VLAN antes de adicionar.');
+      alert('Informe um IP válido e corrija máscara, VLAN ou tipo antes de adicionar.');
       return;
     }
     setDevice({ ...device, lanNetworks: [{ id: makeId(), ...lanNetworkDraft }, ...lanNetworks] });
@@ -1893,7 +2015,7 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
   };
 
   const updateLanNetwork = (networkId, field, value) => {
-    const nextValue = field === 'ip' || field === 'gateway'
+    const nextValue = field === 'ip'
       ? sanitizeIpv4Input(value)
       : field === 'mask'
         ? sanitizeLanMaskInput(value)
@@ -2189,6 +2311,26 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
             </section>
           )}
 
+          {activeStaticNetwork && (
+            <section className="border-t border-slate-200 pt-5 dark:border-slate-700">
+              <div className="mb-3">
+                <h4 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                  {device.deviceType === 'IMPRESSORA' ? 'Rede da impressora' : 'Rede do PABX-IP/VOIP'}
+                </h4>
+                <p className="text-xs text-slate-500 dark:text-slate-400">Dados estáticos de rede deste dispositivo.</p>
+              </div>
+              <div className="flex flex-wrap items-end gap-2 rounded-md border border-slate-200 bg-slate-50 p-2 dark:border-slate-700 dark:bg-slate-800">
+                <label className="min-w-[130px] flex-1"><span className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">IP</span><input type="text" inputMode="decimal" aria-label="IP da rede estática" className={`h-[32px] w-full rounded-md border bg-white px-2 text-[13px] dark:bg-slate-900 dark:text-slate-100 ${activeStaticNetwork.ip && validateIpv4(activeStaticNetwork.ip).state === 'invalid' ? 'border-red-500' : 'border-slate-300 dark:border-slate-700'}`} value={activeStaticNetwork.ip} onChange={(event) => updateStaticNetwork(device.deviceType === 'IMPRESSORA' ? 'printerNetwork' : 'pabxNetwork', 'ip', event.target.value)} placeholder="192.168.1.50" /></label>
+                <label className="min-w-[130px] flex-1"><span className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">Máscara</span><input type="text" inputMode="decimal" aria-label="Máscara da rede estática" className={`h-[32px] w-full rounded-md border bg-white px-2 text-[13px] dark:bg-slate-900 dark:text-slate-100 ${validateLanMask(activeStaticNetwork.mask).state === 'invalid' ? 'border-red-500' : 'border-slate-300 dark:border-slate-700'}`} value={activeStaticNetwork.mask} onChange={(event) => updateStaticNetwork(device.deviceType === 'IMPRESSORA' ? 'printerNetwork' : 'pabxNetwork', 'mask', event.target.value)} placeholder="/24 ou 255.255.255.0" /></label>
+                <label className="min-w-[130px] flex-1"><span className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">Gateway</span><input type="text" inputMode="decimal" aria-label="Gateway da rede estática" className={`h-[32px] w-full rounded-md border bg-white px-2 text-[13px] dark:bg-slate-900 dark:text-slate-100 ${activeStaticNetwork.gateway && validateIpv4(activeStaticNetwork.gateway).state === 'invalid' ? 'border-red-500' : 'border-slate-300 dark:border-slate-700'}`} value={activeStaticNetwork.gateway} onChange={(event) => updateStaticNetwork(device.deviceType === 'IMPRESSORA' ? 'printerNetwork' : 'pabxNetwork', 'gateway', event.target.value)} placeholder="192.168.1.1" /></label>
+                {device.deviceType === 'IMPRESSORA' && <label className="w-[120px]"><span className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">Porta de impressão</span><input type="text" inputMode="numeric" maxLength={5} aria-label="Porta de impressão" className={`h-[32px] w-full rounded-md border bg-white px-2 text-[13px] dark:bg-slate-900 dark:text-slate-100 ${isOptionalValidPort(activeStaticNetwork.printPort) ? 'border-slate-300 dark:border-slate-700' : 'border-red-500'}`} value={activeStaticNetwork.printPort} onChange={(event) => updateStaticNetwork('printerNetwork', 'printPort', event.target.value)} placeholder="9100" /></label>}
+                <label className="min-w-[150px] flex-1"><span className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">MAC</span><input type="text" aria-label="MAC da rede estática" className="h-[32px] w-full rounded-md border border-slate-300 bg-white px-2 text-[13px] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={activeStaticNetwork.mac} onChange={(event) => updateStaticNetwork(device.deviceType === 'IMPRESSORA' ? 'printerNetwork' : 'pabxNetwork', 'mac', event.target.value)} placeholder="00:00:00:00:00:00" /></label>
+                <label className="w-[80px]"><span className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">DHCP</span><select aria-label="DHCP da rede estática" className="h-[32px] w-full rounded-md border border-slate-300 bg-white px-2 text-[13px] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={activeStaticNetwork.dhcp} onChange={(event) => updateStaticNetwork(device.deviceType === 'IMPRESSORA' ? 'printerNetwork' : 'pabxNetwork', 'dhcp', event.target.value)}>{DHCP_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
+                <label className="min-w-[180px] flex-[2]"><span className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">Observação</span><input type="text" aria-label="Observação da rede estática" className="h-[32px] w-full rounded-md border border-slate-300 bg-white px-2 text-[13px] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={activeStaticNetwork.notes} onChange={(event) => updateStaticNetwork(device.deviceType === 'IMPRESSORA' ? 'printerNetwork' : 'pabxNetwork', 'notes', event.target.value)} /></label>
+              </div>
+            </section>
+          )}
+
           {device.deviceType === DEVICE_TYPE_ROUTER_GATEWAY && (
             <section className="border-t border-slate-200 pt-5 dark:border-slate-700">
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -2198,8 +2340,9 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
               <div className="flex flex-wrap items-end gap-2 rounded-md border border-slate-200 bg-slate-50 p-2 dark:border-slate-700 dark:bg-slate-800">
                 <label className="min-w-[140px] flex-1"><span className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">IP</span><input type="text" inputMode="decimal" aria-label="IP da nova rede LAN" className={`h-[32px] w-full rounded-md border bg-white px-2 text-[13px] shadow-sm outline-none dark:bg-slate-900 dark:text-slate-100 ${lanDraftIpValidation.state === 'invalid' ? 'border-red-500' : 'border-slate-300 dark:border-slate-700'}`} value={lanNetworkDraft.ip} onChange={(event) => setLanNetworkDraft({ ...lanNetworkDraft, ip: sanitizeIpv4Input(event.target.value) })} placeholder="192.168.1.1" /></label>
                 <label className="min-w-[130px] flex-1"><span className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">Máscara</span><input type="text" inputMode="decimal" aria-label="Máscara da nova rede LAN" className={`h-[32px] w-full rounded-md border bg-white px-2 text-[13px] shadow-sm outline-none dark:bg-slate-900 dark:text-slate-100 ${lanDraftMaskValidation.state === 'invalid' ? 'border-red-500' : 'border-slate-300 dark:border-slate-700'}`} value={lanNetworkDraft.mask} onChange={(event) => setLanNetworkDraft({ ...lanNetworkDraft, mask: sanitizeLanMaskInput(event.target.value) })} placeholder="/24 ou 255.255.255.0" /></label>
-                <label className="min-w-[140px] flex-1"><span className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">Gateway</span><input type="text" inputMode="decimal" aria-label="Gateway da nova rede LAN" className={`h-[32px] w-full rounded-md border bg-white px-2 text-[13px] shadow-sm outline-none dark:bg-slate-900 dark:text-slate-100 ${lanNetworkDraft.gateway && lanDraftGatewayValidation.state === 'invalid' ? 'border-red-500' : 'border-slate-300 dark:border-slate-700'}`} value={lanNetworkDraft.gateway} onChange={(event) => setLanNetworkDraft({ ...lanNetworkDraft, gateway: sanitizeIpv4Input(event.target.value) })} placeholder="192.168.1.254" /></label>
                 <label className="w-[80px]"><span className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">VLAN</span><input type="text" inputMode="numeric" aria-label="VLAN da nova rede LAN" className={`h-[32px] w-full rounded-md border bg-white px-2 text-[13px] shadow-sm outline-none dark:bg-slate-900 dark:text-slate-100 ${isValidOptionalVlan(lanNetworkDraft.vlan) ? 'border-slate-300 dark:border-slate-700' : 'border-red-500'}`} value={lanNetworkDraft.vlan} onChange={(event) => setLanNetworkDraft({ ...lanNetworkDraft, vlan: sanitizeVlanInput(event.target.value) })} placeholder="10" /></label>
+                <label className="w-[100px]"><span className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">Tipo</span><select aria-label="Tipo da nova rede LAN" className="h-[32px] w-full rounded-md border border-slate-300 bg-white px-2 text-[13px] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={lanNetworkDraft.networkType} onChange={(event) => setLanNetworkDraft({ ...lanNetworkDraft, networkType: event.target.value })}>{LAN_NETWORK_TYPES.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
+                <label className="min-w-[180px] flex-1"><span className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">Observação</span><input type="text" aria-label="Observação da nova rede LAN" className="h-[32px] w-full min-w-0 rounded-md border border-slate-300 bg-white px-2 text-[13px] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={lanNetworkDraft.notes} onChange={(event) => setLanNetworkDraft({ ...lanNetworkDraft, notes: event.target.value })} placeholder="Rede administrativa" /></label>
                 <button type="button" disabled={!canAddLanNetwork} onClick={addLanNetwork} className="inline-flex h-[32px] items-center justify-center rounded-md border border-slate-300 bg-white px-3 text-[13px] font-medium text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"><Plus className="mr-1 h-4 w-4" /> Adicionar</button>
               </div>
               <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">Redes configuradas: {lanNetworks.length}</p>
@@ -2226,10 +2369,10 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
 
           {!['DVR', DEVICE_TYPE_ROUTER_GATEWAY].includes(device.deviceType) && <div className="border-t border-slate-200 pt-5">
             <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div><h4 className="text-sm font-semibold text-slate-900">Conexões</h4><p className="text-xs text-slate-500">Eth1 até Eth5 apenas uma vez. VPN pode ser adicionada até 5 vezes.</p></div>
+              <div><h4 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Conexões</h4><p className="text-xs text-slate-500 dark:text-slate-400">{vpnOnlyConnections ? 'Novas conexões deste dispositivo devem ser VPN.' : 'Eth1 até Eth5 apenas uma vez. VPN pode ser adicionada até 5 vezes.'}</p></div>
               <select value="" onChange={(event) => { addConnection(event.target.value); event.target.value = ''; }} className="w-full rounded-md border border-slate-300 bg-white p-2 text-sm shadow-sm sm:w-56">
                 <option value="">Adicionar conexão...</option>
-                {CONNECTION_OPTIONS.map((option) => <option key={option} value={option} disabled={!canAddConnection(option)}>{option}</option>)}
+                {availableConnectionOptions.map((option) => <option key={option} value={option} disabled={!canAddConnection(option)}>{option}</option>)}
               </select>
             </div>
 
@@ -2302,7 +2445,7 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
           {onDelete && <DeleteConfirmationControl value={deleteConfirmation} onChange={(event) => setDeleteConfirmation(event.target.value)} onDelete={onDelete} disabled={isSaving} />}
           <div className="flex justify-end gap-2">
             <button type="button" onClick={requestClose} className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Cancelar</button>
-            <button type="button" disabled={isSaving || hasInvalidConnections || hasInvalidPorts || hasInvalidDvrPorts || hasInvalidPppoePublicIp || hasInvalidLanNetworks || hasInvalidWanPorts || hasInvalidWanPortDraft} onClick={saveDeviceIncludingDrafts} className="rounded-md border border-transparent bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50">{isSaving ? 'Salvando...' : 'Salvar'}</button>
+            <button type="button" disabled={isSaving || hasInvalidConnections || hasInvalidPorts || hasInvalidDvrPorts || hasInvalidPppoePublicIp || hasInvalidLanNetworks || hasInvalidWanPorts || hasInvalidWanPortDraft || hasInvalidStaticNetwork} onClick={saveDeviceIncludingDrafts} className="rounded-md border border-transparent bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50">{isSaving ? 'Salvando...' : 'Salvar'}</button>
           </div>
         </div>
         {showAccessList && device.deviceType === DEVICE_TYPE_NAS_STORAGE && <DeviceAccessListModal device={device} items={nasUsers} kind="nasUser" onClose={() => setShowAccessList(false)} onRemove={removeNasUser} />}

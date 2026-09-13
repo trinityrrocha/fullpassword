@@ -152,6 +152,24 @@ try {
   assert.equal(await page.locator('div.fixed').first().getByText('Acesso DVR', { exact: true }).count(), 1);
   await page.locator('div.fixed').first().getByRole('button', { name: 'Fechar', exact: true }).last().click();
 
+  const printer = { id: 'printer', name: 'Impressora fiscal', deviceType: 'IMPRESSORA', connections: [{ id: 'legacy-printer-eth', type: 'Eth1', ipv4: '10.0.0.20/24', gateway: '10.0.0.1' }], printerNetwork: { ip: '192.168.1.50', mask: '/24', gateway: '192.168.1.1', printPort: '9100', mac: 'AA:00:BB:11:CC:22', dhcp: 'Off', notes: 'Recepção' } };
+  await render('devices', { devices: [printer], deviceLogins: [] });
+  assert.match(await page.locator('main').innerText(), /IP: 192\.168\.1\.50 · Porta: 9100 · DHCP: Off/);
+  await page.getByRole('button', { name: 'Detalhes', exact: true }).first().click();
+  const printerModal = page.locator('div.fixed').first();
+  const addPrinterConnection = printerModal.locator('select:has(option[value="VPN"])');
+  assert.deepEqual(await addPrinterConnection.locator('option').allTextContents(), ['Adicionar conexão...', 'VPN']);
+  assert.equal(await printerModal.getByText('Eth1', { exact: false }).count() > 0, true, 'Conexão ETH legada deve permanecer visível');
+  for (const label of ['IP da rede estática', 'Máscara da rede estática', 'Gateway da rede estática', 'Porta de impressão', 'MAC da rede estática', 'DHCP da rede estática', 'Observação da rede estática']) assert.equal(await printerModal.getByLabel(label, { exact: true }).count(), 1);
+  await printerModal.getByLabel('Porta de impressão').fill('65536');
+  assert.equal(await printerModal.getByRole('button', { name: 'Salvar', exact: true }).isEnabled(), false);
+  await printerModal.getByLabel('Porta de impressão').fill('9100');
+  await printerModal.getByRole('button', { name: 'Cancelar', exact: true }).click();
+  if (await page.getByRole('button', { name: 'Descartar', exact: true }).count()) await page.getByRole('button', { name: 'Descartar', exact: true }).click();
+  await page.getByRole('button', { name: 'Visualizar', exact: true }).first().click();
+  assert.match(await page.locator('div.fixed').first().innerText(), /Rede da impressora[\s\S]*192\.168\.1\.50[\s\S]*9100[\s\S]*AA:00:BB:11:CC:22[\s\S]*Off[\s\S]*Recepção/);
+  await page.locator('div.fixed').first().getByRole('button', { name: 'Fechar', exact: true }).last().click();
+
   const legacyRouter = {
     id: 'router',
     name: 'Roteador Matriz',
@@ -197,8 +215,12 @@ try {
 
   const lanIpField = routerModal.getByLabel('IP da nova rede LAN', { exact: true });
   const lanMaskField = routerModal.getByLabel('Máscara da nova rede LAN', { exact: true });
-  const lanGatewayField = routerModal.getByLabel('Gateway da nova rede LAN', { exact: true });
   const lanVlanField = routerModal.getByLabel('VLAN da nova rede LAN', { exact: true });
+  const lanTypeField = routerModal.getByLabel('Tipo da nova rede LAN', { exact: true });
+  const lanNotesField = routerModal.getByLabel('Observação da nova rede LAN', { exact: true });
+  assert.equal(await routerModal.getByLabel('Gateway da nova rede LAN', { exact: true }).count(), 0);
+  assert.deepEqual(await lanTypeField.locator('option').allTextContents(), ['Padrão', 'Hotspot', 'IoT']);
+  assert.equal(await lanTypeField.inputValue(), 'Padrão');
   const addLanButton = lanIpField.locator('xpath=../..').getByRole('button', { name: 'Adicionar', exact: true });
   await lanIpField.fill('999.999.999.999');
   assert.equal(await addLanButton.isEnabled(), false);
@@ -206,25 +228,25 @@ try {
   await lanMaskField.fill('255.0.255.0');
   assert.equal(await addLanButton.isEnabled(), false);
   await lanMaskField.fill('/24');
-  await lanGatewayField.fill('192.168.10.999');
-  assert.equal(await addLanButton.isEnabled(), false);
-  await lanGatewayField.fill('192.168.10.254');
   await lanVlanField.fill('12ab345');
   assert.equal(await lanVlanField.inputValue(), '1234');
   await lanVlanField.fill('5000');
   assert.equal(await addLanButton.isEnabled(), false);
   await lanVlanField.fill('10');
+  await lanTypeField.selectOption('Hotspot');
+  await lanNotesField.fill('Rede visitantes');
   assert.equal(await addLanButton.isEnabled(), true);
   await addLanButton.click();
-  for (const field of [lanIpField, lanMaskField, lanGatewayField, lanVlanField]) assert.equal(await field.inputValue(), '');
+  for (const field of [lanIpField, lanMaskField, lanVlanField, lanNotesField]) assert.equal(await field.inputValue(), '');
+  assert.equal(await lanTypeField.inputValue(), 'Padrão');
   await routerModal.getByText('Redes configuradas: 1', { exact: true }).waitFor();
   await routerModal.getByRole('button', { name: 'Exibir redes LAN', exact: true }).click();
   const editableLanModal = page.locator('div.fixed').last();
   assert.equal(await editableLanModal.getByLabel('Editar IP da rede 192.168.10.1').inputValue(), '192.168.10.1');
   assert.equal(await editableLanModal.getByRole('button', { name: 'Excluir rede LAN', exact: true }).count(), 1);
   const lanSearch = editableLanModal.getByLabel('Pesquisar redes LAN');
-  await lanSearch.fill('192.168.10.254');
-  assert.equal(await editableLanModal.getByLabel('Editar gateway da rede 192.168.10.1').count(), 1);
+  await lanSearch.fill('Rede visitantes');
+  assert.equal(await editableLanModal.getByLabel('Editar observação da rede 192.168.10.1').count(), 1);
   await lanSearch.fill('');
   await editableLanModal.getByLabel('Editar máscara da rede 192.168.10.1').fill('255.255.255.0');
   await editableLanModal.getByRole('button', { name: 'Fechar', exact: true }).click();
@@ -309,7 +331,7 @@ try {
   assert.equal(savedRouter.pppoeAccounts[1].wan, 'WAN1');
   assert.equal(savedRouter.pppoeAccounts[1].mac, '');
   assert.equal(savedRouter.pppoeAccounts[1].publicIp, '');
-  assert.deepEqual(savedRouter.lanNetworks.map(network => ({ ip: network.ip, mask: network.mask, gateway: network.gateway, vlan: network.vlan })), [{ ip: '192.168.10.1', mask: '255.255.255.0', gateway: '192.168.10.254', vlan: '10' }]);
+  assert.deepEqual(savedRouter.lanNetworks.map(network => ({ ip: network.ip, mask: network.mask, vlan: network.vlan, networkType: network.networkType, notes: network.notes })), [{ ip: '192.168.10.1', mask: '255.255.255.0', vlan: '10', networkType: 'Hotspot', notes: 'Rede visitantes' }]);
   assert.deepEqual(savedRouter.wanPortRules.map(rule => rule.portNumber), ['22', '443']);
   assert.deepEqual(savedRouter.wanPortRules.map(rule => rule.notes), ['SSH interno', 'HTTPS publicado']);
   assert.equal(savedRouter.wanPortRules[1].protocol, 'UDP');
@@ -331,7 +353,8 @@ try {
   assert.equal(await page.evaluate(() => navigator.clipboard.readText()), 'NEW-PPPOE-SECRET');
   await readOnlyRouter.getByRole('button', { name: 'Exibir redes LAN', exact: true }).click();
   const readOnlyLanModal = page.locator('div.fixed').last();
-  assert.match(await readOnlyLanModal.innerText(), /192\.168\.10\.1[\s\S]*255\.255\.255\.0[\s\S]*192\.168\.10\.254[\s\S]*10/);
+  assert.match(await readOnlyLanModal.innerText(), /192\.168\.10\.1[\s\S]*255\.255\.255\.0[\s\S]*10[\s\S]*Hotspot[\s\S]*Rede visitantes/);
+  assert.doesNotMatch(await readOnlyLanModal.innerText(), /Gateway/);
   assert.equal(await readOnlyLanModal.getByRole('button', { name: 'Excluir rede LAN', exact: true }).count(), 0);
   await readOnlyLanModal.getByRole('button', { name: 'Copiar IP 192.168.10.1', exact: true }).click();
   assert.equal(await page.evaluate(() => navigator.clipboard.readText()), '192.168.10.1');
@@ -361,7 +384,7 @@ try {
   await duplicateRouterModal.getByRole('button', { name: 'Fechar', exact: true }).last().click();
 
   const data = {
-    cpanels: [{ id: 'a', domain: 'principal.example' }, { id: 'b', domain: 'backup.example' }, { id: 'empty', domain: 'vazio.example' }],
+    cpanels: [{ id: 'a', domain: 'principal.example', domainExpirationDate: '2026-12-31', domainExpirationNotifyEnabled: true, domainExpirationNotifyEmails: ['admin@example.com'] }, { id: 'b', domain: 'backup.example' }, { id: 'empty', domain: 'vazio.example' }],
     users: [' ERP ', 'sistema', 'Financeiro', 'RH', ''].map((department, index) => ({ id: `u${index}`, cpanelId: ['a', 'a', 'b', 'missing', ''][index], name: `Pessoa ${index}`, login: `login${index}`, password: 'TEST-FIXTURE-SECRET', department }))
   };
   await render('hosting', data);
@@ -380,6 +403,12 @@ try {
   assert.equal(await groups.getByText('ERP', { exact: true }).count(), 1);
   assert.doesNotMatch((await groups.allTextContents()).join(' '), /TEST-FIXTURE-SECRET|Departamento:/);
   assert.match(await page.locator('main').innerText(), /Senha: \*\*\*\*/);
+  assert.match(await page.locator('main').innerText(), /Vencimento: 31\/12\/2026[\s\S]*Notificação: ativa · E-mails: 1/);
+  await page.getByRole('button', { name: 'Visualizar', exact: true }).first().click();
+  const hostingReadOnly = page.locator('div.fixed').first();
+  assert.match(await hostingReadOnly.innerText(), /Data de vencimento do domínio[\s\S]*31\/12\/2026[\s\S]*Notificação[\s\S]*Ativa[\s\S]*admin@example\.com/i);
+  assert.match(await hostingReadOnly.innerText(), /Senha[\s\S]*\*\*\*\*/i);
+  await hostingReadOnly.getByRole('button', { name: 'Fechar', exact: true }).last().click();
   await groups.getByRole('button', { name: 'Copiar login', exact: true }).first().click();
   assert.equal(await page.evaluate(() => navigator.clipboard.readText()), 'login0@principal.example');
   await groups.getByRole('button', { name: 'Copiar senha', exact: true }).first().click();
