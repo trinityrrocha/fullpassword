@@ -399,6 +399,8 @@ Variável ausente ou vazia mantém `/opt/fullpassword`. O caminho deve ser absol
 
 Falhas de APT exibem sistema detectado, comando/pacotes envolvidos e a mensagem original do gerenciador. Revise os repositórios da própria versão instalada; não misture Bookworm, Trixie ou Sid para contornar pacotes indisponíveis. Diagnósticos de cloudflared só são sugeridos na etapa do túnel, não em falhas de dependências.
 
+Antes do login Cloudflare, instruções coloridas em português explicam como abrir o link e aguardar. A URL e a saída nativa do cloudflared permanecem diretamente no terminal, sem captura em arquivo. Em falhas de Docker/healthcheck, o instalador mostra automaticamente `compose ps`, logs recentes do `db`/`backend` e apenas `.State.Health` do `fullpassword_db`. Se o PostgreSQL estiver `unhealthy`, exibe causas possíveis e orientações; não remove volumes nem executa limpeza automática. Não apague volumes em produção sem backup.
+
 **Opção 1 — IP público:** selecione `1` ao executar o comando acima. O instalador valida DNS/IP público, usa Certbot/Let's Encrypt e publica Nginx nas portas 80/443.
 
 **Opção 2 — Cloudflare Tunnel:** execute o mesmo comando e selecione `2`. Remova registros A/AAAA conflitantes do hostname na Cloudflare antes de confirmar a criação da rota DNS. O instalador usa o [repositório APT oficial da Cloudflare](https://pkg.cloudflare.com/index.html) (`any main`), solicita login no navegador e cria túnel, CNAME, `/etc/cloudflared/config.yml` e serviço systemd. Uma configuração/serviço cloudflared existente bloqueia a instalação para evitar sobrescrita silenciosa.

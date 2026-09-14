@@ -157,6 +157,7 @@ cloudflared() {
     case "$*" in
         'tunnel login')
             [ "$FAIL_AT" != login ] || return 1
+            printf 'https://dash.cloudflare.com/argotunnel?fixture=1\n'
             [ "$FAIL_AT" = cert ] || printf 'TEST_CERT\n' > "$TEST_DIR/root/.cloudflared/cert.pem"
             ;;
         'tunnel create '*)
@@ -169,7 +170,11 @@ cloudflared() {
     esac
     return 0
 }
-jq() { [ "$FAIL_AT" != json ] || return 1; printf '%s\n' "$UUID"; }
+jq() {
+    if [ "$1" = . ]; then cat; return; fi
+    [ "$FAIL_AT" != json ] || return 1
+    printf '%s\n' "$UUID"
+}
 for FAIL_AT in login cert create credentials json dns ingress; do
     rm -f "$TEST_DIR/root/.cloudflared/cert.pem"
     if (configure_cloudflare_tunnel <<< s) >/dev/null 2>&1; then
@@ -181,7 +186,13 @@ UUID=invalid
 if (configure_cloudflare_tunnel <<< s) >/dev/null 2>&1; then echo 'UUID inválido aceito'; exit 1; fi
 UUID=11111111-2222-3333-4444-555555555555
 if (configure_cloudflare_tunnel <<< n) >/dev/null 2>&1; then echo 'DNS sem confirmação'; exit 1; fi
-configure_cloudflare_tunnel <<< s >/dev/null
+configure_cloudflare_tunnel <<< s > "$TEST_DIR/login-output"
+assert_has "$(printf '%b' "$GREEN")ABRA O LINK NO NAVEGADOR, FAÇA LOGIN NA CLOUDFLARE, SELECIONE A ZONE CORRETA E VOLTE AO TERMINAL." "$TEST_DIR/login-output"
+assert_has "$(printf '%b' "$YELLOW")A próxima saída em inglês é gerada pelo próprio cloudflared. Não feche o terminal. Ele ficará aguardando até o login ser concluído." "$TEST_DIR/login-output"
+assert_has "$(printf '%b' "$BLUE")Depois do login, o cloudflared salvará o certificado automaticamente e o instalador continuará." "$TEST_DIR/login-output"
+assert_has 'https://dash.cloudflare.com/argotunnel?fixture=1' "$TEST_DIR/login-output"
+assert_lacks 'TEST_CERT|TunnelSecret' "$TEST_DIR/login-output"
+[ "$(grep -n 'ABRA O LINK' "$TEST_DIR/login-output" | cut -d: -f1)" -lt "$(grep -n 'https://dash.cloudflare.com' "$TEST_DIR/login-output" | cut -d: -f1)" ]
 assert_has 'service: http://localhost:80' "$TEST_DIR/etc/cloudflared/config.yml"
 assert_has 'service: http_status:404' "$TEST_DIR/etc/cloudflared/config.yml"
 assert_has "CLOUDFLARE_TUNNEL_UUID=$UUID" "$APP_DIR/.env"
@@ -218,14 +229,66 @@ compose() {
     printf '%s\n' "$*" >> "$LOG"
     case "$*" in
         config) [ "$FAIL_AT" != compose ] || return 1 ;;
+        'up -d --build') [ "$FAIL_AT" != db ] || return 1 ;;
         'exec -T backend '*) [ "$FAIL_AT" != health ] || return 1 ;;
     esac
 }
+docker() {
+    printf 'docker %s\n' "$*" >> "$LOG"
+    [ "$1" = inspect ] && [ "$2" = fullpassword_db ] && [ "$3" = --format ] && [ "$4" = '{{json .State.Health}}' ] || return 1
+    [ "$FAIL_AT" != missing ] || return 1
+    printf '{"Status":"%s","Log":[{"Output":"TEST_HEALTH_OUTPUT"}]}\n' "$DB_HEALTH"
+}
 sleep() { :; }
+DB_HEALTH=healthy
+: > "$LOG"
 FAIL_AT=compose
-if (start_containers) >/dev/null 2>&1; then echo 'Compose inválido aceito'; exit 1; fi
+if (start_containers) > "$TEST_DIR/docker-error" 2>&1; then echo 'Compose inválido aceito'; exit 1; fi
+assert_has 'ps' "$LOG"
+assert_has 'logs --tail=200 db' "$LOG"
+assert_has 'logs --tail=100 backend' "$LOG"
+assert_has "docker inspect fullpassword_db --format {{json .State.Health}}" "$LOG"
+assert_has 'Diagnóstico Docker (somente leitura)' "$TEST_DIR/docker-error"
+assert_lacks 'não ficou saudável|systemctl status cloudflared|journalctl -u cloudflared' "$TEST_DIR/docker-error"
+
+: > "$LOG"
+FAIL_AT=db
+DB_HEALTH=unhealthy
+if (start_containers) > "$TEST_DIR/db-error" 2>&1; then echo 'DB unhealthy aceito'; exit 1; fi
+assert_has 'logs --tail=200 db' "$LOG"
+assert_has 'logs --tail=100 backend' "$LOG"
+assert_has "docker inspect fullpassword_db --format {{json .State.Health}}" "$LOG"
+assert_has 'O container PostgreSQL `fullpassword_db` não ficou saudável.' "$TEST_DIR/db-error"
+assert_has 'TEST_HEALTH_OUTPUT' "$TEST_DIR/db-error"
+assert_has 'Não apague volumes em produção sem backup.' "$TEST_DIR/db-error"
+assert_lacks 'systemctl status cloudflared|journalctl -u cloudflared' "$TEST_DIR/db-error"
+assert_lacks 'volume rm|prune|down|rm -' "$LOG"
+
+# Falhas no próprio diagnóstico não geram recursão nem escondem o erro inicial.
+FAIL_AT=missing
+if (INSTALL_STAGE=docker; fail 'ERRO_ORIGINAL') > "$TEST_DIR/missing-error" 2>&1; then exit 1; fi
+assert_has 'ERRO_ORIGINAL' "$TEST_DIR/missing-error"
+assert_has 'Healthcheck indisponível' "$TEST_DIR/missing-error"
+(
+    FAIL_AT=none
+    command() { [ "$*" != '-v jq' ] || return 1; builtin command "$@"; }
+    print_docker_diagnostics > "$TEST_DIR/no-jq"
+)
+assert_has 'TEST_HEALTH_OUTPUT' "$TEST_DIR/no-jq"
+(
+    FAIL_AT=none
+    compose() { fail 'COMPOSE_INDISPONIVEL'; }
+    print_docker_diagnostics > "$TEST_DIR/no-compose" 2>&1
+)
+assert_has 'TEST_HEALTH_OUTPUT' "$TEST_DIR/no-compose"
+
+DB_HEALTH=healthy
 FAIL_AT=health
-if (start_containers) >/dev/null 2>&1; then echo 'Backend indisponível aceito'; exit 1; fi
+if (start_containers) > "$TEST_DIR/backend-error" 2>&1; then echo 'Backend indisponível aceito'; exit 1; fi
+assert_has 'Backend não respondeu ao healthcheck' "$TEST_DIR/backend-error"
+assert_has 'logs --tail=100 backend' "$LOG"
+assert_lacks 'não ficou saudável|systemctl status cloudflared' "$TEST_DIR/backend-error"
 FAIL_AT=none
 start_containers >/dev/null
 echo 'OK: Compose/healthcheck e falhas sem instalação real'
+echo 'OK: instruções coloridas, URL preservada e diagnóstico específico DB unhealthy sem limpeza'

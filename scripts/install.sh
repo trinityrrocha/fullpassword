@@ -28,11 +28,54 @@ fail() {
             printf '%s\n' 'Diagnóstico: systemctl status cloudflared' \
                 'journalctl -u cloudflared --no-pager -n 80' >&2 ;;
         docker|healthcheck)
-            printf '%s\n' 'No diretório da instalação: docker compose ps' \
-                'docker compose logs --tail=100 nginx' 'docker compose logs --tail=100 backend' >&2 ;;
+            print_docker_diagnostics >&2 || true ;;
     esac
     exit 1
 }
+
+print_docker_diagnostics() (
+    # Diagnóstico best-effort: não substituir o erro original nem entrar em
+    # recursão se Docker/Compose também estiverem indisponíveis.
+    trap - ERR
+    set +e
+    INSTALL_STAGE=diagnostics
+    printf '\n%bDiagnóstico Docker (somente leitura):%b\n' "$BLUE" "$NC"
+    (compose ps) || true
+    (compose logs --tail=200 db) || true
+    (compose logs --tail=100 backend) || true
+    local health
+    health=$(docker inspect fullpassword_db --format '{{json .State.Health}}' 2>/dev/null) || health=''
+    if [ -n "$health" ]; then
+        printf '\nHealthcheck do fullpassword_db:\n'
+        if command -v jq >/dev/null 2>&1; then
+            printf '%s\n' "$health" | jq . || printf '%s\n' "$health"
+        else
+            printf '%s\n' "$health"
+        fi
+        if printf '%s\n' "$health" | grep -Eq '"Status"[[:space:]]*:[[:space:]]*"unhealthy"'; then
+            printf '%bERRO: O container PostgreSQL `fullpassword_db` não ficou saudável.%b\n' "$RED" "$NC"
+            cat <<'DIAG'
+Possíveis causas:
+- falha no init.sql;
+- volume PostgreSQL parcialmente inicializado de tentativa anterior;
+- senha/variáveis inválidas no .env;
+- problema de permissão no volume;
+- tempo insuficiente para inicialização;
+- imagem PostgreSQL com falha de download/inicialização.
+
+Ações recomendadas:
+1. Revise os logs acima.
+2. Se for VM de teste e não houver dados importantes, remova a instalação incompleta antes de tentar novamente.
+3. Não apague volumes em produção sem backup.
+DIAG
+        fi
+    else
+        printf 'Healthcheck indisponível: container ainda não criado ou Docker inacessível.\n'
+    fi
+    printf '%s\n' 'No diretório da instalação: docker compose ps' \
+        'docker compose logs --tail=200 db' 'docker compose logs --tail=100 backend' \
+        'docker compose logs --tail=100 nginx'
+)
 
 detect_os() {
     local release_file="${1:-/etc/os-release}"
@@ -397,8 +440,12 @@ install_cloudflared() {
 configure_cloudflare_tunnel() {
     INSTALL_STAGE=cloudflared
     export HOME=/root
-    echo 'Será exibido um link de autenticação da Cloudflare.'
-    echo 'Abra no navegador, faça login, selecione a zone correta e volte ao terminal.'
+    printf '\n%b================================================================%b\n' "$GREEN" "$NC"
+    printf '%bABRA O LINK NO NAVEGADOR, FAÇA LOGIN NA CLOUDFLARE, SELECIONE A ZONE CORRETA E VOLTE AO TERMINAL.%b\n' "$GREEN" "$NC"
+    printf '%b================================================================%b\n' "$GREEN" "$NC"
+    printf '%bA próxima saída em inglês é gerada pelo próprio cloudflared. Não feche o terminal. Ele ficará aguardando até o login ser concluído.%b\n' "$YELLOW" "$NC"
+    printf '%bDepois do login, o cloudflared salvará o certificado automaticamente e o instalador continuará.%b\n\n' "$BLUE" "$NC"
+    # Sem pipe/wrapper: preserva URL, interatividade e código de saída nativos.
     cloudflared tunnel login || fail 'Falha na autenticação Cloudflare.'
     [ -s /root/.cloudflared/cert.pem ] || fail 'Autenticação não gerou /root/.cloudflared/cert.pem.'
     chmod 600 /root/.cloudflared/cert.pem
@@ -475,8 +522,6 @@ done
 
 if [ "$BACKEND_READY" != "true" ]; then
     echo -e "${RED}ERRO: o backend não respondeu ao healthcheck após 30 tentativas.${NC}"
-    echo -e "${YELLOW}Logs recentes do backend:${NC}"
-    compose logs --tail=100 backend >&2 || true
     fail 'Backend não respondeu ao healthcheck; instalação incompleta.'
 fi
 }
