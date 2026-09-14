@@ -95,8 +95,8 @@ services:
     container_name: fullpassword_nginx
     restart: always
     ports:
-      - "80:80"
-      - "443:443"
+      - "${NGINX_HTTP_BIND:-80}:80"
+      - "${NGINX_HTTPS_BIND:-443}:443"
     volumes:
       - ${NGINX_CONF_PATH:-./docker/nginx.conf}:/etc/nginx/conf.d/default.conf:ro
       - /etc/letsencrypt:/etc/letsencrypt:ro

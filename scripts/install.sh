@@ -1,56 +1,27 @@
 #!/bin/bash
-
-# ==============================================================================
-# FullPassword - Script de Auto-Instalação e Deploy para Produção
-# SO Suportado: Ubuntu 20.04/22.04 LTS ou Debian 11/12
-# ==============================================================================
-
-set -e
-
-# Cores para output
+# FullPassword - Ubuntu/Debian: IP público ou Cloudflare Tunnel.
+# Não use bash -x: o instalador manipula segredos em memória.
+set -eE
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
-NC='\033[0m' # No Color
-
-echo -e "${BLUE}======================================================${NC}"
-echo -e "${BLUE}   Instalador Automatizado FullPassword (Zero-Knowledge) ${NC}"
-echo -e "${BLUE}======================================================${NC}"
-
-# Verificar se é root
-if [ "$EUID" -ne 0 ]; then
-  echo -e "${RED}Por favor, execute este script como root (sudo ./install.sh)${NC}"
-  exit 1
-fi
-
-APP_DIR="/opt/fullpassword"
-if [ -d "$APP_DIR" ]; then
-  echo -e "${RED}ATENÇÃO: já existe uma instalação em $APP_DIR.${NC}"
-  echo -e "${YELLOW}Continuar pode interromper ou substituir a instalação existente.${NC}"
-  read -r -p "Digite REINSTALAR para confirmar explicitamente: " REINSTALL_CONFIRMATION
-  if [ "$REINSTALL_CONFIRMATION" != "REINSTALAR" ]; then
-    echo -e "${RED}Instalação abortada sem alterar a instalação existente.${NC}"
-    exit 1
-  fi
-fi
-
-# ==========================================
-# 1. COLETA DE VARIÁVEIS DO USUÁRIO
-# ==========================================
-echo -e "\n${YELLOW}--- Configurações Iniciais ---${NC}"
-
-read -p "Digite o domínio para o FullPassword (ex: cofre.seudominio.com.br): " DOMAIN
-read -p "Digite seu e-mail (para o certificado Let's Encrypt): " LETSENCRYPT_EMAIL
-read -p "Digite a porta SSH atual da sua VPS [Padrão: 22]: " SSH_PORT
-SSH_PORT=${SSH_PORT:-22}
-SUPER_ADMIN_EMAIL="$LETSENCRYPT_EMAIL"
-REPO_URL="https://github.com/trinityrrocha/fullpassword.git"
-RUNTIME_NGINX_CONF="./docker/nginx.runtime.conf"
+NC='\033[0m'
+REPO_URL=https://github.com/trinityrrocha/fullpassword.git
+RUNTIME_NGINX_CONF=./docker/nginx.runtime.conf
 BACKUP_CHUNK_SIZE_MB=50
 BACKUP_MAX_UPLOAD_MB=200
 BACKUP_TEMP_DIR=/tmp/fullpassword-backups
 BACKUP_RESTORE_TIMEOUT_MS=1800000
+
+fail() {
+    printf 'ERRO: %s\n' "$*" >&2
+    printf '%s\n' 'Diagnóstico: systemctl status cloudflared' \
+        'journalctl -u cloudflared --no-pager -n 80' \
+        'No diretório da instalação: docker compose ps' \
+        'docker compose logs --tail=100 nginx' 'docker compose logs --tail=100 backend' >&2
+    exit 1
+}
 
 compose() {
     if docker compose version >/dev/null 2>&1; then
@@ -58,22 +29,69 @@ compose() {
     elif command -v docker-compose >/dev/null 2>&1; then
         docker-compose "$@"
     else
-        echo -e "${RED}Docker Compose não está disponível.${NC}"
-        exit 1
+        fail 'Docker Compose não está disponível.'
     fi
 }
 
-# ==========================================
-# 2. ATUALIZAÇÃO E DEPENDÊNCIAS BÁSICAS
-# ==========================================
-echo -e "\n${GREEN}[1/6] Atualizando pacotes do sistema e instalando dependências...${NC}"
-apt-get update && apt-get upgrade -y
-apt-get install -y curl git ufw fail2ban certbot python3-certbot-nginx apt-transport-https ca-certificates software-properties-common netcat-openbsd dnsutils openssl
+select_install_mode() {
+    cat <<'MENU'
+Selecione o modo de instalação:
+1) Instalação com IP público
+   - Requer domínio apontando para o IP público da VPS
+   - Requer portas 80/443 abertas externamente
+   - Usa Let's Encrypt/Certbot no servidor
+2) Instalação com Cloudflare Tunnel
+   - Não requer IP público nem portas 80/443 abertas externamente
+   - Requer domínio gerenciado na Cloudflare
+   - Usa HTTPS na borda da Cloudflare
+MENU
+    read -r -p 'Opção (1/2): ' choice
+    case "$choice" in
+        1) INSTALL_MODE=public_ip; NGINX_HTTP_BIND=80; NGINX_HTTPS_BIND=443 ;;
+        2) INSTALL_MODE=cloudflare_tunnel; NGINX_HTTP_BIND=127.0.0.1:80; NGINX_HTTPS_BIND=127.0.0.1:443 ;;
+        *) fail 'Opção inválida. Selecione somente 1 ou 2.' ;;
+    esac
+}
 
-# Geração de segredos após garantir que o OpenSSL esteja disponível
-DB_PASSWORD=$(openssl rand -base64 48 | tr -dc 'a-zA-Z0-9' | head -c 40)
-JWT_SECRET=$(openssl rand -hex 64)
-ADMIN_BOOTSTRAP_TOKEN=$(openssl rand -hex 32)
+collect_install_settings() {
+    read -r -p 'Domínio do FullPassword (ex: cofre.seudominio.com.br): ' DOMAIN
+    [[ "$DOMAIN" =~ ^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)+$ ]] \
+        || fail 'Domínio inválido; informe apenas o hostname, sem URL ou porta.'
+    DOMAIN=$(printf '%s' "$DOMAIN" | tr '[:upper:]' '[:lower:]')
+    if [ "$INSTALL_MODE" = public_ip ]; then
+        read -r -p "Digite seu e-mail para o certificado Let's Encrypt e Super Admin: " SUPER_ADMIN_EMAIL
+    else
+        read -r -p 'Digite o e-mail do Super Admin: ' SUPER_ADMIN_EMAIL
+    fi
+    [[ "$SUPER_ADMIN_EMAIL" =~ ^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$ ]] || fail 'E-mail inválido.'
+    LETSENCRYPT_EMAIL="$SUPER_ADMIN_EMAIL"
+    read -r -p 'Porta SSH atual [22]: ' SSH_PORT
+    [ -n "$SSH_PORT" ] || SSH_PORT=22
+    [[ "$SSH_PORT" =~ ^[0-9]{1,5}$ ]] && ((10#$SSH_PORT >= 1 && 10#$SSH_PORT <= 65535)) || fail 'Porta SSH inválida.'
+    SSH_PORT=$((10#$SSH_PORT))
+    read -r -p 'Diretório de instalação [/opt/fullpassword]: ' APP_DIR
+    [ -n "$APP_DIR" ] || APP_DIR=/opt/fullpassword
+    [[ "$APP_DIR" =~ ^(/[a-zA-Z0-9_-]+){2,}$ ]] || fail 'Use um diretório absoluto dedicado, sem espaços ou caracteres especiais.'
+    if [ -e "$APP_DIR" ]; then
+        [ -d "$APP_DIR/.git" ] || fail 'Diretório existente não é uma instalação Git. Escolha outro diretório.'
+        echo "ATENÇÃO: já existe uma instalação em $APP_DIR; continuar pode interrompê-la."
+        read -r -p 'Digite REINSTALAR para confirmar o backup e substituição: ' confirmation
+        [ "$confirmation" = REINSTALAR ] || fail 'Instalação abortada sem substituir a existente.'
+    fi
+    if [ "$INSTALL_MODE" = cloudflare_tunnel ]; then
+        [ ! -e /etc/cloudflared/config.yml ] && ! systemctl cat cloudflared.service >/dev/null 2>&1 \
+            || fail 'Já existe configuração/serviço cloudflared. Preserve-o e revise antes de instalar.'
+    fi
+}
+
+install_base_dependencies() {
+    apt-get update
+    apt-get upgrade -y
+    apt-get install -y curl git ufw fail2ban apt-transport-https ca-certificates software-properties-common netcat-openbsd dnsutils openssl jq
+    if [ "$INSTALL_MODE" = public_ip ]; then
+        apt-get install -y certbot python3-certbot-nginx
+    fi
+}
 
 config_encryption_key_is_placeholder() {
     case "${CONFIG_ENCRYPTION_KEY:-}" in
@@ -100,26 +118,31 @@ ensure_config_encryption_key() {
     echo -e "${YELLOW}Preserve essa chave: trocá-la impede descriptografar senhas SMTP já salvas.${NC}"
 }
 
-ensure_config_encryption_key
-INITIAL_PASSWORD_RANDOM=$(openssl rand -base64 48 | tr -dc 'a-zA-Z0-9' | head -c 28)
-INITIAL_SUPER_ADMIN_PASSWORD="${INITIAL_PASSWORD_RANDOM}Aa1!"
+generate_secrets() {
+    DB_PASSWORD=$(openssl rand -base64 48 | tr -dc 'a-zA-Z0-9' | head -c 40)
+    JWT_SECRET=$(openssl rand -hex 64)
+    ADMIN_BOOTSTRAP_TOKEN=$(openssl rand -hex 32)
+    ensure_config_encryption_key
+    INITIAL_PASSWORD_RANDOM=$(openssl rand -base64 48 | tr -dc 'a-zA-Z0-9' | head -c 28)
+    INITIAL_SUPER_ADMIN_PASSWORD="${INITIAL_PASSWORD_RANDOM}Aa1!"
+}
 
-# ==========================================
-# 3. SEGURANÇA DA INFRAESTRUTURA (UFW E FAIL2BAN)
-# ==========================================
-echo -e "\n${GREEN}[2/6] Configurando Firewall (UFW) e Fail2Ban...${NC}"
+configure_firewall() {
+    ufw --force reset
+    ufw default deny incoming
+    ufw default allow outgoing
+    ufw allow "$SSH_PORT/tcp"
+    if [ "$INSTALL_MODE" = public_ip ]; then
+        ufw allow 80/tcp
+        ufw allow 443/tcp
+    else
+        echo 'Sem HTTP/HTTPS de entrada. O cloudflared usa conexões de saída para a Cloudflare.'
+    fi
+    ufw --force enable
+}
 
-# Configurar UFW
-ufw --force reset
-ufw default deny incoming
-ufw default allow outgoing
-ufw allow $SSH_PORT/tcp
-ufw allow 80/tcp
-ufw allow 443/tcp
-ufw --force enable
-
-# Configurar Fail2Ban para SSH
-cat > /etc/fail2ban/jail.local << EOF
+configure_fail2ban() {
+    cat > /etc/fail2ban/jail.local << EOF
 [sshd]
 enabled = true
 port = $SSH_PORT
@@ -128,15 +151,11 @@ logpath = /var/log/auth.log
 maxretry = 5
 bantime = 3600
 EOF
+    systemctl restart fail2ban
+    systemctl enable fail2ban
+}
 
-systemctl restart fail2ban
-systemctl enable fail2ban
-
-# ==========================================
-# 4. INSTALAÇÃO DO DOCKER E DOCKER COMPOSE
-# ==========================================
-echo -e "\n${GREEN}[3/6] Verificando/Instalando Docker e Docker Compose...${NC}"
-
+install_docker() {
 if ! command -v docker &> /dev/null; then
     echo "Instalando Docker..."
     curl -fsSL https://get.docker.com -o get-docker.sh
@@ -150,29 +169,27 @@ fi
 
 if ! docker compose version >/dev/null 2>&1 && ! command -v docker-compose &> /dev/null; then
     echo "Instalando Docker Compose standalone..."
-    curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+    curl -fL "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
     chmod +x /usr/local/bin/docker-compose
 else
     echo "Docker Compose já está disponível."
 fi
+}
 
-# ==========================================
-# 5. CLONE DO REPOSITÓRIO E CONFIGURAÇÃO
-# ==========================================
-echo -e "\n${GREEN}[4/6] Clonando repositório e configurando ambiente...${NC}"
+clone_repository() {
+    if [ -d "$APP_DIR" ]; then
+        mv "$APP_DIR" "$APP_DIR-backup-$(date +%Y%m%d_%H%M%S)"
+    fi
+    git clone "$REPO_URL" "$APP_DIR"
+    cd "$APP_DIR"
+}
 
-if [ -d "$APP_DIR" ]; then
-    echo -e "${YELLOW}Reinstalação confirmada. Fazendo backup de $APP_DIR...${NC}"
-    mv $APP_DIR "${APP_DIR}_backup_$(date +%Y%m%d_%H%M%S)"
-fi
-
-git clone $REPO_URL $APP_DIR
-cd $APP_DIR
-
-# Criar arquivo .env de produção
-echo -e "\n${GREEN}Gerando arquivo .env de produção...${NC}"
-umask 077
-cat > $APP_DIR/.env << EOF
+generate_env() {
+    umask 077
+cat > "$APP_DIR/.env" << EOF
+INSTALL_MODE=$INSTALL_MODE
+NGINX_HTTP_BIND=$NGINX_HTTP_BIND
+NGINX_HTTPS_BIND=$NGINX_HTTPS_BIND
 # Configurações de Banco de Dados
 DB_HOST=db
 DB_PORT=5432
@@ -207,19 +224,17 @@ VITE_API_URL=https://$DOMAIN/api
 # Configuração runtime do Nginx gerada pelo instalador
 NGINX_CONF_PATH=$RUNTIME_NGINX_CONF
 EOF
-chmod 600 $APP_DIR/.env
+chmod 600 "$APP_DIR/.env"
+}
 
-# ==========================================
-# 6. CERTIFICADO SSL (LET'S ENCRYPT) COM PRE-FLIGHT CHECKS
-# ==========================================
-echo -e "\n${GREEN}[5/6] Executando Pre-flight checks para SSL...${NC}"
-
+provision_letsencrypt_certificate() {
 # Verificar IP Público
-PUBLIC_IP=$(curl -s ifconfig.me)
+PUBLIC_IP=$(curl -fsS https://ifconfig.me)
+[ -n "$PUBLIC_IP" ] || fail 'Não foi possível determinar o IP público.'
 echo -e "${BLUE}Seu IP público atual é: $PUBLIC_IP${NC}"
 
 # Verificar apontamento DNS
-DOMAIN_IP=$(dig +short $DOMAIN | tail -n 1)
+DOMAIN_IP=$(dig +short "$DOMAIN" | tail -n 1)
 if [ "$DOMAIN_IP" != "$PUBLIC_IP" ]; then
     echo -e "${RED}ERRO CRÍTICO: O domínio $DOMAIN aponta para $DOMAIN_IP, mas o IP desta VPS é $PUBLIC_IP.${NC}"
     echo -e "${YELLOW}Por favor, corrija o apontamento DNS no seu provedor (Cloudflare, Registro.br, etc) e aguarde a propagação antes de rodar este script novamente.${NC}"
@@ -243,14 +258,15 @@ echo -e "\n${GREEN}Provisionando Certificado SSL Let's Encrypt para $DOMAIN...${
 # Parar o nginx temporariamente se estiver rodando para liberar a porta 80
 systemctl stop nginx 2>/dev/null || true
 
-# Obter o certificado (standalone)
-certbot certonly --standalone -d $DOMAIN --non-interactive --agree-tos -m $LETSENCRYPT_EMAIL
+    certbot certonly --standalone -d "$DOMAIN" --non-interactive --agree-tos -m "$LETSENCRYPT_EMAIL" \
+        || fail 'Falha no Certbot. Verifique DNS e firewall externo nas portas 80/443.'
+}
 
-if [ $? -eq 0 ]; then
-    echo -e "${GREEN}Certificado SSL gerado com sucesso!${NC}"
-
-    # Criar configuração runtime do Nginx sem alterar arquivos versionados pelo Git
-    cat > $APP_DIR/docker/nginx.runtime.conf << EOF
+generate_nginx_config() {
+    local proxy_proto='https'
+    if [ "$INSTALL_MODE" = public_ip ]; then
+        proxy_proto='$scheme'
+        cat > "$APP_DIR/docker/nginx.runtime.conf" << EOF
 server {
     listen 80;
     server_name $DOMAIN;
@@ -268,6 +284,15 @@ server {
     ssl_ciphers HIGH:!aNULL:!MD5;
     ssl_prefer_server_ciphers on;
 
+EOF
+    else
+        cat > "$APP_DIR/docker/nginx.runtime.conf" << EOF
+server {
+    listen 80;
+    server_name $DOMAIN;
+EOF
+    fi
+    cat >> "$APP_DIR/docker/nginx.runtime.conf" << EOF
     # Frontend estático (React)
     location / {
         add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none';" always;
@@ -282,7 +307,7 @@ server {
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_set_header X-Forwarded-Proto $proxy_proto;
     }
 
     # Restore usa streaming para disco e possui limite dedicado.
@@ -296,7 +321,7 @@ server {
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_set_header X-Forwarded-Proto $proxy_proto;
     }
 
     # Backend API (Node.js). O backend aplica 2 MB por padrão e 10 MB no vault.
@@ -312,36 +337,90 @@ server {
         proxy_cache_bypass \$http_upgrade;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_set_header X-Forwarded-Proto $proxy_proto;
     }
 }
 EOF
-else
-    echo -e "${RED}ERRO: Falha ao gerar o certificado SSL pelo Certbot.${NC}"
-    echo -e "${YELLOW}Isso quase sempre significa que a porta 80 está bloqueada externamente pelo firewall do seu provedor de nuvem (AWS/Oracle/Azure/GCP).${NC}"
-    echo -e "${YELLOW}A instalação foi abortada para evitar que o sistema suba inseguro (HTTP), o que quebraria a criptografia Web Crypto API do frontend.${NC}"
-    echo -e "${YELLOW}Por favor, corrija o firewall externo e execute ./install.sh novamente.${NC}"
-    exit 1
-fi
+}
 
-# ==========================================
-# 7. DEPLOY COM DOCKER COMPOSE
-# ==========================================
-echo -e "\n${GREEN}[6/6] Iniciando os containers com Docker Compose...${NC}"
+install_cloudflared() {
+    mkdir -p --mode=0755 /usr/share/keyrings
+    curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg -o /usr/share/keyrings/cloudflare-main.gpg
+    chmod 644 /usr/share/keyrings/cloudflare-main.gpg
+    printf '%s\n' 'deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared any main' \
+        > /etc/apt/sources.list.d/cloudflared.list
+    chmod 644 /etc/apt/sources.list.d/cloudflared.list
+    apt-get update
+    apt-get install -y cloudflared
+}
 
-# Garantir que o nginx no host não conflite com o container
-systemctl disable nginx 2>/dev/null || true
-systemctl stop nginx 2>/dev/null || true
+configure_cloudflare_tunnel() {
+    export HOME=/root
+    echo 'Será exibido um link de autenticação da Cloudflare.'
+    echo 'Abra no navegador, faça login, selecione a zone correta e volte ao terminal.'
+    cloudflared tunnel login || fail 'Falha na autenticação Cloudflare.'
+    [ -s /root/.cloudflared/cert.pem ] || fail 'Autenticação não gerou /root/.cloudflared/cert.pem.'
+    chmod 600 /root/.cloudflared/cert.pem
+    TUNNEL_NAME="fullpassword-$(printf '%s' "$DOMAIN" | tr '.' '-' | tr -cd 'a-zA-Z0-9_-')"
+    local credentials_dir
+    credentials_dir=$(mktemp -d /root/.cloudflared/fullpassword.XXXXXX)
+    chmod 700 "$credentials_dir"
+    # Caminho explícito e JSON: não depende de parsing do stdout da CLI.
+    cloudflared tunnel create --credentials-file "$credentials_dir/tunnel.json" "$TUNNEL_NAME" \
+        || fail 'Falha ao criar túnel; verifique se o nome já existe.'
+    [ -s "$credentials_dir/tunnel.json" ] || fail 'Arquivo de credenciais do túnel não encontrado.'
+    chmod 600 "$credentials_dir/tunnel.json"
+    TUNNEL_UUID=$(jq -er '.TunnelID | strings' "$credentials_dir/tunnel.json") || fail 'UUID ausente nas credenciais.'
+    [[ "$TUNNEL_UUID" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]] \
+        || fail 'UUID do túnel inválido.'
+    echo 'Remova registros A/AAAA conflitantes deste hostname no painel Cloudflare.'
+    echo 'A próxima etapa criará um CNAME apontando para o túnel.'
+    read -r -p 'Removeu os registros conflitantes e confirma que o domínio está na Cloudflare? (s/n) ' confirmation
+    [[ "$confirmation" =~ ^[Ss]$ ]] || fail 'Rota DNS não criada. O túnel já criado permanece na sua conta.'
+    cloudflared tunnel route dns "$TUNNEL_UUID" "$DOMAIN" || fail 'Falha ao criar rota DNS; revise os registros na Cloudflare.'
+    mkdir -p /etc/cloudflared
+    chmod 755 /etc/cloudflared
+    install -m 600 "$credentials_dir/tunnel.json" "/etc/cloudflared/$TUNNEL_UUID.json"
+    cat > /etc/cloudflared/config.yml << EOF
+tunnel: $TUNNEL_UUID
+credentials-file: /etc/cloudflared/$TUNNEL_UUID.json
 
-# Validar e subir os containers
-compose config >/dev/null
-compose up -d --build
+ingress:
+  - hostname: $DOMAIN
+    service: http://localhost:80
+  - service: http_status:404
+EOF
+    chmod 600 /etc/cloudflared/config.yml
+    cloudflared tunnel --config /etc/cloudflared/config.yml ingress validate || fail 'Configuração ingress inválida.'
+    cloudflared tunnel --config /etc/cloudflared/config.yml ingress rule "https://$DOMAIN" || fail 'Hostname não corresponde ao ingress.'
+    # Só identificadores públicos; nunca credenciais ou tokens no .env.
+    printf '\nCLOUDFLARE_TUNNEL_NAME=%s\nCLOUDFLARE_TUNNEL_UUID=%s\n' "$TUNNEL_NAME" "$TUNNEL_UUID" >> "$APP_DIR/.env"
+    rm -f "$credentials_dir/tunnel.json"
+    rmdir "$credentials_dir"
+}
 
+start_cloudflared_service() {
+    if ! cloudflared --config /etc/cloudflared/config.yml service install \
+        || ! systemctl enable cloudflared \
+        || ! systemctl restart cloudflared \
+        || ! systemctl is-active --quiet cloudflared; then
+        journalctl -u cloudflared --no-pager -n 80 >&2 || true
+        fail 'Serviço cloudflared não iniciou. Instalação incompleta.'
+    fi
+    cloudflared tunnel info "$TUNNEL_UUID" || true
+}
+
+start_containers() {
+    systemctl disable nginx 2>/dev/null || true
+    systemctl stop nginx 2>/dev/null || true
+    export VITE_APP_COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+    compose config >/dev/null || fail 'Docker Compose inválido.'
+    compose up -d --build || fail 'Falha ao subir containers.'
 echo -e "${GREEN}Aguardando o backend responder ao healthcheck...${NC}"
 BACKEND_READY=false
 for attempt in $(seq 1 30); do
     if compose exec -T backend node -e \
-        "fetch('http://127.0.0.1:3000/api/health').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))" \
+        "fetch('http://127.0.0.1:3000/api/health', {signal: AbortSignal.timeout(2000)}).then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))" \
         >/dev/null 2>&1; then
         BACKEND_READY=true
         break
@@ -351,26 +430,43 @@ for attempt in $(seq 1 30); do
 done
 
 if [ "$BACKEND_READY" != "true" ]; then
-    echo -e "${RED}ERRO: o backend não respondeu ao healthcheck após aproximadamente 60 segundos.${NC}"
+    echo -e "${RED}ERRO: o backend não respondeu ao healthcheck após 30 tentativas.${NC}"
     echo -e "${YELLOW}Logs recentes do backend:${NC}"
     compose logs --tail=100 backend >&2 || true
-    exit 1
+    fail 'Backend não respondeu ao healthcheck; instalação incompleta.'
 fi
+}
 
-echo -e "${GREEN}Backend saudável. Criando o Super Admin inicial...${NC}"
+create_initial_super_admin() {
 compose exec -T \
     -e INITIAL_SUPER_ADMIN_EMAIL="$SUPER_ADMIN_EMAIL" \
     -e INITIAL_SUPER_ADMIN_PASSWORD="$INITIAL_SUPER_ADMIN_PASSWORD" \
     -e INITIAL_SUPER_ADMIN_NAME="Super Admin" \
-    backend node scripts/create-super-admin.js
+    backend node scripts/create-super-admin.js || fail 'Falha ao criar o Super Admin.'
+}
 
+show_install_summary() {
 cat > /root/fullpassword-install-info.txt << EOF
+Modo de instalação: $INSTALL_MODE
 URL: https://$DOMAIN
 Diretório da instalação: $APP_DIR
 E-mail do Super Admin: $SUPER_ADMIN_EMAIL
 Senha temporária: $INITIAL_SUPER_ADMIN_PASSWORD
 Aviso: No primeiro login será obrigatório trocar a senha temporária.
 EOF
+if [ "$INSTALL_MODE" = cloudflare_tunnel ]; then
+    cat >> /root/fullpassword-install-info.txt << EOF
+Tunnel name: $TUNNEL_NAME
+Tunnel UUID: $TUNNEL_UUID
+Cloudflared config: /etc/cloudflared/config.yml
+Cloudflared service: cloudflared
+EOF
+    echo 'Instalação concluída com Cloudflare Tunnel.'
+    echo 'Sem IP público ou portas 80/443 externas; Cloudflare encaminha para http://localhost:80.'
+    echo 'systemctl status cloudflared'
+    echo 'journalctl -u cloudflared --no-pager -n 80'
+    echo "cloudflared tunnel info $TUNNEL_UUID"
+fi
 chmod 600 /root/fullpassword-install-info.txt
 
 echo -e "\n${BLUE}======================================================${NC}"
@@ -383,3 +479,38 @@ echo -e "${YELLOW}Senha temporária: $INITIAL_SUPER_ADMIN_PASSWORD${NC}"
 echo -e "${YELLOW}No primeiro login será obrigatório trocar a senha temporária.${NC}"
 echo -e "${YELLOW}Uma cópia root-only foi salva em: /root/fullpassword-install-info.txt${NC}"
 echo -e "${BLUE}======================================================${NC}"
+}
+
+main() {
+    [ "$EUID" -eq 0 ] || fail 'Execute como root: sudo ./install.sh'
+    trap 'fail "Comando da instalação falhou; instalação incompleta."' ERR
+    umask 077
+    select_install_mode
+    collect_install_settings
+    install_base_dependencies
+    generate_secrets
+    configure_firewall
+    configure_fail2ban
+    install_docker
+    clone_repository
+    generate_env
+    if [ "$INSTALL_MODE" = public_ip ]; then
+        provision_letsencrypt_certificate
+    fi
+    generate_nginx_config
+    if [ "$INSTALL_MODE" = cloudflare_tunnel ]; then
+        install_cloudflared
+        configure_cloudflare_tunnel
+    fi
+    start_containers
+    if [ "$INSTALL_MODE" = cloudflare_tunnel ]; then
+        start_cloudflared_service
+    fi
+    create_initial_super_admin
+    show_install_summary
+}
+
+# Permite testes das funções sem executar instalação.
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi

@@ -364,8 +364,9 @@ Para impedir rotação de identidade sem prova de posse, administradores não de
 > **Atenção: valide estes pré-requisitos antes da instalação para evitar erro no deploy.**
 >
 > - VPS com Ubuntu 20.04/22.04 LTS ou Debian 11/12
-> - Domínio apontando para o IP da VPS
-> - Acesso SSH como root
+> - Acesso administrativo/root ao servidor
+> - Opção 1: domínio apontando para o IP público e portas 80/443 abertas também no provedor
+> - Opção 2: domínio gerenciado na Cloudflare, autenticação no navegador e saída para internet; não exige IP público nem portas 80/443 de entrada
 
 ### Instalação em 3 passos
 
@@ -381,9 +382,32 @@ sudo ./install.sh
 
 O script solicitará:
 
+- Modo: **1 — IP público** ou **2 — Cloudflare Tunnel**, no mesmo `scripts/install.sh`
 - Domínio, exemplo: `cofre.suaempresa.com.br`
-- E-mail para Let's Encrypt, também usado como e-mail inicial do Super Admin
+- E-mail do Super Admin (também usado para Let's Encrypt somente na opção 1)
 - Porta SSH, caso esteja customizada
+- Diretório de instalação (padrão `/opt/fullpassword`)
+
+**Opção 1 — IP público:** selecione `1` ao executar o comando acima. O instalador valida DNS/IP público, usa Certbot/Let's Encrypt e publica Nginx nas portas 80/443.
+
+**Opção 2 — Cloudflare Tunnel:** execute o mesmo comando e selecione `2`. Remova registros A/AAAA conflitantes do hostname na Cloudflare antes de confirmar a criação da rota DNS. O instalador usa o [repositório APT oficial da Cloudflare](https://pkg.cloudflare.com/index.html) (`any main`), solicita login no navegador e cria túnel, CNAME, `/etc/cloudflared/config.yml` e serviço systemd. Uma configuração/serviço cloudflared existente bloqueia a instalação para evitar sobrescrita silenciosa.
+
+No modo tunnel, Nginx recebe HTTP local em `127.0.0.1:80`, sem Certbot, redirecionamento ou bloco TLS local. O bind de 443 também é restrito ao loopback, mas fica sem listener no Nginx. `APP_ORIGIN`, `VITE_API_URL` e o callback Google Drive continuam HTTPS: o navegador acessa a borda Cloudflare. As credenciais do túnel ficam somente em arquivos root-only, nunca no `.env`. O WebUpdater respeita `INSTALL_MODE` ao regenerar Nginx; instalações anteriores sem essa variável continuam no modo público.
+
+O healthcheck do backend deve passar antes da conclusão; falhas de criação, DNS, ingress ou serviço interrompem a instalação. Em uma tentativa interrompida, o túnel/DNS já criados na conta são preservados: revise-os antes de repetir (o instalador não remove recursos Cloudflare automaticamente).
+
+Diagnóstico do modo tunnel:
+
+```bash
+systemctl status cloudflared
+journalctl -u cloudflared --no-pager -n 80
+cloudflared tunnel info UUID_DO_TUNEL
+# No diretório de instalação:
+docker compose ps
+docker compose logs --tail=100 nginx backend
+```
+
+Valide ambos os modos primeiro em VM de teste, incluindo HTTPS, login do Super Admin e uma atualização pelo painel. A opção 2 depende da disponibilidade da Cloudflare e dos limites de upload/tempo aplicáveis à conta; não altera os limites do backup da aplicação. Consulte o [fluxo oficial de túnel gerenciado localmente](https://developers.cloudflare.com/tunnel/features/locally-managed-tunnels/create-local-tunnel/).
 
 O instalador gera uma senha temporária forte, cria automaticamente o primeiro usuário com a flag persistente `is_super_admin=true` e salva as informações iniciais em `/root/fullpassword-install-info.txt` com permissão `600`.
 

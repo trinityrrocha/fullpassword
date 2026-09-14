@@ -55,6 +55,13 @@ write_runtime_nginx_conf() {
 
   mkdir -p "$(dirname "$runtime_conf_path")"
 
+  case "${INSTALL_MODE:-public_ip}" in
+    public_ip) proxy_proto='$scheme' ;;
+    cloudflare_tunnel) proxy_proto=https ;;
+    *) fail "INSTALL_MODE inválido" ;;
+  esac
+
+  if [ "${INSTALL_MODE:-public_ip}" = public_ip ]; then
   cat > "$runtime_conf_path" <<EOF
 server {
     listen 80;
@@ -73,6 +80,15 @@ server {
     ssl_ciphers HIGH:!aNULL:!MD5;
     ssl_prefer_server_ciphers on;
 
+EOF
+  else
+    cat > "$runtime_conf_path" <<EOF
+server {
+    listen 80;
+    server_name $domain;
+EOF
+  fi
+  cat >> "$runtime_conf_path" <<EOF
     # Frontend estático (React)
     location / {
         add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none';" always;
@@ -87,7 +103,7 @@ server {
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_set_header X-Forwarded-Proto $proxy_proto;
     }
 
     # Restore usa streaming para disco e possui limite dedicado.
@@ -101,7 +117,7 @@ server {
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_set_header X-Forwarded-Proto $proxy_proto;
     }
 
     # Backend API (Node.js). O backend aplica 2 MB por padrão e 10 MB no vault.
@@ -114,7 +130,7 @@ server {
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_set_header X-Forwarded-Proto $proxy_proto;
     }
 }
 EOF
