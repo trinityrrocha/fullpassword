@@ -16,20 +16,30 @@ BACKUP_TEMP_DIR=/tmp/fullpassword-backups
 BACKUP_RESTORE_TIMEOUT_MS=1800000
 INSTALL_STAGE=preflight
 OS_LABEL='não detectado'
+CLOUDFLARE_RESOURCES_MAY_EXIST=false
 
 fail() {
     printf 'ERRO: %s\nInstalação incompleta. Etapa: %s. Sistema: %s\n' "$*" "$INSTALL_STAGE" "$OS_LABEL" >&2
+    printf '%s\n' 'Esta instalação parcial não deve ser considerada válida para produção.' \
+        'Revise os logs. Em VM de teste, após corrigir o instalador, limpe a VM ou remova a instalação parcial e execute novamente do início.' \
+        'Não apague volumes em produção sem backup.' >&2
     case "$INSTALL_STAGE" in
         apt)
             printf '%s\n' 'Revise a mensagem do APT acima para identificar o pacote/repositório que falhou.' \
                 'Verifique os repositórios da versão detectada em /etc/apt/sources.list e /etc/apt/sources.list.d/.' \
                 'Não misture repositórios Debian de outra versão (Bookworm, Trixie ou Sid).' >&2 ;;
         cloudflared)
-            printf '%s\n' 'Diagnóstico: systemctl status cloudflared' \
-                'journalctl -u cloudflared --no-pager -n 80' >&2 ;;
+            printf '%s\n' 'Diagnóstico: sudo systemctl status cloudflared' \
+                'sudo journalctl -u cloudflared --no-pager -n 80' \
+                'Configuração: /etc/cloudflared/config.yml (root-only)' >&2 ;;
         docker|healthcheck)
             print_docker_diagnostics >&2 || true ;;
     esac
+    if [ "$CLOUDFLARE_RESOURCES_MAY_EXIST" = true ] && [ "$INSTALL_STAGE" != diagnostics ]; then
+        printf '%bATENÇÃO: O túnel Cloudflare e/ou o registro DNS podem já ter sido criados.%b\n' "$YELLOW" "$NC" >&2
+        printf '%s\n' 'Como a instalação não foi concluída, revise esses recursos no painel Cloudflare antes de iniciar uma nova VM de teste com o mesmo hostname.' \
+            'Nenhum túnel, registro DNS ou credencial será removido automaticamente.' >&2
+    fi
     exit 1
 }
 
@@ -40,9 +50,10 @@ print_docker_diagnostics() (
     set +e
     INSTALL_STAGE=diagnostics
     printf '\n%bDiagnóstico Docker (somente leitura):%b\n' "$BLUE" "$NC"
-    (compose ps) || true
-    (compose logs --tail=200 db) || true
-    (compose logs --tail=100 backend) || true
+    (compose --project-directory "$APP_DIR" ps) || true
+    (compose --project-directory "$APP_DIR" logs --tail=200 db) || true
+    (compose --project-directory "$APP_DIR" logs --tail=100 backend) || true
+    (compose --project-directory "$APP_DIR" logs --tail=100 nginx) || true
     local health
     health=$(docker inspect fullpassword_db --format '{{json .State.Health}}' 2>/dev/null) || health=''
     if [ -n "$health" ]; then
@@ -72,9 +83,15 @@ DIAG
     else
         printf 'Healthcheck indisponível: container ainda não criado ou Docker inacessível.\n'
     fi
-    printf '%s\n' 'No diretório da instalação: docker compose ps' \
-        'docker compose logs --tail=200 db' 'docker compose logs --tail=100 backend' \
-        'docker compose logs --tail=100 nginx'
+    printf '\nComandos de diagnóstico (diretório da instalação: %s):\n' "$APP_DIR"
+    printf 'sudo docker compose --project-directory "%s" ps\n' "$APP_DIR"
+    printf 'sudo docker compose --project-directory "%s" logs --tail=200 db\n' "$APP_DIR"
+    printf 'sudo docker compose --project-directory "%s" logs --tail=100 backend\n' "$APP_DIR"
+    printf 'sudo docker compose --project-directory "%s" logs --tail=100 nginx\n' "$APP_DIR"
+    printf 'Alternativa com acesso root ao diretório:\n'
+    printf "sudo bash -lc 'cd \"%s\" && docker compose ps'\n" "$APP_DIR"
+    printf "sudo bash -lc 'cd \"%s\" && docker compose logs --tail=200 db'\n" "$APP_DIR"
+    printf '%s\n' "sudo docker inspect fullpassword_db --format '{{json .State.Health}}' | jq ."
 )
 
 detect_os() {
@@ -262,11 +279,17 @@ clone_repository() {
     if [ -d "$APP_DIR" ]; then
         mv "$APP_DIR" "$APP_DIR-backup-$(date +%Y%m%d_%H%M%S)"
     fi
-    git clone "$REPO_URL" "$APP_DIR"
+    # Código versionado navegável/legível, mesmo se o sudo herdou umask 077.
+    (umask 022; git clone "$REPO_URL" "$APP_DIR")
+    chown root:root "$APP_DIR"
+    chmod 755 "$APP_DIR"
+    if [ "$APP_DIR" = /opt/fullpassword ]; then
+        chmod 755 /opt
+    fi
     cd "$APP_DIR"
 }
 
-generate_env() {
+generate_env() (
     umask 077
 cat > "$APP_DIR/.env" << EOF
 INSTALL_MODE=$INSTALL_MODE
@@ -307,7 +330,8 @@ VITE_API_URL=https://$DOMAIN/api
 NGINX_CONF_PATH=$RUNTIME_NGINX_CONF
 EOF
 chmod 600 "$APP_DIR/.env"
-}
+chown root:root "$APP_DIR/.env"
+)
 
 provision_letsencrypt_certificate() {
 # Verificar IP Público
@@ -446,7 +470,7 @@ configure_cloudflare_tunnel() {
     printf '%bA próxima saída em inglês é gerada pelo próprio cloudflared. Não feche o terminal. Ele ficará aguardando até o login ser concluído.%b\n' "$YELLOW" "$NC"
     printf '%bDepois do login, o cloudflared salvará o certificado automaticamente e o instalador continuará.%b\n\n' "$BLUE" "$NC"
     # Sem pipe/wrapper: preserva URL, interatividade e código de saída nativos.
-    cloudflared tunnel login || fail 'Falha na autenticação Cloudflare.'
+    (umask 077; cloudflared tunnel login) || fail 'Falha na autenticação Cloudflare.'
     [ -s /root/.cloudflared/cert.pem ] || fail 'Autenticação não gerou /root/.cloudflared/cert.pem.'
     chmod 600 /root/.cloudflared/cert.pem
     TUNNEL_NAME="fullpassword-$(printf '%s' "$DOMAIN" | tr '.' '-' | tr -cd 'a-zA-Z0-9_-')"
@@ -454,6 +478,8 @@ configure_cloudflare_tunnel() {
     credentials_dir=$(mktemp -d /root/.cloudflared/fullpassword.XXXXXX)
     chmod 700 "$credentials_dir"
     # Caminho explícito e JSON: não depende de parsing do stdout da CLI.
+    # Marcar antes da chamada: uma falha de rede pode ocorrer após a criação remota.
+    CLOUDFLARE_RESOURCES_MAY_EXIST=true
     cloudflared tunnel create --credentials-file "$credentials_dir/tunnel.json" "$TUNNEL_NAME" \
         || fail 'Falha ao criar túnel; verifique se o nome já existe.'
     [ -s "$credentials_dir/tunnel.json" ] || fail 'Arquivo de credenciais do túnel não encontrado.'
@@ -469,7 +495,7 @@ configure_cloudflare_tunnel() {
     mkdir -p /etc/cloudflared
     chmod 755 /etc/cloudflared
     install -m 600 "$credentials_dir/tunnel.json" "/etc/cloudflared/$TUNNEL_UUID.json"
-    cat > /etc/cloudflared/config.yml << EOF
+    (umask 077; cat > /etc/cloudflared/config.yml << EOF
 tunnel: $TUNNEL_UUID
 credentials-file: /etc/cloudflared/$TUNNEL_UUID.json
 
@@ -478,6 +504,7 @@ ingress:
     service: http://localhost:80
   - service: http_status:404
 EOF
+    )
     chmod 600 /etc/cloudflared/config.yml
     cloudflared tunnel --config /etc/cloudflared/config.yml ingress validate || fail 'Configuração ingress inválida.'
     cloudflared tunnel --config /etc/cloudflared/config.yml ingress rule "https://$DOMAIN" || fail 'Hostname não corresponde ao ingress.'
@@ -499,13 +526,60 @@ start_cloudflared_service() {
     cloudflared tunnel info "$TUNNEL_UUID" || true
 }
 
+wait_for_container_health() {
+    local container_name="$1" timeout_seconds="${2:-300}" elapsed=0 status
+    while [ "$elapsed" -lt "$timeout_seconds" ]; do
+        status=$(docker inspect "$container_name" --format '{{.State.Health.Status}}' 2>/dev/null || true)
+        if [ "$status" = healthy ]; then
+            printf '%b%s está healthy.%b\n' "$GREEN" "$container_name" "$NC"
+            return 0
+        fi
+        printf '%bAguardando %s ficar healthy... (%s/%ss). Status atual: %s%b\n' \
+            "$YELLOW" "$container_name" "$elapsed" "$timeout_seconds" "${status:-indisponível}" "$NC"
+        sleep 5
+        elapsed=$((elapsed + 5))
+    done
+    printf '%bERRO: O PostgreSQL não ficou saudável dentro do tempo limite.%b\n' "$RED" "$NC" >&2
+    return 1
+}
+
 start_containers() {
     INSTALL_STAGE=docker
     systemctl disable nginx 2>/dev/null || true
     systemctl stop nginx 2>/dev/null || true
     export VITE_APP_COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
     compose config >/dev/null || fail 'Docker Compose inválido.'
-    compose up -d --build || fail 'Falha ao subir containers.'
+    local db_failure_marker
+    db_failure_marker=$(mktemp)
+    # Mantém o build visível e preserva seu exit code. O arquivo temporário
+    # contém somente o marcador "db", nunca a saída ou segredos do build.
+    if (set -o pipefail; compose up -d --build 2>&1 | awk -v marker="$db_failure_marker" '
+        { print; fflush() }
+        tolower($0) ~ /db failed|dependency failed|unhealthy|fullpassword_db.*(error|fail)|(error|fail).*fullpassword_db/ {
+            print "db" > marker
+        }
+    '); then
+        rm -f "$db_failure_marker"
+        wait_for_container_health fullpassword_db 300 \
+            || fail 'O container PostgreSQL `fullpassword_db` não ficou saudável após 300 segundos.'
+    else
+        if [ ! -s "$db_failure_marker" ]; then
+            rm -f "$db_failure_marker"
+            fail 'Falha ao subir containers; erro não identificado como inicialização do PostgreSQL.'
+        fi
+        rm -f "$db_failure_marker"
+        docker inspect fullpassword_db --format '{{.State.Status}}' >/dev/null 2>&1 \
+            || fail 'Falha no Compose e container fullpassword_db ausente ou inacessível; não será feita retentativa.'
+        printf '%bDocker Compose retornou falha de dependência. Aguardando PostgreSQL por até 300 segundos...%b\n' "$YELLOW" "$NC"
+        if wait_for_container_health fullpassword_db 300; then
+            printf '%bPostgreSQL ficou saudável. Reexecutando docker compose up -d...%b\n' "$GREEN" "$NC"
+            compose up -d || fail 'Falha ao subir serviços dependentes após PostgreSQL healthy.'
+        else
+            fail 'O container PostgreSQL `fullpassword_db` não ficou saudável após 300 segundos.'
+        fi
+    fi
+    [ "$(docker inspect fullpassword_db --format '{{.State.Health.Status}}' 2>/dev/null || true)" = healthy ] \
+        || fail 'PostgreSQL perdeu o estado healthy; instalação incompleta.'
 INSTALL_STAGE=healthcheck
 echo -e "${GREEN}Aguardando o backend responder ao healthcheck...${NC}"
 BACKEND_READY=false
@@ -535,7 +609,8 @@ compose exec -T \
     backend node scripts/create-super-admin.js || fail 'Falha ao criar o Super Admin.'
 }
 
-show_install_summary() {
+show_install_summary() (
+umask 077
 cat > /root/fullpassword-install-info.txt << EOF
 Modo de instalação: $INSTALL_MODE
 URL: https://$DOMAIN
@@ -553,9 +628,9 @@ Cloudflared service: cloudflared
 EOF
     echo 'Instalação concluída com Cloudflare Tunnel.'
     echo 'Sem IP público ou portas 80/443 externas; Cloudflare encaminha para http://localhost:80.'
-    echo 'systemctl status cloudflared'
-    echo 'journalctl -u cloudflared --no-pager -n 80'
-    echo "cloudflared tunnel info $TUNNEL_UUID"
+    echo 'sudo systemctl status cloudflared'
+    echo 'sudo journalctl -u cloudflared --no-pager -n 80'
+    echo "sudo cloudflared tunnel info $TUNNEL_UUID"
 fi
 chmod 600 /root/fullpassword-install-info.txt
 
@@ -569,12 +644,11 @@ echo -e "${YELLOW}Senha temporária: $INITIAL_SUPER_ADMIN_PASSWORD${NC}"
 echo -e "${YELLOW}No primeiro login será obrigatório trocar a senha temporária.${NC}"
 echo -e "${YELLOW}Uma cópia root-only foi salva em: /root/fullpassword-install-info.txt${NC}"
 echo -e "${BLUE}======================================================${NC}"
-}
+)
 
 main() {
     [ "$EUID" -eq 0 ] || fail 'Execute como root: sudo ./install.sh'
     trap 'fail "Comando da instalação falhou; instalação incompleta."' ERR
-    umask 077
     detect_os
     select_install_mode
     collect_install_settings

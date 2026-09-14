@@ -397,9 +397,13 @@ sudo env FULLPASSWORD_APP_DIR=/opt/fullpassword-teste ./install.sh
 
 Variável ausente ou vazia mantém `/opt/fullpassword`. O caminho deve ser absoluto e dedicado, sem espaços, pontos ou links simbólicos; `/`, `/opt`, `/home` e `/root` são rejeitados. Se já houver uma instalação Git no destino, continua sendo necessário digitar exatamente `REINSTALAR`; sem essa confirmação, nada é substituído. A confirmação de DNS do Cloudflare Tunnel também é mantida.
 
+O clone usa `umask 022` e o diretório da aplicação fica com owner/group `root:root` e permissão `755`, permitindo navegação e leitura do código por usuário comum. Não há `chmod` recursivo: `.env` permanece `root:root`, root-only (`600`), assim como `/root/fullpassword-install-info.txt` e as credenciais do túnel são protegidos. O `umask 077` fica restrito às gravações sensíveis. Em diretórios avançados, os diretórios pais também precisam permitir navegação.
+
 Falhas de APT exibem sistema detectado, comando/pacotes envolvidos e a mensagem original do gerenciador. Revise os repositórios da própria versão instalada; não misture Bookworm, Trixie ou Sid para contornar pacotes indisponíveis. Diagnósticos de cloudflared só são sugeridos na etapa do túnel, não em falhas de dependências.
 
 Antes do login Cloudflare, instruções coloridas em português explicam como abrir o link e aguardar. A URL e a saída nativa do cloudflared permanecem diretamente no terminal, sem captura em arquivo. Em falhas de Docker/healthcheck, o instalador mostra automaticamente `compose ps`, logs recentes do `db`/`backend` e apenas `.State.Health` do `fullpassword_db`. Se o PostgreSQL estiver `unhealthy`, exibe causas possíveis e orientações; não remove volumes nem executa limpeza automática. Não apague volumes em produção sem backup.
+
+Se `compose up -d --build` falhar com indicação de dependência/PostgreSQL unhealthy, o instalador aguarda o `fullpassword_db` por até **300 segundos**, consultando a cada 5 segundos. Se ficar healthy, executa uma única vez `compose up -d` (sem rebuild), depois valida o backend e segue o fluxo normal. Falhas de build não relacionadas ao banco não recebem esse retry. Se a espera ou a retentativa falhar, a instalação permanece incompleta e não é válida para produção; não conclua criando o Super Admin manualmente. Em VM descartável, após corrigir a causa, limpe a VM ou remova a instalação parcial e repita do início. Mensagens `[UFW BLOCK]` no console não são, isoladamente, falhas do instalador.
 
 **Opção 1 — IP público:** selecione `1` ao executar o comando acima. O instalador valida DNS/IP público, usa Certbot/Let's Encrypt e publica Nginx nas portas 80/443.
 
@@ -407,17 +411,23 @@ Antes do login Cloudflare, instruções coloridas em português explicam como ab
 
 No modo tunnel, Nginx recebe HTTP local em `127.0.0.1:80`, sem Certbot, redirecionamento ou bloco TLS local. O bind de 443 também é restrito ao loopback, mas fica sem listener no Nginx. `APP_ORIGIN`, `VITE_API_URL` e o callback Google Drive continuam HTTPS: o navegador acessa a borda Cloudflare. As credenciais do túnel ficam somente em arquivos root-only, nunca no `.env`. O WebUpdater respeita `INSTALL_MODE` ao regenerar Nginx; instalações anteriores sem essa variável continuam no modo público.
 
-O healthcheck do backend deve passar antes da conclusão; falhas de criação, DNS, ingress ou serviço interrompem a instalação. Em uma tentativa interrompida, o túnel/DNS já criados na conta são preservados: revise-os antes de repetir (o instalador não remove recursos Cloudflare automaticamente).
+O healthcheck do backend deve passar antes da conclusão; falhas de criação, DNS, ingress ou serviço interrompem a instalação. A retentativa após falha do Compose exige que o container DB exista, e seu estado healthy é confirmado antes de avançar ao backend. Em uma tentativa interrompida após solicitar a criação do túnel, o instalador alerta que túnel/DNS podem permanecer na conta: revise-os antes de repetir com o mesmo hostname (não há remoção automática de recursos Cloudflare).
 
 Diagnóstico do modo tunnel:
 
 ```bash
-systemctl status cloudflared
-journalctl -u cloudflared --no-pager -n 80
-cloudflared tunnel info UUID_DO_TUNEL
-# No diretório de instalação:
-docker compose ps
-docker compose logs --tail=100 nginx backend
+sudo systemctl status cloudflared
+sudo journalctl -u cloudflared --no-pager -n 80
+sudo cloudflared tunnel info UUID_DO_TUNEL
+# Use o caminho real exibido pelo instalador se tiver escolhido um diretório avançado:
+sudo docker compose --project-directory /opt/fullpassword ps
+sudo docker compose --project-directory /opt/fullpassword logs --tail=200 db
+sudo docker compose --project-directory /opt/fullpassword logs --tail=100 backend
+sudo docker compose --project-directory /opt/fullpassword logs --tail=100 nginx
+sudo docker inspect fullpassword_db --format '{{json .State.Health}}' | jq .
+# Alternativa para diagnóstico com acesso root ao diretório:
+sudo bash -lc 'cd /opt/fullpassword && docker compose ps'
+sudo bash -lc 'cd /opt/fullpassword && docker compose logs --tail=200 db'
 ```
 
 Valide ambos os modos primeiro em VM de teste, incluindo HTTPS, login do Super Admin e uma atualização pelo painel. A opção 2 depende da disponibilidade da Cloudflare e dos limites de upload/tempo aplicáveis à conta; não altera os limites do backup da aplicação. Consulte o [fluxo oficial de túnel gerenciado localmente](https://developers.cloudflare.com/tunnel/features/locally-managed-tunnels/create-local-tunnel/).

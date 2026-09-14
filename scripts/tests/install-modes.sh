@@ -32,6 +32,7 @@ apt-get() {
 }
 systemctl() { printf '%s\n' "$*" >> "$LOG"; [ "$*" != 'is-active --quiet cloudflared' ] || [ "$SERVICE_OK" = yes ]; }
 journalctl() { printf 'journal diagnostics\n' >> "$LOG"; }
+chown() { printf 'chown %s\n' "$*" >> "$LOG"; }
 
 # OS: todas as versões suportadas e rejeição antes de instalar em outro SO.
 for os in ubuntu:20.04 ubuntu:22.04 ubuntu:24.04 debian:11 debian:12 debian:13; do
@@ -75,6 +76,39 @@ unset FULLPASSWORD_APP_DIR
 APP_DIR="$TEST_DIR/app"
 echo 'OK: Debian 13/Ubuntu, diretório automático/avançado e proteção de reinstalação'
 
+# Clone deve usar permissões públicas apenas para o código. Os segredos usam
+# umask privado em escopo isolado, sem contaminar a próxima etapa.
+(
+    APP_DIR="$TEST_DIR/cloned"
+    git() {
+        [ "$1" = clone ] || return 1
+        printf 'clone umask=%s\n' "$(umask)" >> "$LOG"
+        mkdir -p "$3/.git" "$3/frontend"
+        printf 'TEST_SOURCE\n' > "$3/frontend/source.js"
+    }
+    chmod() { printf 'chmod %s\n' "$*" >> "$LOG"; command chmod "$@"; }
+    umask 077
+    clone_repository
+    assert_has 'clone umask=0022' "$LOG"
+    assert_has "chmod 755 $APP_DIR" "$LOG"
+    assert_has "chown root:root $APP_DIR" "$LOG"
+    [ "$(umask)" = 0077 ]
+    umask 022
+    INSTALL_MODE=public_ip NGINX_HTTP_BIND=80 NGINX_HTTPS_BIND=443
+    generate_env
+    [ "$(umask)" = 0022 ]
+    assert_has "chmod 600 $APP_DIR/.env" "$LOG"
+    assert_has "chown root:root $APP_DIR/.env" "$LOG"
+    # NTFS/Git Bash não implementa permissões POSIX; verificar modos reais no Linux.
+    if [ "$(uname -s)" = Linux ]; then
+        [ "$(stat -c %a "$APP_DIR")" = 755 ]
+        [ "$(stat -c %a "$APP_DIR/frontend")" = 755 ]
+        [ "$(stat -c %a "$APP_DIR/frontend/source.js")" = 644 ]
+        [ "$(stat -c %a "$APP_DIR/.env")" = 600 ]
+    fi
+)
+echo 'OK: clone com umask 022, diretório 755 e env privado sem vazar umask'
+
 # Erro APT preserva diagnóstico original e contextual, sem dicas do túnel.
 APT_FAIL=yes
 if (install_base_dependencies) > "$TEST_DIR/apt-error" 2>&1; then echo 'Falha de APT ignorada'; exit 1; fi
@@ -84,6 +118,7 @@ assert_has 'Falha no APT: apt-get install -y' "$TEST_DIR/apt-error"
 assert_has 'Instalação incompleta' "$TEST_DIR/apt-error"
 assert_has 'Não misture repositórios Debian' "$TEST_DIR/apt-error"
 assert_lacks 'systemctl status cloudflared|journalctl -u cloudflared' "$TEST_DIR/apt-error"
+assert_lacks 'túnel Cloudflare e/ou o registro DNS podem já ter sido criados' "$TEST_DIR/apt-error"
 APT_FAIL=no
 
 # Instalação do pacote cloudflared simulada, sem rede ou alteração de /etc real.
@@ -229,17 +264,39 @@ compose() {
     printf '%s\n' "$*" >> "$LOG"
     case "$*" in
         config) [ "$FAIL_AT" != compose ] || return 1 ;;
-        'up -d --build') [ "$FAIL_AT" != db ] || return 1 ;;
-        'exec -T backend '*) [ "$FAIL_AT" != health ] || return 1 ;;
+        'up -d --build')
+            case "$FAIL_AT" in
+                db|delayed|retry_fail|missing_db|recovered_backend_fail)
+                    echo 'dependency failed to start: container fullpassword_db is unhealthy' >&2
+                    return 1 ;;
+                unrelated) echo 'frontend build failed' >&2; return 1 ;;
+                *) echo '[UFW BLOCK] TEST_CONSOLE_NOISE' ;;
+            esac ;;
+        'up -d') [ "$FAIL_AT" != retry_fail ] || return 1 ;;
+        'exec -T backend '*)
+            [ "$FAIL_AT" != health ] && [ "$FAIL_AT" != recovered_backend_fail ] || return 1 ;;
     esac
 }
 docker() {
     printf 'docker %s\n' "$*" >> "$LOG"
-    [ "$1" = inspect ] && [ "$2" = fullpassword_db ] && [ "$3" = --format ] && [ "$4" = '{{json .State.Health}}' ] || return 1
-    [ "$FAIL_AT" != missing ] || return 1
+    [ "$1" = inspect ] && [ "$2" = fullpassword_db ] && [ "$3" = --format ] || return 1
+    [ "$FAIL_AT" != missing ] && [ "$FAIL_AT" != missing_db ] || return 1
+    if [ "$4" = '{{.State.Status}}' ]; then printf 'running\n'; return; fi
+    if [ "$4" = '{{.State.Health.Status}}' ]; then
+        if [ "$FAIL_AT" = delayed ]; then
+            local count
+            count=$(cat "$TEST_DIR/polls")
+            printf '%s\n' "$((count + 1))" > "$TEST_DIR/polls"
+            if [ "$count" -ge 2 ]; then printf 'healthy\n'; else printf 'unhealthy\n'; fi
+        else
+            printf '%s\n' "$DB_HEALTH"
+        fi
+        return
+    fi
+    [ "$4" = '{{json .State.Health}}' ] || return 1
     printf '{"Status":"%s","Log":[{"Output":"TEST_HEALTH_OUTPUT"}]}\n' "$DB_HEALTH"
 }
-sleep() { :; }
+sleep() { printf 'sleep %s\n' "$*" >> "$LOG"; }
 DB_HEALTH=healthy
 : > "$LOG"
 FAIL_AT=compose
@@ -263,6 +320,58 @@ assert_has 'TEST_HEALTH_OUTPUT' "$TEST_DIR/db-error"
 assert_has 'Não apague volumes em produção sem backup.' "$TEST_DIR/db-error"
 assert_lacks 'systemctl status cloudflared|journalctl -u cloudflared' "$TEST_DIR/db-error"
 assert_lacks 'volume rm|prune|down|rm -' "$LOG"
+[ "$(grep -c '^sleep 5$' "$LOG")" = 60 ]
+assert_has 'após 300 segundos' "$TEST_DIR/db-error"
+assert_has "cd \"$APP_DIR\"" "$TEST_DIR/db-error"
+assert_has "sudo bash -lc 'cd \"$APP_DIR\" && docker compose ps'" "$TEST_DIR/db-error"
+assert_has "sudo docker compose --project-directory \"$APP_DIR\" logs --tail=200 db" "$TEST_DIR/db-error"
+assert_has "--project-directory $APP_DIR logs --tail=200 db" "$LOG"
+assert_has 'O túnel Cloudflare e/ou o registro DNS podem já ter sido criados.' "$TEST_DIR/db-error"
+assert_has 'revise esses recursos no painel Cloudflare' "$TEST_DIR/db-error"
+
+: > "$LOG"
+printf '0\n' > "$TEST_DIR/polls"
+FAIL_AT=delayed
+start_containers > "$TEST_DIR/delayed"
+[ "$(grep -c '^up -d$' "$LOG")" = 1 ]
+[ "$(grep -c '^up -d --build$' "$LOG")" = 1 ]
+[ "$(grep -c '^sleep 5$' "$LOG")" = 2 ]
+assert_has 'Reexecutando docker compose up -d' "$TEST_DIR/delayed"
+assert_has 'exec -T backend node -e' "$LOG"
+
+: > "$LOG"
+FAIL_AT=unrelated
+if (start_containers) > "$TEST_DIR/unrelated" 2>&1; then echo 'Build inválido aceito'; exit 1; fi
+assert_lacks '^up -d$|^sleep 5$' "$LOG"
+assert_has 'erro não identificado como inicialização do PostgreSQL' "$TEST_DIR/unrelated"
+
+: > "$LOG"
+FAIL_AT=missing_db
+if (start_containers) > "$TEST_DIR/missing-db" 2>&1; then echo 'Retry sem DB aceito'; exit 1; fi
+assert_lacks '^up -d$|^sleep 5$|^exec -T backend' "$LOG"
+assert_has 'container fullpassword_db ausente ou inacessível' "$TEST_DIR/missing-db"
+
+for DB_HEALTH in starting unhealthy ''; do
+    FAIL_AT=none
+    : > "$LOG"
+    if (wait_for_container_health fullpassword_db 10) >/dev/null 2>&1; then echo 'Health inválido aceito'; exit 1; fi
+    [ "$(grep -c '^sleep 5$' "$LOG")" = 2 ]
+done
+
+: > "$LOG"
+FAIL_AT=retry_fail
+DB_HEALTH=healthy
+if (start_containers) > "$TEST_DIR/retry-fail" 2>&1; then echo 'Retentativa inválida aceita'; exit 1; fi
+[ "$(grep -c '^up -d$' "$LOG")" = 1 ]
+assert_lacks '^exec -T backend' "$LOG"
+assert_has 'Falha ao subir serviços dependentes' "$TEST_DIR/retry-fail"
+
+FAIL_AT=recovered_backend_fail
+: > "$LOG"
+if (start_containers) > "$TEST_DIR/recovered-backend-error" 2>&1; then echo 'Backend inválido após retry aceito'; exit 1; fi
+assert_has 'Backend não respondeu ao healthcheck' "$TEST_DIR/recovered-backend-error"
+[ "$(grep -c '^up -d$' "$LOG")" = 1 ]
+echo 'OK: DB com recuperação, timeout 300s, retry único e sem retry em erro alheio ao DB'
 
 # Falhas no próprio diagnóstico não geram recursão nem escondem o erro inicial.
 FAIL_AT=missing
@@ -289,6 +398,10 @@ assert_has 'Backend não respondeu ao healthcheck' "$TEST_DIR/backend-error"
 assert_has 'logs --tail=100 backend' "$LOG"
 assert_lacks 'não ficou saudável|systemctl status cloudflared' "$TEST_DIR/backend-error"
 FAIL_AT=none
+: > "$LOG"
 start_containers >/dev/null
+assert_lacks '^up -d$|^sleep 5$' "$LOG"
 echo 'OK: Compose/healthcheck e falhas sem instalação real'
 echo 'OK: instruções coloridas, URL preservada e diagnóstico específico DB unhealthy sem limpeza'
+assert_lacks 'chmod[[:space:]]+-R|down[[:space:]]+-v|docker[[:space:]]+volume[[:space:]]+(rm|prune)|docker[[:space:]]+system[[:space:]]+prune' scripts/install.sh
+echo 'OK: projeto explícito nos diagnósticos, DB existente/healthy obrigatório e aviso de recursos Cloudflare'
