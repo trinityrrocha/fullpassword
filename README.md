@@ -363,7 +363,7 @@ Para impedir rotação de identidade sem prova de posse, administradores não de
 > [!CAUTION]
 > **Atenção: valide estes pré-requisitos antes da instalação para evitar erro no deploy.**
 >
-> - VPS com Ubuntu 20.04/22.04 LTS ou Debian 11/12
+> - VPS/VM com Ubuntu 20.04/22.04/24.04 LTS ou Debian 11/12/13 (Trixie)
 > - Acesso administrativo/root ao servidor
 > - Opção 1: domínio apontando para o IP público e portas 80/443 abertas também no provedor
 > - Opção 2: domínio gerenciado na Cloudflare, autenticação no navegador e saída para internet; não exige IP público nem portas 80/443 de entrada
@@ -386,7 +386,18 @@ O script solicitará:
 - Domínio, exemplo: `cofre.suaempresa.com.br`
 - E-mail do Super Admin (também usado para Let's Encrypt somente na opção 1)
 - Porta SSH, caso esteja customizada
-- Diretório de instalação (padrão `/opt/fullpassword`)
+
+A instalação usa **`/opt/fullpassword` automaticamente**, sem perguntar o diretório. O instalador identifica `/etc/os-release` e aborta em sistemas fora das versões suportadas acima. `software-properties-common` não é necessário nem instalado: o repositório Cloudflare é configurado por arquivo, sem `add-apt-repository`.
+
+Opção avançada, sem novo prompt (o `env` após `sudo` garante o repasse da variável):
+
+```bash
+sudo env FULLPASSWORD_APP_DIR=/opt/fullpassword-teste ./install.sh
+```
+
+Variável ausente ou vazia mantém `/opt/fullpassword`. O caminho deve ser absoluto e dedicado, sem espaços, pontos ou links simbólicos; `/`, `/opt`, `/home` e `/root` são rejeitados. Se já houver uma instalação Git no destino, continua sendo necessário digitar exatamente `REINSTALAR`; sem essa confirmação, nada é substituído. A confirmação de DNS do Cloudflare Tunnel também é mantida.
+
+Falhas de APT exibem sistema detectado, comando/pacotes envolvidos e a mensagem original do gerenciador. Revise os repositórios da própria versão instalada; não misture Bookworm, Trixie ou Sid para contornar pacotes indisponíveis. Diagnósticos de cloudflared só são sugeridos na etapa do túnel, não em falhas de dependências.
 
 **Opção 1 — IP público:** selecione `1` ao executar o comando acima. O instalador valida DNS/IP público, usa Certbot/Let's Encrypt e publica Nginx nas portas 80/443.
 

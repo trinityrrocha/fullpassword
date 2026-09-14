@@ -3,12 +3,13 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 REPO_DIR=$PWD
-TEST_DIR=$(mktemp -d)
+TEST_DIR=$(mktemp -d /tmp/fullpassword-test-XXXXXX)
 trap 'rm -rf -- "$TEST_DIR"' EXIT
 mkdir -p "$TEST_DIR/root/.cloudflared" "$TEST_DIR/etc" "$TEST_DIR/app/docker"
+mkdir -p "$TEST_DIR/etc/apt/sources.list.d" "$TEST_DIR/usr/share/keyrings"
 
 # Apenas definições; caminhos de infraestrutura são redirecionados ao sandbox.
-source <(sed "s|/root|$TEST_DIR/root|g;s|/etc/cloudflared|$TEST_DIR/etc/cloudflared|g" scripts/install.sh)
+source <(sed "s|/root|$TEST_DIR/root|g;s|/etc/cloudflared|$TEST_DIR/etc/cloudflared|g;s|/etc/apt|$TEST_DIR/etc/apt|g;s|/usr/share/keyrings|$TEST_DIR/usr/share/keyrings|g" scripts/install.sh)
 APP_DIR="$TEST_DIR/app"
 DOMAIN=cofre.example.com
 SUPER_ADMIN_EMAIL=admin@example.com
@@ -22,15 +23,94 @@ LOG="$TEST_DIR/commands"
 assert_has() { grep -Fq -- "$1" "$2" || { echo "Ausente: $1" >&2; exit 1; }; }
 assert_lacks() { if grep -Eq -- "$1" "$2"; then echo "Conteúdo proibido: $1" >&2; exit 1; fi; }
 ufw() { printf '%s\n' "$*" >> "$LOG"; }
-apt-get() { printf '%s\n' "$*" >> "$LOG"; }
+apt-get() {
+    printf '%s\n' "$*" >> "$LOG"
+    if [ "${APT_FAIL:-no}" = yes ] && [ "$1" = "${APT_FAIL_COMMAND:-install}" ]; then
+        echo 'E: Unable to locate package TEST_MISSING_PACKAGE' >&2
+        return 100
+    fi
+}
 systemctl() { printf '%s\n' "$*" >> "$LOG"; [ "$*" != 'is-active --quiet cloudflared' ] || [ "$SERVICE_OK" = yes ]; }
 journalctl() { printf 'journal diagnostics\n' >> "$LOG"; }
+
+# OS: todas as versões suportadas e rejeição antes de instalar em outro SO.
+for os in ubuntu:20.04 ubuntu:22.04 ubuntu:24.04 debian:11 debian:12 debian:13; do
+    printf 'ID=%s\nVERSION_ID=%s\nPRETTY_NAME="Test OS %s"\n' "${os%:*}" "${os#*:}" "$os" > "$TEST_DIR/os-release"
+    detect_os "$TEST_DIR/os-release" >/dev/null
+done
+printf 'ID=fedora\nVERSION_ID=42\n' > "$TEST_DIR/os-release"
+if (detect_os "$TEST_DIR/os-release") >/dev/null 2>&1; then echo 'SO não suportado aceito'; exit 1; fi
+printf 'ID=debian\nVERSION_ID=13\nPRETTY_NAME="Debian GNU/Linux 13 (trixie)"\n' > "$TEST_DIR/os-release"
+detect_os "$TEST_DIR/os-release" > "$TEST_DIR/os-output"
+assert_has 'Debian GNU/Linux 13 (trixie) — suportado.' "$TEST_DIR/os-output"
+
+unset FULLPASSWORD_APP_DIR
+resolve_app_dir
+[ "$APP_DIR" = /opt/fullpassword ]
+FULLPASSWORD_APP_DIR=''
+resolve_app_dir
+[ "$APP_DIR" = /opt/fullpassword ]
+FULLPASSWORD_APP_DIR="$TEST_DIR/newinstall"
+resolve_app_dir
+[ "$APP_DIR" = "$TEST_DIR/newinstall" ]
+for FULLPASSWORD_APP_DIR in / /opt /home /root relative '/opt/with space' /opt/../root /opt/./app /opt//app; do
+    if (resolve_app_dir) >/dev/null 2>&1; then echo 'Diretório inseguro aceito'; exit 1; fi
+done
+
+# Simula a coleta com apenas domínio, e-mail e SSH: não há quarto read do diretório.
+read() { printf '%s\n' "$*" >> "$LOG"; builtin read "$@"; }
+INSTALL_MODE=public_ip
+FULLPASSWORD_APP_DIR="$TEST_DIR/newinstall"
+: > "$LOG"
+collect_install_settings <<< $'cofre.example.com\nadmin@example.com\n2222'
+[ "$(wc -l < "$LOG" | tr -d ' ')" = 3 ]
+assert_lacks 'Diretório de instalação' "$LOG"
+mkdir -p "$FULLPASSWORD_APP_DIR/.git"
+if (collect_install_settings <<< $'cofre.example.com\nadmin@example.com\n2222\nn') >/dev/null 2>&1; then
+    echo 'Reinstalação aceita sem confirmação'; exit 1
+fi
+collect_install_settings <<< $'cofre.example.com\nadmin@example.com\n2222\nREINSTALAR' >/dev/null
+unset -f read
+unset FULLPASSWORD_APP_DIR
+APP_DIR="$TEST_DIR/app"
+echo 'OK: Debian 13/Ubuntu, diretório automático/avançado e proteção de reinstalação'
+
+# Erro APT preserva diagnóstico original e contextual, sem dicas do túnel.
+APT_FAIL=yes
+if (install_base_dependencies) > "$TEST_DIR/apt-error" 2>&1; then echo 'Falha de APT ignorada'; exit 1; fi
+assert_has 'Debian GNU/Linux 13 (trixie)' "$TEST_DIR/apt-error"
+assert_has 'TEST_MISSING_PACKAGE' "$TEST_DIR/apt-error"
+assert_has 'Falha no APT: apt-get install -y' "$TEST_DIR/apt-error"
+assert_has 'Instalação incompleta' "$TEST_DIR/apt-error"
+assert_has 'Não misture repositórios Debian' "$TEST_DIR/apt-error"
+assert_lacks 'systemctl status cloudflared|journalctl -u cloudflared' "$TEST_DIR/apt-error"
+APT_FAIL=no
+
+# Instalação do pacote cloudflared simulada, sem rede ou alteração de /etc real.
+curl() {
+    printf '%s\n' "$*" >> "$LOG"
+    [ "$1" = -fsSL ] && [ "$3" = -o ] || return 1
+    printf 'TEST_GPG_KEY\n' > "$4"
+}
+: > "$LOG"
+install_cloudflared
+assert_has 'install -y cloudflared' "$LOG"
+assert_has 'https://pkg.cloudflare.com/cloudflared any main' "$TEST_DIR/etc/apt/sources.list.d/cloudflared.list"
+assert_lacks 'add-apt-repository|software-properties-common|certbot' "$LOG"
+APT_FAIL=yes
+if (install_cloudflared) > "$TEST_DIR/apt-error" 2>&1; then echo 'Falha de APT cloudflared ignorada'; exit 1; fi
+assert_lacks 'systemctl status cloudflared|journalctl -u cloudflared' "$TEST_DIR/apt-error"
+APT_FAIL=no
+unset -f curl
+INSTALL_STAGE=preflight
+echo 'OK: diagnóstico de APT e cloudflared via repositório oficial any main'
 
 for option in 1 2; do
     select_install_mode <<< "$option" >/dev/null
     : > "$LOG"
     configure_firewall >/dev/null
     install_base_dependencies
+    assert_lacks 'software-properties-common|add-apt-repository' "$LOG"
     assert_has 'allow 2222/tcp' "$LOG"
     if [ "$option" = 1 ]; then
         [ "$INSTALL_MODE" = public_ip ]

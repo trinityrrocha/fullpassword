@@ -1,5 +1,6 @@
 #!/bin/bash
-# FullPassword - Ubuntu/Debian: IP público ou Cloudflare Tunnel.
+# FullPassword - Ubuntu 20.04/22.04/24.04 e Debian 11/12/13 (Trixie).
+# Modos: IP público ou Cloudflare Tunnel.
 # Não use bash -x: o instalador manipula segredos em memória.
 set -eE
 RED='\033[0;31m'
@@ -13,14 +14,54 @@ BACKUP_CHUNK_SIZE_MB=50
 BACKUP_MAX_UPLOAD_MB=200
 BACKUP_TEMP_DIR=/tmp/fullpassword-backups
 BACKUP_RESTORE_TIMEOUT_MS=1800000
+INSTALL_STAGE=preflight
+OS_LABEL='não detectado'
 
 fail() {
-    printf 'ERRO: %s\n' "$*" >&2
-    printf '%s\n' 'Diagnóstico: systemctl status cloudflared' \
-        'journalctl -u cloudflared --no-pager -n 80' \
-        'No diretório da instalação: docker compose ps' \
-        'docker compose logs --tail=100 nginx' 'docker compose logs --tail=100 backend' >&2
+    printf 'ERRO: %s\nInstalação incompleta. Etapa: %s. Sistema: %s\n' "$*" "$INSTALL_STAGE" "$OS_LABEL" >&2
+    case "$INSTALL_STAGE" in
+        apt)
+            printf '%s\n' 'Revise a mensagem do APT acima para identificar o pacote/repositório que falhou.' \
+                'Verifique os repositórios da versão detectada em /etc/apt/sources.list e /etc/apt/sources.list.d/.' \
+                'Não misture repositórios Debian de outra versão (Bookworm, Trixie ou Sid).' >&2 ;;
+        cloudflared)
+            printf '%s\n' 'Diagnóstico: systemctl status cloudflared' \
+                'journalctl -u cloudflared --no-pager -n 80' >&2 ;;
+        docker|healthcheck)
+            printf '%s\n' 'No diretório da instalação: docker compose ps' \
+                'docker compose logs --tail=100 nginx' 'docker compose logs --tail=100 backend' >&2 ;;
+    esac
     exit 1
+}
+
+detect_os() {
+    local release_file="${1:-/etc/os-release}"
+    local ID='' VERSION_ID='' PRETTY_NAME=''
+    [ -r "$release_file" ] || fail 'Não foi possível ler /etc/os-release.'
+    . "$release_file"
+    OS_LABEL="${PRETTY_NAME:-$ID $VERSION_ID}"
+    case "$ID:$VERSION_ID" in
+        ubuntu:20.04|ubuntu:22.04|ubuntu:24.04|debian:11|debian:12|debian:13)
+            printf 'Sistema detectado: %s — suportado.\n' "$OS_LABEL" ;;
+        *) fail 'Sistema não suportado. Use Ubuntu 20.04/22.04/24.04 ou Debian 11/12/13.' ;;
+    esac
+}
+
+resolve_app_dir() {
+    APP_DIR="${FULLPASSWORD_APP_DIR:-/opt/fullpassword}"
+    [[ "$APP_DIR" =~ ^(/[a-zA-Z0-9_-]+){2,}$ ]] \
+        || fail 'Use um diretório absoluto dedicado, sem espaços, pontos ou caracteres especiais; /, /opt, /home e /root não são destinos válidos.'
+    # Não permitir que um symlink desvie o destino validado para outro local.
+    local resolved
+    resolved=$(readlink -m -- "$APP_DIR") || fail 'Não foi possível validar o diretório de instalação.'
+    [ "$resolved" = "$APP_DIR" ] || fail 'O diretório de instalação não pode conter links simbólicos.'
+}
+
+run_apt() {
+    local previous_stage="$INSTALL_STAGE"
+    INSTALL_STAGE=apt
+    apt-get "$@" || fail "Falha no APT: apt-get $*"
+    INSTALL_STAGE="$previous_stage"
 }
 
 compose() {
@@ -69,9 +110,7 @@ collect_install_settings() {
     [ -n "$SSH_PORT" ] || SSH_PORT=22
     [[ "$SSH_PORT" =~ ^[0-9]{1,5}$ ]] && ((10#$SSH_PORT >= 1 && 10#$SSH_PORT <= 65535)) || fail 'Porta SSH inválida.'
     SSH_PORT=$((10#$SSH_PORT))
-    read -r -p 'Diretório de instalação [/opt/fullpassword]: ' APP_DIR
-    [ -n "$APP_DIR" ] || APP_DIR=/opt/fullpassword
-    [[ "$APP_DIR" =~ ^(/[a-zA-Z0-9_-]+){2,}$ ]] || fail 'Use um diretório absoluto dedicado, sem espaços ou caracteres especiais.'
+    resolve_app_dir
     if [ -e "$APP_DIR" ]; then
         [ -d "$APP_DIR/.git" ] || fail 'Diretório existente não é uma instalação Git. Escolha outro diretório.'
         echo "ATENÇÃO: já existe uma instalação em $APP_DIR; continuar pode interrompê-la."
@@ -85,11 +124,11 @@ collect_install_settings() {
 }
 
 install_base_dependencies() {
-    apt-get update
-    apt-get upgrade -y
-    apt-get install -y curl git ufw fail2ban apt-transport-https ca-certificates software-properties-common netcat-openbsd dnsutils openssl jq
+    run_apt update
+    run_apt upgrade -y
+    run_apt install -y curl git ufw fail2ban apt-transport-https ca-certificates netcat-openbsd dnsutils openssl jq
     if [ "$INSTALL_MODE" = public_ip ]; then
-        apt-get install -y certbot python3-certbot-nginx
+        run_apt install -y certbot python3-certbot-nginx
     fi
 }
 
@@ -344,17 +383,19 @@ EOF
 }
 
 install_cloudflared() {
+    INSTALL_STAGE=cloudflared
     mkdir -p --mode=0755 /usr/share/keyrings
     curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg -o /usr/share/keyrings/cloudflare-main.gpg
     chmod 644 /usr/share/keyrings/cloudflare-main.gpg
     printf '%s\n' 'deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared any main' \
         > /etc/apt/sources.list.d/cloudflared.list
     chmod 644 /etc/apt/sources.list.d/cloudflared.list
-    apt-get update
-    apt-get install -y cloudflared
+    run_apt update
+    run_apt install -y cloudflared
 }
 
 configure_cloudflare_tunnel() {
+    INSTALL_STAGE=cloudflared
     export HOME=/root
     echo 'Será exibido um link de autenticação da Cloudflare.'
     echo 'Abra no navegador, faça login, selecione a zone correta e volte ao terminal.'
@@ -400,6 +441,7 @@ EOF
 }
 
 start_cloudflared_service() {
+    INSTALL_STAGE=cloudflared
     if ! cloudflared --config /etc/cloudflared/config.yml service install \
         || ! systemctl enable cloudflared \
         || ! systemctl restart cloudflared \
@@ -411,11 +453,13 @@ start_cloudflared_service() {
 }
 
 start_containers() {
+    INSTALL_STAGE=docker
     systemctl disable nginx 2>/dev/null || true
     systemctl stop nginx 2>/dev/null || true
     export VITE_APP_COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
     compose config >/dev/null || fail 'Docker Compose inválido.'
     compose up -d --build || fail 'Falha ao subir containers.'
+INSTALL_STAGE=healthcheck
 echo -e "${GREEN}Aguardando o backend responder ao healthcheck...${NC}"
 BACKEND_READY=false
 for attempt in $(seq 1 30); do
@@ -438,6 +482,7 @@ fi
 }
 
 create_initial_super_admin() {
+INSTALL_STAGE=docker
 compose exec -T \
     -e INITIAL_SUPER_ADMIN_EMAIL="$SUPER_ADMIN_EMAIL" \
     -e INITIAL_SUPER_ADMIN_PASSWORD="$INITIAL_SUPER_ADMIN_PASSWORD" \
@@ -485,18 +530,25 @@ main() {
     [ "$EUID" -eq 0 ] || fail 'Execute como root: sudo ./install.sh'
     trap 'fail "Comando da instalação falhou; instalação incompleta."' ERR
     umask 077
+    detect_os
     select_install_mode
     collect_install_settings
     install_base_dependencies
+    INSTALL_STAGE=secrets
     generate_secrets
+    INSTALL_STAGE=firewall
     configure_firewall
     configure_fail2ban
+    INSTALL_STAGE=docker
     install_docker
+    INSTALL_STAGE=repository
     clone_repository
     generate_env
     if [ "$INSTALL_MODE" = public_ip ]; then
+        INSTALL_STAGE=certbot
         provision_letsencrypt_certificate
     fi
+    INSTALL_STAGE=nginx
     generate_nginx_config
     if [ "$INSTALL_MODE" = cloudflare_tunnel ]; then
         install_cloudflared
@@ -507,6 +559,7 @@ main() {
         start_cloudflared_service
     fi
     create_initial_super_admin
+    INSTALL_STAGE=summary
     show_install_summary
 }
 
