@@ -1,4 +1,3 @@
-/* global __APP_COMMIT__ */
 import { useRef, useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Settings as SettingsIcon, RefreshCw, AlertTriangle, ShieldCheck, Download, Database } from 'lucide-react';
@@ -13,15 +12,16 @@ import BackupRestoreCard from '../components/BackupRestoreCard';
 import ManualIpRulesCard from '../components/ManualIpRulesCard';
 import SmtpSettingsCard from '../components/SmtpSettingsCard';
 import CloudBackupCard from '../components/CloudBackupCard';
+import UpdateStatusPanel from '../components/UpdateStatusPanel';
 import { formatDateTimeShort } from '../utils/formatDateTimeShort';
 import useClearOnVaultLock from '../hooks/useClearOnVaultLock';
-
-const APP_COMMIT = typeof __APP_COMMIT__ !== 'undefined' ? __APP_COMMIT__ : 'unknown';
-const APP_COMMIT_LABEL = /^[0-9a-f]{7,40}$/i.test(String(APP_COMMIT || '').trim()) ? APP_COMMIT : 'não identificado';
 
 const AUDIT_ACTION_OPTIONS = [
   ['', 'Todas as ações'],
   ['system_update_request', 'Atualização'],
+  ['system_update_check_request', 'Verificação de atualização'],
+  ['system_update_check_denied', 'Verificação de atualização negada'],
+  ['system_update_notification_seen', 'Atualização visualizada'],
   ['backup_export_attempt', 'Tentativa de backup'],
   ['backup_export_success', 'Backup bem-sucedido'],
   ['backup_export_denied', 'Backup negado'],
@@ -103,7 +103,7 @@ export default function Settings() {
     ? 'system-audit'
     : ['google-drive', 'cloud-backup'].includes(searchParams.get('section'))
       ? 'cloud-backup'
-      : null;
+      : searchParams.get('section') === 'update' ? 'system-update' : null;
 
   useClearOnVaultLock(() => {
     setBackupConfirmation('');
@@ -412,11 +412,6 @@ export default function Settings() {
           </h1>
           <p className="text-sm text-slate-500">Gerencie parâmetros globais, atualizações e backups da plataforma</p>
         </div>
-        <div className="text-right">
-          <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-slate-100 text-slate-800">
-            Versão Atual: v1.0.1 ({APP_COMMIT_LABEL})
-          </span>
-        </div>
       </div>
 
       {isUpdating && (
@@ -439,7 +434,7 @@ export default function Settings() {
 
       <SettingsAccordionGroup key={requestedAccordion || 'settings-accordions'} initialOpenAccordion={requestedAccordion}>
       <div className="grid grid-cols-1 gap-6">
-        <SettingsAccordionCard title="WebUpdater (Atualização Automática)" icon={<RefreshCw className="w-5 h-5 mr-2 text-indigo-500" />} badge={canManageSystem && <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">Super Admin</span>}>
+        <SettingsAccordionCard id="system-update" title="Atualização do Sistema" icon={<RefreshCw className="w-5 h-5 mr-2 text-indigo-500" />} badge={canManageSystem && <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">Super Admin</span>}>
             <p className="text-sm text-slate-600 mb-4">
               O WebUpdater sincroniza o código fonte do repositório GitHub (branch main) e recria os containers Docker automaticamente.
               Esta ação é restrita ao Super Admin inicial.
@@ -450,14 +445,7 @@ export default function Settings() {
             ) : !canManageSystem ? (
               restrictedWarning('Apenas o Super Admin inicial pode executar a atualização do sistema.')
             ) : (
-              <button
-                onClick={handleUpdateSystem}
-                disabled={isUpdating || updateRequestLoading}
-                className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-              >
-                <RefreshCw className={`w-4 h-4 mr-2 ${updateRequestLoading ? 'animate-spin' : ''}`} />
-                {updateRequestLoading ? 'Solicitando atualização...' : 'Buscar Atualizações e Reiniciar'}
-              </button>
+              <UpdateStatusPanel onUpdate={handleUpdateSystem} isUpdating={isUpdating} updateRequestLoading={updateRequestLoading} />
             )}
         </SettingsAccordionCard>
 

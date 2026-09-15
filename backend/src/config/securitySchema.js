@@ -148,6 +148,7 @@ const ensureSecuritySchema = async () => {
         updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
       )
     `);
+    await client.query('ALTER TABLE user_notification_state ADD COLUMN IF NOT EXISTS update_notification_seen_commit VARCHAR(40)');
     await client.query(`
       CREATE TABLE IF NOT EXISTS smtp_settings (
         id INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),

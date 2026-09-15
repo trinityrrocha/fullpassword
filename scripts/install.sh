@@ -609,6 +609,14 @@ compose exec -T \
     backend node scripts/create-super-admin.js || fail 'Falha ao criar o Super Admin.'
 }
 
+record_installed_commit() {
+    local installed_commit
+    installed_commit="$(git -C "$APP_DIR" rev-parse HEAD)" || fail 'Não foi possível identificar o commit instalado.'
+    # Escrita controlada no volume compartilhado, sem acessar diretórios internos do Docker.
+    compose exec -T updater node /opt/fullpassword/scripts/check-update-status.js record-installed "$installed_commit" \
+        || fail 'Não foi possível registrar o commit da instalação saudável.'
+}
+
 show_install_summary() (
 umask 077
 cat > /root/fullpassword-install-info.txt << EOF
@@ -678,6 +686,7 @@ main() {
         start_cloudflared_service
     fi
     create_initial_super_admin
+    record_installed_commit
     INSTALL_STAGE=summary
     show_install_summary
 }

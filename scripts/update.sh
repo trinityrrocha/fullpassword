@@ -245,6 +245,45 @@ if [ -n "$dirty_tracked" ]; then
 fi
 
 log "Atualizando código-fonte a partir da branch main"
+PRE_UPDATE_COMMIT="$(git rev-parse HEAD)"
+UPDATER_STATE_DIR="${UPDATER_STATE_DIR:-/var/lib/fullpassword-updater}"
+export UPDATER_STATE_DIR
+owns_update_lock=0
+legacy_daemon_request=""
+# Compatibilidade com o daemon anterior, que mantém o lock mas não exporta o protocolo.
+# Só adota o lock quando este processo foi iniciado diretamente pelo daemon conhecido.
+if [ "${UPDATER_LOCK_HELD:-}" != 1 ] && [ -d "$UPDATER_STATE_DIR/update.lock" ] \
+  && [ -r "/proc/${PPID:-0}/cmdline" ] \
+  && [ "$(tr '\000' '\n' < "/proc/${PPID:-0}/cmdline" | tail -n 1)" = "$APP_DIR/scripts/updater-daemon.sh" ]; then
+  for pending_request in "$UPDATER_STATE_DIR/processing"/*.json; do
+    [ -f "$pending_request" ] || continue
+    pending_name="$(basename "$pending_request" .json)"
+    node "$APP_DIR/scripts/validate-updater-request.js" "$pending_request" "$pending_name" \
+      || fail "Solicitação legada inválida"
+    [ -z "$legacy_daemon_request" ] || fail "Mais de uma solicitação legada em processamento"
+    legacy_daemon_request="$pending_name"
+  done
+  [ -n "$legacy_daemon_request" ] || fail "Não foi possível identificar a solicitação legada"
+  export UPDATER_LOCK_HELD=1
+fi
+if [ "${UPDATER_LOCK_HELD:-}" != 1 ]; then
+  mkdir -p "$UPDATER_STATE_DIR"
+  chmod 700 "$UPDATER_STATE_DIR"
+  mkdir "$UPDATER_STATE_DIR/update.lock" || fail "Outra operação do updater está em andamento"
+  owns_update_lock=1
+fi
+export UPDATER_LOCK_HELD=1
+finish_update() {
+  update_exit=$?
+  trap - EXIT
+  if [ "$owns_update_lock" = 1 ] || [ -n "$legacy_daemon_request" ]; then node "$APP_DIR/scripts/check-update-status.js" check || true; fi
+  if [ "$owns_update_lock" = 1 ]; then rmdir "$UPDATER_STATE_DIR/update.lock" 2>/dev/null || true; fi
+  exit "$update_exit"
+}
+trap finish_update EXIT
+# Migração: capturar ANTES de fetch/pull, sem sobrescrever marcador existente.
+node "$APP_DIR/scripts/check-update-status.js" initialize-installed "$PRE_UPDATE_COMMIT"
+node "$APP_DIR/scripts/check-update-status.js" updating
 git fetch origin main
 git checkout main
 git pull --ff-only origin main
@@ -286,4 +325,22 @@ sleep 5
 compose restart nginx
 compose ps
 
+log "Validando banco, backend e frontend antes de registrar a versão instalada"
+ready=0
+attempt=0
+while [ "$attempt" -lt 30 ]; do
+  attempt=$((attempt + 1))
+  if [ "$(docker inspect fullpassword_db --format '{{.State.Health.Status}}' 2>/dev/null || true)" = healthy ] \
+    && compose exec -T backend node -e "Promise.all(['http://127.0.0.1:3000/api/health', 'http://frontend/'].map(url => fetch(url, {signal: AbortSignal.timeout(2000)}).then(r => {if (!r.ok) throw new Error('unhealthy')}))).then(() => process.exit(0)).catch(() => process.exit(1))" >/dev/null 2>&1 \
+    && compose exec -T nginx nginx -t >/dev/null 2>&1; then
+    ready=1
+    break
+  fi
+  sleep 2
+done
+[ "$ready" = 1 ] || fail "Deploy não ficou saudável; a versão instalada anterior foi preservada"
+if [ -n "$legacy_daemon_request" ]; then
+  node "$APP_DIR/scripts/check-update-status.js" schedule-daemon-restart "$legacy_daemon_request"
+fi
+node "$APP_DIR/scripts/check-update-status.js" record-installed "$(git rev-parse HEAD)"
 log "Atualização concluída com sucesso"

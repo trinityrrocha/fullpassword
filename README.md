@@ -448,12 +448,28 @@ O acesso por SSH faz parte apenas da primeira instalação. Depois que o instala
 
 1. Acesse o FullPassword pelo navegador.
 2. Entre com o Super Admin.
-3. Abra **Configurações do Sistema > WebUpdater**.
+3. Abra **Configurações do Sistema > Atualização do Sistema**.
 4. Execute a verificação de atualização.
 5. Confirme a atualização pelo painel.
 6. Aguarde o processo concluir e pressione `Ctrl + F5` no navegador.
 
 Não use `git pull`, rebuild manual ou configuração recorrente por terminal como rotina operacional. O WebUpdater executa a sincronização do código, reconstrução dos containers e reinício dos serviços necessários. O fluxo aceita apenas solicitações internas com formato validado e atualiza exclusivamente a branch `main` do repositório oficial configurado; URL remota, branch e comandos não são recebidos do navegador.
+
+### Descoberta de atualizações e notificações
+
+O commit é a fonte de verdade, sem dependência de tags, releases, CHANGELOG ou GitHub API. O updater executa **`git fetch origin main`** uma vez ao iniciar (quando existe marcador instalado), a cada 24 horas e mediante solicitação manual do Super Admin. Verificar não instala: a atualização continua dependendo do botão **Atualizar sistema** e da confirmação do Super Admin.
+
+A versão instalada é o SHA completo do último deploy saudável, gravado atomicamente em `installed-commit` no volume privado do updater. Não é o `HEAD` do diretório: uma falha após o pull mantém o marcador anterior. O instalador registra a versão após healthcheck e criação do Super Admin; o `update.sh` migra instalações sem marcador capturando o commit anterior **antes** do fetch/pull e só substitui o marcador após os serviços ficarem saudáveis.
+
+O mesmo daemon serializa atualizações e verificações usando seu lock. Solicitações manuais ficam na fila separada `check-requests`; o resultado fica em `update-status.json` (arquivos 600, diretórios 700, gravação por rename atômico). O backend apenas valida/lê esse cache: não executa Git, não tem repositório montado e não recebe acesso ao docker.sock. `GET /api/system/update/status`, `POST /api/system/update/check` e `POST /api/system/update/mark-seen` são exclusivos do Super Admin; o check manual tem rate limit e os POSTs mantêm CSRF.
+
+Na primeira adoção deste recurso por um daemon antigo, a tela pode mostrar versão não identificada: use **Inicializar controle de versão**, que pede confirmação e executa o WebUpdater existente. Não há inferência silenciosa de versão a partir do HEAD. Depois do deploy saudável, um helper de transição aguarda o daemon antigo arquivar a solicitação e liberar o lock, e reinicia **somente o container updater** para carregar o novo agendamento. Esse helper não instala atualizações nem cria um segundo scheduler. Atualizações posteriores recarregam o script do daemon entre solicitações, quando necessário.
+
+O sino existente soma uma notificação de atualização às notificações de segurança. A leitura é persistida por usuário e SHA: o mesmo commit não reaparece diariamente, mas outro commit disponível gera um novo aviso. Ler a notificação não instala nem oculta a atualização da página. O link `/settings?section=update` abre a seção apropriada. A interface consulta somente o cache local, inclusive ao recuperar foco, e limita a espera do check manual a 30 segundos.
+
+As alterações vêm dos subjects reais entre o commit instalado e `origin/main`, com rótulos por prefixo convencional, sem tradução ou descrição inventada. São exibidos no máximo os 100 commits mais recentes, mantendo a contagem total. Estados de falha, versão não identificada, versão local à frente e histórico divergente não são apresentados como “sistema atualizado”; versões à frente/divergentes não oferecem instalação automática. Ambos os modos de instalação (IP público e Cloudflare Tunnel) usam apenas acesso de saída ao repositório oficial.
+
+Testes isolados: `pnpm --dir backend test:update-status` e `pnpm --dir frontend test:update-notifications`. Não executam instalação real nem acessam o GitHub; usam repositórios temporários locais. Os bits POSIX de permissão precisam ser validados também em Linux quando os testes rodam em Windows.
 
 ## 📚 Documentação
 

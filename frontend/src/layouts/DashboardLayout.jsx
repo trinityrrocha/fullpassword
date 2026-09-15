@@ -10,6 +10,7 @@ import useClearOnVaultLock from '../hooks/useClearOnVaultLock';
 import UserCryptoIdentitySetup from '../components/UserCryptoIdentitySetup';
 import SecurityNotificationsMenu from '../components/SecurityNotificationsMenu';
 import ThemeToggle from '../components/ThemeToggle';
+import { combineUpdateNotification, isUpdateSuperAdmin, UPDATE_STATUS_CHANGED } from '../utils/updateNotifications';
 
 export default function DashboardLayout() {
   const location = useLocation();
@@ -17,10 +18,13 @@ export default function DashboardLayout() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [notifications, setNotifications] = useState({ unread_count: 0, items: [] });
+  const [updateStatus, setUpdateStatus] = useState(null);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [screenProtectionEnabled, setScreenProtectionEnabled] = useState(true);
 
   const { user, logout } = useAuth();
+  const canSeeUpdates = isUpdateSuperAdmin(user);
+  const combinedNotifications = combineUpdateNotification(notifications, updateStatus, canSeeUpdates);
   const mustChangePassword = user?.must_change_password === true;
 
   useClearOnVaultLock(() => {
@@ -28,6 +32,24 @@ export default function DashboardLayout() {
     setIsProfileModalOpen(false);
     setIsNotificationsOpen(false);
   });
+
+  useEffect(() => {
+    if (!canSeeUpdates) return undefined;
+    let active = true;
+    const refresh = () => api.get('/system/update/status', { timeout: 5000 })
+      .then(({ data }) => { if (active) setUpdateStatus(data); })
+      .catch(() => { /* Cache indisponível não interrompe a sessão. */ });
+    refresh();
+    window.addEventListener('focus', refresh);
+    window.addEventListener(UPDATE_STATUS_CHANGED, refresh);
+    const interval = window.setInterval(refresh, 15 * 60 * 1000);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+      window.removeEventListener('focus', refresh);
+      window.removeEventListener(UPDATE_STATUS_CHANGED, refresh);
+    };
+  }, [canSeeUpdates, user?.id]);
 
   useEffect(() => {
     if (!user?.is_super_admin) return undefined;
@@ -77,8 +99,14 @@ export default function DashboardLayout() {
     setIsNotificationsOpen(false);
   }, []);
 
-  const openNotification = (targetUrl) => {
+  const openNotification = async (targetUrl) => {
     setIsNotificationsOpen(false);
+    if (targetUrl === '/settings?section=update' && canSeeUpdates) {
+      try {
+        const { data } = await api.post('/system/update/mark-seen', {}, { timeout: 5000 });
+        setUpdateStatus((current) => current?.available_commit === data.seen_commit ? { ...current, notification_unread: false } : current);
+      } catch { /* Navegação continua mesmo se a marcação de leitura falhar. */ }
+    }
     navigate(targetUrl);
   };
 
@@ -227,9 +255,9 @@ export default function DashboardLayout() {
       <main className="flex-1 flex flex-col overflow-hidden pt-16 md:pt-0">
         <div className="hidden h-16 shrink-0 items-center justify-end gap-2 border-b border-slate-200 bg-white px-8 md:flex dark:border-slate-800 dark:bg-slate-900">
           <ThemeToggle />
-          {user?.is_super_admin && (
+          {canSeeUpdates && (
             <SecurityNotificationsMenu
-              notifications={notifications}
+              notifications={combinedNotifications}
               isOpen={isNotificationsOpen}
               onToggle={toggleNotifications}
               onClose={closeNotifications}

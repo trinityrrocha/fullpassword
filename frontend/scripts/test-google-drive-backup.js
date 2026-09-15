@@ -164,6 +164,9 @@ assert.match(settings, /import CloudBackupCard/);
 assert.match(settings, /<CloudBackupCard isSuperAdmin=\{canManageSystem\}/);
 assert.doesNotMatch(settings, /<GoogleDriveBackupCard/);
 assert.match(settings, /updateRequestLockRef/);
-assert.match(settings, /disabled=\{isUpdating \|\| updateRequestLoading\}/);
+assert.match(settings, /<UpdateStatusPanel onUpdate=\{handleUpdateSystem\} isUpdating=\{isUpdating\} updateRequestLoading=\{updateRequestLoading\}/);
+const updatePanel = read('src/components/UpdateStatusPanel.jsx');
+assert.match(updatePanel, /const busy = checking \|\| isUpdating \|\| updateRequestLoading/);
+assert.match(updatePanel, /onClick=\{onUpdate\} disabled=\{busy\}/);
 
 console.log('Cloud Backup compact frontend tests passed.');

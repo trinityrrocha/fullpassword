@@ -79,7 +79,7 @@ export default function SecurityNotificationsMenu({
         type="button"
         onClick={onToggle}
         className="relative rounded-full p-2 text-slate-600 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:text-slate-300 dark:hover:bg-slate-800"
-        aria-label="Notificações de segurança"
+        aria-label="Notificações"
         aria-haspopup="dialog"
         aria-expanded={isOpen}
         aria-controls="security-notifications-popover"

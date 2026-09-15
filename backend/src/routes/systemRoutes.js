@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const router = express.Router();
 const systemController = require('../controllers/systemController');
+const updateStatusController = require('../controllers/updateStatusController');
 const securityController = require('../controllers/securityController');
 const sessionController = require('../controllers/sessionController');
 const passwordPolicyController = require('../controllers/passwordPolicyController');
@@ -107,6 +108,10 @@ router.post('/ip-rules/block-from-audit', asyncRoute(securityController.blockFro
 router.get('/security-notifications', asyncRoute(securityController.getSecurityNotifications));
 router.post('/security-notifications/mark-seen', asyncRoute(securityController.markSecurityNotificationsSeen));
 router.post('/update', systemController.updateSystem);
+// systemUpdateLimiter / CSRF já são aplicados a /api/system/update no server.
+router.get('/update/status', asyncRoute(updateStatusController.getStatus));
+router.post('/update/check', asyncRoute(updateStatusController.requestCheck));
+router.post('/update/mark-seen', asyncRoute(updateStatusController.markSeen));
 router.get('/backup', systemController.rejectLegacyBackupDownload);
 router.post('/backup', systemController.downloadBackup);
 router.post(
