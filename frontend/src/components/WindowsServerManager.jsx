@@ -5,8 +5,8 @@ import DeleteConfirmationControl from './DeleteConfirmationControl';
 import VaultAttachmentsField from './VaultAttachmentsField';
 import ReadOnlyDetailsModal, { ReadOnlyAttachments } from './ReadOnlyDetailsModal';
 import CopyButton from './CopyButton';
-import IpCidrInput from './IpCidrInput';
-import Ipv4Input from './Ipv4Input';
+import ServerConnectionFields from './ServerConnectionFields';
+import { normalizeMacAddress, getMacAddressError } from '../utils/macAddress';
 import { sanitizeIpv4Input, validateIpv4, validateIpv4Cidr } from '../utils/ipCidr';
 import { normalizeVaultAttachments } from '../utils/vaultAttachments';
 import useClearOnVaultLock from '../hooks/useClearOnVaultLock';
@@ -103,6 +103,7 @@ const normalizeConnections = (server = {}) => {
       type: connection.type || 'Eth1',
       vpn: connection.type === 'VPN' ? (connection.vpn || connection.vpnType || 'OpenVPN') : '',
       name: connection.name || connection.connectionName || '',
+      mac: normalizeMacAddress(connection.mac),
       ipv4: sanitizeIpv4MaskInput(connection.ipv4Cidr || connection.ipv4 || connection.ip || connection.ipAddress || connection.address || ''),
       gateway: String(connection.gateway || connection.gatewayIpv4 || '').trim()
     }));
@@ -110,7 +111,7 @@ const normalizeConnections = (server = {}) => {
 
   const legacyIpv4 = server.ipv4Cidr || server.ipv4 || server.ip || server.ipAddress || server.address || '';
   if (legacyIpv4) {
-    return [{ id: makeId(), type: 'Eth1', vpn: '', name: '', ipv4: sanitizeIpv4MaskInput(legacyIpv4), gateway: '' }];
+    return [{ id: makeId(), type: 'Eth1', vpn: '', name: '', mac: '', ipv4: sanitizeIpv4MaskInput(legacyIpv4), gateway: '' }];
   }
 
   return [];
@@ -200,11 +201,13 @@ const validateWindowsServerPorts = (server) => {
 const getWindowsConnectionError = (server) => {
   const sourceConnections = Array.isArray(server?.connections) ? server.connections : normalizeConnections(server);
   for (const connection of sourceConnections) {
+    const macError = getMacAddressError(connection.mac);
+    if (macError) return macError;
     const ipv4Cidr = connection.ipv4Cidr || connection.ipv4 || connection.ip || connection.ipAddress || connection.address || '';
     if (validateIpv4Cidr(ipv4Cidr).state === 'invalid') {
       return `Corrija o IPV4/CIDR da conexão ${connection.type === 'VPN' ? 'VPN' : connection.type || 'Eth'} antes de salvar.`;
     }
-    if (connection.type === 'VPN') continue;
+    // Gateway continua opcional, inclusive em VPN.
     if (validateIpv4(connection.gateway || connection.gatewayIpv4 || '').state === 'invalid') {
       return `Corrija o Gateway(IPV4) da conexão ${connection.type || 'Eth'} antes de salvar.`;
     }
@@ -660,10 +663,11 @@ function WindowsServerReadOnlyModal({ server, onClose, onShowUsers }) {
         {connections.length === 0 ? <p className="text-sm text-slate-500">Nenhuma conexão cadastrada.</p> : (
           <div className="space-y-2">
             {connections.map((connection) => (
-              <div key={connection.id} className="flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
+              <div key={connection.id} className="flex flex-wrap items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
                 <ConnectionIcon type={connection.type} />
                 <span className="font-medium text-slate-700">{getConnectionLabel(connection, connections)}{connection.name ? ` / ${connection.name}` : ''}{connection.type === 'VPN' ? ` / ${connection.vpn || 'OpenVPN'}` : ''}</span>
-                <span className="text-slate-500">{connection.ipv4 || '-'}{connection.type !== 'VPN' ? ` · Gateway: ${connection.gateway || '-'}` : ''}</span>
+                {connection.mac && <span className="text-slate-500 dark:text-slate-400">MAC: {connection.mac}</span>}
+                <span className="text-slate-500">{connection.ipv4 || '-'}{connection.gateway ? ` · Gateway: ${connection.gateway}` : ''}</span>
               </div>
             ))}
           </div>
@@ -733,11 +737,9 @@ function WindowsServerModal({ title, server, setServer, isSaving, onCancel, onSa
   };
   const { requestClose, dialog } = useServerFormGuard(server, onCancel, saveIncludingPortDraft, isSaving, hasPortDraft(portDraft));
   const hasInvalidConnections = connections.some((connection) => (
-    validateIpv4Cidr(connection.ipv4).state === 'invalid'
-    || (
-      connection.type !== 'VPN'
-      && validateIpv4(connection.gateway).state === 'invalid'
-    )
+    Boolean(getMacAddressError(connection.mac))
+    || validateIpv4Cidr(connection.ipv4).state === 'invalid'
+    || validateIpv4(connection.gateway).state === 'invalid'
   ));
 
   const canAddConnection = (type) => {
@@ -755,7 +757,7 @@ function WindowsServerModal({ title, server, setServer, isSaving, onCancel, onSa
 
     setServer({
       ...server,
-      connections: [...connections, { id: makeId(), type, vpn: type === 'VPN' ? 'OpenVPN' : '', name: '', ipv4: '', gateway: '' }]
+      connections: [...connections, { id: makeId(), type, vpn: type === 'VPN' ? 'OpenVPN' : '', name: '', mac: '', ipv4: '', gateway: '' }]
     });
   };
 
@@ -813,80 +815,13 @@ function WindowsServerModal({ title, server, setServer, isSaving, onCancel, onSa
             <div className="space-y-1.5">
               {connections.length === 0 ? (
                 <p className="text-sm text-slate-500">Nenhuma conexão adicionada.</p>
-              ) : connections.map((connection) => {
-                const ipv4CidrValidation = validateIpv4Cidr(connection.ipv4);
-                const gatewayValidation = validateIpv4(connection.gateway);
-                const isVpn = connection.type === 'VPN';
-                return (
-                  <div key={connection.id} className="w-full rounded-md border border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-800">
-                    <div className="grid w-full grid-cols-1 items-center gap-2 p-2 md:grid-cols-[minmax(220px,260px)_minmax(0,1fr)_minmax(0,1fr)_24px]">
-                      <div className="flex h-10 w-full min-w-0 items-center gap-2 rounded-md border border-slate-200 bg-white px-2 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
-                        <ConnectionIcon type={connection.type} />
-                        <span className="shrink-0">{getConnectionLabel(connection, connections)}</span>
-                        <input type="text" aria-label="Nome da conexão" className="min-w-0 flex-1 border-0 bg-transparent p-0 text-sm text-slate-700 placeholder-slate-400 outline-none focus:ring-0 dark:text-slate-200 dark:placeholder-slate-500" value={connection.name || ''} onChange={(e) => updateConnection(connection.id, 'name', e.target.value)} placeholder="Nome" />
-                      </div>
-                      {isVpn ? (
-                        <>
-                          <select aria-label="Tipo de VPN" className="h-10 w-full min-w-0 rounded-md border border-slate-300 bg-white p-2 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={connection.vpn || 'OpenVPN'} onChange={(e) => updateConnection(connection.id, 'vpn', e.target.value)}>
-                            {connectionVpnOptions.map((option) => <option key={option} value={option}>{option}</option>)}
-                          </select>
-                          <IpCidrInput
-                            value={connection.ipv4}
-                            onChange={(value) => updateConnection(connection.id, 'ipv4', value)}
-                            state={ipv4CidrValidation.state}
-                            error={ipv4CidrValidation.error}
-                            label=""
-                            ariaLabel="IPV4/CIDR da VPN"
-                            placeholder="192.168.1.10/24"
-                            prefix="IPV4/"
-                            required={false}
-                            showHelperText={false}
-                            containerClassName="w-full min-w-0"
-                            inputWrapperClassName="h-10 w-full min-w-0"
-                            inputClassName="text-sm tracking-normal"
-                          />
-                        </>
-                      ) : (
-                        <>
-                          <IpCidrInput
-                            value={connection.ipv4}
-                            onChange={(value) => updateConnection(connection.id, 'ipv4', value)}
-                            state={ipv4CidrValidation.state}
-                            error={ipv4CidrValidation.error}
-                            label=""
-                            ariaLabel="IPV4/CIDR"
-                            placeholder="192.168.1.10/24"
-                            prefix="IPV4/"
-                            required={false}
-                            showHelperText={false}
-                            containerClassName="w-full min-w-0"
-                            inputWrapperClassName="h-10 w-full min-w-0"
-                            inputClassName="text-sm tracking-normal"
-                          />
-                          <Ipv4Input
-                            value={connection.gateway}
-                            onChange={(value) => updateConnection(connection.id, 'gateway', value)}
-                            state={gatewayValidation.state}
-                            error={gatewayValidation.error}
-                            label=""
-                            ariaLabel="Gateway(IPV4)"
-                            placeholder="192.168.1.1"
-                            prefix="Gateway/"
-                            required={false}
-                            showHelperText={false}
-                            containerClassName="w-full min-w-0"
-                            inputWrapperClassName="h-10 w-full min-w-0"
-                            inputClassName="text-sm tracking-normal"
-                          />
-                        </>
-                      )}
-                      <button type="button" title="Excluir conexão" aria-label="Excluir conexão" onClick={() => removeConnection(connection.id)} className="action-icon-button action-icon-delete justify-self-end md:justify-self-center">
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
+              ) : connections.map((connection) => (
+                <ServerConnectionFields key={connection.id} connection={connection}
+                  label={getConnectionLabel(connection, connections)} icon={<ConnectionIcon type={connection.type} />}
+                  vpnOptions={connectionVpnOptions}
+                  onChange={(field, value) => updateConnection(connection.id, field, value)}
+                  onRemove={() => removeConnection(connection.id)} />
+              ))}
             </div>
           </div>
 

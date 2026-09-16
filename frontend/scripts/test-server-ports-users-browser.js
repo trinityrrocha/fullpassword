@@ -114,6 +114,47 @@ try {
   }
   await page.mouse.move(0, 0);
   const assertNoOverflow = async () => assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, 'Page must not overflow horizontally');
+  const assertConnections = async (desktop) => {
+    for (const row of await page.locator('[data-server-connection]').all()) {
+      const bounds = await row.locator('input, select, button').evaluateAll(elements => elements.map(el => {
+        const rect = el.getBoundingClientRect();
+        return { x: rect.x, y: rect.y, width: rect.width, right: rect.right, label: el.getAttribute('aria-label') };
+      }));
+      const card = await row.boundingBox();
+      assert.ok(bounds.every(b => b.x >= card.x && b.right <= card.x + card.width + 1));
+      const mac = bounds.find(b => b.label === 'MAC da conexão');
+      assert.ok(mac);
+      if (desktop) {
+        assert.equal(mac.width, 150);
+        // Inputs inside composite wrappers have different heights but share the same center.
+        assert.ok(Math.max(...bounds.map(b => b.y)) - Math.min(...bounds.map(b => b.y)) < 15, 'Connection must occupy one desktop line');
+      }
+    }
+  };
+  const fillMacs = async () => {
+    const macs = page.getByLabel('MAC da conexão');
+    assert.equal(await macs.first().inputValue(), '', 'Legacy connection loads with empty MAC');
+    await macs.first().fill('aa:bb');
+    await macs.first().blur();
+    await page.getByRole('alert').filter({ hasText: 'MAC inválido' }).waitFor();
+    assert.equal(await page.getByRole('button', { name: 'Salvar', exact: true }).isDisabled(), true);
+    await macs.first().fill('aa-bb-cc-dd-ee-ff');
+    await macs.first().blur();
+    assert.equal(await macs.first().inputValue(), 'AA:BB:CC:DD:EE:FF');
+    await page.locator('[data-server-connection="VPN"]').getByLabel('MAC da conexão').fill('11:22:33:44:55:66');
+    await page.locator('[data-server-connection="VPN"]').getByLabel('MAC da conexão').blur();
+    const addConnection = page.locator('select').filter({ has: page.locator('option[value="Eth3"]') });
+    assert.equal(await addConnection.locator('option[value="Eth1"]').isDisabled(), true);
+    await addConnection.selectOption('Eth3');
+    const eth3 = page.locator('[data-server-connection="Eth3"]');
+    assert.equal(await eth3.getByLabel('MAC da conexão').inputValue(), '');
+    await eth3.getByRole('button', { name: 'Excluir conexão' }).click();
+    for (let index = 0; index < 4; index++) await addConnection.selectOption('VPN');
+    assert.equal(await addConnection.locator('option[value="VPN"]').isDisabled(), true);
+    assert.equal(await page.locator('[data-server-connection="VPN"]').count(), 5);
+    assert.equal(await page.locator('[data-server-connection="VPN"]').last().getByLabel('MAC da conexão').inputValue(), '');
+    for (let index = 0; index < 4; index++) await page.locator('[data-server-connection="VPN"]').last().getByRole('button', { name: 'Excluir conexão' }).click();
+  };
   const assertCompactLayout = async (desktop) => {
     await assertActionIcons();
     const row = page.locator('[data-server-port-form]');
@@ -175,6 +216,7 @@ try {
   await clickExact('Fechar');
 
   await page.getByRole('button', { name: 'Detalhes', exact: true }).first().click();
+  await fillMacs();
   assert.equal(await page.getByRole('checkbox', { name: 'TS', exact: true }).isChecked(), false);
   assert.equal(await page.locator('select[aria-label="TS"]').count(), 0);
   await assertCompactLayout(true);
@@ -209,6 +251,7 @@ try {
     for (const dark of [false, true]) {
       await page.evaluate(enabled => document.documentElement.classList.toggle('dark', enabled), dark);
       await assertCompactLayout(width >= 640);
+      await assertConnections(width === 1280);
       if (process.env.SERVER_PORT_SCREENSHOT_DIR) {
         const system = await page.getByRole('checkbox', { name: 'TS', exact: true }).count() ? 'windows' : 'linux';
         await page.locator('[data-server-port-form]').screenshot({ path: path.join(process.env.SERVER_PORT_SCREENSHOT_DIR, system + '-' + width + '-' + (dark ? 'dark' : 'light') + '.png') });
@@ -231,6 +274,8 @@ try {
   await clickExact('Salvar');
   await page.getByRole('heading', { name: 'Detalhes do servidor', exact: true }).waitFor({ state: 'detached' });
   assert.equal(await page.evaluate(() => window.fixtureSaves.at(-1).payload.servers[0].portRules[0].portNumber), '61034');
+  assert.equal(await page.evaluate(() => window.fixtureSaves.at(-1).payload.servers[0].connections[0].mac), 'AA:BB:CC:DD:EE:FF');
+  assert.equal(await page.evaluate(() => window.fixtureSaves.at(-1).payload.servers[0].connections[1].mac), '11:22:33:44:55:66');
   assert.equal(await page.evaluate(() => Object.hasOwn(window.fixtureSaves.at(-1).payload.servers[0].portRules[0], 'ipv4')), false);
   assert.equal(await page.evaluate(() => Object.hasOwn(window.fixtureSaves.at(-1).payload.servers[0].portRules[0], 'connectionIp')), false);
 
@@ -268,6 +313,7 @@ try {
   await clickExact('Alternar sistema');
 
   await page.getByRole('button', { name: 'Detalhes', exact: true }).first().click();
+  await fillMacs();
   assert.equal(await page.getByLabel('TS', { exact: true }).count(), 0);
   await assertDerivedIp();
   await page.getByLabel('Porta', { exact: true }).fill('22');
@@ -283,6 +329,7 @@ try {
       await page.evaluate(enabled => document.documentElement.classList.toggle('dark', enabled), dark);
       await assertCompactLayout(width >= 640);
       const portBounds = await page.getByLabel('Porta', { exact: true }).boundingBox();
+      await assertConnections(width === 1280);
       assert.equal(portBounds.width, 60);
     }
   }
@@ -305,6 +352,7 @@ try {
   await page.getByRole('heading', { name: 'Detalhes do servidor Linux', exact: true }).waitFor({ state: 'detached' });
   assert.equal(await page.evaluate(() => window.fixtureSaves.at(-1).payload.servers[0].portRules.some(rule => rule.host === 'web.example')), false);
   assert.equal(await page.evaluate(() => window.fixtureSaves.at(-1).payload.servers[0].portRules[0].portNumber), '22');
+  assert.equal(await page.evaluate(() => window.fixtureSaves.at(-1).payload.servers[0].connections[0].mac), 'AA:BB:CC:DD:EE:FF');
   assert.deepEqual(errors, []);
   console.log('Browser fixture passed: Windows users, ports, draft/failure handling, readonly search, Linux ports, desktop/mobile and light/dark.');
 } finally {

@@ -14,13 +14,14 @@ const windowsNormalizeTsForm = `const normalizeTsForm = (data = {}) => {
         type: connection.type || 'Eth1',
         vpn: connection.type === 'VPN' ? (connection.vpn || connection.vpnType || defaultConnectionVpn) : '',
         name: connection.name || connection.connectionName || '',
+        mac: String(connection.mac ?? ''),
         ipv4: sanitizeIpv4MaskInput(connection.ipv4Cidr || connection.ipv4 || connection.ip || connection.ipAddress || connection.address || ''),
         gateway: String(connection.gateway || connection.gatewayIpv4 || '').trim()
       }));
     }
 
     const legacyIpv4 = server.ipv4Cidr || server.ipv4 || server.ip || server.ipAddress || server.address || '';
-    if (legacyIpv4) return [{ id: makeId(), type: 'Eth1', vpn: '', name: '', ipv4: sanitizeIpv4MaskInput(legacyIpv4), gateway: '' }];
+    if (legacyIpv4) return [{ id: makeId(), type: 'Eth1', vpn: '', name: '', mac: '', ipv4: sanitizeIpv4MaskInput(legacyIpv4), gateway: '' }];
     return [];
   };
 

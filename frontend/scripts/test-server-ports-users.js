@@ -7,6 +7,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createServer } from 'vite';
 import windowsPlugin from '../viteClientVaultWindowsPlugin.js';
+import { normalizeMacAddress, getMacAddressError } from '../src/utils/macAddress.js';
 import {
   applyPortDraft, connectionIp, connectionLabel, connectionShortLabel, createPortDraft, editablePortDirection, getServerPorts, getWindowsTsAddresses,
   hasPortDraft, PORT_DIRECTIONS, removeServerPort, sanitizeServerPort, serverHostHref, validatePortDraft
@@ -19,6 +20,12 @@ const linuxSource = read('src/components/LinuxServerManager.jsx');
 const panelSource = read('src/components/ServerPortsPanel.jsx');
 const guardSource = read('src/hooks/useServerFormGuard.jsx');
 const connection = { id: 'eth-1', type: 'Eth1', name: 'TS', ipv4: '', gateway: '' };
+for (const value of ['', undefined, null, '   ']) assert.equal(getMacAddressError(value), '');
+for (const value of ['aa:bb:cc:dd:ee:ff', ' AA-BB-CC-DD-EE-FF ', 'AA:BB:CC:DD:EE:FF']) {
+  assert.equal(normalizeMacAddress(value), 'AA:BB:CC:DD:EE:FF');
+  assert.equal(getMacAddressError(value), '');
+}
+for (const value of ['AA:BB', 'GG:BB:CC:DD:EE:FF', 'AABBCCDDEEFF', 'AA:BB:CC:DD:EE:FF:00', 'AA:BB:CC:DD:EE:F']) assert.match(getMacAddressError(value), /MAC inválido/);
 assert.equal(connectionIp({ ipv4: '192.168.1.211', gateway: '192.168.1.1' }), '192.168.1.211');
 assert.equal(connectionIp({ type: 'VPN', ipv4Cidr: '10.15.0.0/24' }), '10.15.0.0/24');
 assert.equal(connectionIp({ ipAddress: '10.0.0.8' }), '10.0.0.8');
@@ -91,6 +98,9 @@ assert.equal(serverHostHref('ts.example'), 'https://ts.example/');
 const transformed = windowsPlugin().transform('const normalizeTsForm = (data = {}) => {\n};\n\nexport default function ClientVault() {}', '/src/ClientVault.jsx').code;
 const injected = transformed.slice(0, transformed.indexOf('export default function ClientVault'));
 const roundTrip = vm.runInNewContext(injected + '\nnormalizeTsForm(input)', { input: { servers: [windows], users: [] }, makeId: () => 'test-id' });
+const macRoundTrip = vm.runInNewContext(injected + '\nnormalizeTsForm(input)', { input: { servers: [{ ...windows, connections: [{ ...connection, mac: 'AA:BB:CC:DD:EE:FF' }] }], users: [] }, makeId: () => 'test-id' });
+assert.equal(macRoundTrip.servers[0].connections[0].mac, 'AA:BB:CC:DD:EE:FF');
+assert.equal(roundTrip.servers[0].connections[0].mac, '');
 assert.equal(roundTrip.servers[0].portRules[0].host, 'new.example');
 assert.equal(roundTrip.servers[0].portRules[0].isTs, true);
 assert.equal(roundTrip.servers[0].portRules[0].connectionId, connection.id);
@@ -136,8 +146,8 @@ const vite = await createServer({
     name: 'expose-server-components-for-tests', enforce: 'pre',
     transform(code, id) {
       if (id.endsWith('/AuthContext.jsx')) return code + '\nexport { AuthContext };';
-      if (id.endsWith('/WindowsServerManager.jsx')) return code + '\nexport { WindowsServerModal, WindowsUsersListModal, WindowsServerReadOnlyModal, normalizeWindowsForm };';
-      if (id.endsWith('/LinuxServerManager.jsx')) return code + '\nexport { LinuxServerModal, LinuxServerReadOnlyModal, normalizeLinuxForm };';
+      if (id.endsWith('/WindowsServerManager.jsx')) return code + '\nexport { WindowsServerModal, WindowsUsersListModal, WindowsServerReadOnlyModal, normalizeWindowsForm, getWindowsConnectionError };';
+      if (id.endsWith('/LinuxServerManager.jsx')) return code + '\nexport { LinuxServerModal, LinuxServerReadOnlyModal, normalizeLinuxForm, getLinuxConnectionError };';
       return null;
     }
   }]
@@ -154,6 +164,29 @@ try {
   const { AuthContext } = await vite.ssrLoadModule('/src/context/AuthContext.jsx');
   const render = (Component, props) => renderToStaticMarkup(createElement(AuthContext.Provider, { value: { registerVaultLockCleanup: () => () => {} } }, createElement(Component, props)));
   const noop = () => {};
+  for (const [normalize, validate, Modal, ReadOnly] of [
+    [win.normalizeWindowsForm, win.getWindowsConnectionError, win.WindowsServerModal, win.WindowsServerReadOnlyModal],
+    [lin.normalizeLinuxForm, lin.getLinuxConnectionError, lin.LinuxServerModal, lin.LinuxServerReadOnlyModal]
+  ]) {
+    for (const type of ['Eth1', 'VPN']) {
+      const data = { ...server, connections: [{ ...connection, type, mac: 'aa-bb-cc-dd-ee-ff', vpn: 'WireGuard' }] };
+      const normalized = normalize({ servers: [data] }).servers[0];
+      assert.equal(normalized.connections[0].mac, 'AA:BB:CC:DD:EE:FF');
+      assert.equal(normalize(JSON.parse(JSON.stringify({ servers: [normalized] }))).servers[0].connections[0].mac, 'AA:BB:CC:DD:EE:FF');
+      assert.equal(Boolean(validate(normalized)), false);
+      assert.match(validate({ ...data, connections: [{ ...data.connections[0], mac: 'invalid' }] }), /MAC inválido/);
+      assert.equal(normalize({ servers: [server] }).servers[0].connections[0].mac, '');
+      const html = render(Modal, { title: 'Teste MAC', server: normalized, setServer: noop, onCancel: noop, onSave: noop });
+      assert.match(html, /aria-label="MAC da conexão"/);
+      assert.ok(html.indexOf('Nome da conexão') < html.indexOf('MAC da conexão'));
+      assert.ok(html.indexOf('MAC da conexão') < html.indexOf('IPV4/CIDR'));
+      assert.match(html, /Gateway\(IPV4\)/);
+      if (type === 'VPN') assert.match(html, /Tipo de VPN/);
+      assert.match(html, /action-icon-button action-icon-delete/);
+      const details = render(ReadOnly, { server: normalized, onClose: noop });
+      assert.match(details, /MAC: AA:BB:CC:DD:EE:FF/);
+    }
+  }
   const props = { server, onChange: noop, windows: true, draft: createPortDraft(), setDraft: noop };
   const html = render(panel.default, props);
   for (const label of ['Conexão da porta', 'Porta', 'Entrada/Saída', 'Protocolo', 'TS', 'Exibir portas configuradas']) assert.ok(html.includes(label), label);
