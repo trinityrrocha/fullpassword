@@ -87,7 +87,7 @@ for (const [name, source] of managerSources) {
     assert.match(source, /md:grid-cols-\[minmax\(220px,260px\)_minmax\(0,1fr\)_minmax\(0,1fr\)_24px\]/, `${name} deve usar a grade responsiva de conexões`);
   } else {
     assert.match(source, /<ServerConnectionFields/, `${name} deve usar os campos compartilhados de conexão`);
-    assert.match(serverConnectionFields, /flex-wrap/, `${name} deve permitir quebra responsiva`);
+    assert.match(serverConnectionFields, /lg:grid-cols-\[minmax\(0,1\.3fr\)_150px_minmax\(0,1fr\)_minmax\(0,1fr\)_24px\]/, `${name} deve usar a mesma grade responsiva de cinco colunas para ETH e VPN`);
   }
   assert.match(name === 'Dispositivos' ? source : serverConnectionFields, /aria-label="Excluir conexão"/, `${name} deve manter rótulo acessível na exclusão`);
   const connectionStart = source.lastIndexOf('>Conexões</h4>');

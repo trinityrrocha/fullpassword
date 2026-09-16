@@ -115,7 +115,29 @@ try {
   await page.mouse.move(0, 0);
   const assertNoOverflow = async () => assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, 'Page must not overflow horizontally');
   const assertConnections = async (desktop) => {
+    let referenceColumns;
     for (const row of await page.locator('[data-server-connection]').all()) {
+      const grid = row.locator(':scope > div').first();
+      const columns = await grid.evaluate(element => ({
+        display: getComputedStyle(element).display,
+        template: getComputedStyle(element).gridTemplateColumns,
+        cells: Array.from(element.children, child => {
+          const rect = child.getBoundingClientRect();
+          return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+        })
+      }));
+      assert.equal(columns.display, 'grid');
+      assert.equal(columns.cells.length, 5, 'VPN type must not occupy an extra column');
+      const identification = grid.locator(':scope > div').first();
+      assert.equal(await identification.getByLabel('Nome da conexão').count(), 1);
+      if (await row.getAttribute('data-server-connection') === 'VPN') {
+        assert.doesNotMatch(await row.innerText(), /VPN\s*\d+/);
+        assert.equal(await identification.getByLabel('Tipo de VPN').count(), 1);
+      } else {
+        assert.match(await identification.innerText(), /Eth\d/);
+      }
+      const [first, , , , remove] = columns.cells;
+      assert.ok(Math.abs(first.y + first.height / 2 - remove.y - remove.height / 2) < 1, 'Delete must stay centered beside identification, including mobile');
       const bounds = await row.locator('input, select, button').evaluateAll(elements => elements.map(el => {
         const rect = el.getBoundingClientRect();
         return { x: rect.x, y: rect.y, width: rect.width, right: rect.right, label: el.getAttribute('aria-label') };
@@ -126,12 +148,29 @@ try {
       assert.ok(mac);
       if (desktop) {
         assert.equal(mac.width, 150);
+        const horizontal = columns.cells.map(({ x, width }) => ({ x, width }));
+        if (referenceColumns) assert.deepEqual(horizontal, referenceColumns, 'ETH and VPN columns must have identical positions and widths');
+        referenceColumns = horizontal;
+        assert.equal(columns.template.split(' ').length, 5);
+        assert.ok((await identification.getByLabel('Nome da conexão').boundingBox()).width >= 60, 'Connection name must retain usable width');
+        assert.ok(columns.cells.slice(0, 4).every(cell => cell.height === 40), 'Retain standardized control heights');
         // Inputs inside composite wrappers have different heights but share the same center.
         assert.ok(Math.max(...bounds.map(b => b.y)) - Math.min(...bounds.map(b => b.y)) < 15, 'Connection must occupy one desktop line');
       }
     }
+    if (process.env.SERVER_CONNECTION_SCREENSHOT_DIR) {
+      const system = await page.getByRole('heading', { name: 'Detalhes do servidor Linux', exact: true }).count() ? 'linux' : 'windows';
+      const dark = await page.evaluate(() => document.documentElement.classList.contains('dark'));
+      await page.locator('[data-server-connection]').first().locator('..').screenshot({ path: path.join(process.env.SERVER_CONNECTION_SCREENSHOT_DIR, `${system}-${page.viewportSize().width}-${dark ? 'dark' : 'light'}.png`) });
+    }
   };
   const fillMacs = async () => {
+    const vpnType = page.getByLabel('Tipo de VPN');
+    assert.deepEqual(await vpnType.locator('option').evaluateAll(options => options.map(option => option.value)), ['OpenVPN', 'WireGuard', 'ZeroTier', 'Tailscale', 'Outro']);
+    await vpnType.selectOption('OpenVPN');
+    assert.equal(await vpnType.inputValue(), 'OpenVPN');
+    await vpnType.selectOption('WireGuard');
+    assert.equal(await vpnType.inputValue(), 'WireGuard');
     const macs = page.getByLabel('MAC da conexão');
     assert.equal(await macs.first().inputValue(), '', 'Legacy connection loads with empty MAC');
     await macs.first().fill('aa:bb');
@@ -154,6 +193,18 @@ try {
     assert.equal(await page.locator('[data-server-connection="VPN"]').count(), 5);
     assert.equal(await page.locator('[data-server-connection="VPN"]').last().getByLabel('MAC da conexão').inputValue(), '');
     for (let index = 0; index < 4; index++) await page.locator('[data-server-connection="VPN"]').last().getByRole('button', { name: 'Excluir conexão' }).click();
+  };
+  const assertSavedConnections = async () => {
+    const connections = await page.evaluate(() => window.fixtureSaves.at(-1).payload.servers[0].connections.map(connection => ({
+      id: connection.id, type: connection.type, name: connection.name,
+      ipv4: connection.ipv4 || '', gateway: connection.gateway || '',
+      ...(connection.type === 'VPN' ? { vpn: connection.vpn } : {})
+    })));
+    assert.deepEqual(connections, [
+      { id: 'eth-a', type: 'Eth1', name: 'Principal', ipv4: '192.168.1.211', gateway: '192.168.1.1' },
+      { id: 'vpn-a', type: 'VPN', name: 'Matriz', ipv4: '10.15.0.0/24', gateway: '', vpn: 'WireGuard' },
+      { id: 'eth-empty', type: 'Eth2', name: 'Sem IP', ipv4: '', gateway: '' }
+    ], 'Layout must preserve connection IDs, names, types and network data');
   };
   const assertCompactLayout = async (desktop) => {
     await assertActionIcons();
@@ -276,6 +327,7 @@ try {
   assert.equal(await page.evaluate(() => window.fixtureSaves.at(-1).payload.servers[0].portRules[0].portNumber), '61034');
   assert.equal(await page.evaluate(() => window.fixtureSaves.at(-1).payload.servers[0].connections[0].mac), 'AA:BB:CC:DD:EE:FF');
   assert.equal(await page.evaluate(() => window.fixtureSaves.at(-1).payload.servers[0].connections[1].mac), '11:22:33:44:55:66');
+  await assertSavedConnections();
   assert.equal(await page.evaluate(() => Object.hasOwn(window.fixtureSaves.at(-1).payload.servers[0].portRules[0], 'ipv4')), false);
   assert.equal(await page.evaluate(() => Object.hasOwn(window.fixtureSaves.at(-1).payload.servers[0].portRules[0], 'connectionIp')), false);
 
@@ -353,6 +405,7 @@ try {
   assert.equal(await page.evaluate(() => window.fixtureSaves.at(-1).payload.servers[0].portRules.some(rule => rule.host === 'web.example')), false);
   assert.equal(await page.evaluate(() => window.fixtureSaves.at(-1).payload.servers[0].portRules[0].portNumber), '22');
   assert.equal(await page.evaluate(() => window.fixtureSaves.at(-1).payload.servers[0].connections[0].mac), 'AA:BB:CC:DD:EE:FF');
+  await assertSavedConnections();
   assert.deepEqual(errors, []);
   console.log('Browser fixture passed: Windows users, ports, draft/failure handling, readonly search, Linux ports, desktop/mobile and light/dark.');
 } finally {
