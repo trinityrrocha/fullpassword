@@ -1,6 +1,7 @@
 const argon2 = require('argon2');
 const crypto = require('crypto');
 const db = require('../config/database');
+const { normalizeNavigationPreferences } = require('../config/navigationPreferences');
 const { recordAuditEvent } = require('../services/auditService');
 const { applyAutomaticBlockForLoginFailure } = require('../services/ipSecurityService');
 const { getTrustedCountry } = require('../services/securityMetadataService');
@@ -56,6 +57,7 @@ const sessionCookieOptions = () => ({
 });
 
 const serializeUser = (user, groups = []) => ({
+  ...normalizeNavigationPreferences(user),
   id: user.id,
   name: user.name,
   email: user.email,
@@ -245,7 +247,7 @@ const login = async (req, res) => {
               kdf_version, kdf_name, kdf_hash, kdf_iterations,
               is_active, is_super_admin, must_change_password, mfa_required,
               public_key, encrypted_private_key, rsa_key_size, rsa_key_version,
-              token_version, password_changed_at,
+              token_version, password_changed_at, menu_position, menu_display,
               (SELECT password_change_notice_months FROM password_policy_settings WHERE id = 1) AS password_change_notice_months
        FROM users WHERE LOWER(email) = $1`,
       [email]
@@ -358,7 +360,7 @@ const me = async (req, res) => {
     const result = await db.query(
       `SELECT id, name, email, role, is_active, is_super_admin, must_change_password, mfa_required,
               wrapped_key, crypto_salt, kdf_version, kdf_name, kdf_hash, kdf_iterations,
-              public_key, encrypted_private_key, rsa_key_size, rsa_key_version, password_changed_at,
+              public_key, encrypted_private_key, rsa_key_size, rsa_key_version, password_changed_at, menu_position, menu_display,
               (SELECT password_change_notice_months FROM password_policy_settings WHERE id = 1) AS password_change_notice_months,
               EXISTS(SELECT 1 FROM user_mfa_settings m WHERE m.user_id = users.id AND m.enabled = TRUE) AS mfa_enabled
        FROM users WHERE id = $1 LIMIT 1`,

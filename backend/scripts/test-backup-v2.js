@@ -39,6 +39,8 @@ let tables = makeEmptyTables();
 tables.users.push({
   id: 1,
   email: 'admin@example.com',
+  menu_position: 'top',
+  menu_display: 'icons',
   password_hash: 'argon2-test-hash',
   kdf_version: 2,
   kdf_name: 'PBKDF2',
@@ -228,6 +230,8 @@ const run = async () => {
       passphrase
     });
     assert.equal(tables.users.length, originalTables.users.length);
+    assert.equal(tables.users[0].menu_position, 'top');
+    assert.equal(tables.users[0].menu_display, 'icons');
     assert.equal(tables.vault_items.length, 60);
     assert.equal(tables.vault_items[10].encrypted_attachment, originalTables.vault_items[10].encrypted_attachment);
     await cleanupBackupWorkspace(restoreInspection.workspace);
@@ -248,6 +252,8 @@ const run = async () => {
     tables = makeEmptyTables();
     await restoreBackupPayload(parsedV1.payload);
     assert.equal(tables.users.length, originalTables.users.length);
+    assert.equal(tables.users[0].menu_position, 'top');
+    assert.equal(tables.users[0].menu_display, 'icons');
     assert.equal(tables.vault_items.length, 60);
 
     const beforeRollback = cloneTables(tables);

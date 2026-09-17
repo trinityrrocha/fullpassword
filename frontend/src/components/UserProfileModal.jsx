@@ -16,9 +16,16 @@ import { safeLogError } from '../utils/safeLogger';
 import SecurePasswordInput from './SecurePasswordInput';
 import RecoveryCodesPanel from './RecoveryCodesPanel';
 import ActiveSessionsCard from './ActiveSessionsCard';
+import NavigationPreferences from './NavigationPreferences';
+import { normalizeNavigationPreferences } from '../utils/navigationPreferences';
 import useClearOnVaultLock from '../hooks/useClearOnVaultLock';
 
-export default function UserProfileModal({ isOpen, onClose, forcePasswordChange = false }) {
+export default function UserProfileModal(props) {
+  const { user } = useAuth();
+  return props.isOpen ? <ProfileContent key={user?.id} {...props} /> : null;
+}
+
+function ProfileContent({ onClose, forcePasswordChange = false }) {
   const { user, logout } = useAuth();
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState('');
@@ -36,8 +43,9 @@ export default function UserProfileModal({ isOpen, onClose, forcePasswordChange 
   });
   
   const [formData, setFormData] = useState({
-    name: '',
-    email: '',
+    ...normalizeNavigationPreferences(user),
+    name: user?.name || '',
+    email: user?.email || '',
     currentPassword: '',
     newPassword: '',
     confirmNewPassword: ''
@@ -65,28 +73,12 @@ export default function UserProfileModal({ isOpen, onClose, forcePasswordChange 
   });
 
   useEffect(() => {
-    if (isOpen && user) {
-      setFormData({
-        name: user.name || '',
-        email: user.email || '',
-        currentPassword: '',
-        newPassword: '',
-        confirmNewPassword: ''
-      });
-      setError('');
-      setSuccess('');
-      setMfaSetup(null);
-      setMfaCode('');
-      setRecoveryCodes([]);
-      setRecoveryCodesAcknowledged(true);
-      setMfaRecoveryOpen(false);
-      setMfaRecoveryError('');
-      setMfaRecoveryForm({ currentPassword: '', recoveryCode: '' });
-      api.get('/users/profile/mfa')
-        .then(({ data }) => setMfaStatus(data))
-        .catch(() => setMfaStatus(null));
-    }
-  }, [isOpen, user]);
+    let active = true;
+    api.get('/users/profile/mfa')
+      .then(({ data }) => { if (active) setMfaStatus(data); })
+      .catch(() => { if (active) setMfaStatus(null); });
+    return () => { active = false; };
+  }, []);
 
   const handleClose = () => {
     if (recoveryCodes.length > 0 && !recoveryCodesAcknowledged) {
@@ -111,8 +103,6 @@ export default function UserProfileModal({ isOpen, onClose, forcePasswordChange 
     onClose();
   };
 
-  if (!isOpen) return null;
-
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
@@ -134,6 +124,9 @@ export default function UserProfileModal({ isOpen, onClose, forcePasswordChange 
         email: formData.email,
         current_password: formData.currentPassword
       };
+      if (!forcePasswordChange) {
+        payload = { ...payload, ...normalizeNavigationPreferences(formData) };
+      }
 
       if (forcePasswordChange && !formData.newPassword) {
         throw new Error('A troca da senha temporária é obrigatória no primeiro acesso.');
@@ -336,7 +329,7 @@ export default function UserProfileModal({ isOpen, onClose, forcePasswordChange 
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
-      <div className="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+      <div className="flex min-h-screen items-center justify-center p-4 text-center">
         <div
           className="fixed inset-0 bg-slate-900 bg-opacity-75 transition-opacity"
           aria-hidden="true"
@@ -345,9 +338,7 @@ export default function UserProfileModal({ isOpen, onClose, forcePasswordChange 
           }}
         ></div>
 
-        <span className="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
-
-        <div className="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
+        <div data-profile-panel className="relative max-h-[calc(100dvh-2rem)] w-full max-w-lg overflow-y-auto rounded-lg bg-white text-left shadow-xl">
           <div className="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
             <div className="w-full">
               <div className="mx-auto flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-indigo-100">
@@ -506,6 +497,9 @@ export default function UserProfileModal({ isOpen, onClose, forcePasswordChange 
                           onAcknowledged={() => setRecoveryCodesAcknowledged(true)}
                         />
                       </div>
+                    )}
+                    {!forcePasswordChange && (
+                      <NavigationPreferences value={normalizeNavigationPreferences(formData)} onChange={(field, value) => setFormData((current) => ({ ...current, [field]: value }))} />
                     )}
                     {!forcePasswordChange && (
                       <div className="space-y-2 border-t border-slate-200 pt-3">

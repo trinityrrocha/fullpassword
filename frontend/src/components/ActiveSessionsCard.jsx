@@ -23,6 +23,13 @@ export default function ActiveSessionsCard({ allUsers = false, compactProfile = 
         });
         setSessions(Array.isArray(data?.sessions) ? data.sessions : []);
         setPagination(data?.pagination || { page: currentPage, limit: 10, total: 0, total_pages: 0 });
+      } else if (compactProfile) {
+        const { data } = await api.get('/auth/sessions', { params: { page: currentPage, limit: 5 } });
+        const nextPagination = data?.pagination || { page: 1, limit: 5, total: 0, total_pages: 0 };
+        setSessions(Array.isArray(data?.sessions) ? data.sessions.slice(0, 5) : []);
+        setPagination(nextPagination);
+        if (nextPagination.page !== currentPage) setCurrentPage(nextPagination.page);
+        else if (!data?.sessions?.length && currentPage > 1) setCurrentPage((page) => page - 1);
       } else {
         const { data } = await api.get('/auth/sessions');
         setSessions(Array.isArray(data) ? data : []);
@@ -33,7 +40,7 @@ export default function ActiveSessionsCard({ allUsers = false, compactProfile = 
     } finally {
       setLoading(false);
     }
-  }, [allUsers, currentPage, sessionTab]);
+  }, [allUsers, compactProfile, currentPage, sessionTab]);
 
   useEffect(() => {
     const loadTimer = window.setTimeout(() => { void loadSessions(); }, 0);
@@ -115,9 +122,9 @@ export default function ActiveSessionsCard({ allUsers = false, compactProfile = 
           <table className={`${compactProfile ? 'w-full table-fixed text-xs' : 'min-w-full text-sm'} divide-y divide-slate-200`}>
             <thead className="bg-slate-50"><tr>
               {allUsers && <th className="px-3 py-2 text-left">Usuário</th>}
-              <th className={`${compactProfile ? 'w-20 px-2 py-1' : 'px-3 py-2'} text-left`}>Dispositivo</th><th className={`${compactProfile ? 'w-24 px-2 py-1' : 'px-3 py-2'} text-left`}>IP</th>
-              {!compactProfile && <th className="px-3 py-2 text-left">Login</th>}<th className={`${compactProfile ? 'w-36 px-2 py-1' : 'px-3 py-2'} text-left`}>{allUsers && sessionTab === 'ended' ? 'Encerrada em' : 'Último acesso'}</th>
-              {!compactProfile && <th className="px-3 py-2 text-left">Status</th>}<th className={`${compactProfile ? 'w-16 px-2 py-1' : 'px-3 py-2'} text-right`}>Ação</th>
+              <th className={`${compactProfile ? 'w-16 px-1 py-1 text-[10px]' : 'px-3 py-2'} text-left`}>Dispositivo</th><th className={`${compactProfile ? 'px-2 py-1' : 'px-3 py-2'} text-left`}>IP</th>
+              {!compactProfile && <th className="px-3 py-2 text-left">Login</th>}<th className={`${compactProfile ? 'w-32 px-2 py-1' : 'px-3 py-2'} text-left`}>{allUsers && sessionTab === 'ended' ? 'Encerrada em' : 'Último acesso'}</th>
+              {!compactProfile && <th className="px-3 py-2 text-left">Status</th>}<th className={`${compactProfile ? 'w-16 px-1 py-1' : 'px-3 py-2'} text-right`}>Ação</th>
             </tr></thead>
             <tbody className="divide-y divide-slate-100 bg-white">
               {sessions.length === 0 ? <tr><td colSpan={allUsers ? 7 : compactProfile ? 4 : 6} className={`${compactProfile ? 'py-3' : 'py-5'} px-3 text-center text-slate-500`}>Nenhuma sessão encontrada.</td></tr> : sessions.map((session) => (
@@ -135,11 +142,11 @@ export default function ActiveSessionsCard({ allUsers = false, compactProfile = 
           </table>
         </div>
       )}
-      {allUsers && !loading && pagination.total_pages > 1 && (
+      {(allUsers || compactProfile) && !loading && pagination.total_pages > (compactProfile ? 0 : 1) && (
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <button type="button" onClick={() => setCurrentPage((page) => page - 1)} disabled={currentPage <= 1} className="rounded-md border border-slate-300 px-3 py-2 text-sm disabled:opacity-50">Anterior</button>
-          <span className="text-sm text-slate-600">Página {pagination.page} de {pagination.total_pages}</span>
-          <button type="button" onClick={() => setCurrentPage((page) => page + 1)} disabled={currentPage >= pagination.total_pages} className="rounded-md border border-slate-300 px-3 py-2 text-sm disabled:opacity-50">Próxima</button>
+          <button type="button" onClick={() => setCurrentPage((page) => page - 1)} disabled={currentPage <= 1} className={`rounded-md border border-slate-300 px-3 disabled:opacity-50 ${compactProfile ? 'h-7 text-xs' : 'py-2 text-sm'}`}>Anterior</button>
+          <span className={`${compactProfile ? 'text-xs' : 'text-sm'} text-slate-600`}>Página {pagination.page} de {pagination.total_pages}</span>
+          <button type="button" onClick={() => setCurrentPage((page) => page + 1)} disabled={currentPage >= pagination.total_pages} className={`rounded-md border border-slate-300 px-3 disabled:opacity-50 ${compactProfile ? 'h-7 text-xs' : 'py-2 text-sm'}`}>Próxima</button>
         </div>
       )}
       {selectedSession && createPortal(

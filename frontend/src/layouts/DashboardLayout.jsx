@@ -1,4 +1,4 @@
-import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
+import { Outlet, Link, useNavigate } from 'react-router-dom';
 import { Users, Settings, Shield, LogOut, Menu, X, Building2 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
@@ -10,10 +10,11 @@ import useClearOnVaultLock from '../hooks/useClearOnVaultLock';
 import UserCryptoIdentitySetup from '../components/UserCryptoIdentitySetup';
 import SecurityNotificationsMenu from '../components/SecurityNotificationsMenu';
 import ThemeToggle from '../components/ThemeToggle';
+import DesktopNavigation from '../components/DesktopNavigation';
+import { normalizeNavigationPreferences } from '../utils/navigationPreferences';
 import { combineUpdateNotification, isUpdateSuperAdmin, UPDATE_STATUS_CHANGED } from '../utils/updateNotifications';
 
 export default function DashboardLayout() {
-  const location = useLocation();
   const navigate = useNavigate();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
@@ -23,6 +24,7 @@ export default function DashboardLayout() {
   const [screenProtectionEnabled, setScreenProtectionEnabled] = useState(true);
 
   const { user, logout } = useAuth();
+  const topNavigation = normalizeNavigationPreferences(user).menu_position === 'top';
   const canSeeUpdates = isUpdateSuperAdmin(user);
   const combinedNotifications = combineUpdateNotification(notifications, updateStatus, canSeeUpdates);
   const mustChangePassword = user?.must_change_password === true;
@@ -159,55 +161,7 @@ export default function DashboardLayout() {
   return (
     <ScreenProtection enabled={screenProtectionEnabled}>
       <div className="flex h-screen bg-gray-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
-      {/* Sidebar Desktop */}
-      <aside className="hidden w-64 bg-slate-900 text-white md:flex md:flex-col">
-        <div className="flex items-center justify-center h-16 border-b border-slate-800">
-          <Shield className="w-8 h-8 text-indigo-400 mr-2" />
-          <span className="text-xl font-bold">FullPassword</span>
-        </div>
-        
-        <div className="flex flex-col flex-1 overflow-y-auto">
-          <nav className="flex-1 px-2 py-4 space-y-1">
-            {navigation.map((item) => {
-              const isActive = location.pathname === item.href || 
-                              (item.href !== '/' && location.pathname.startsWith(item.href));
-              return (
-                <Link
-                  key={item.name}
-                  to={item.href}
-                  className={`flex items-center px-4 py-3 text-sm font-medium rounded-md transition-colors ${
-                    isActive 
-                      ? 'bg-indigo-600 text-white' 
-                      : 'text-slate-300 hover:bg-slate-800 hover:text-white'
-                  }`}
-                >
-                  <item.icon className="w-5 h-5 mr-3" />
-                  {item.name}
-                </Link>
-              );
-            })}
-          </nav>
-        </div>
-        
-        <div className="p-4 border-t border-slate-800">
-          <div className="flex items-center mb-4">
-            <div className="w-8 h-8 rounded-full bg-indigo-500 flex items-center justify-center text-white font-bold cursor-pointer hover:bg-indigo-400" onClick={() => setIsProfileModalOpen(true)} title="Meu Perfil">
-              {user?.name?.charAt(0) || 'U'}
-            </div>
-            <div className="ml-3 cursor-pointer" onClick={() => setIsProfileModalOpen(true)}>
-              <p className="text-sm font-medium text-white hover:text-indigo-300">{user?.name || 'Usuário'}</p>
-              <p className="text-xs text-slate-400 capitalize">{user?.is_super_admin ? 'Super Admin' : user?.role || 'user'}</p>
-            </div>
-          </div>
-          <button
-            onClick={handleLogout}
-            className="flex items-center w-full px-4 py-2 text-sm font-medium text-slate-300 rounded-md hover:bg-red-500/10 hover:text-red-400 transition-colors"
-          >
-            <LogOut className="w-5 h-5 mr-3" />
-            Sair
-          </button>
-        </div>
-      </aside>
+      {!topNavigation && <DesktopNavigation user={user} navigation={navigation} onProfile={() => setIsProfileModalOpen(true)} onLogout={handleLogout} />}
 
       {/* Mobile Header & Menu */}
       <div className="md:hidden fixed top-0 left-0 right-0 h-16 bg-slate-900 text-white flex items-center justify-between gap-2 px-4 z-50 dark:border-b dark:border-slate-800 dark:bg-slate-950">
@@ -252,8 +206,11 @@ export default function DashboardLayout() {
       )}
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col overflow-hidden pt-16 md:pt-0">
-        <div className="hidden h-16 shrink-0 items-center justify-end gap-2 border-b border-slate-200 bg-white px-8 md:flex dark:border-slate-800 dark:bg-slate-900">
+      <main className="min-w-0 flex-1 flex flex-col overflow-hidden pt-16 md:pt-0">
+        {topNavigation ? <DesktopNavigation user={user} navigation={navigation} onProfile={() => setIsProfileModalOpen(true)} onLogout={handleLogout}>
+          <ThemeToggle />
+          {canSeeUpdates && <SecurityNotificationsMenu notifications={combinedNotifications} isOpen={isNotificationsOpen} onToggle={toggleNotifications} onClose={closeNotifications} onNavigate={openNotification} />}
+        </DesktopNavigation> : <div className="hidden h-16 shrink-0 items-center justify-end gap-2 border-b border-slate-200 bg-white px-8 md:flex dark:border-slate-800 dark:bg-slate-900">
           <ThemeToggle />
           {canSeeUpdates && (
             <SecurityNotificationsMenu
@@ -264,7 +221,7 @@ export default function DashboardLayout() {
               onNavigate={openNotification}
             />
           )}
-        </div>
+        </div>}
         {user?.password_change_recommended && !mustChangePassword && (
           <button type="button" onClick={() => setIsProfileModalOpen(true)} className="shrink-0 border-b border-amber-200 bg-amber-50 px-4 py-2 text-left text-sm text-amber-900 md:px-8 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
             Sua senha está antiga. Recomendamos atualizá-la. Clique aqui para abrir seu perfil.

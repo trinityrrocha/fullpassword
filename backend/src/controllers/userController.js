@@ -1,4 +1,5 @@
 const db = require('../config/database');
+const { validNavigationPreferences } = require('../config/navigationPreferences');
 const argon2 = require('argon2');
 const crypto = require('crypto');
 const { ensureSharingSchema } = require('../services/accessControlService');
@@ -196,6 +197,9 @@ const createUser = async (req, res) => {
 
 // PUT /api/users/profile - Atualiza o próprio perfil (nome, email, senha e re-envelope da Master Key)
 const updateProfile = async (req, res) => {
+  if (!validNavigationPreferences(req.body)) {
+    return res.status(400).json({ error: 'Preferência de menu inválida' });
+  }
   const client = await db.pool.connect();
   try {
     const userId = req.user.id;
@@ -273,6 +277,13 @@ const updateProfile = async (req, res) => {
       );
     }
 
+    if (req.body.menu_position !== undefined || req.body.menu_display !== undefined) {
+      await client.query(
+        `UPDATE users SET menu_position = COALESCE($1, menu_position),
+                          menu_display = COALESCE($2, menu_display) WHERE id = $3`,
+        [req.body.menu_position ?? null, req.body.menu_display ?? null, userId]
+      );
+    }
     await client.query('COMMIT');
 
     if (new_password) {
@@ -280,7 +291,7 @@ const updateProfile = async (req, res) => {
     }
 
     const result = await client.query(
-      `SELECT id, name, email, role, wrapped_key, crypto_salt,
+      `SELECT id, name, email, role, wrapped_key, crypto_salt, menu_position, menu_display,
               kdf_version, kdf_name, kdf_hash, kdf_iterations,
               public_key, encrypted_private_key, rsa_key_size, rsa_key_version
        FROM users WHERE id = $1`,

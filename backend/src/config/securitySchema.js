@@ -1,4 +1,5 @@
 const db = require('./database');
+const { ensureNavigationPreferences } = require('./navigationPreferences');
 
 const MAX_CONNECTION_ATTEMPTS = 15;
 const MAX_RETRY_DELAY_MS = 5000;
@@ -36,6 +37,7 @@ const ensureSecuritySchema = async () => {
   try {
     await client.query('BEGIN');
     await client.query('SELECT pg_advisory_xact_lock($1)', [8142026]);
+    await ensureNavigationPreferences(client);
     await client.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version INTEGER NOT NULL DEFAULT 0');
     await client.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS is_super_admin BOOLEAN NOT NULL DEFAULT FALSE');
     await client.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT FALSE');

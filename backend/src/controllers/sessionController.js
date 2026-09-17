@@ -29,6 +29,29 @@ const serializeSessions = (rows, currentSessionId) => rows.map((row) => {
 });
 
 const listOwnSessions = async (req, res) => {
+  if (req.query?.page !== undefined || req.query?.limit !== undefined) {
+    const requestedPage = Number(req.query.page ?? 1);
+    if (!Number.isSafeInteger(requestedPage) || requestedPage < 1 || Number(req.query.limit ?? 5) !== 5) {
+      return res.status(400).json({ error: 'Paginação de sessões inválida' });
+    }
+    const count = await db.query(
+      'SELECT COUNT(*)::integer AS total FROM (SELECT id FROM user_sessions WHERE user_id = $1 LIMIT 30) recent',
+      [req.user.id]
+    );
+    const total = Math.min(30, Number(count.rows[0]?.total || 0));
+    const totalPages = Math.ceil(total / 5);
+    const page = Math.min(requestedPage, Math.max(1, totalPages));
+    const result = await db.query(
+      `SELECT ${sessionFields} FROM user_sessions s JOIN users u ON u.id = s.user_id
+       WHERE s.user_id = $1 ORDER BY s.last_seen_at DESC NULLS LAST, s.created_at DESC, s.id DESC
+       LIMIT $2 OFFSET $3`,
+      [req.user.id, 5, (page - 1) * 5]
+    );
+    return res.status(200).json({
+      sessions: serializeSessions(result.rows, req.user.session_id),
+      pagination: { page, limit: 5, total, total_pages: totalPages }
+    });
+  }
   const result = await db.query(
     `SELECT ${sessionFields} FROM user_sessions s JOIN users u ON u.id = s.user_id
      WHERE s.user_id = $1 ORDER BY s.created_at DESC`,
