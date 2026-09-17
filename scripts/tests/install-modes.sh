@@ -279,7 +279,9 @@ compose() {
 }
 docker() {
     printf 'docker %s\n' "$*" >> "$LOG"
-    [ "$1" = inspect ] && [ "$2" = fullpassword_db ] && [ "$3" = --format ] || return 1
+    [ "$1" = inspect ] && [ "$3" = --format ] || return 1
+    if [ "$2" = fullpassword_backend ]; then printf 'healthy\n'; return; fi
+    [ "$2" = fullpassword_db ] || return 1
     [ "$FAIL_AT" != missing ] && [ "$FAIL_AT" != missing_db ] || return 1
     if [ "$4" = '{{.State.Status}}' ]; then printf 'running\n'; return; fi
     if [ "$4" = '{{.State.Health.Status}}' ]; then
@@ -337,7 +339,7 @@ start_containers > "$TEST_DIR/delayed"
 [ "$(grep -c '^up -d --build$' "$LOG")" = 1 ]
 [ "$(grep -c '^sleep 5$' "$LOG")" = 2 ]
 assert_has 'Reexecutando docker compose up -d' "$TEST_DIR/delayed"
-assert_has 'exec -T backend node -e' "$LOG"
+assert_has 'exec -T backend node scripts/check-health.js' "$LOG"
 
 : > "$LOG"
 FAIL_AT=unrelated

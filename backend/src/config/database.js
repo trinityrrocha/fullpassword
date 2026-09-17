@@ -19,11 +19,6 @@ const pool = new Pool({
   database: requiredDatabaseValue('DB_NAME'),
 });
 
-// Testar a conexão
-pool.on('connect', () => {
-  console.log('Conexão com o banco de dados estabelecida com sucesso!');
-});
-
 pool.on('error', (err) => {
   safeLogError('Erro inesperado no cliente idle do PostgreSQL.', err);
   process.exit(-1);

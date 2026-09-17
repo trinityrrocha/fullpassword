@@ -14,8 +14,12 @@ RUN npm install
 # Copiar o resto do código
 COPY . .
 
+ARG BACKEND_APP_COMMIT=unknown
+ENV BACKEND_APP_COMMIT=$BACKEND_APP_COMMIT
+ENV NODE_ENV=production
+
 # Expor a porta da aplicação
 EXPOSE 3000
 
-# Comando para iniciar em desenvolvimento (usando nodemon se disponível)
-CMD ["npm", "run", "dev"]
+# Falha de startup encerra o processo para o Docker reiniciá-lo.
+CMD ["node", "src/server.js"]

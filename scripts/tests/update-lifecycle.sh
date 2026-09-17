@@ -55,13 +55,20 @@ git() {
   esac
 }
 docker() {
-  if [ "$1" = inspect ]; then echo healthy; return; fi
+  if [ "$1" = inspect ]; then
+    if [ "$2" = fullpassword_backend ] && [ "${FAIL_BACKEND_HEALTH:-no}" = yes ]; then echo unhealthy; else echo healthy; fi
+    return
+  fi
   if [ "$1" = compose ] && [ "${2:-}" = up ] && [ "${FAIL_DEPLOY:-no}" = yes ]; then return 7; fi
   if [ "$1" = compose ] && [ "${2:-}" = exec ] && [ "${FAIL_HEALTH:-no}" = yes ]; then return 1; fi
+  if [ "$1" = compose ] && [ "${2:-}" = exec ] && [ "${4:-}" = backend ]; then
+    [ "${6:-}" = scripts/check-health.js ] && [ "${7:-}" = "$NEW" ] && [ "${8:-}" = --frontend ] || return 92
+    [ "${FAIL_SCHEMA:-no}" != yes ] && [ "${FAIL_REVISION:-no}" != yes ] || return 1
+  fi
   return 0
 }
 sleep() { :; }
-export GIT_BIN TEST_DIR REPO_DIR OLD
+export GIT_BIN TEST_DIR REPO_DIR OLD NEW
 export -f git docker sleep
 
 # Failure after real fetch/pull: previous marker survives, HEAD does advance.
@@ -79,6 +86,12 @@ fi
 [ "$(tr -d '\r\n' < "$TEST_DIR/state/installed-commit")" = "$OLD" ]
 
 # Only a completed deployment advances the marker.
+for failed_gate in FAIL_BACKEND_HEALTH FAIL_SCHEMA FAIL_REVISION; do
+  if (export "$failed_gate=yes"; bash -c 'source "$REPO_DIR/scripts/update.sh"') > "$TEST_DIR/$failed_gate.log" 2>&1; then
+    echo "Deploy com falha de $failed_gate foi aceito"; exit 1
+  fi
+  [ "$(tr -d '\r\n' < "$TEST_DIR/state/installed-commit")" = "$OLD" ]
+done
 bash -c 'source "$REPO_DIR/scripts/update.sh"' > "$TEST_DIR/success.log" 2>&1
 [ "$(tr -d '\r\n' < "$TEST_DIR/state/installed-commit")" = "$NEW" ]
 [ ! -d "$TEST_DIR/state/update.lock" ]

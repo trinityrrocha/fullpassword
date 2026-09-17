@@ -6,7 +6,7 @@
   "scripts": {
     "test:navigation-preferences": "node scripts/test-navigation-preferences.js",
     "test:update-status": "node ../scripts/tests/update-status.test.js",
-    "test": "node scripts/test-navigation-preferences.js && node scripts/test-backup-v2.js && node scripts/test-ip-cidr.js && node scripts/test-request-limits.js && node scripts/test-operational-hardening.js && node scripts/test-crypto-parameters.js && node scripts/test-user-crypto-identity.js && node scripts/test-smtp-settings.js && node scripts/test-password-reset.js && node scripts/test-mfa-recovery-codes.js && node scripts/test-security-notifications.js && node scripts/test-google-drive-backup.js && node scripts/test-cloud-backup.js && node scripts/test-cloud-backup-notifications.js && node scripts/test-domain-expiration.js && node scripts/test-system-runtime.js",
+    "test": "node scripts/test-schema-readiness.js && node scripts/test-navigation-preferences.js && node scripts/test-backup-v2.js && node scripts/test-ip-cidr.js && node scripts/test-request-limits.js && node scripts/test-operational-hardening.js && node scripts/test-crypto-parameters.js && node scripts/test-user-crypto-identity.js && node scripts/test-smtp-settings.js && node scripts/test-password-reset.js && node scripts/test-mfa-recovery-codes.js && node scripts/test-security-notifications.js && node scripts/test-google-drive-backup.js && node scripts/test-cloud-backup.js && node scripts/test-cloud-backup-notifications.js && node scripts/test-domain-expiration.js && node scripts/test-system-runtime.js",
     "start": "node src/server.js",
     "dev": "nodemon src/server.js"
   },
@@ -38,6 +38,7 @@
     "brace-expansion@5.0.7": "5.0.8"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "0.5.8",
     "nodemon": "^3.1.0"
   }
 }

@@ -286,7 +286,7 @@ node "$APP_DIR/scripts/check-update-status.js" initialize-installed "$PRE_UPDATE
 node "$APP_DIR/scripts/check-update-status.js" updating
 git fetch origin main
 git checkout main
-git pull --ff-only origin main
+(umask 022; git pull --ff-only origin main)
 
 [ "$(git branch --show-current)" = "main" ] \
   || fail "O WebUpdater somente pode executar na branch main"
@@ -294,6 +294,8 @@ git pull --ff-only origin main
   || fail "O commit local não corresponde ao commit publicado em origin/main"
 
 APP_COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+BACKEND_APP_COMMIT="$(git rev-parse HEAD)"
+export BACKEND_APP_COMMIT
 export VITE_APP_COMMIT="$APP_COMMIT"
 export APP_COMMIT="$APP_COMMIT"
 export GIT_COMMIT="$APP_COMMIT"
@@ -331,7 +333,8 @@ attempt=0
 while [ "$attempt" -lt 30 ]; do
   attempt=$((attempt + 1))
   if [ "$(docker inspect fullpassword_db --format '{{.State.Health.Status}}' 2>/dev/null || true)" = healthy ] \
-    && compose exec -T backend node -e "Promise.all(['http://127.0.0.1:3000/api/health', 'http://frontend/'].map(url => fetch(url, {signal: AbortSignal.timeout(2000)}).then(r => {if (!r.ok) throw new Error('unhealthy')}))).then(() => process.exit(0)).catch(() => process.exit(1))" >/dev/null 2>&1 \
+    && [ "$(docker inspect fullpassword_backend --format '{{.State.Health.Status}}' 2>/dev/null || true)" = healthy ] \
+    && compose exec -T backend node scripts/check-health.js "$BACKEND_APP_COMMIT" --frontend >/dev/null 2>&1 \
     && compose exec -T nginx nginx -t >/dev/null 2>&1; then
     ready=1
     break

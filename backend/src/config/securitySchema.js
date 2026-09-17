@@ -1,5 +1,5 @@
 const db = require('./database');
-const { ensureNavigationPreferences } = require('./navigationPreferences');
+const { ensureNavigationPreferences, assertNavigationPreferencesSchema } = require('./navigationPreferences');
 
 const MAX_CONNECTION_ATTEMPTS = 15;
 const MAX_RETRY_DELAY_MS = 5000;
@@ -436,6 +436,7 @@ const ensureSecuritySchema = async () => {
       EXECUTE FUNCTION clear_must_change_password_on_hash_update()
     `);
 
+    await assertNavigationPreferencesSchema(client);
     await client.query('COMMIT');
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {});

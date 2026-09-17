@@ -12,6 +12,8 @@ ARG VITE_APP_COMMIT=unknown
 ENV VITE_API_URL=$VITE_API_URL
 ENV VITE_APP_COMMIT=$VITE_APP_COMMIT
 RUN npm run build
+# Corrige modos herdados de um checkout feito sob umask 077, só nos artefatos públicos.
+RUN find dist -type d -exec chmod 755 {} + && find dist -type f -exec chmod 644 {} +
 
 FROM nginx:alpine
 

@@ -7,6 +7,9 @@ require('dotenv').config();
 
 require('./config/security');
 const { ensureSecuritySchema } = require('./config/securitySchema');
+const db = require('./config/database');
+const { assertNavigationPreferencesSchema } = require('./config/navigationPreferences');
+const { SCHEMA_VERSION } = require('./config/runtimeReadiness');
 const { ipSecurityMiddleware } = require('./middleware/ipSecurityMiddleware');
 const { csrfProtection } = require('./middleware/csrfMiddleware');
 const {
@@ -40,6 +43,7 @@ const { startDomainExpirationScheduler } = require('./services/domainExpirationS
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+let schemaReady = false;
 
 app.set('trust proxy', 1);
 
@@ -95,8 +99,14 @@ app.use('/api/auth/mfa', mfaLimiter);
 app.use('/api/users/profile/mfa', mfaLimiter);
 
 // Rota de verificação de saúde (Healthcheck)
-app.get('/api/health', (req, res) => {
-  res.status(200).json({ status: 'ok', message: 'Servidor rodando perfeitamente!' });
+app.get('/api/health', async (_req, res) => {
+  try {
+    if (!schemaReady) throw new Error('Schema não inicializado');
+    await assertNavigationPreferencesSchema(db);
+    res.status(200).json({ status: 'ok', schema_ready: true, schema_version: SCHEMA_VERSION, commit: process.env.BACKEND_APP_COMMIT || 'unknown' });
+  } catch {
+    res.status(503).json({ status: 'unavailable', schema_ready: false });
+  }
 });
 
 app.use('/api', ipSecurityMiddleware);
@@ -143,18 +153,22 @@ app.use((err, req, res, next) => {
 
 // Inicialização do servidor
 const startServer = async () => {
+  schemaReady = false;
   try {
     await ensureSecuritySchema();
-    app.listen(PORT, () => {
+    schemaReady = true;
+    console.log('Schema de segurança validado e confirmado no banco.');
+    return app.listen(PORT, () => {
       console.log(`Servidor backend rodando na porta ${PORT}`);
       console.log(`Ambiente: ${process.env.NODE_ENV || 'development'}`);
       startCloudBackupScheduler();
       startDomainExpirationScheduler();
     });
   } catch (error) {
-    safeLogError('Falha ao garantir o schema de segurança.', error);
+    safeLogError('Falha ao garantir o schema de segurança.', error, { includeStack: false });
     process.exit(1);
   }
 };
 
-startServer();
+if (require.main === module) startServer();
+module.exports = { app, startServer };

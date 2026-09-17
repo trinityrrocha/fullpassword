@@ -548,6 +548,7 @@ start_containers() {
     systemctl disable nginx 2>/dev/null || true
     systemctl stop nginx 2>/dev/null || true
     export VITE_APP_COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+    export BACKEND_APP_COMMIT="$(git rev-parse HEAD)"
     compose config >/dev/null || fail 'Docker Compose inválido.'
     local db_failure_marker
     db_failure_marker=$(mktemp)
@@ -584,8 +585,8 @@ INSTALL_STAGE=healthcheck
 echo -e "${GREEN}Aguardando o backend responder ao healthcheck...${NC}"
 BACKEND_READY=false
 for attempt in $(seq 1 30); do
-    if compose exec -T backend node -e \
-        "fetch('http://127.0.0.1:3000/api/health', {signal: AbortSignal.timeout(2000)}).then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))" \
+    if [ "$(docker inspect fullpassword_backend --format '{{.State.Health.Status}}' 2>/dev/null || true)" = healthy ] \
+        && compose exec -T backend node scripts/check-health.js "$BACKEND_APP_COMMIT" \
         >/dev/null 2>&1; then
         BACKEND_READY=true
         break

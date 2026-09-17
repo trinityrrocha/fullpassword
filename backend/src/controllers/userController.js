@@ -1,5 +1,5 @@
 const db = require('../config/database');
-const { validNavigationPreferences } = require('../config/navigationPreferences');
+const { validNavigationPreferences, isMissingNavigationColumn } = require('../config/navigationPreferences');
 const argon2 = require('argon2');
 const crypto = require('crypto');
 const { ensureSharingSchema } = require('../services/accessControlService');
@@ -270,8 +270,8 @@ const updateProfile = async (req, res) => {
       );
     } else {
       await client.query(
-        `UPDATE users SET name = $1, email = $2,
-                          token_version = token_version + CASE WHEN email <> $2 THEN 1 ELSE 0 END,
+        `UPDATE users SET name = $1, email = $2::text,
+                          token_version = token_version + CASE WHEN email <> $2::text THEN 1 ELSE 0 END,
                           updated_at = CURRENT_TIMESTAMP WHERE id = $3`,
         [name, normalizedEmail, userId]
       );
@@ -284,12 +284,6 @@ const updateProfile = async (req, res) => {
         [req.body.menu_position ?? null, req.body.menu_display ?? null, userId]
       );
     }
-    await client.query('COMMIT');
-
-    if (new_password) {
-      await recordAuditEvent({ user: req.user, action: 'password_changed', status: 'success', req, metadata: {} });
-    }
-
     const result = await client.query(
       `SELECT id, name, email, role, wrapped_key, crypto_salt, menu_position, menu_display,
               kdf_version, kdf_name, kdf_hash, kdf_iterations,
@@ -298,6 +292,10 @@ const updateProfile = async (req, res) => {
       [userId]
     );
 
+    await client.query('COMMIT');
+    if (new_password) {
+      await recordAuditEvent({ user: req.user, action: 'password_changed', status: 'success', req, metadata: {} });
+    }
     res.status(200).json({
       message: 'Perfil atualizado com sucesso',
       user: result.rows[0],
@@ -305,6 +303,10 @@ const updateProfile = async (req, res) => {
     });
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {});
+    if (isMissingNavigationColumn(error)) {
+      safeLogError('Schema de preferências incompatível ao atualizar perfil.', { code: 'DATABASE_SCHEMA_OUTDATED' }, { includeStack: false });
+      return res.status(503).json({ error: 'A estrutura do banco precisa ser atualizada. Execute a atualização do sistema.', code: 'DATABASE_SCHEMA_OUTDATED' });
+    }
     safeLogError('Erro ao atualizar perfil.', error);
     if (error.code === '23505') {
       return res.status(400).json({ error: 'Este e-mail já está em uso' });

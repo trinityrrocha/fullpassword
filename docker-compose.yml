@@ -25,8 +25,16 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+      args:
+        BACKEND_APP_COMMIT: ${BACKEND_APP_COMMIT:-unknown}
     container_name: fullpassword_backend
     restart: always
+    healthcheck:
+      test: ["CMD", "node", "scripts/check-health.js"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 90s
     expose:
       - "3000"
     environment:
