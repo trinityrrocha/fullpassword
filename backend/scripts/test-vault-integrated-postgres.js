@@ -214,8 +214,18 @@ async function run() {
     const legacyVault=(await ownerApi.post('/clients',{name:'SYNTHETIC_LEGACY'})).data.id;
     const legacyData={servers:[{id:'old-server',name:'SYNTHETIC_LEGACY_RECORD'}],users:[]};
     const cipher=await legacy.encryptData(legacyData,oldKey);
-    await database.query("INSERT INTO vault_items(client_id,category,encrypted_data,created_by) VALUES($1,'Servidor TS',$2,$3)",[legacyVault,cipher,owner]);
+    const attachment={filename:'synthetic.txt',content:'SYNTHETIC_ATTACHMENT_ONLY'};
+    const attachmentCipher=await legacy.encryptData(attachment,oldKey);
+    await database.query("INSERT INTO vault_items(client_id,category,encrypted_data,encrypted_attachment,created_by) VALUES($1,'Servidor TS',$2,$3,$4)",[legacyVault,cipher,attachmentCipher,owner]);
     const legacyItem=(await database.query('SELECT id FROM vault_items WHERE client_id=$1',[legacyVault])).rows[0].id;
+    const historicData={servers:[{id:'old-server',name:'SYNTHETIC_PREVIOUS_VERSION'}],users:[]};
+    await database.query("INSERT INTO vault_items(client_id,category,encrypted_data,created_by,created_at) VALUES($1,'Servidor TS',$2,$3,CURRENT_TIMESTAMP-INTERVAL '1 hour')",[legacyVault,await legacy.encryptData(historicData,oldKey),owner]);
+    const uninitialized=crypto.randomUUID(),missingGroup=crypto.randomUUID();
+    await database.query("INSERT INTO users(id,name,email,hash_senha_login,role) VALUES($1,'SYNTHETIC_MISSING','missing@example.invalid',$2,'user')",[uninitialized,await argon2.hash(password)]);
+    await database.query("INSERT INTO groups(id,name,can_view) VALUES($1,'SYNTHETIC_MISSING',true)",[missingGroup]);
+    await database.query('INSERT INTO user_groups(user_id,group_id) VALUES($1,$2)',[uninitialized,missingGroup]);
+    await assert.rejects(ownerApi.post('/crypto/vaults/'+legacyVault+'/recipients',{shares:[{group_id:missingGroup,can_view:true}]}),
+      e=>e.response.data.code==='RECIPIENT_IDENTITY_MIGRATION_REQUIRED');
     await database.query('INSERT INTO vault_shares(vault_item_id,user_id,encrypted_vault_key) VALUES($1,$2,$3)',[legacyItem,newAccount.id,'SYNTHETIC_LEGACY_ENVELOPE']);
     await assert.rejects(ownerApi.post('/crypto/vaults/'+legacyVault+'/recipients',{}),
       e=>e.response.status===409 && e.response.data.code==='LEGACY_DIRECT_SHARES_REQUIRE_REVIEW');
@@ -243,8 +253,13 @@ async function run() {
     await resumed.load(); await resumed.load();
     assert.equal(resumed.state.epoch,1);
     assert.equal(resumed.categories()[0].decrypted.servers[0].name,'SYNTHETIC_LEGACY_RECORD');
-    assert.equal((await database.query('SELECT encrypted_data FROM vault_items WHERE client_id=$1',[legacyVault])).rows[0].encrypted_data,cipher);
-    assert.ok(resumed.rows.some(r=>r.category==='__history'));
+    assert.equal((await database.query('SELECT encrypted_data FROM vault_items WHERE id=$1',[legacyItem])).rows[0].encrypted_data,cipher);
+    assert.equal((await database.query('SELECT encrypted_attachment FROM vault_items WHERE id=$1',[legacyItem])).rows[0].encrypted_attachment,attachmentCipher);
+    const migratedHistory=resumed.rows.filter(r=>r.category==='__history');
+    assert.equal(migratedHistory.length,2);
+    assert.deepEqual(migratedHistory.find(r=>r.entity_id===legacyItem).data.attachment,attachment);
+    assert.ok(migratedHistory.some(r=>r.data.data.servers[0].name==='SYNTHETIC_PREVIOUS_VERSION'));
+    console.log('PASS missing recipient identity is blocked; legacy history and attachment decrypt identically, original ciphertexts preserved.');
     // Reauth is session-, purpose- and exact-action-bound and single use.
     const profile={name:'SYNTHETIC_OWNER',email:'new-owner@example.invalid'};
     await assert.rejects(ownerApi.put('/users/profile',profile),e=>e.response.data.code==='REAUTH_REQUIRED');

@@ -1,5 +1,10 @@
 # Auditoria de segurança — continuação integrada do PR #3
 
+Atualização de 2026-09-18: consulte também a
+[matriz de homologação](security-homologation-2026-09-18.md), que separa revisão,
+implementação, validação local/CI, implantação e validação remota. O relatório
+abaixo preserva o histórico; não representa instalação concluída.
+
 Branch: `security/audit-remediation-2026-09-17`. Base desta continuação:
 `ec8e90c5d1113c94502c1bfa4ef95762a5d65bc4`. Data: 2026-09-18.
 
