@@ -56,7 +56,7 @@ Revisão direcionada não é declaração de auditoria exaustiva dos plugins/UI.
 | FP-04 | Interseção/grupos/revogações revista | Preservada | Dois grupos mantêm acesso; último caminho nega/rota; suíte PG passou | Não | Não | Caminhos diretos por item continuam bloqueados para migração |
 | FP-05 | Reauth vinculada a ação/sessão revista | Preservada | Ausência, payload adulterado e reuso negados; confirmação de e-mail/sessões passaram | Não | Não | Matriz visual de ações sensíveis e entrega em caixa dedicada |
 | FP-06 | Transações reservadas/staging revistos | Preservada | Concorrência CAS, falha após DELETE, rollback e retomada passaram | Não | Não | Escala/lock global; todos os writers externos à API |
-| FP-07 | Runtime/compose/papel DB revistos | Verify recusa DDL/ownership adicional | Role DML aceita; CREATE recusado; CI constrói imagens não-root | Não | Não | Runtime/proxy do host; modo verify precisa ser provisionado |
+| FP-07 | Runtime/compose/papel DB revistos | Verify recusa DDL/ownership adicional | Role DML aceita; CREATE recusado; CI valida backend não-root | Não | Não | Runtime/proxy do host; modo verify precisa ser provisionado |
 | FP-08 | Fluxos sensíveis e testes de consumo revistos | Preservada | MFA concorrente/replay/expiração e orçamento persistente passaram | Não | Não | Todos os fluxos por navegador |
 | FP-09 | Política KDF/compatibilidade revisada | Preservada | Primitivas, backups legados/novos e restauração passaram | Não | Não | Benchmark e titulares ausentes |
 | FP-10 | Lockfiles preservados | Sem nova dependência | Suítes SMTP/TLS passaram; audit do HEAD no CI | Não | Não | Comparar inventário realmente instalado |
@@ -81,6 +81,13 @@ Revisão direcionada não é declaração de auditoria exaustiva dos plugins/UI.
 - git diff --check, node --check nos arquivos backend/deploy, ESLint dos
   arquivos frontend alterados e build Vite. Build aprovado, com aviso conhecido
   de chunk maior que 500 kB.
+
+CI da revisão 1d2164f2753963e5b8bf274dfd37527f9513ec1f:
+https://github.com/trinityrrocha/fullpassword/actions/runs/35360621312
+aprovado nos jobs regression e images. Os audits de dependências indicaram
+zero vulnerabilidades. Backend não-root e SHA completo dos dois serviços
+foram comprovados nas imagens de CI; elas não foram publicadas ou implantadas.
+O frontend nginx não foi declarado não-root por esse teste.
 
 As primeiras execuções PG no sandbox concluíram as asserções mas ficaram presas
 ao encerrar processos Windows; foram interrompidas, não contadas como sucesso.
