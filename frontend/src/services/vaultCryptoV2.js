@@ -1,4 +1,4 @@
-// Versioned migration primitives. Not yet enabled by the application.
+// Versioned application crypto. Authentication and unlock secrets are independent.
 // The independent unlock secret must never be submitted to an API.
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -67,6 +67,12 @@ export const unlockIndependentIdentity = async (identity, unlockSecret) => {
     return { masterKey, privateKey };
   } finally { rawMaster.fill(0); privateBytes?.fill(0); }
 };
+
+export const sealLegacyArchive = (masterKey, userId, archive) =>
+  seal(masterKey, encoder.encode(JSON.stringify(archive)), context('legacy-recovery', userId));
+export const openLegacyArchive = async (masterKey, identity) => identity.legacyArchive
+  ? JSON.parse(decoder.decode(await open(masterKey, identity.legacyArchive, context('legacy-recovery', identity.userId))))
+  : null;
 
 export const createVaultEpoch = async (vaultId, epoch, recipients) => {
   if (!Number.isSafeInteger(epoch) || epoch < 1 || !recipients.length) throw new Error('Invalid vault epoch');

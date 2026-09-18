@@ -150,9 +150,10 @@ const deleteClientModule = async (req, res) => {
 
     transaction = await db.pool.connect();
     await transaction.query('BEGIN');
+    await transaction.query('SELECT pg_advisory_xact_lock($1)',[8142027]);
 
     const clientResult = await transaction.query(
-      'SELECT enabled_modules FROM clients WHERE id = $1 FOR UPDATE',
+      'SELECT enabled_modules,crypto_epoch,crypto_revision,rotation_required FROM clients WHERE id = $1 FOR UPDATE',
       [clientId]
     );
 
@@ -161,7 +162,11 @@ const deleteClientModule = async (req, res) => {
       return res.status(404).json({ error: 'Cliente não encontrado' });
     }
 
-    await requireClientPermission(clientId, req.user, 'delete');
+    await requireClientPermission(clientId, req.user, 'delete', transaction);
+    const vault=clientResult.rows[0];
+    if (!vault.crypto_epoch || vault.rotation_required || String(req.body.revision)!==String(vault.crypto_revision)) {
+      throw Object.assign(new Error('VAULT_VERSION_CONFLICT'),{statusCode:409});
+    }
 
     const currentModules = Array.isArray(clientResult.rows[0].enabled_modules)
       ? allowedModules.filter((allowedModule) => clientResult.rows[0].enabled_modules.includes(allowedModule))
@@ -169,7 +174,7 @@ const deleteClientModule = async (req, res) => {
     const enabledModules = currentModules.filter((enabledModule) => enabledModule !== moduleId);
 
     const deletedItems = await transaction.query(
-      'DELETE FROM vault_items WHERE client_id = $1 AND category = ANY($2::text[]) RETURNING id',
+      'UPDATE vault_records SET deleted=TRUE WHERE client_id = $1 AND category = ANY($2::text[]) AND deleted=FALSE RETURNING id',
       [clientId, categories]
     );
 
@@ -178,7 +183,7 @@ const deleteClientModule = async (req, res) => {
     }
 
     await transaction.query(
-      'UPDATE clients SET enabled_modules = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+      'UPDATE clients SET enabled_modules = $1, crypto_revision=crypto_revision+1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
       [enabledModules, clientId]
     );
 

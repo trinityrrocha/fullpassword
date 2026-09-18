@@ -18,7 +18,8 @@ const app = read('src/App.jsx');
 assert.match(authContext, /vaultLockCleanupsRef = useRef\(new Set\(\)\)/);
 assert.match(authContext, /transientMasterKeySourceRef = useRef\(null\)/);
 assert.match(authContext, /notifyVaultLockCleanups\(\);\s+transientMasterKeySourceRef\.current = null;\s+setMasterKey\(null\)/);
-assert.match(authContext, /const key = await unwrapMasterKey\(wrappedKeyStr, kek\);\s+transientMasterKeySourceRef\.current = \{ kek, wrappedKey: wrappedKeyStr \};\s+setMasterKey\(key\)/);
+assert.match(authContext, /const keys = await unlockUserIdentity\(user,secret\)/);
+assert.match(authContext, /setIdentityKeys\(null\)/);
 assert.doesNotMatch(authContext, /setMasterKey\(transientMasterKey\)/);
 assert.doesNotMatch(authContext, /user\?\.wrapped_key[\s\S]{0,300}encryptWrappedVaultKeyForPublicKeys/);
 assert.match(authContext, /navigator\.clipboard\?\.writeText/);
@@ -34,7 +35,7 @@ for (const reset of [
   'setDevicesForm({ devices: [], deviceLogins: [] })',
   'setSavedItems([])',
   'setVaultDataKey(null)',
-  'setEncryptedVaultKeyShare(null)',
+  'vaultSessionRef.current?.clear()',
   "setUnlockPassword('')"
 ]) {
   assert.ok(clientVault.includes(reset), `ClientVault não limpa ${reset}`);

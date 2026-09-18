@@ -15,10 +15,10 @@ router.post('/profile/mfa/setup/confirm', mfaController.confirmProfileSetup);
 router.post('/profile/mfa/recovery-codes/regenerate', mfaController.regenerateRecoveryCodes);
 router.post('/profile/mfa/disable', mfaController.disableProfileMfa);
 router.put('/profile', userController.updateProfile);
-router.put('/keys', userController.updateKeys);
-router.patch('/:id/mfa-policy', userController.updateMfaPolicy);
-router.post('/:id/mfa-reset', userController.resetMfa);
+router.put('/keys', (_req,res)=>res.status(409).json({code:'IDENTITY_V2_REQUIRED',error:'Use a configuração de identidade independente.'}));
+router.patch('/:id/mfa-policy', require('../services/reauthService').guard('admin_mfa_policy'), userController.updateMfaPolicy);
+router.post('/:id/mfa-reset', require('../services/reauthService').guard('admin_mfa_reset'), userController.resetMfa);
 router.put('/:id', userController.updateUser);
-router.delete('/:id', userController.deleteUser);
+router.delete('/:id', require('../services/reauthService').guard('admin_user_delete'), userController.deleteUser);
 
 module.exports = router;

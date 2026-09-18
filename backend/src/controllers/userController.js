@@ -124,19 +124,12 @@ const createUser = async (req, res) => {
     }
 
     const hashSenhaLogin = await argon2.hash(password);
-    const cryptoSalt = crypto.randomBytes(32).toString('hex');
-    const masterKeyBuffer = crypto.randomBytes(32);
-    const kekBuffer = await deriveKek(password, cryptoSalt, CURRENT_KDF_PARAMS);
-
-    const iv = crypto.randomBytes(12);
-    const cipher = crypto.createCipheriv('aes-256-gcm', kekBuffer, iv);
-    let wrappedKeyBuffer = cipher.update(masterKeyBuffer);
-    wrappedKeyBuffer = Buffer.concat([wrappedKeyBuffer, cipher.final()]);
-    const authTag = cipher.getAuthTag();
-    const finalCiphertext = Buffer.concat([wrappedKeyBuffer, authTag]);
-    const wrappedKey = `${iv.toString('base64')}:${finalCiphertext.toString('base64')}`;
+    // Holder creates an independent client-side identity after first login.
+    const cryptoSalt = null;
+    const wrappedKey = null;
 
     await client.query('BEGIN');
+    await client.query('SELECT pg_advisory_xact_lock($1)',[8142027]);
 
     const result = await client.query(
       `INSERT INTO users (
@@ -201,30 +194,22 @@ const updateProfile = async (req, res) => {
   try {
     const userId = req.user.id;
     const { name, email, current_password, new_password, wrapped_key } = req.body;
-    const normalizedEmail = normalizeEmail(email);
+    let normalizedEmail = normalizeEmail(email);
+    let emailChangePending = false;
 
     if (!name || !normalizedEmail) {
       return res.status(400).json({ error: 'Nome e email são obrigatórios' });
     }
-    if (req.user.must_change_password && (!new_password || !wrapped_key)) {
+    if (req.user.must_change_password && !new_password) {
       return res.status(403).json({
         error: 'Troca de senha obrigatória',
         code: 'MUST_CHANGE_PASSWORD'
       });
     }
-    if (Boolean(new_password) !== Boolean(wrapped_key)) {
-      return res.status(400).json({ error: 'Nova senha e chave envelopada devem ser enviadas juntas' });
-    }
-    if (new_password && !matchesCurrentKdfMetadata(req.body)) {
-      return res.status(409).json({
-        error: 'Atualize a aplicação antes de trocar a senha.',
-        code: 'CURRENT_KDF_METADATA_REQUIRED'
-      });
-    }
-
     await client.query('BEGIN');
+    await client.query('SELECT pg_advisory_xact_lock($1)',[8142027]);
     const currentResult = await client.query(
-      'SELECT email, hash_senha_login FROM users WHERE id = $1 FOR UPDATE',
+      'SELECT email, hash_senha_login, crypto_identity, wrapped_key FROM users WHERE id = $1 FOR UPDATE',
       [userId]
     );
     const currentUser = currentResult.rows[0];
@@ -233,15 +218,21 @@ const updateProfile = async (req, res) => {
       return res.status(404).json({ error: 'Usuário não encontrado' });
     }
 
+    if (new_password && currentUser.wrapped_key && !currentUser.crypto_identity && (!wrapped_key || !matchesCurrentKdfMetadata(req.body))) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({error:'Migre a identidade ou reenvelope a chave legada antes de trocar a senha.',code:'LEGACY_REWRAP_REQUIRED'});
+    }
     const sensitiveChange = new_password || normalizedEmail !== normalizeEmail(currentUser.email);
     if (sensitiveChange) {
-      if (!current_password || !(await argon2.verify(currentUser.hash_senha_login, current_password))) {
-        await client.query('ROLLBACK');
-        return res.status(403).json({ error: 'Senha atual inválida' });
-      }
+      await require('../services/reauthService').consume(client,req,'profile_change');
+    }
+    if (normalizedEmail !== normalizeEmail(currentUser.email)) {
+      await require('../services/reauthService').requestEmailChange(client,userId,currentUser.email,normalizedEmail);
+      emailChangePending = true;
+      normalizedEmail = normalizeEmail(currentUser.email);
     }
 
-    if (new_password && wrapped_key) {
+    if (new_password) {
       if (await rejectWeakPassword({ req, res, password: new_password, context: 'profile_password_change', client })) {
         await client.query('ROLLBACK');
         return;
@@ -257,7 +248,7 @@ const updateProfile = async (req, res) => {
           name,
           normalizedEmail,
           hashSenhaLogin,
-          wrapped_key,
+          currentUser.crypto_identity ? currentUser.wrapped_key : (wrapped_key || null),
           CURRENT_KDF_PARAMS.version,
           CURRENT_KDF_PARAMS.name,
           CURRENT_KDF_PARAMS.hash,
@@ -296,10 +287,12 @@ const updateProfile = async (req, res) => {
     res.status(200).json({
       message: 'Perfil atualizado com sucesso',
       user: result.rows[0],
-      session_invalidated: Boolean(sensitiveChange)
+      email_change_pending: emailChangePending,
+      session_invalidated: Boolean(new_password)
     });
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {});
+    if(error.statusCode) return res.status(error.statusCode).json({error:error.message,code:error.code,purpose:error.purpose});
     if (isMissingNavigationColumn(error)) {
       safeLogError('Schema de preferências incompatível ao atualizar perfil.', { code: 'DATABASE_SCHEMA_OUTDATED' }, { includeStack: false });
       return res.status(503).json({ error: 'A estrutura do banco precisa ser atualizada. Execute a atualização do sistema.', code: 'DATABASE_SCHEMA_OUTDATED' });
@@ -388,10 +381,8 @@ const updateUser = async (req, res) => {
           code: 'SELF_EMAIL_CHANGE_REQUIRES_PROFILE'
         });
       }
-      const emailCheck = await client.query('SELECT id FROM users WHERE LOWER(email) = $1 AND id != $2', [normalizedEmail, id]);
-      if (emailCheck.rows.length > 0) {
-        return res.status(400).json({ error: 'Este e-mail já está em uso por outro usuário' });
-      }
+      return res.status(409).json({code:'EMAIL_CONFIRMATION_REQUIRED',error:'O titular deve confirmar o novo e-mail em Meu Perfil.'});
+
     }
 
     const updates = [];
@@ -432,6 +423,8 @@ const updateUser = async (req, res) => {
     }
 
     await client.query('BEGIN');
+    await client.query('SELECT pg_advisory_xact_lock($1)',[8142027]);
+    await require('../services/reauthService').consume(client,req,'admin_user_change:'+id);
 
     let updatedUser = null;
     if (updates.length > 0) {
@@ -480,6 +473,7 @@ const updateUser = async (req, res) => {
     });
   } catch (error) {
     await client.query('ROLLBACK');
+    if(error.statusCode) return res.status(error.statusCode).json({error:error.message,code:error.code,purpose:error.purpose});
     safeLogError('Erro ao atualizar usuário.', error);
     res.status(500).json({ error: 'Erro interno ao atualizar usuário' });
   } finally {
@@ -505,6 +499,7 @@ const deleteUser = async (req, res) => {
     }
 
     await client.query('BEGIN');
+    await client.query('SELECT pg_advisory_xact_lock($1)',[8142027]);
     await client.query('SELECT pg_advisory_xact_lock($1)', [8142028]);
 
     const targetResult = await client.query(
@@ -598,6 +593,7 @@ const resetMfa = async (req, res) => {
   try {
     if (!isSuperAdmin(req.user)) return res.status(403).json({ error: 'Apenas o Super Admin pode resetar MFA' });
     await client.query('BEGIN');
+    await client.query('SELECT pg_advisory_xact_lock($1)',[8142027]);
     const target = await client.query('SELECT id FROM users WHERE id = $1 FOR UPDATE', [req.params.id]);
     if (!target.rows[0]) {
       await client.query('ROLLBACK');
@@ -627,6 +623,7 @@ const updateKeys = async (req, res) => {
     const identity = validateUserCryptoIdentityPayload(req.body);
 
     await client.query('BEGIN');
+    await client.query('SELECT pg_advisory_xact_lock($1)',[8142027]);
     const currentResult = await client.query(
       `SELECT id, is_active, public_key, encrypted_private_key, rsa_key_size, rsa_key_version
        FROM users

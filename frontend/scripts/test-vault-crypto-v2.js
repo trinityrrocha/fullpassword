@@ -33,4 +33,4 @@ assert.deepEqual(resumed, staged);
 await assert.rejects(stageVaultRecords(a.key, { vaultId: vaultA, epoch: 1 }, [{ ...records[0], data: 'tampered' }], new Map([[metadata.recordId, staged[0].envelope]])));
 console.log('PASS crypto v2 primitives: independent secret, vault isolation, recipient binding, rotation, AAD, non-exportability, resumable staging.');
 console.log('Synthetic identity + KDF + crypto scenario ms:', Math.round(performance.now() - started));
-console.log('NOT an application migration test: APIs/UI and activation are still pending.');
+console.log('Primitive test only; application migration/API coverage is in backend/scripts/test-vault-integrated-postgres.js.');

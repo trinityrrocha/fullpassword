@@ -83,6 +83,7 @@ const createGroup = async (req, res) => {
     const permissions = normalizeGroupPayload(req.body);
 
     await client.query('BEGIN');
+    await client.query('SELECT pg_advisory_xact_lock($1)',[8142027]);
 
     const groupResult = await client.query(
       `INSERT INTO groups (name, description, can_view, can_edit, can_add, can_delete)
@@ -143,6 +144,7 @@ const updateGroup = async (req, res) => {
     const permissions = normalizeGroupPayload(req.body, isAdminGroup);
 
     await client.query('BEGIN');
+    await client.query('SELECT pg_advisory_xact_lock($1)',[8142027]);
 
     const groupResult = await client.query(
       `UPDATE groups

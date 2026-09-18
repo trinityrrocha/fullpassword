@@ -127,8 +127,8 @@ const disableMfaWithFactor = async ({
 
   let factorValid = false;
   if (mfaMethod === 'totp') {
-    factorValid = /^\d{6}$/.test(String(mfaCode || '').replace(/\s/g, ''))
-      && verifyTotp(settings, mfaCode);
+    try { await require('./sensitiveFactorService').consumeTotp(client,userId,String(mfaCode || '').replace(/\s/g,'')); factorValid=true; }
+    catch { factorValid=false; }
   } else if (mfaMethod === 'recovery_code') {
     const candidate = String(recoveryCode || '').trim().toUpperCase();
     factorValid = /^[A-F0-9]{4}(?:-[A-F0-9]{4}){3}$/.test(candidate)

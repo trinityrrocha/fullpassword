@@ -73,7 +73,7 @@ const validateEncryptedBackupEnvelope = (envelope) => {
     failValidation('BACKUP_INVALID_ENVELOPE', 'A configuração de derivação de chave do backup é inválida.');
   }
   const params = envelope.kdf?.params;
-  if (!isPlainObject(params) || params.N !== 32768 || params.r !== 8 || params.p !== 1 || params.keyLength !== 32) {
+  if (!isPlainObject(params) || ![32768,131072].includes(params.N) || params.r !== 8 || params.p !== 1 || params.keyLength !== 32) {
     failValidation('BACKUP_INVALID_ENVELOPE', 'Os parâmetros de derivação de chave do backup são incompatíveis.');
   }
   if (!isPlainObject(envelope.cipher) || envelope.cipher.name !== 'aes-256-gcm') {
@@ -100,7 +100,7 @@ const decryptBackupEnvelope = async (envelope, passphrase) => {
   const ciphertext = Buffer.from(envelope.ciphertext, 'base64');
   let plaintext;
   try {
-    const key = await scryptAsync(passphrase, salt, 32, { N: 32768, r: 8, p: 1, maxmem: 64 * 1024 * 1024 });
+    const key = await scryptAsync(passphrase, salt, 32, { N: envelope.kdf.params.N, r: 8, p: 1, maxmem: 192 * 1024 * 1024 });
     const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
     decipher.setAuthTag(tag);
     plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
@@ -159,11 +159,11 @@ const summarizeBackup = ({ envelope, payload }) => ({
 
 const getInsertableColumns = async (client, table) => {
   const result = await client.query(
-    `SELECT column_name FROM information_schema.columns
+    `SELECT column_name, data_type FROM information_schema.columns
      WHERE table_schema = 'public' AND table_name = $1 AND is_generated = 'NEVER' ORDER BY ordinal_position`,
     [table]
   );
-  return new Set(result.rows.map((row) => row.column_name));
+  return new Map(result.rows.map((row) => [row.column_name,row.data_type]));
 };
 
 const resetTableSequence = async (client, table, columns) => {
@@ -239,7 +239,7 @@ const restoreBackupRecords = async (records, expectedCounts = null) => {
       context.stage = 'insert';
       const columns = Object.keys(record.row).filter((column) => allowedColumns.has(column));
       if (columns.length === 0) continue;
-      const values = columns.map((column) => record.row[column]);
+      const values = columns.map((column) => ['json','jsonb'].includes(allowedColumns.get(column)) && record.row[column] !== null ? JSON.stringify(record.row[column]) : record.row[column]);
       const placeholders = columns.map((_, placeholderIndex) => `$${placeholderIndex + 1}`);
       await client.query(`INSERT INTO ${table} (${columns.join(', ')}) VALUES (${placeholders.join(', ')})`, values);
     }

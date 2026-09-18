@@ -34,7 +34,7 @@ async function run() {
 
   const users = { a: { id: 'a', name: 'A', email: 'a@example.com', menu_position: 'side', menu_display: 'labels' }, b: { id: 'b', name: 'B', email: 'b@example.com', menu_position: 'top', menu_display: 'labels' } };
   db.pool.connect = async () => ({ release() {}, async query(sql, params = []) {
-    if (/^(BEGIN|COMMIT|ROLLBACK)/.test(sql)) return { rows: [] };
+    if (/^(BEGIN|COMMIT|ROLLBACK|SELECT pg_advisory_xact_lock)/.test(sql)) return { rows: [] };
     if (sql.startsWith('SELECT email,')) return { rows: [users[params[0]]] };
     if (sql.startsWith('UPDATE users SET name')) { assert.equal(params[2], 'a'); return { rows: [] }; }
     if (sql.startsWith('UPDATE users SET menu_position')) {

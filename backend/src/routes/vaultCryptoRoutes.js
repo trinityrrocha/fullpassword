@@ -1,0 +1,14 @@
+const router=require('express').Router();
+const {verifyToken}=require('../middleware/authMiddleware');
+const c=require('../controllers/vaultCryptoController');
+router.use(verifyToken);
+router.get('/identity',c.getIdentity);
+router.post('/identity',require('../services/reauthService').attemptLimit,c.saveIdentity);
+router.get('/vaults/:id',c.getState);
+router.post('/vaults/:id/recipients',c.getRecipients);
+router.post('/vaults/:id/stages',c.stageEpoch);
+router.post('/vaults/:id/stages/:stageId/records', c.appendStage);
+router.post('/vaults/:id/stages/:stageId/activate',c.activateEpoch);
+router.delete('/vaults/:id/stages/:stageId',c.abortStage);
+router.post('/vaults/:id/records',c.mutateRecords);
+module.exports=router;

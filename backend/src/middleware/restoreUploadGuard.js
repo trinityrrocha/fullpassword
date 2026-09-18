@@ -7,7 +7,7 @@ const { BACKUP_TEMP_DIR, BACKUP_MAX_UPLOAD_BYTES, BACKUP_RESTORE_TIMEOUT_MS } = 
 // Never use a pool-level query for this lock: ownership belongs to the connection.
 const LOCK_NAMESPACE = 1179669067;
 const LOCK_RESOURCE = 13;
-const restoreUploadGuard = async (req, res, next) => {
+const createRestoreUploadGuard = ({timeoutMs=BACKUP_RESTORE_TIMEOUT_MS,statfs=fs.statfs}={}) => async (req, res, next) => {
   let client;
   let locked = false;
   let released = false;
@@ -43,7 +43,11 @@ const restoreUploadGuard = async (req, res, next) => {
     }
     const directory = path.join(BACKUP_TEMP_DIR, 'uploads');
     await fs.mkdir(directory, { recursive: true, mode: 0o700 });
-    const stats = await fs.statfs(directory);
+    // The database lease excludes every active uploader. Matching files are leftovers from a crashed process.
+    for(const entry of await fs.readdir(directory,{withFileTypes:true})) {
+      if(entry.isFile() && /^[a-f0-9-]+\.upload$/.test(entry.name)) await fs.rm(path.join(directory,entry.name),{force:true});
+    }
+    const stats = await statfs(directory);
     const files = await fs.readdir(directory, { withFileTypes: true });
     let used = 0;
     for (const file of files) {
@@ -62,7 +66,7 @@ const restoreUploadGuard = async (req, res, next) => {
       if (!res.headersSent) res.status(408).json({ code: 'RESTORE_TIMEOUT', error: 'Tempo limite da restauração excedido.' });
       req.destroy();
       void release();
-    }, BACKUP_RESTORE_TIMEOUT_MS);
+    }, timeoutMs);
     timer.unref();
     next();
   } catch (error) {
@@ -81,4 +85,5 @@ const withRestoreLease = (handler) => async (req, res, next) => {
   }
 };
 
-module.exports = { restoreUploadGuard, withRestoreLease, LOCK_NAMESPACE, LOCK_RESOURCE };
+const restoreUploadGuard=createRestoreUploadGuard();
+module.exports = { createRestoreUploadGuard, restoreUploadGuard, withRestoreLease, LOCK_NAMESPACE, LOCK_RESOURCE };

@@ -25,7 +25,7 @@ const { restoreBackupRecords } = require('./backupRestoreService');
 
 const scryptAsync = promisify(crypto.scrypt);
 const openZipAsync = promisify(yauzl.open);
-const KDF_PARAMS = Object.freeze({ N: 32768, r: 8, p: 1, keyLength: 32 });
+const KDF_PARAMS = Object.freeze({ N: 131072, r: 8, p: 1, keyLength: 32 });
 const MANIFEST_FORMAT = 'fullpassword-backup-package';
 const MANIFEST_VERSION = 2;
 const MANIFEST_AUTH_INFO = Buffer.from('fullpassword-backup-v2-manifest', 'utf8');
@@ -56,15 +56,15 @@ const writeWithBackpressure = async (stream, buffer) => {
   if (!stream.write(buffer)) await once(stream, 'drain');
 };
 
-const deriveKey = async (passphrase, salt) => {
+const deriveKey = async (passphrase, salt, params = KDF_PARAMS) => {
   if (typeof passphrase !== 'string' || passphrase.length < 16) {
     failPackage('BACKUP_INVALID_PASSPHRASE', 'A frase de criptografia deve ter ao menos 16 caracteres.');
   }
-  return scryptAsync(passphrase, salt, KDF_PARAMS.keyLength, {
-    N: KDF_PARAMS.N,
-    r: KDF_PARAMS.r,
-    p: KDF_PARAMS.p,
-    maxmem: 64 * 1024 * 1024
+  return scryptAsync(passphrase, salt, params.keyLength, {
+    N: params.N,
+    r: params.r,
+    p: params.p,
+    maxmem: 192 * 1024 * 1024
   });
 };
 
@@ -490,7 +490,7 @@ const validateManifest = async ({ extractDirectory, extractedEntries }, passphra
   ) failPackage('BACKUP_V2_INVALID_MANIFEST', 'O manifesto não corresponde a um backup v2 válido do FullPassword.');
   if (
     manifest.kdf?.name !== 'scrypt'
-    || manifest.kdf?.params?.N !== KDF_PARAMS.N
+    || ![32768, 131072].includes(manifest.kdf?.params?.N)
     || manifest.kdf?.params?.r !== KDF_PARAMS.r
     || manifest.kdf?.params?.p !== KDF_PARAMS.p
     || manifest.kdf?.params?.keyLength !== KDF_PARAMS.keyLength
@@ -607,7 +607,7 @@ const validateManifest = async ({ extractDirectory, extractedEntries }, passphra
     failPackage('BACKUP_V2_INVALID_MANIFEST', 'O tamanho total do resumo não corresponde às partes.');
   }
 
-  const key = await deriveKey(passphrase, salt);
+  const key = await deriveKey(passphrase, salt, manifest.kdf.params);
   const authKey = getManifestAuthKey(key, salt);
   const { auth, ...manifestCore } = manifest;
   const expectedAuth = crypto.createHmac('sha256', authKey).update(JSON.stringify(manifestCore)).digest();

@@ -1,16 +1,8 @@
 import { createContext, useCallback, useContext, useState, useEffect, useRef } from 'react';
 import api from '../services/api';
-import { 
-  deriveMasterKey, 
-  unwrapMasterKey, 
-  CRYPTO_KDF_PARAMS_INVALID_ERROR,
-  CRYPTO_SALT_REQUIRED_ERROR,
-  isValidCryptoSalt,
-  resolveKdfParams
-} from '../services/cryptoService';
-import { encryptWrappedVaultKeyForPublicKeys } from '../services/clientVaultKeyService';
 import {
   ensureUserCryptoIdentity,
+  unlockUserIdentity,
   hasUserCryptoIdentity
 } from '../services/userCryptoIdentityService';
 import { safeLogError } from '../utils/safeLogger';
@@ -22,6 +14,7 @@ const ACTIVITY_EVENTS = ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchst
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [masterKey, setMasterKey] = useState(null);
+  const [identityKeys, setIdentityKeys] = useState(null);
   const [vaultLockReason, setVaultLockReason] = useState(null);
   const [vaultStateEpoch, setVaultStateEpoch] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -55,25 +48,6 @@ export const AuthProvider = ({ children }) => {
 
   const finishAuthentication = (data) => {
     if (!data?.user) return { success: false, error: 'Resposta de autenticação inválida' };
-    if (!isValidCryptoSalt(data.user.crypto_salt)) {
-      safeLogError('Resposta de autenticação sem salt criptográfico válido.', {
-        name: 'CryptoSaltValidationError',
-        code: CRYPTO_SALT_REQUIRED_ERROR
-      });
-      return {
-        success: false,
-        error: 'Não foi possível inicializar a chave criptográfica do usuário. Entre em contato com o administrador.'
-      };
-    }
-    try {
-      resolveKdfParams(data.user);
-    } catch (error) {
-      safeLogError('Resposta de autenticação com parâmetros KDF inválidos.', error);
-      return {
-        success: false,
-        error: 'Não foi possível validar os parâmetros criptográficos do usuário. Entre em contato com o administrador.'
-      };
-    }
     setUser(data.user);
     setVaultLockReason(null);
     return {
@@ -100,36 +74,7 @@ export const AuthProvider = ({ children }) => {
     try {
       const response = await api.post('/auth/login', { email, password });
       if (response.data?.mfa_required) return { success: false, mfa: response.data };
-      const authentication = finishAuthentication(response.data);
-      const authenticatedUser = response.data?.user;
-      if (
-        !authentication.success
-        || authenticatedUser?.must_change_password
-        || hasUserCryptoIdentity(authenticatedUser)
-      ) {
-        return authentication;
-      }
-
-      try {
-        const identity = await ensureUserCryptoIdentity({
-          user: authenticatedUser,
-          password,
-          saveIdentity: async (payload) => (await api.put('/users/keys', payload)).data
-        });
-        setUser(identity.user);
-        return {
-          ...authentication,
-          cryptoIdentitySetupRequired: false,
-          cryptoIdentityCreated: identity.created
-        };
-      } catch (identityError) {
-        safeLogError('Falha ao configurar identidade criptográfica após o login.', identityError);
-        return {
-          ...authentication,
-          cryptoIdentitySetupRequired: true,
-          cryptoIdentityError: 'Não foi possível configurar as chaves de segurança da sua conta. Tente sair e entrar novamente.'
-        };
-      }
+      return finishAuthentication(response.data);
     } catch (error) {
       safeLogError('Falha na tentativa de login.', error);
       return { 
@@ -167,6 +112,7 @@ export const AuthProvider = ({ children }) => {
     notifyVaultLockCleanups();
     transientMasterKeySourceRef.current = null;
     setMasterKey(null);
+    setIdentityKeys(null);
     setVaultLockReason(reason);
     setVaultStateEpoch((current) => current + 1);
     return true;
@@ -218,17 +164,18 @@ export const AuthProvider = ({ children }) => {
       transientMasterKeySourceRef.current = null;
       setUser(null);
       setMasterKey(null);
+    setIdentityKeys(null);
       setVaultLockReason(null);
       setVaultStateEpoch((current) => current + 1);
     }
   };
 
-  const ensureCurrentUserCryptoIdentity = async (password) => {
+  const ensureCurrentUserCryptoIdentity = async (password, unlockSecret, mfaCode) => {
     try {
       const identity = await ensureUserCryptoIdentity({
         user,
-        password,
-        saveIdentity: async (payload) => (await api.put('/users/keys', payload)).data
+        password, unlockSecret, mfaCode,
+        saveIdentity: async (payload) => (await api.post('/crypto/identity', payload)).data
       });
       setUser(identity.user);
       return { success: true, created: identity.created };
@@ -242,43 +189,17 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const unlockVault = async (password, wrappedKeyStr, saltStr) => {
+  const unlockVault = async (secret) => {
     try {
-      const kek = await deriveMasterKey(password, saltStr, resolveKdfParams(user || {}));
-      const key = await unwrapMasterKey(wrappedKeyStr, kek);
-      transientMasterKeySourceRef.current = { kek, wrappedKey: wrappedKeyStr };
-      setMasterKey(key);
+      const keys = await unlockUserIdentity(user,secret);
+      setIdentityKeys(keys);
+      setMasterKey(keys.masterKey);
       setVaultLockReason(null);
-      return { success: true, key, user };
-    } catch (error) {
-      if ([CRYPTO_SALT_REQUIRED_ERROR, CRYPTO_KDF_PARAMS_INVALID_ERROR].includes(error?.code)) {
-        safeLogError('Não foi possível inicializar a chave criptográfica do usuário.', error);
-        return {
-          success: false,
-          error: error.code === CRYPTO_KDF_PARAMS_INVALID_ERROR
-            ? 'Os parâmetros criptográficos do usuário são inválidos. Entre em contato com o administrador.'
-            : 'Não foi possível inicializar a chave criptográfica do usuário. Entre em contato com o administrador.'
-        };
-      }
-      console.warn('Não foi possível validar a senha mestre informada.');
-      return { success: false, error: 'Senha mestre incorreta' };
+      return {success:true,key:keys.masterKey,keys,user};
+    } catch {
+      return {success:false,error:'Segredo de desbloqueio incorreto ou identidade ainda não migrada.'};
     }
   };
-
-  const encryptOwnerVaultKeyForPublicKeys = useCallback(async (publicKeysBase64) => {
-    const source = transientMasterKeySourceRef.current;
-    if (!masterKey || !source?.kek || !source?.wrappedKey) {
-      const error = new Error('Cofre bloqueado. Desbloqueie novamente antes de compartilhar.');
-      error.code = 'VAULT_LOCKED';
-      throw error;
-    }
-
-    return encryptWrappedVaultKeyForPublicKeys(
-      source.wrappedKey,
-      source.kek,
-      publicKeysBase64
-    );
-  }, [masterKey]);
 
   const value = {
     user,
@@ -294,7 +215,7 @@ export const AuthProvider = ({ children }) => {
     logout,
     lockVault,
     unlockVault,
-    encryptOwnerVaultKeyForPublicKeys,
+    identityKeys,
     registerVaultLockCleanup,
     loading
   };
@@ -306,6 +227,8 @@ export const AuthProvider = ({ children }) => {
   );
 };
 
+// Auth hook intentionally co-located with its context provider.
+// eslint-disable-next-line react-refresh/only-export-components
 export const useAuth = () => {
   const context = useContext(AuthContext);
   if (!context) {

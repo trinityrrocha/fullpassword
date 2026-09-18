@@ -188,8 +188,8 @@ const updateSmtpSettings = async (input, updatedBy) => {
   }
 };
 
-const getSmtpDeliverySettings = async ({ allowDisabled = false } = {}) => {
-  const settings = await getRawSmtpSettings();
+const getSmtpDeliverySettings = async ({ allowDisabled = false, queryable = db } = {}) => {
+  const settings = await getRawSmtpSettings(queryable);
   if (!allowDisabled && !settings.enabled) {
     throw new SmtpSettingsError('O envio SMTP está desativado.', 'SMTP_DISABLED', 503);
   }

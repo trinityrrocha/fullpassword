@@ -97,6 +97,8 @@ const run = async () => {
         totpRecoveryCodesPresent = false;
         return { rows: [], rowCount: 10 };
       }
+      if (sql.startsWith('SELECT * FROM user_mfa_settings')) return {rows:[{enabled:totpMfaEnabled,last_totp_step:null,totp_secret_encrypted:mfaService.encryptSecret(totpSecret)}]};
+      if (sql.startsWith('UPDATE user_mfa_settings SET last_totp_step')) return {rows:[],rowCount:1};
       if (sql.startsWith('DELETE FROM user_mfa_settings')) {
         totpMfaEnabled = false;
         return { rows: [{ user_id: 'user-1' }], rowCount: 1 };

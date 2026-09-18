@@ -43,9 +43,9 @@ const createTransportOptions = (settings) => {
   return options;
 };
 
-const sendEmail = async ({ to, subject, text, html }, { allowDisabled = false } = {}) => {
+const sendEmail = async ({ to, subject, text, html }, { allowDisabled = false, queryable } = {}) => {
   if (!isValidEmail(to)) throw new SmtpSettingsError('O destinatário do e-mail é inválido.');
-  const settings = await getSmtpDeliverySettings({ allowDisabled });
+  const settings = await getSmtpDeliverySettings({ allowDisabled, queryable });
   const transporter = nodemailer.createTransport(createTransportOptions(settings));
 
   try {

@@ -88,21 +88,12 @@ const run = async () => {
   });
   assert.match(dockerfileSource, /COPY package\*\.json \.\//);
   assert.match(dockerfileSource, /RUN npm ci --omit=dev/);
-  assert.match(updaterSource, /git pull --ff-only origin main/);
-  assert.match(updaterSource, /compose up -d --build --remove-orphans/);
-  assert.match(updaterSource, /APP_COMMIT="\$\(git rev-parse --short HEAD/);
+  assert.doesNotMatch(updaterSource, /git pull|git fetch|--build/);
+  assert.match(updaterSource, /deploy-approved-release/);
+  assert.match(dockerfileSource, /USER node/);
   assert.match(composeSource, /VITE_APP_COMMIT: \$\{VITE_APP_COMMIT:-unknown\}/);
-  const backendServiceBlock = composeSource.slice(
-    composeSource.indexOf('  backend:'),
-    composeSource.indexOf('  updater:')
-  );
-  const updaterServiceBlock = composeSource.slice(
-    composeSource.indexOf('  updater:'),
-    composeSource.indexOf('  frontend:')
-  );
-  assert.doesNotMatch(backendServiceBlock, /docker\.sock/);
-  assert.match(updaterServiceBlock, /docker\.sock/);
-  assert.equal((composeSource.match(/\/var\/run\/docker\.sock:/g) || []).length, 1);
+  assert.doesNotMatch(composeSource, /docker\.sock/);
+  assert.doesNotMatch(composeSource, /^  updater:/m);
 
   console.log('System permissions and runtime import tests passed.');
 };

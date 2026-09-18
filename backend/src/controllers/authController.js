@@ -12,8 +12,7 @@ const { rejectWeakPassword } = require('../services/passwordPolicyService');
 const { safeLogError } = require('../utils/safeLogger');
 const {
   CURRENT_KDF_PARAMS,
-  CURRENT_RSA_PARAMS,
-  deriveKek
+  CURRENT_RSA_PARAMS
 } = require('../config/cryptoParameters');
 const {
   ADMIN_BOOTSTRAP_TOKEN,
@@ -26,7 +25,6 @@ const LEGACY_ADMIN_EMAIL = SUPER_ADMIN_EMAIL;
 const LEGACY_ADMIN_HASH = '$argon2id$v=19$m=65536,t=3,p=4$PLACEHOLDER_HASH_FOR_@dmin123';
 
 const SESSION_COOKIE_NAME = 'fp_session';
-const isValidCryptoSalt = (value) => typeof value === 'string' && value.trim().length >= 16;
 
 const isPasswordChangeRecommended = (user) => {
   const months = Number(user.password_change_notice_months);
@@ -68,6 +66,7 @@ const serializeUser = (user, groups = []) => ({
   mfa_required: user.mfa_required === true,
   mfa_enabled: user.mfa_enabled === true,
   password_change_recommended: isPasswordChangeRecommended(user),
+  crypto_identity: user.crypto_identity || null,
   wrapped_key: user.wrapped_key,
   crypto_salt: user.crypto_salt,
   kdf_version: user.kdf_version,
@@ -243,7 +242,7 @@ const login = async (req, res) => {
     }
 
     const result = await db.query(
-      `SELECT id, name, email, hash_senha_login, role, wrapped_key, crypto_salt,
+      `SELECT id, name, email, crypto_identity, hash_senha_login, role, wrapped_key, crypto_salt,
               kdf_version, kdf_name, kdf_hash, kdf_iterations,
               is_active, is_super_admin, must_change_password, mfa_required,
               public_key, encrypted_private_key, rsa_key_size, rsa_key_version,
@@ -273,55 +272,8 @@ const login = async (req, res) => {
       return res.status(401).json({ error: 'Credenciais inválidas' });
     }
 
-    let finalWrappedKey = user.wrapped_key;
-    let finalCryptoSalt = user.crypto_salt;
-
-    if (!user.wrapped_key) {
-      finalCryptoSalt = crypto.randomBytes(32).toString('hex');
-      const masterKeyBuffer = crypto.randomBytes(32);
-      const kekBuffer = await deriveKek(password, finalCryptoSalt, CURRENT_KDF_PARAMS);
-      const iv = crypto.randomBytes(12);
-      const cipher = crypto.createCipheriv('aes-256-gcm', kekBuffer, iv);
-      const ciphertext = Buffer.concat([cipher.update(masterKeyBuffer), cipher.final(), cipher.getAuthTag()]);
-      finalWrappedKey = `${iv.toString('base64')}:${ciphertext.toString('base64')}`;
-      await db.query(
-        `UPDATE users
-         SET wrapped_key = $1, crypto_salt = $2,
-             kdf_version = $3, kdf_name = $4, kdf_hash = $5, kdf_iterations = $6,
-             updated_at = CURRENT_TIMESTAMP
-         WHERE id = $7`,
-        [
-          finalWrappedKey,
-          finalCryptoSalt,
-          CURRENT_KDF_PARAMS.version,
-          CURRENT_KDF_PARAMS.name,
-          CURRENT_KDF_PARAMS.hash,
-          CURRENT_KDF_PARAMS.iterations,
-          user.id
-        ]
-      );
-    }
-
-    if (!isValidCryptoSalt(finalCryptoSalt)) {
-      const cryptoSaltError = new Error('Crypto salt ausente ou inválido');
-      cryptoSaltError.code = 'CRYPTO_SALT_REQUIRED';
-      safeLogError('Não foi possível inicializar a chave criptográfica do usuário.', cryptoSaltError);
-      return res.status(409).json({
-        error: 'Não foi possível inicializar a chave criptográfica do usuário. Entre em contato com o administrador.'
-      });
-    }
-
-    const sessionUser = {
-      ...user,
-      wrapped_key: finalWrappedKey,
-      crypto_salt: finalCryptoSalt,
-      ...(!user.wrapped_key ? {
-        kdf_version: CURRENT_KDF_PARAMS.version,
-        kdf_name: CURRENT_KDF_PARAMS.name,
-        kdf_hash: CURRENT_KDF_PARAMS.hash,
-        kdf_iterations: CURRENT_KDF_PARAMS.iterations
-      } : {})
-    };
+    // Authentication never creates or opens an encryption identity.
+    const sessionUser = user;
     const mfaSettings = await getMfaSettings(user.id);
     if (mfaSettings?.enabled) {
       await recordAuditEvent({
@@ -359,7 +311,7 @@ const me = async (req, res) => {
   try {
     const result = await db.query(
       `SELECT id, name, email, role, is_active, is_super_admin, must_change_password, mfa_required,
-              wrapped_key, crypto_salt, kdf_version, kdf_name, kdf_hash, kdf_iterations,
+              crypto_identity, wrapped_key, crypto_salt, kdf_version, kdf_name, kdf_hash, kdf_iterations,
               public_key, encrypted_private_key, rsa_key_size, rsa_key_version, password_changed_at, menu_position, menu_display,
               (SELECT password_change_notice_months FROM password_policy_settings WHERE id = 1) AS password_change_notice_months,
               EXISTS(SELECT 1 FROM user_mfa_settings m WHERE m.user_id = users.id AND m.enabled = TRUE) AS mfa_enabled
