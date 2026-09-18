@@ -22,5 +22,14 @@
   "docker_local": "unavailable; build and final runtime check delegated to CI",
   "browser": "not executed: computer-use restriction",
   "remote_deployment": "not executed: exclusive test environment, installed revision, operator mechanism and verified recovery not established",
-  "ci": "pending current publication"
+  "ci": {
+    "url": "https://github.com/trinityrrocha/fullpassword/actions/runs/35307036200",
+    "head": "2d0172bc7499191a7120c60e9287eb634883a4da",
+    "synthetic_pr_merge_built": "12949789cbc61dfcc1b4b839fd8d3bfe27836150",
+    "regression": "success",
+    "images": "success",
+    "backend_runtime": "Node v24.21.0 linux x64; Argon2 OK; non-root; read-only; schema vault-identity-v2",
+    "images_published": false,
+    "deployed": false
+  }
 }

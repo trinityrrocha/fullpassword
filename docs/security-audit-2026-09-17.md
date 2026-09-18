@@ -128,7 +128,28 @@ privilégios mínimos.
 ## Commits e CI desta continuação
 
 Commit de implementação/testes/migrações desta matriz: `7c3fa660ec7b926bd5bcfc3b8ce4bb32038a8cbe`.
-Base ec8e90c já tinha CI aprovado; isso não valida automaticamente
-as mudanças atuais. Resultado do novo CI será registrado após a publicação.
+Documentação/recuperação: `abe13ff`. Ajustes de regressão: `255af86` (drenagem
+dos sockets PostgreSQL antes de encerrar o cluster) e `2d0172b` (teste estático
+de notificações acompanha a autorização de edição limitada).
+
+CI desta continuação aprovado nos jobs **regression** e **images**:
+https://github.com/trinityrrocha/fullpassword/actions/runs/35307036200
+Head da branch testada: `2d0172bc7499191a7120c60e9287eb634883a4da`.
+O workflow de pull_request constrói a revisão de merge sintética do GitHub;
+health identificou `12949789cbc61dfcc1b4b839fd8d3bfe27836150`, schema
+`vault-identity-v2`, Node v24.21.0 Linux x64 e Argon2 OK. Isso NÃO é uma release
+publicada, assinatura ou revisão implantada em pw.sti1.com.br.
+IDs de imagem locais ao runner:
+- backend: `sha256:8389f995d4b0e2e06ce0e5d2b2f95c4d62078597164eb296b97462d146d9cb6d`;
+- frontend: `sha256:ba990f31e678367372edf2748ef974360f95537d4f638da0164d00977db6c146`.
+
+As execuções 35306566800 e 35306826518 falharam respectivamente na limpeza
+do cluster de teste e na expectativa estática antiga de notificações. As
+correções acima mantiveram todas as asserções de segurança; a execução final
+repetiu ambas as suítes completas, os dois testes PG, TLS, build e audits.
+
+Referência dos custos KDF: [OWASP Password Storage Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html).
+Não houve alteração dos lockfiles nesta continuação.
+
 Manter PR #3 em draft até concluir revisão, validação visual,
 teste de implantação/recuperação e pendências operacionais acima.
