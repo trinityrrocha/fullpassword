@@ -1,0 +1,51 @@
+name: Security regression
+on:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TZ: America/Sao_Paulo
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24.21.0
+      - run: npm ci
+        working-directory: backend
+      - run: npm ci
+        working-directory: frontend
+      - run: npm test
+        working-directory: backend
+      - run: node scripts/test-audit-postgres.js
+        working-directory: backend
+      - run: node scripts/test-audit-tls.js
+        working-directory: backend
+      - run: npm test && node scripts/test-vault-crypto-v2.js && npm run build
+        working-directory: frontend
+      - run: npm audit --omit=dev
+        working-directory: backend
+      - run: npm audit
+        working-directory: frontend
+      - run: git diff --check
+  images:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Build final backend and frontend images (no deployment)
+        run: |
+          docker build --build-arg BACKEND_APP_COMMIT="${{ github.sha }}" -t fullpassword-audit-backend ./backend
+          docker build --build-arg VITE_APP_COMMIT="${{ github.sha }}" -t fullpassword-audit-frontend ./frontend
+      - name: Verify Alpine runtime and native Argon2
+        run: |
+          docker run --rm --entrypoint node fullpassword-audit-backend -e "const a=require('argon2'); a.hash('AUDIT_TEST_SYNTHETIC').then(h=>a.verify(h,'AUDIT_TEST_SYNTHETIC')).then(ok=>{if(!ok)process.exit(1);console.log(process.version,process.platform,process.arch,'Argon2 OK')})"
+          docker image inspect --format '{{.Id}}' fullpassword-audit-backend fullpassword-audit-frontend
