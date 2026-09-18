@@ -46,7 +46,7 @@ const {
 const expectExportRejected = async (format, key) => {
   await assert.rejects(
     webcrypto.subtle.exportKey(format, key),
-    (error) => error?.name === 'InvalidAccessException'
+    (error) => ['InvalidAccessException', 'InvalidAccessError'].includes(error?.name)
   );
 };
 

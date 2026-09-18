@@ -87,7 +87,7 @@ const run = async () => {
     assert.ok(packageManifest.dependencies[dependency], `Dependência ausente no backend: ${dependency}`);
   });
   assert.match(dockerfileSource, /COPY package\*\.json \.\//);
-  assert.match(dockerfileSource, /RUN npm install/);
+  assert.match(dockerfileSource, /RUN npm ci --omit=dev/);
   assert.match(updaterSource, /git pull --ff-only origin main/);
   assert.match(updaterSource, /compose up -d --build --remove-orphans/);
   assert.match(updaterSource, /APP_COMMIT="\$\(git rev-parse --short HEAD/);
