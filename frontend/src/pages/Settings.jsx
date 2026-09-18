@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Settings as SettingsIcon, RefreshCw, AlertTriangle, ShieldCheck, Download, Database } from 'lucide-react';
 import api from '../services/api';
@@ -83,10 +83,6 @@ const AUDIT_ACTION_LABELS = Object.fromEntries(AUDIT_ACTION_OPTIONS.filter(([val
 export default function Settings() {
   const [searchParams] = useSearchParams();
   const { user } = useAuth();
-  const [isUpdating, setIsUpdating] = useState(false);
-  const [updateRequestLoading, setUpdateRequestLoading] = useState(false);
-  const updateRequestLockRef = useRef(false);
-  const [updateCountdown, setUpdateCountdown] = useState(0);
   const [backupConfirmation, setBackupConfirmation] = useState('');
   const [backupPassphrase, setBackupPassphrase] = useState('');
   const [backupFormat, setBackupFormat] = useState('v2');
@@ -138,45 +134,6 @@ export default function Settings() {
 
     loadSystemPermissions();
   }, [user]);
-
-  useEffect(() => {
-    let timer;
-    if (updateCountdown > 0) {
-      timer = setInterval(() => {
-        setUpdateCountdown((prev) => prev - 1);
-      }, 1000);
-    } else if (updateCountdown === 0 && isUpdating) {
-      window.location.reload();
-    }
-    return () => clearInterval(timer);
-  }, [updateCountdown, isUpdating]);
-
-  const handleUpdateSystem = async () => {
-    if (updateRequestLockRef.current || updateRequestLoading || isUpdating) return;
-    if (!canManageSystem) {
-      alert(`Apenas o Super Admin inicial (${superAdminEmail}) pode executar o WebUpdater.`);
-      return;
-    }
-
-    if (!window.confirm('Tem certeza que deseja atualizar o sistema? O serviço ficará indisponível por alguns segundos.')) {
-      return;
-    }
-
-    updateRequestLockRef.current = true;
-    setUpdateRequestLoading(true);
-    try {
-      const response = await api.post('/system/update');
-      setIsUpdating(true);
-      setUpdateCountdown(response.data.estimatedTime || 60);
-    } catch (error) {
-      setIsUpdating(false);
-      safeLogError('Erro ao iniciar atualização.', error);
-      alert(error.response?.data?.error || 'Erro ao iniciar atualização. Verifique se você está logado como Super Admin.');
-    } finally {
-      updateRequestLockRef.current = false;
-      setUpdateRequestLoading(false);
-    }
-  };
 
   const handleDownloadBackup = async () => {
     if (!canManageSystem) {
@@ -414,30 +371,13 @@ export default function Settings() {
         </div>
       </div>
 
-      {isUpdating && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900 bg-opacity-90">
-          <div className="bg-white p-8 rounded-lg shadow-2xl max-w-md w-full text-center">
-            <RefreshCw className="w-16 h-16 text-indigo-600 animate-spin mx-auto mb-4" />
-            <h2 className="text-2xl font-bold text-slate-900 mb-2">Atualizando Sistema</h2>
-            <p className="text-slate-600 mb-6">
-              O FullPassword está baixando a versão mais recente e reconstruindo os containers.
-            </p>
-            <div className="text-4xl font-mono font-bold text-indigo-600 mb-2">
-              {updateCountdown}s
-            </div>
-            <p className="text-sm text-slate-500">
-              A página será recarregada automaticamente.
-            </p>
-          </div>
-        </div>
-      )}
 
       <SettingsAccordionGroup key={requestedAccordion || 'settings-accordions'} initialOpenAccordion={requestedAccordion}>
       <div className="grid grid-cols-1 gap-6">
         <SettingsAccordionCard id="system-update" title="Atualização do Sistema" icon={<RefreshCw className="w-5 h-5 mr-2 text-indigo-500" />} badge={canManageSystem && <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">Super Admin</span>}>
             <p className="text-sm text-slate-600 mb-4">
-              O WebUpdater sincroniza o código fonte do repositório GitHub (branch main) e recria os containers Docker automaticamente.
-              Esta ação é restrita ao Super Admin inicial.
+              Atualizações exigem uma release assinada, revisão explícita e recuperação verificada.
+              O atualizador antigo de main está desativado. A primeira instalação segura exige um operador autorizado.
             </p>
 
             {isLoadingPermissions ? (
@@ -445,7 +385,7 @@ export default function Settings() {
             ) : !canManageSystem ? (
               restrictedWarning('Apenas o Super Admin inicial pode executar a atualização do sistema.')
             ) : (
-              <UpdateStatusPanel onUpdate={handleUpdateSystem} isUpdating={isUpdating} updateRequestLoading={updateRequestLoading} />
+              <UpdateStatusPanel />
             )}
         </SettingsAccordionCard>
 

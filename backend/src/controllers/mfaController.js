@@ -5,19 +5,18 @@ const {
   verifyChallengeToken,
   getMfaSettings,
   ensureMfaSetup,
-  verifyTotp,
   replaceRecoveryCodes,
-  useRecoveryCode,
   MfaActionError,
   disableMfaWithFactor
 } = require('../services/mfaService');
 const { completeLoginSession } = require('./authController');
 const { safeLogError } = require('../utils/safeLogger');
+const { consumeChallenge } = require('../services/mfaChallengeService');
 
 const loadChallengeUser = async (challengeToken, purpose) => {
   const challenge = verifyChallengeToken(challengeToken, purpose);
   const result = await db.query(
-    `SELECT id, name, email, role, is_active, is_super_admin, must_change_password, menu_position, menu_display,
+    `SELECT crypto_identity, id, name, email, role, is_active, is_super_admin, must_change_password, menu_position, menu_display,
             mfa_required, wrapped_key, crypto_salt, kdf_version, kdf_name, kdf_hash, kdf_iterations,
             public_key, encrypted_private_key, rsa_key_size, rsa_key_version, token_version,
             password_changed_at,
@@ -53,16 +52,11 @@ const verifyLogin = async (req, res) => {
     const settings = await getMfaSettings(user.id);
     if (!settings?.enabled) throw new Error('MFA nÃ£o configurado');
 
-    let recoveryCodeUsed = false;
-    const validTotp = req.body?.code ? verifyTotp(settings, req.body.code) : false;
     const recoveryCode = normalizeRecoveryCodeCandidate(req.body?.recovery_code);
-    if (!validTotp && recoveryCode) {
-      recoveryCodeUsed = await useRecoveryCode(user.id, recoveryCode);
-    }
-    if (!validTotp && !recoveryCodeUsed) {
-      await auditMfaFailure(req, user, attemptedRecoveryCode ? 'mfa_recovery_code_failed' : 'mfa_login_failed');
-      return res.status(401).json({ error: 'Código MFA inválido ou expirado' });
-    }
+    const { recoveryCodeUsed } = await consumeChallenge(
+      verifyChallengeToken(req.body?.challenge_token,'login'),
+      {code:req.body?.code,recoveryCode}
+    );
 
     await db.query('UPDATE user_mfa_settings SET last_used_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE user_id = $1', [user.id]);
     await recordAuditEvent({
@@ -85,26 +79,11 @@ const verifyLogin = async (req, res) => {
 
 const confirmSetup = async (req, res) => {
   let user = null;
-  let client;
   try {
     user = await loadChallengeUser(req.body?.setup_token, 'setup');
-    const settings = await getMfaSettings(user.id);
-    if (!settings || settings.enabled || !verifyTotp(settings, req.body?.code)) {
-      await auditMfaFailure(req, user, 'mfa_setup_failed');
-      return res.status(401).json({ error: 'CÃ³digo MFA invÃ¡lido ou expirado' });
-    }
-
-    client = await db.pool.connect();
-    await client.query('BEGIN');
-    await client.query(
-      `UPDATE user_mfa_settings
-       SET enabled = TRUE, confirmed_at = CURRENT_TIMESTAMP, last_used_at = CURRENT_TIMESTAMP,
-           updated_at = CURRENT_TIMESTAMP
-       WHERE user_id = $1`,
-      [user.id]
+    const { recoveryCodes } = await consumeChallenge(
+      verifyChallengeToken(req.body?.setup_token, 'setup'), { code: req.body?.code }
     );
-    const recoveryCodes = await replaceRecoveryCodes(client, user.id);
-    await client.query('COMMIT');
     await recordAuditEvent({
       user, action: 'mfa_setup_confirmed', status: 'success', req,
       metadata: { country: getTrustedCountry(req) }
@@ -118,11 +97,8 @@ const confirmSetup = async (req, res) => {
     });
     return completeLoginSession(req, res, { ...user, mfa_enabled: true }, { recovery_codes: recoveryCodes });
   } catch (error) {
-    if (client) await client.query('ROLLBACK').catch(() => {});
     await auditMfaFailure(req, user, 'mfa_setup_failed').catch(() => {});
     return res.status(401).json({ error: 'Desafio MFA invÃ¡lido ou expirado' });
-  } finally {
-    if (client) client.release();
   }
 };
 
@@ -165,12 +141,14 @@ const startProfileSetup = async (req, res) => {
 const confirmProfileSetup = async (req, res) => {
   const client = await db.pool.connect();
   try {
-    const settings = await getMfaSettings(req.user.id);
-    if (!settings || settings.enabled || !verifyTotp(settings, req.body?.code)) {
-      await auditMfaFailure(req, req.user, 'mfa_setup_failed');
+    await client.query('BEGIN');
+    const settings = (await client.query('SELECT * FROM user_mfa_settings WHERE user_id=$1 FOR UPDATE',[req.user.id])).rows[0];
+    if (!settings || settings.enabled) {
+      await recordAuditEvent({user:req.user,action:'mfa_setup_failed',status:'denied',req,queryable:client});
+      await client.query('COMMIT');
       return res.status(403).json({ error: 'Código MFA inválido ou expirado' });
     }
-    await client.query('BEGIN');
+    await require('../services/sensitiveFactorService').consumeTotp(client,req.user.id,req.body?.code,{allowSetup:true});
     await client.query(
       `UPDATE user_mfa_settings
        SET enabled = TRUE, confirmed_at = CURRENT_TIMESTAMP, last_used_at = CURRENT_TIMESTAMP,
@@ -193,6 +171,7 @@ const confirmProfileSetup = async (req, res) => {
     return res.status(200).json({ message: 'MFA habilitado', recovery_codes: recoveryCodes });
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {});
+    if(error.statusCode) return res.status(error.statusCode).json({error:error.message,code:error.code});
     safeLogError('Erro ao confirmar configuração MFA.', error);
     return res.status(500).json({ error: 'Não foi possível confirmar a configuração MFA' });
   } finally {
@@ -203,11 +182,13 @@ const confirmProfileSetup = async (req, res) => {
 const regenerateRecoveryCodes = async (req, res) => {
   const client = await db.pool.connect();
   try {
-    const settings = await getMfaSettings(req.user.id);
-    if (!settings?.enabled || !verifyTotp(settings, req.body?.code)) {
+    await client.query('BEGIN');
+    const settings = (await client.query('SELECT * FROM user_mfa_settings WHERE user_id=$1 FOR UPDATE',[req.user.id])).rows[0];
+    if (!settings?.enabled) {
+      await client.query('ROLLBACK');
       return res.status(403).json({ error: 'Código MFA inválido ou expirado' });
     }
-    await client.query('BEGIN');
+    await require('../services/sensitiveFactorService').consumeTotp(client,req.user.id,req.body?.code);
     const recoveryCodes = await replaceRecoveryCodes(client, req.user.id);
     await client.query(
       `UPDATE user_mfa_settings SET recovery_codes_version = recovery_codes_version + 1,
@@ -222,6 +203,7 @@ const regenerateRecoveryCodes = async (req, res) => {
     return res.status(200).json({ recovery_codes: recoveryCodes });
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {});
+    if(error.statusCode) return res.status(error.statusCode).json({error:error.message,code:error.code});
     safeLogError('Erro ao regenerar códigos de recuperação.', error);
     return res.status(500).json({ error: 'Não foi possível regenerar os códigos de recuperação' });
   } finally {

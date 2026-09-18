@@ -1,0 +1,76 @@
+name: Security regression
+on:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TZ: America/Sao_Paulo
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24.21.0
+      - run: npm ci
+        working-directory: backend
+      - run: npm ci
+        working-directory: frontend
+      - run: npm test
+        working-directory: backend
+      - run: node scripts/test-audit-postgres.js
+        working-directory: backend
+      - run: node scripts/test-vault-integrated-postgres.js
+        working-directory: backend
+      - run: node scripts/test-approved-release.js
+        working-directory: backend
+      - run: node scripts/test-audit-tls.js
+        working-directory: backend
+      - run: npm test && node scripts/test-vault-crypto-v2.js && npm run build
+        working-directory: frontend
+      - run: node scripts/test-update-notifications.js
+        working-directory: frontend
+      - run: npm audit --omit=dev
+        working-directory: backend
+      - run: npm audit
+        working-directory: frontend
+      - run: git diff --check
+  images:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Build final backend and frontend images (no deployment)
+        run: |
+          docker build --build-arg BACKEND_APP_COMMIT="${{ github.event.pull_request.head.sha || github.sha }}" -t fullpassword-audit-backend ./backend
+          docker build --build-arg VITE_APP_COMMIT="${{ github.event.pull_request.head.sha || github.sha }}" -t fullpassword-audit-frontend ./frontend
+      - name: Verify Alpine runtime and native Argon2
+        run: |
+          docker run --rm --entrypoint node fullpassword-audit-backend -e "const a=require('argon2'); a.hash('AUDIT_TEST_SYNTHETIC').then(h=>a.verify(h,'AUDIT_TEST_SYNTHETIC')).then(ok=>{if(!ok)process.exit(1);console.log(process.version,process.platform,process.arch,'Argon2 OK')})"
+          test "$(docker image inspect --format '{{.Config.User}}' fullpassword-audit-backend)" = node
+          docker run --rm --entrypoint cat fullpassword-audit-frontend /usr/share/nginx/html/version.json | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{if(JSON.parse(s).revision!=='${{ github.event.pull_request.head.sha || github.sha }}')process.exit(1);console.log('Frontend exact revision verified')})"
+          docker image inspect --format '{{.Id}}' fullpassword-audit-backend fullpassword-audit-frontend
+      - name: Start final non-root backend with isolated PostgreSQL
+        run: |
+          docker network create fp-audit
+          trap 'docker rm -f fp-audit-api fp-audit-db >/dev/null 2>&1 || true; docker network rm fp-audit >/dev/null 2>&1 || true' EXIT
+          docker run -d --name fp-audit-db --network fp-audit -e POSTGRES_PASSWORD=SYNTHETIC_DB_TEST_ONLY -v "$PWD/database/init.sql:/docker-entrypoint-initdb.d/init.sql:ro" postgres:15-alpine
+          docker run -d --name fp-audit-api --network fp-audit --read-only --cap-drop ALL --security-opt no-new-privileges:true --tmpfs /tmp:rw,noexec,nosuid,size=512m -e DB_HOST=fp-audit-db -e DB_PORT=5432 -e DB_NAME=postgres -e DB_USER=postgres -e DB_PASSWORD=SYNTHETIC_DB_TEST_ONLY -e JWT_SECRET=SYNTHETIC_JWT_TEST_ONLY_1234567890_1234567890_1234567890_1234567890 -e ADMIN_BOOTSTRAP_TOKEN=SYNTHETIC_BOOTSTRAP_TEST_ONLY_1234567890_1234567890 -e APP_ORIGIN=https://audit.example.invalid -e SUPER_ADMIN_EMAIL=audit@example.invalid fullpassword-audit-backend
+          for attempt in $(seq 1 45); do
+            if docker exec fp-audit-api node scripts/check-health.js; then
+              docker exec fp-audit-api node -e "if(process.getuid()===0)process.exit(1);fetch('http://127.0.0.1:3000/api/health').then(r=>r.json()).then(b=>{if(b.commit!=='${{ github.event.pull_request.head.sha || github.sha }}')process.exit(1);console.log(b)})"
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs --tail 40 fp-audit-api
+          exit 1

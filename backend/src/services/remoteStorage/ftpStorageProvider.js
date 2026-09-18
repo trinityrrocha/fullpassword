@@ -4,6 +4,7 @@ const ftp = require('basic-ftp');
 const BACKUP_FILE_PATTERN = /^fullpassword-backup-(?:v2-[a-zA-Z0-9._-]+\.zip|v1-[a-zA-Z0-9._-]+\.enc\.json)$/;
 
 const withClient = async (config, operation) => {
+  if (config.secure !== true) throw Object.assign(new Error('FTPS com certificado válido é obrigatório.'), { code: 'FTPS_REQUIRED' });
   const client = new ftp.Client(30_000);
   client.ftp.verbose = false;
   try {
@@ -12,7 +13,8 @@ const withClient = async (config, operation) => {
       port: config.port,
       user: config.username,
       password: config.password,
-      secure: config.secure === true
+      secure: true,
+      secureOptions: { rejectUnauthorized: true, minVersion: 'TLSv1.2' }
     });
     return await operation(client);
   } finally {

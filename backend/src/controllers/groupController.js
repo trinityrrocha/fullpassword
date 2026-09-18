@@ -1,5 +1,5 @@
 const db = require('../config/database');
-const { ensureSharingSchema, normalizePermissionSet } = require('../services/accessControlService');
+const { normalizePermissionSet } = require('../services/accessControlService');
 const { safeLogError } = require('../utils/safeLogger');
 
 const normalizeGroupPayload = (body = {}, forceAdmin = false) => {
@@ -18,7 +18,6 @@ const normalizeGroupPayload = (body = {}, forceAdmin = false) => {
 // GET /api/groups/options - Lista grupos para seleção em compartilhamento de cofres
 const getGroupOptions = async (req, res) => {
   try {
-    await ensureSharingSchema();
 
     const result = await db.query(`
       SELECT
@@ -46,7 +45,6 @@ const getGroupOptions = async (req, res) => {
 // GET /api/groups - Lista todos os grupos e seus usuários
 const getGroups = async (req, res) => {
   try {
-    await ensureSharingSchema();
 
     const groupsResult = await db.query('SELECT id, name, description, can_view, can_edit, can_add, can_delete, created_at FROM groups ORDER BY name ASC');
     const groups = groupsResult.rows;
@@ -75,7 +73,6 @@ const createGroup = async (req, res) => {
   const client = await db.pool.connect();
   
   try {
-    await ensureSharingSchema();
 
     const { name, description, userIds } = req.body;
 
@@ -86,6 +83,7 @@ const createGroup = async (req, res) => {
     const permissions = normalizeGroupPayload(req.body);
 
     await client.query('BEGIN');
+    await client.query('SELECT pg_advisory_xact_lock($1)',[8142027]);
 
     const groupResult = await client.query(
       `INSERT INTO groups (name, description, can_view, can_edit, can_add, can_delete)
@@ -125,7 +123,6 @@ const updateGroup = async (req, res) => {
   const client = await db.pool.connect();
   
   try {
-    await ensureSharingSchema();
 
     const { id } = req.params;
     const { name, description, userIds } = req.body;
@@ -147,6 +144,7 @@ const updateGroup = async (req, res) => {
     const permissions = normalizeGroupPayload(req.body, isAdminGroup);
 
     await client.query('BEGIN');
+    await client.query('SELECT pg_advisory_xact_lock($1)',[8142027]);
 
     const groupResult = await client.query(
       `UPDATE groups
@@ -193,7 +191,6 @@ const updateGroup = async (req, res) => {
 // DELETE /api/groups/:id - Exclui um grupo
 const deleteGroup = async (req, res) => {
   try {
-    await ensureSharingSchema();
 
     const { id } = req.params;
 

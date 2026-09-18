@@ -51,35 +51,9 @@ const updateSystem = async (req, res) => {
       return denyNonSuperAdmin(res);
     }
 
-    const requestId = crypto.randomUUID();
-    const request = {
-      request_id: requestId,
-      requested_by_user_id: req.user.id,
-      requested_by_email: req.user.email,
-      requested_at: new Date().toISOString(),
-      ip: req.ip || null,
-      user_agent: String(req.get('user-agent') || '').slice(0, 1000) || null
-    };
-
-    await fs.mkdir(UPDATER_REQUEST_DIR, { recursive: true, mode: 0o700 });
-    await fs.chmod(UPDATER_REQUEST_DIR, 0o700);
-    const finalPath = path.join(UPDATER_REQUEST_DIR, `${requestId}.json`);
-    const temporaryPath = `${finalPath}.tmp`;
-    await fs.writeFile(temporaryPath, JSON.stringify(request), { encoding: 'utf8', flag: 'wx', mode: 0o600 });
-    await fs.rename(temporaryPath, finalPath);
-
-    await recordAuditEvent({
-      user: req.user,
-      action: 'system_update_request',
-      status: 'accepted',
-      req,
-      metadata: { request_id: requestId }
-    });
-
-    return res.status(202).json({
-      message: 'Solicitação de atualização registrada. O sistema será atualizado em breve.',
-      request_id: requestId,
-      estimatedTime: 60
+    return res.status(503).json({
+      code:'OPERATOR_APPROVED_RELEASE_REQUIRED',
+      message:'Atualização automática desativada: solicite uma release assinada, com imagens por digest e recuperação verificada, ao operador.'
     });
 
   } catch (error) {

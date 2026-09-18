@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Cctv, Edit2, EthernetPort, Eye, Phone, Plus, Printer, Router, ServerPlus, ShieldCheck, Trash2, UserRound, UserStar, WifiCog, X } from 'lucide-react';
+import { Cctv, Edit2, EthernetPort, Eye, Phone, Plus, Printer, Router, ServerCog, ShieldCheck, Trash2, UserRound, UserStar, WifiCog, X } from 'lucide-react';
 import CopyButton from './CopyButton';
 import DeleteConfirmationControl from './DeleteConfirmationControl';
 import IpCidrInput from './IpCidrInput';
@@ -28,7 +28,7 @@ const DEVICE_TYPE_ICONS = {
   [DEVICE_TYPE_WIFI_CONTROLLER]: WifiCog,
   DVR: Cctv,
   IMPRESSORA: Printer,
-  [DEVICE_TYPE_NAS_STORAGE]: ServerPlus,
+  [DEVICE_TYPE_NAS_STORAGE]: ServerCog,
   [PABX_DEVICE_TYPE]: Phone,
   [DEVICE_TYPE_ROUTER_GATEWAY]: Router
 };

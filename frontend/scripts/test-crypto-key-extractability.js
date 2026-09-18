@@ -46,7 +46,7 @@ const {
 const expectExportRejected = async (format, key) => {
   await assert.rejects(
     webcrypto.subtle.exportKey(format, key),
-    (error) => error?.name === 'InvalidAccessException'
+    (error) => ['InvalidAccessException', 'InvalidAccessError'].includes(error?.name)
   );
 };
 
@@ -141,9 +141,11 @@ const identityResult = await ensureUserCryptoIdentity({
     crypto_salt: salt
   },
   password: 'TEST_PASSWORD_NOT_A_SECRET',
+  unlockSecret: 'TEST_INDEPENDENT_UNLOCK_NOT_A_SECRET',
   saveIdentity: async (payload) => {
     savedIdentityPayload = payload;
     return {
+      identity: payload.identity,
       created: true,
       key_metadata: {
         rsa_key_size: RSA_KEY_PARAMS.modulusLength,
@@ -155,12 +157,10 @@ const identityResult = await ensureUserCryptoIdentity({
 assert.equal(identityResult.created, true);
 assert.equal(hasUserCryptoIdentity(identityResult.user), true);
 assert.equal(savedIdentityPayload.private_key, undefined);
-assert.equal(typeof savedIdentityPayload.public_key, 'string');
-assert.equal(typeof savedIdentityPayload.encrypted_private_key, 'string');
-const identityPrivateKey = await decryptPrivateKey(
-  savedIdentityPayload.encrypted_private_key,
-  operationalMasterKey
-);
+assert.equal(typeof savedIdentityPayload.identity.publicKey, 'string');
+assert.equal(typeof savedIdentityPayload.identity.encryptedPrivateKey.ciphertext, 'string');
+const {unlockUserIdentity}=await import('../src/services/userCryptoIdentityService.js');
+const identityPrivateKey = (await unlockUserIdentity(identityResult.user,'TEST_INDEPENDENT_UNLOCK_NOT_A_SECRET')).privateKey;
 assert.equal(identityPrivateKey.extractable, false);
 await expectExportRejected('pkcs8', identityPrivateKey);
 

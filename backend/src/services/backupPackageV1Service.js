@@ -32,12 +32,12 @@ const buildBackupPayload = async (generatedBy, queryable = db) => {
 const encryptBackupPayload = async (payload, passphrase) => {
   const salt = crypto.randomBytes(32);
   const iv = crypto.randomBytes(12);
-  const params = { N: 32768, r: 8, p: 1, keyLength: 32 };
+  const params = { N: 131072, r: 8, p: 1, keyLength: 32 };
   const key = await scryptAsync(passphrase, salt, params.keyLength, {
     N: params.N,
     r: params.r,
     p: params.p,
-    maxmem: 64 * 1024 * 1024
+    maxmem: 192 * 1024 * 1024
   });
   const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
   const plaintext = Buffer.from(JSON.stringify(payload), 'utf8');

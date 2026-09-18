@@ -22,6 +22,7 @@ let failAlter = false;
 const query = async (sql, params) => {
   commands.push(sql.trim());
   if (failAlter && sql.startsWith('ALTER TABLE users')) throw Object.assign(new Error('Simulated DDL denied'), { code: '42501' });
+  if (!params && (sql.startsWith('ALTER TABLE users ADD COLUMN IF NOT EXISTS crypto_identity') || sql.includes('CREATE TABLE IF NOT EXISTS sensitive_auth_grants'))) return pg.exec(sql);
   return pg.query(sql, params);
 };
 db.query = query;

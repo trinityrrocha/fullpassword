@@ -163,10 +163,10 @@ assert.doesNotMatch(googlePanel, /localStorage|sessionStorage|refresh_token|acce
 assert.match(settings, /import CloudBackupCard/);
 assert.match(settings, /<CloudBackupCard isSuperAdmin=\{canManageSystem\}/);
 assert.doesNotMatch(settings, /<GoogleDriveBackupCard/);
-assert.match(settings, /updateRequestLockRef/);
-assert.match(settings, /<UpdateStatusPanel onUpdate=\{handleUpdateSystem\} isUpdating=\{isUpdating\} updateRequestLoading=\{updateRequestLoading\}/);
+assert.match(settings, /<UpdateStatusPanel \/>/);
+assert.doesNotMatch(settings, /handleUpdateSystem|updateRequestLockRef/);
 const updatePanel = read('src/components/UpdateStatusPanel.jsx');
-assert.match(updatePanel, /const busy = checking \|\| isUpdating \|\| updateRequestLoading/);
-assert.match(updatePanel, /onClick=\{onUpdate\} disabled=\{busy\}/);
+assert.doesNotMatch(updatePanel, /onUpdate|api\.post|<button/);
+assert.match(updatePanel, /Atualização web indisponível/);
 
 console.log('Cloud Backup compact frontend tests passed.');

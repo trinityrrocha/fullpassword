@@ -6,6 +6,10 @@ const { verifyToken } = require('../middleware/authMiddleware');
 
 // Todas as rotas do cofre requerem autenticação
 router.use(verifyToken);
+router.use((req,res,next) => {
+  if (req.method === 'GET') return next();
+  return res.status(409).json({code:'VAULT_V2_REQUIRED',error:'Atualize o cliente e migre o cofre para a API por registro.'});
+});
 
 // GET /api/vault-items/:clientId/permissions
 router.get('/:clientId/permissions', vaultController.getVaultPermissions);

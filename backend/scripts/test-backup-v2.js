@@ -248,6 +248,15 @@ const run = async () => {
       data: cloneTables(originalTables)
     };
     const v1Envelope = await encryptBackupPayload(v1Payload, passphrase);
+    assert.equal(v1Envelope.kdf.params.N,131072);
+    // Independent old-format fixture, not merely a freshly exported v1 package.
+    const crypto=require('node:crypto');
+    const oldSalt=crypto.randomBytes(32),oldIv=crypto.randomBytes(12);
+    const oldKey=crypto.scryptSync(passphrase,oldSalt,32,{N:32768,r:8,p:1,maxmem:64*1024*1024});
+    const oldCipher=crypto.createCipheriv('aes-256-gcm',oldKey,oldIv);
+    const oldCiphertext=Buffer.concat([oldCipher.update(JSON.stringify(v1Payload)),oldCipher.final()]);
+    const oldEnvelope={...v1Envelope,kdf:{name:'scrypt',salt:oldSalt.toString('base64'),params:{N:32768,r:8,p:1,keyLength:32}},cipher:{name:'aes-256-gcm',iv:oldIv.toString('base64'),tag:oldCipher.getAuthTag().toString('base64')},ciphertext:oldCiphertext.toString('base64')};
+    assert.deepEqual((await parseAndDecryptBackup(Buffer.from(JSON.stringify(oldEnvelope)),passphrase)).payload,v1Payload);
     const parsedV1 = await parseAndDecryptBackup(Buffer.from(JSON.stringify(v1Envelope)), passphrase);
     tables = makeEmptyTables();
     await restoreBackupPayload(parsedV1.payload);

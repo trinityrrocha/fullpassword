@@ -19,14 +19,14 @@
     "cookie-parser": "1.4.7",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
-    "express": "^4.19.2",
+    "express": "4.22.3",
     "express-rate-limit": "^7.5.0",
     "googleapis": "^173.0.0",
     "helmet": "^7.1.0",
     "ipaddr.js": "^2.4.0",
     "jsonwebtoken": "^9.0.2",
-    "multer": "^2.0.2",
-    "nodemailer": "9.0.3",
+    "multer": "2.4.0",
+    "nodemailer": "10.0.10",
     "otplib": "12.0.1",
     "pg": "^8.11.5",
     "pg-query-stream": "^4.16.0",
@@ -35,10 +35,13 @@
     "yauzl": "^3.4.0"
   },
   "overrides": {
-    "brace-expansion@5.0.7": "5.0.8"
+    "brace-expansion@>=5.0.0 <5.0.9": "5.0.9",
+    "brace-expansion@>=2.0.0 <2.1.4": "2.1.4",
+    "qs@<6.16.0": "6.16.0"
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.5.8",
+    "embedded-postgres": "15.18.0-beta.17",
     "nodemon": "^3.1.0"
   }
 }

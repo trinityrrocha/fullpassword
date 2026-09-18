@@ -21,9 +21,10 @@ assert.match(login, /Esqueceu a senha\?/);
 assert.match(forgotPassword, /Se o e-mail estiver cadastrado, enviaremos instruções para recuperação de acesso\./);
 assert.doesNotMatch(forgotPassword, /usuário encontrado|e-mail não cadastrado/i);
 
-assert.match(resetPassword, /Esta recuperação redefine o acesso à conta, mas não recupera sua senha mestre antiga\./);
+assert.match(resetPassword, /Sua identidade criptográfica e seus compartilhamentos serão preservados\./);
 assert.match(resetPassword, /Códigos de recuperação servem para validar MFA/);
 assert.match(resetPassword, /RESETAR ACESSO/);
+assert.doesNotMatch(resetPassword, /createPasswordResetCryptoIdentity|wrapped_key/);
 assert.match(resetPassword, /validation\.requires_mfa/);
 assert.match(resetPassword, /recovery_code: mfaCode/);
 assert.match(resetPassword, /mfa_code: mfaCode/);
