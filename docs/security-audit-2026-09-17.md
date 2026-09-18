@@ -20,8 +20,8 @@ A senha fornecida não foi copiada para ferramentas, arquivos ou evidências.
 - Windows, Node 24.19.0, PostgreSQL nativo 15.18 temporário via embedded-postgres.
   Usuários/cofres AUDIT_TEST e segredos aleatórios ou declaradamente sintéticos.
   Cluster local em loopback e diretório aleatório apagados ao concluir o teste.
-- Sem Docker/WSL no host. Workflow preparado para construir imagens finais;
-  não confundir sua existência com execução ou implantação.
+- Sem Docker/WSL no host. Imagens finais construídas e Argon2 executado no
+  Alpine pelo CI (run 35297987678, sucesso); isso não é implantação.
 - Skill computer-use proíbe automação de gerenciadores de senhas/autenticação.
   Navegador exige intervenção manual compatível. Nenhum fluxo visual foi validado.
 
@@ -37,10 +37,10 @@ Todos os itens abaixo: **não implantados / não validados na instalação**.
 | FP-04: permissões de grupo ignoradas/snapshot de membros | accessControlService.js resolve interseção grupo/concessão, união entre concessões completas, membros atuais do banco; listagem usa mesmo resolvedor | PostgreSQL real: delete legado não supera grupo, restrição por cofre, concessão independente e remoção de membro. Proprietário/Super Admin preservados. Matriz completa HTTP por todos os endpoints ainda necessária. |
 | FP-05: rota admin contorna confirmação de e-mail próprio | userController.js recusa autoalteração de e-mail administrativo e direciona ao perfil existente | Teste HTTP autenticado/CSRF válido de Super Admin sintético; e-mail não muda. Reautenticação central com finalidade, confirmação do novo e-mail e notificação antiga NÃO implementadas. |
 | FP-06: BEGIN/consultas em conexões diferentes e DDL por request | clientController, clientKeyController, vaultController reservam conexão; auxiliares userController recebem client; DDL de compartilhamento movido para startup securitySchema | PostgreSQL real com pelo menos duas conexões, falha após DELETE e commit concorrente: rollback isolado. Consistência atômica futura ACL/envelopes/época e todos os cenários de corrida ainda pendentes. |
-| FP-07: runtime fora de suporte | Dockerfiles backend/frontend usam Node 24.21.0-alpine por digest; final nginx também fixado por digest | Suítes no Node 24.19.0 Windows; imagens Alpine, OAuth e updater não executados localmente. Workflow de imagens inclui Argon2 nativo e versão; verificar execução antes do aceite. |
+| FP-07: runtime fora de suporte | Dockerfiles backend/frontend usam Node 24.21.0-alpine por digest; final nginx também fixado por digest | Suítes locais no Node 24.19.0 Windows; CI construiu ambas as imagens e confirmou v24.21.0 linux x64 Argon2 OK. OAuth/updater ao vivo e runtime implantado ainda não validados. |
 | FP-08: desafio/TOTP reutilizáveis | mfaChallengeService.js, mfaController, mfaService, authController; migration 20 e schema guard; hash de jti, row locks, consumo, passo TOTP, limites persistentes | HTTP concorrente login/setup, reuso, expiração e tentativas em PostgreSQL real. Setup e códigos de recuperação na mesma transação. Outros usos sensíveis de TOTP ainda precisam unificação com FP-05. |
 | FP-09: KDF insuficiente | Novo formato inativo usa PBKDF2-SHA256 600000; leitores legados não alterados | Cenário criptográfico sintético medido; KDF dos fluxos ativos e scrypt dos backups continuam antigos. Reenvelopamento integrado e benchmark de backups NÃO realizados. |
-| FP-10: Nodemailer e árvore não reproduzível | Nodemailer 10.0.10, express/multer/router/postcss corrigidos, overrides pontuais, package-lock nos dois projetos, Docker npm ci | npm ci e npm audit sem avisos nos dois projetos. Sem audit fix --force. Testes SMTP locais e regressões; entrega real a caixa dedicada e imagem final ainda pendentes. |
+| FP-10: Nodemailer e árvore não reproduzível | Nodemailer 10.0.10, express/multer/router/postcss corrigidos, overrides pontuais, package-lock nos dois projetos, Docker npm ci | npm ci e npm audit sem avisos nos dois projetos, também no CI; imagens construídas. Sem audit fix --force. Testes SMTP locais e regressões; entrega a caixa dedicada ainda pendente. |
 | FP-11: main mutável/socket privilegiado | Workflow CI com actions por SHA e configuração proposta de proteção em docs/security-main-protection.json | GitHub consultado: main protected=false, rulesets=[]. Nenhuma proteção aplicada. Updater ainda depende de main/socket; releases aprovadas, isolamento e rollback operacional NÃO implementados. |
 | FP-12: transporte opcional | emailService/smtpSettingsService exigem TLS/STARTTLS; ftpStorageProvider/cloudBackupSettingsService exigem FTPS; UI remove opção insegura | Servidores locais: downgrade SMTP/FTP recusado antes de credenciais, certificado SMTP inválido recusado. Certificado FTPS inválido e entrega SMTP bem-sucedida em capturador TLS ainda precisam teste próprio. Configurações antigas sem TLS passam a falhar com erro. |
 | FP-13: multipart antes de Super Admin | requireSuperAdmin antes de parser; restoreUploadGuard com lock PostgreSQL entre instâncias, prazo, espaço/ocupação temporária e limpeza | HTTP com sessão/CSRF válidos: 403 correto, contador do multipart zero, nenhum arquivo. Lock em outra conexão produz 429 antes do parser. Abortos, crashes e limite de espaço sob todas as plataformas ainda pendentes. |
@@ -51,6 +51,13 @@ Resultado final local: 17 scripts backend e 16 frontend aprovados; integração
 PostgreSQL/HTTP, TLS e primitivas v2 aprovadas; build, ESLint dos fontes frontend
 alterados, sintaxe JavaScript e diff-check aprovados. Build avisa chunk maior que
 500 kB. Registro sanitizado: security-audit-local-results.json.
+
+CI do código 8dfd00f aprovado em ambos os jobs:
+https://github.com/trinityrrocha/fullpassword/actions/runs/35297987678
+Reexecutou as suítes, PostgreSQL real, TLS, primitivas, build e audits em Linux.
+Imagem backend local do runner: sha256:1ef805f56bea9b7358bf7af0b7a2c19ed61fac0a6eab4feed68387dd8471a3d9.
+Imagem frontend local do runner: sha256:b81ccbac7e535b145a0b84bde9a602be3e2f6bc5f6220ca21280b4699b100125.
+São IDs das imagens construídas no CI, não artefatos publicados ou implantados.
 
 Executar em ambiente isolado, sem variáveis de produção:
 

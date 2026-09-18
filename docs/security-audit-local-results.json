@@ -28,6 +28,15 @@
     "complete upload abort/crash/space matrix"
   ],
   "test_data": "Only dedicated synthetic users, keys, passwords and records; temporary native database removed.",
+  "ci": {
+    "url": "https://github.com/trinityrrocha/fullpassword/actions/runs/35297987678",
+    "code_head": "8dfd00f023a4d6c2e7fb0a31e26e4ca4a28dde9f",
+    "result": "success: regression and images",
+    "runtime_in_final_backend_image": "v24.21.0 linux x64 Argon2 OK",
+    "backend_image_id": "sha256:1ef805f56bea9b7358bf7af0b7a2c19ed61fac0a6eab4feed68387dd8471a3d9",
+    "frontend_image_id": "sha256:b81ccbac7e535b145a0b84bde9a602be3e2f6bc5f6220ca21280b4699b100125",
+    "published_or_deployed": false
+  },
   "pending_external_information": [
     "FullPassword_Evidencias_2026-09-17.zip",
     "confirmation of exclusive test environment",
