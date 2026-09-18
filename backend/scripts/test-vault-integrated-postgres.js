@@ -16,6 +16,20 @@ async function freePort() {
 }
 
 async function run() {
+  const poolSockets = new WeakMap();
+  const trackPool = pool => {
+    const pending = new Set(); poolSockets.set(pool,pending);
+    pool.on('connect',client=>{
+      const ended = new Promise(resolve=>client.once('end',resolve));
+      pending.add(ended);ended.then(()=>pending.delete(ended));
+    });
+  };
+  const drainPool = async pool => {
+    await pool.end();
+    // pg-pool can resolve end() before the clients' protocol/socket shutdown.
+    // Wait for those end events before terminating the disposable server.
+    await Promise.all([...(poolSockets.get(pool) || [])]);
+  };
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'fullpassword-audit-test-'));
   const { default: EmbeddedPostgres } = await import('embedded-postgres');
   const port = await freePort();
@@ -42,6 +56,7 @@ async function run() {
       BACKUP_TEMP_DIR: path.join(directory, 'uploads')
     });
     database = require('../src/config/database');
+    trackPool(database.pool);
     await database.query(await fs.readFile(path.join(__dirname, '../../database/init.sql'), 'utf8'));
     await require('../src/config/securitySchema').ensureSecuritySchema();
     console.log('Integration: schema ready.');
@@ -278,6 +293,7 @@ async function run() {
     await database.query('CREATE DATABASE audit_restore');
     const {Pool}=require('pg');
     const restorePool=new Pool({host:'127.0.0.1',port,user:'postgres',password:databasePassword,database:'audit_restore'});
+    trackPool(restorePool);
     const originalPool=database.pool, originalQuery=database.query;
     try {
       database.pool=restorePool; database.query=(sql,values)=>restorePool.query(sql,values);
@@ -300,7 +316,7 @@ async function run() {
       assert.equal(configCrypto.decryptConfigSecret((await database.query('SELECT encrypted_password FROM smtp_settings WHERE id=1')).rows[0].encrypted_password),syntheticOperational);
     } finally {
       database.pool=originalPool; database.query=originalQuery;
-      await restorePool.end();
+      await drainPool(restorePool);
       await backup.cleanupBackupWorkspace(inspected.workspace);
       await backup.cleanupBackupWorkspace(archive.workspace);
     }
@@ -308,7 +324,7 @@ async function run() {
     console.log('PASS integrated HTTP + PostgreSQL: independent identity, new users, per-vault keys, per-record add/edit/read restrictions, CSRF/session, revocation rotation, stale revision, legacy migration interruption/resume/idempotence and preserved originals.');
   } finally {
     if(httpServer) await new Promise(resolve=>httpServer.close(resolve));
-    if(database) await database.pool.end();
+    if(database) await drainPool(database.pool);
     await postgres.stop().catch(()=>{});
     // Only the random directory created above may be removed.
     assert.ok(path.resolve(directory).startsWith(path.resolve(os.tmpdir())+path.sep+'fullpassword-audit-test-'));
