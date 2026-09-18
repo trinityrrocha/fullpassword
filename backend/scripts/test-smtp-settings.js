@@ -108,16 +108,12 @@ const run = async () => {
     assert.equal(startTls.requireTLS, true);
     assert.equal(startTls.tls.rejectUnauthorized, true);
 
-    const localOnly = createTransportOptions({
+    assert.throws(() => createTransportOptions({
       ...delivery,
       security: 'none',
       username: '',
       password: ''
-    });
-    assert.equal(localOnly.secure, false);
-    assert.equal(localOnly.requireTLS, false);
-    assert.equal(Object.hasOwn(localOnly, 'tls'), false);
-    assert.equal(Object.hasOwn(localOnly, 'auth'), false);
+    }), error => error.code === 'SMTP_TLS_REQUIRED');
   } finally {
     db.query = previousQuery;
   }

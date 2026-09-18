@@ -24,7 +24,8 @@ assert.doesNotMatch(vaultController, /!canManage\s*&&\s*itemCheck\.rows\[0\]\.cr
 assert.match(vaultController, /vault_item_share_denied/);
 assert.match(vaultController, /vault_item_share_update/);
 assert.match(vaultController, /vault_share_update_denied/);
-assert.match(accessControlService, /try\s*{\s*await ensureSharingSchema\(\)/);
+assert.doesNotMatch(accessControlService.slice(accessControlService.indexOf('const getClientPermissions')), /ensureSharingSchema\(/);
+assert.match(read('backend/src/config/securitySchema.js'), /await ensureSharingSchema\(client\)/);
 
 assert.match(authController, /httpOnly:\s*true/);
 assert.match(authController, /sameSite:\s*'strict'/);

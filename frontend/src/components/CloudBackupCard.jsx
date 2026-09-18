@@ -89,7 +89,7 @@ const createProviderForm = (provider, config = {}) => {
       username: '',
       password: '',
       remote_path: config.remote_path || '/fullpassword/backups',
-      secure: config.secure === true
+      secure: true
     };
   }
   const defaultRegion = provider === 'backblaze_b2' ? 'us-east-005' : 'eu-amsterdam';
@@ -516,7 +516,7 @@ export default function CloudBackupCard({ isSuperAdmin }) {
                     <>
                       <CompactField label="Host" className="md:col-span-4"><input className={fieldClass} value={providerForm.host || ''} onChange={(event) => updateProviderForm({ host: event.target.value })} /></CompactField>
                       <CompactField label="Porta" className="md:col-span-2"><input type="number" min="1" max="65535" className={fieldClass} value={providerForm.port || 21} onChange={(event) => updateProviderForm({ port: Number(event.target.value) })} /></CompactField>
-                      <label className="flex items-end gap-2 pb-2 text-xs md:col-span-2"><input type="checkbox" checked={providerForm.secure === true} onChange={(event) => updateProviderForm({ secure: event.target.checked })} /> FTPS</label>
+                      <label className="flex items-end gap-2 pb-2 text-xs md:col-span-2"><input type="checkbox" checked readOnly /> FTPS obrigatório</label>
                       <div className="flex items-end md:col-span-1"><button type="button" onClick={() => setEndpointModalOpen(true)} title="Editar host avançado" className="rounded-md border border-slate-300 p-2 text-slate-600 hover:bg-slate-50"><Edit3 className="h-4 w-4" /></button></div>
                     </>
                   ) : (

@@ -123,6 +123,14 @@ const run = async () => {
   const originalAuthControllerCache = require.cache[authControllerPath];
   const originalAuditServiceCache = require.cache[auditServicePath];
   const originalDbQuery = db.query;
+  const challengeServicePath = require.resolve('../src/services/mfaChallengeService');
+  const originalChallengeCache = require.cache[challengeServicePath];
+  require.cache[challengeServicePath] = { exports: {
+    consumeChallenge: async (_payload, { recoveryCode }) => {
+      if (recoveryCode !== oneTimeCode) throw new Error('invalid test factor');
+      return { recoveryCodeUsed: true };
+    }
+  } };
   const auditEvents = [];
   let completedLogin = false;
 
@@ -219,6 +227,8 @@ const run = async () => {
     assert.equal(JSON.stringify(auditEvents).includes(oneTimeCode), false);
   } finally {
     db.query = originalDbQuery;
+    if (originalChallengeCache) require.cache[challengeServicePath] = originalChallengeCache;
+    else delete require.cache[challengeServicePath];
     require.cache[mfaServicePath] = originalMfaServiceCache;
     require.cache[authControllerPath] = originalAuthControllerCache;
     require.cache[auditServicePath] = originalAuditServiceCache;

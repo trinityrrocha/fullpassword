@@ -1,5 +1,6 @@
 const db = require('./database');
 const { ensureNavigationPreferences, assertNavigationPreferencesSchema } = require('./navigationPreferences');
+const { ensureSharingSchema } = require('../services/accessControlService');
 
 const MAX_CONNECTION_ATTEMPTS = 15;
 const MAX_RETRY_DELAY_MS = 5000;
@@ -38,6 +39,7 @@ const ensureSecuritySchema = async () => {
     await client.query('BEGIN');
     await client.query('SELECT pg_advisory_xact_lock($1)', [8142026]);
     await ensureNavigationPreferences(client);
+    await ensureSharingSchema(client);
     await client.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version INTEGER NOT NULL DEFAULT 0');
     await client.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS is_super_admin BOOLEAN NOT NULL DEFAULT FALSE');
     await client.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT FALSE');
@@ -110,6 +112,15 @@ const ensureSecuritySchema = async () => {
       )
     `);
     await client.query('ALTER TABLE user_mfa_settings ADD COLUMN IF NOT EXISTS recovery_codes_version INTEGER NOT NULL DEFAULT 1');
+    await client.query('ALTER TABLE user_mfa_settings ADD COLUMN IF NOT EXISTS last_totp_step BIGINT');
+    await client.query('ALTER TABLE user_mfa_settings ADD COLUMN IF NOT EXISTS failed_attempts INTEGER NOT NULL DEFAULT 0');
+    await client.query('ALTER TABLE user_mfa_settings ADD COLUMN IF NOT EXISTS attempt_window_started_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP');
+    await client.query(`CREATE TABLE IF NOT EXISTS mfa_login_challenges (
+      challenge_hash TEXT PRIMARY KEY, user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      purpose TEXT NOT NULL CHECK (purpose IN ('login','setup')), token_version INTEGER NOT NULL,
+      expires_at TIMESTAMPTZ NOT NULL, consumed_at TIMESTAMPTZ,
+      attempts INTEGER NOT NULL DEFAULT 0 CHECK (attempts >= 0))`);
+    await client.query('CREATE INDEX IF NOT EXISTS idx_mfa_challenge_expiry ON mfa_login_challenges(expires_at)');
     await client.query('CREATE INDEX IF NOT EXISTS idx_user_mfa_recovery_codes_user_unused ON user_mfa_recovery_codes (user_id, used_at)');
     await client.query(`
       CREATE TABLE IF NOT EXISTS password_reset_tokens (

@@ -179,6 +179,7 @@ const validateS3Config = (provider, input = {}, currentCredentials = null) => {
 };
 
 const validateFtpConfig = (input = {}, currentCredentials = null) => {
+  if (input.secure !== true) throw new CloudBackupSettingsError('FTPS_REQUIRED', 'FTPS com certificado válido é obrigatório.');
   const host = String(input.host || '').trim();
   const port = Number(input.port || 21);
   const username = String(input.username || '').trim() || currentCredentials?.username || '';

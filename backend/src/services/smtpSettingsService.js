@@ -1,7 +1,7 @@
 const db = require('../config/database');
 const { encryptConfigSecret, decryptConfigSecret } = require('./configSecretCrypto');
 
-const SMTP_SECURITY_OPTIONS = new Set(['ssl_tls', 'starttls', 'none']);
+const SMTP_SECURITY_OPTIONS = new Set(['ssl_tls', 'starttls']);
 const DEFAULT_SMTP_SETTINGS = Object.freeze({
   enabled: false,
   host: '',
@@ -58,6 +58,7 @@ const sanitizeSmtpSettings = (settings = DEFAULT_SMTP_SETTINGS) => ({
 });
 
 const validateDeliveryRequirements = (settings) => {
+  if (!SMTP_SECURITY_OPTIONS.has(settings.security)) throw new SmtpSettingsError('SMTP exige SSL/TLS ou STARTTLS obrigatório.', 'SMTP_TLS_REQUIRED');
   if (!settings.host) throw new SmtpSettingsError('O host SMTP é obrigatório para enviar e-mails.');
   if (!settings.from_email) throw new SmtpSettingsError('O e-mail do remetente é obrigatório para enviar e-mails.');
   if (settings.username && !settings.encrypted_password) {

@@ -264,7 +264,6 @@ export default function SmtpSettingsCard({ isSuperAdmin }) {
               >
                 <option value="ssl_tls">SSL/TLS direto</option>
                 <option value="starttls">STARTTLS</option>
-                <option value="none">Sem criptografia</option>
               </select>
               {tlsPortWarning && (
                 <span className="mt-1 block text-xs font-normal text-amber-700">{tlsPortWarning}</span>

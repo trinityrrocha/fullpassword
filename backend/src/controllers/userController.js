@@ -2,7 +2,6 @@ const db = require('../config/database');
 const { validNavigationPreferences, isMissingNavigationColumn } = require('../config/navigationPreferences');
 const argon2 = require('argon2');
 const crypto = require('crypto');
-const { ensureSharingSchema } = require('../services/accessControlService');
 const { isSuperAdmin, normalizeEmail } = require('../config/security');
 const { recordAuditEvent } = require('../services/auditService');
 const { rejectWeakPassword } = require('../services/passwordPolicyService');
@@ -19,11 +18,11 @@ const {
 } = require('../config/cryptoParameters');
 const VALID_ROLES = new Set(['admin', 'user']);
 
-const getValidGroupIds = async (groupIds = []) => {
+const getValidGroupIds = async (groupIds = [], queryable = db) => {
   const uniqueIds = [...new Set((Array.isArray(groupIds) ? groupIds : []).filter(Boolean))];
   if (uniqueIds.length === 0) return [];
 
-  const result = await db.query('SELECT id FROM groups WHERE id = ANY($1::uuid[])', [uniqueIds]);
+  const result = await queryable.query('SELECT id FROM groups WHERE id = ANY($1::uuid[])', [uniqueIds]);
   return result.rows.map((row) => row.id);
 };
 
@@ -72,7 +71,6 @@ const loadUserGroups = async (userIds = []) => {
 // GET /api/users - Lista todos os usuários com seus grupos
 const getUsers = async (req, res) => {
   try {
-    await ensureSharingSchema();
 
     const result = await db.query(
       `SELECT id, name, email, role, is_active, is_super_admin, must_change_password, mfa_required,
@@ -100,7 +98,6 @@ const createUser = async (req, res) => {
   const client = await db.pool.connect();
 
   try {
-    await ensureSharingSchema();
 
     if (req.user.role !== 'admin') {
       return res.status(403).json({ error: 'Apenas administradores podem criar usuários' });
@@ -167,7 +164,7 @@ const createUser = async (req, res) => {
     );
 
     const newUser = result.rows[0];
-    const validGroupIds = await getValidGroupIds(groupIds);
+    const validGroupIds = await getValidGroupIds(groupIds, client);
 
     for (const groupId of validGroupIds) {
       await client.query(
@@ -322,7 +319,6 @@ const updateUser = async (req, res) => {
   const client = await db.pool.connect();
 
   try {
-    await ensureSharingSchema();
 
     if (req.user.role !== 'admin') {
       return res.status(403).json({ error: 'Apenas administradores podem editar usuários' });
@@ -386,6 +382,12 @@ const updateUser = async (req, res) => {
     }
 
     if (normalizedEmail && normalizedEmail !== targetEmail) {
+      if (String(req.user.id) === String(id)) {
+        return res.status(409).json({
+          error: 'Altere seu e-mail pelo Meu Perfil, com confirmação de identidade.',
+          code: 'SELF_EMAIL_CHANGE_REQUIRES_PROFILE'
+        });
+      }
       const emailCheck = await client.query('SELECT id FROM users WHERE LOWER(email) = $1 AND id != $2', [normalizedEmail, id]);
       if (emailCheck.rows.length > 0) {
         return res.status(400).json({ error: 'Este e-mail já está em uso por outro usuário' });
@@ -448,7 +450,7 @@ const updateUser = async (req, res) => {
     }
 
     if (groupIdsProvided) {
-      const validGroupIds = await getValidGroupIds(groupIds);
+      const validGroupIds = await getValidGroupIds(groupIds, client);
       await client.query('DELETE FROM user_groups WHERE user_id = $1', [id]);
 
       for (const groupId of validGroupIds) {
@@ -502,7 +504,6 @@ const deleteUser = async (req, res) => {
       return res.status(400).json({ error: 'Confirmação de exclusão inválida' });
     }
 
-    await ensureSharingSchema();
     await client.query('BEGIN');
     await client.query('SELECT pg_advisory_xact_lock($1)', [8142028]);
 

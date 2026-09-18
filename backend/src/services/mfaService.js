@@ -33,11 +33,12 @@ const decryptSecret = (payload) => {
   return Buffer.concat([decipher.update(Buffer.from(encrypted, 'base64url')), decipher.final()]).toString('utf8');
 };
 
-const createChallengeToken = (user, purpose) => jwt.sign(
-  { sub: user.id, purpose, token_version: user.token_version },
-  JWT_SECRET,
-  { expiresIn: '5m', audience: 'fullpassword-mfa' }
-);
+const createChallengeToken = async (user, purpose) => {
+  const jti = crypto.randomBytes(32).toString('hex');
+  await require('./mfaChallengeService').storeChallenge(jti, user, purpose);
+  return jwt.sign({ sub: user.id, purpose, token_version: user.token_version, jti },
+    JWT_SECRET, { expiresIn: '5m', audience: 'fullpassword-mfa' });
+};
 
 const verifyChallengeToken = (token, purpose) => {
   const payload = jwt.verify(String(token || ''), JWT_SECRET, { audience: 'fullpassword-mfa' });

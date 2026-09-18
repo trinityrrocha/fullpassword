@@ -42,6 +42,10 @@ const { startCloudBackupScheduler } = require('./services/cloudBackupScheduler')
 const { startDomainExpirationScheduler } = require('./services/domainExpirationScheduler');
 
 const app = express();
+app.use('/api', (_req, res, next) => {
+  res.setHeader('Cache-Control', 'no-store');
+  next();
+});
 const PORT = process.env.PORT || 3000;
 let schemaReady = false;
 

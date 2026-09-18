@@ -1,5 +1,5 @@
 const db = require('../config/database');
-const { ensureSharingSchema, requireClientPermission, logVaultAccess } = require('../services/accessControlService');
+const { getClientPermissions, requireClientPermission, logVaultAccess } = require('../services/accessControlService');
 const { isSuperAdmin } = require('../config/security');
 const { safeLogError } = require('../utils/safeLogger');
 const { syncDomainExpirationNotifications } = require('../services/domainExpirationService');
@@ -7,52 +7,21 @@ const { syncDomainExpirationNotifications } = require('../services/domainExpirat
 // GET /api/clients - Lista apenas cofres próprios ou compartilhados com grupos que podem visualizar
 const getClients = async (req, res) => {
   try {
-    await ensureSharingSchema();
 
-    const userGroups = Array.isArray(req.user.groups) ? req.user.groups.filter(Boolean) : [];
-    let query;
-    let params = [];
-
-    if (isSuperAdmin(req.user)) {
-      query = `
-        SELECT c.*,
-               creator.name AS created_by_name,
-               TRUE AS can_view,
-               TRUE AS can_edit,
-               TRUE AS can_add,
-               TRUE AS can_delete,
-               TRUE AS is_admin,
-               (c.created_by = $1) AS is_owner
-        FROM clients c
-        LEFT JOIN users creator ON creator.id = c.created_by
-        ORDER BY c.name ASC
-      `;
-      params = [req.user.id];
-    } else {
-      query = `
-        SELECT DISTINCT c.*,
-               creator.name AS created_by_name,
-               COALESCE(bool_or(g.can_view), false) OR c.created_by = $1 AS can_view,
-               COALESCE(bool_or(g.can_edit), false) OR c.created_by = $1 AS can_edit,
-               COALESCE(bool_or(g.can_add), false) OR c.created_by = $1 AS can_add,
-               COALESCE(bool_or(cga.can_delete), false) OR c.created_by = $1 AS can_delete,
-               FALSE AS is_admin,
-               c.created_by = $1 AS is_owner
-        FROM clients c
-        LEFT JOIN users creator ON creator.id = c.created_by
-        LEFT JOIN client_group_access cga
-          ON c.id = cga.client_id
-         AND cga.group_id = ANY($2::uuid[])
-        LEFT JOIN groups g ON g.id = cga.group_id
-        WHERE c.created_by = $1 OR g.can_view = TRUE
-        GROUP BY c.id, creator.name
-        ORDER BY c.name ASC
-      `;
-      params = [req.user.id, userGroups];
+    const result = await db.query(`
+      SELECT c.*, creator.name AS created_by_name FROM clients c
+      LEFT JOIN users creator ON creator.id = c.created_by
+      WHERE c.created_by = $1 OR $2::boolean OR EXISTS (
+        SELECT 1 FROM client_group_access cga
+        JOIN user_groups ug ON ug.group_id = cga.group_id
+        WHERE cga.client_id = c.id AND ug.user_id = $1
+      ) ORDER BY c.name ASC`, [req.user.id, isSuperAdmin(req.user)]);
+    const visible = [];
+    for (const row of result.rows) {
+      const permissions = await getClientPermissions(row.id, req.user);
+      if (permissions.can_view) visible.push({ ...row, ...permissions });
     }
-
-    const result = await db.query(query, params);
-    res.status(200).json(result.rows);
+    res.status(200).json(visible);
   } catch (error) {
     safeLogError('Erro ao buscar clientes.', error);
     res.status(500).json({ error: 'Erro ao buscar clientes' });
@@ -61,8 +30,9 @@ const getClients = async (req, res) => {
 
 // POST /api/clients - Cadastra um novo cofre/cliente
 const createClient = async (req, res) => {
+  let transaction;
   try {
-    await ensureSharingSchema();
+    transaction = await db.pool.connect();
 
     const { name, address, phone, email, group_ids } = req.body;
 
@@ -70,9 +40,9 @@ const createClient = async (req, res) => {
       return res.status(400).json({ error: 'Nome do cliente é obrigatório' });
     }
 
-    await db.query('BEGIN');
+    await transaction.query('BEGIN');
 
-    const clientResult = await db.query(
+    const clientResult = await transaction.query(
       'INSERT INTO clients (name, address, phone, email, created_by, enabled_modules) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
       [name, address || null, phone || null, email || null, req.user.id, []]
     );
@@ -82,9 +52,9 @@ const createClient = async (req, res) => {
     const groupsToLink = Array.isArray(group_ids) ? group_ids.filter(Boolean) : [];
 
     for (const groupId of groupsToLink) {
-      const groupCheck = await db.query('SELECT id FROM groups WHERE id = $1', [groupId]);
+      const groupCheck = await transaction.query('SELECT id FROM groups WHERE id = $1', [groupId]);
       if (groupCheck.rows.length > 0) {
-        await db.query(
+        await transaction.query(
           `INSERT INTO client_group_access (client_id, group_id)
            VALUES ($1, $2)
            ON CONFLICT (client_id, group_id) DO NOTHING`,
@@ -93,12 +63,14 @@ const createClient = async (req, res) => {
       }
     }
 
-    await db.query('COMMIT');
+    await transaction.query('COMMIT');
     res.status(201).json(newClient);
   } catch (error) {
-    await db.query('ROLLBACK');
+    if (transaction) await transaction.query('ROLLBACK').catch(() => {});
     safeLogError('Erro ao criar cliente.', error);
     res.status(500).json({ error: 'Erro interno ao criar cliente' });
+  } finally {
+    transaction?.release();
   }
 };
 
@@ -114,7 +86,6 @@ const moduleVaultCategories = Object.freeze({
 
 const getClientModules = async (req, res) => {
   try {
-    await ensureSharingSchema();
     await requireClientPermission(req.params.clientId, req.user, 'view');
     const result = await db.query('SELECT enabled_modules FROM clients WHERE id = $1', [req.params.clientId]);
     res.status(200).json({ enabledModules: result.rows[0]?.enabled_modules ?? null });
@@ -127,7 +98,6 @@ const getClientModules = async (req, res) => {
 
 const updateClientModules = async (req, res) => {
   try {
-    await ensureSharingSchema();
     await requireClientPermission(req.params.clientId, req.user, 'edit');
     const requestedModules = req.body?.enabledModules;
     if (!Array.isArray(requestedModules)) return res.status(400).json({ error: 'Lista de módulos inválida' });
@@ -143,7 +113,6 @@ const updateClientModules = async (req, res) => {
 
 const updateDomainExpirationNotifications = async (req, res) => {
   try {
-    await ensureSharingSchema();
     await requireClientPermission(req.params.clientId, req.user, 'edit');
     const synchronized = await syncDomainExpirationNotifications(
       req.params.clientId,
@@ -167,7 +136,6 @@ const deleteClientModule = async (req, res) => {
   let committed = false;
 
   try {
-    await ensureSharingSchema();
 
     const { clientId, moduleId } = req.params;
     const categories = moduleVaultCategories[moduleId];
@@ -256,7 +224,6 @@ const deleteClientModule = async (req, res) => {
 
 const updateClient = async (req, res) => {
   try {
-    await ensureSharingSchema();
     await requireClientPermission(req.params.clientId, req.user, 'edit');
     const name = String(req.body?.name || '').trim();
     const address = String(req.body?.address || '').trim();
@@ -283,7 +250,6 @@ const updateClient = async (req, res) => {
 
 const deleteClient = async (req, res) => {
   try {
-    await ensureSharingSchema();
     await requireClientPermission(req.params.clientId, req.user, 'delete');
     if (req.body?.confirmation !== 'EXCLUIR') {
       return res.status(400).json({ error: 'Confirmação de exclusão inválida' });

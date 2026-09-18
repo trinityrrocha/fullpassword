@@ -12,6 +12,8 @@ const backupRestoreController = require('../controllers/backupRestoreController'
 const smtpController = require('../controllers/smtpController');
 const multer = require('multer');
 const { verifyToken } = require('../middleware/authMiddleware');
+const requireSuperAdmin = require('../middleware/requireSuperAdmin');
+const { restoreUploadGuard, withRestoreLease } = require('../middleware/restoreUploadGuard');
 const { isEncryptedBackupFilename } = require('../services/backupRestoreService');
 const { isBackupPackageV2Filename } = require('../services/backupPackageV2Service');
 const {
@@ -29,7 +31,11 @@ fs.chmodSync(restoreUploadDirectory, 0o700);
 const restoreUpload = multer({
   storage: multer.diskStorage({
     destination: (_req, _file, callback) => callback(null, restoreUploadDirectory),
-    filename: (_req, _file, callback) => callback(null, `${crypto.randomUUID()}.upload`)
+    filename: (req, _file, callback) => {
+      const filename = `${crypto.randomUUID()}.upload`;
+      req.restoreUploadPath = path.join(restoreUploadDirectory, filename);
+      callback(null, filename);
+    }
   }),
   limits: { fileSize: BACKUP_MAX_UPLOAD_BYTES, files: 1 },
   fileFilter: (_req, file, callback) => {
@@ -49,6 +55,10 @@ const receiveRestoreFile = (req, res, next) => {
   req.setTimeout(BACKUP_RESTORE_TIMEOUT_MS);
   res.setTimeout(BACKUP_RESTORE_TIMEOUT_MS);
   restoreUpload.single('backup')(req, res, (error) => {
+    if (req.aborted || res.destroyed) {
+      void req.cleanupRestoreUpload?.();
+      return;
+    }
     if (!error) {
       if (!req.file?.path) return next();
       fs.chmod(req.file.path, 0o600, (chmodError) => {
@@ -116,15 +126,19 @@ router.get('/backup', systemController.rejectLegacyBackupDownload);
 router.post('/backup', systemController.downloadBackup);
 router.post(
   '/backup/restore/dry-run',
+  requireSuperAdmin,
   enforceContentLength(BACKUP_MAX_UPLOAD_BYTES + MEBIBYTE),
+  restoreUploadGuard,
   receiveRestoreFile,
-  backupRestoreController.dryRun
+  withRestoreLease(backupRestoreController.dryRun)
 );
 router.post(
   '/backup/restore',
+  requireSuperAdmin,
   enforceContentLength(BACKUP_MAX_UPLOAD_BYTES + MEBIBYTE),
+  restoreUploadGuard,
   receiveRestoreFile,
-  backupRestoreController.restore
+  withRestoreLease(backupRestoreController.restore)
 );
 
 module.exports = router;

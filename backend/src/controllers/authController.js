@@ -331,7 +331,7 @@ const login = async (req, res) => {
       return res.status(200).json({
         mfa_required: true,
         mfa_setup_required: false,
-        challenge_token: createChallengeToken(sessionUser, 'login')
+        challenge_token: await createChallengeToken(sessionUser, 'login')
       });
     }
     if (user.mfa_required === true) {
@@ -343,7 +343,7 @@ const login = async (req, res) => {
       return res.status(200).json({
         mfa_required: true,
         mfa_setup_required: true,
-        setup_token: createChallengeToken(sessionUser, 'setup'),
+        setup_token: await createChallengeToken(sessionUser, 'setup'),
         otpauth_url: setup.otpauthUrl,
         qr_code_data_url: setup.qrCodeDataUrl
       });

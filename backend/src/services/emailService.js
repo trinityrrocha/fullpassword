@@ -12,6 +12,9 @@ class EmailDeliveryError extends Error {
 }
 
 const createTransportOptions = (settings) => {
+  if (!['ssl_tls', 'starttls'].includes(settings.security)) {
+    throw new SmtpSettingsError('SMTP exige SSL/TLS ou STARTTLS obrigatório.', 'SMTP_TLS_REQUIRED');
+  }
   const directTls = settings.security === 'ssl_tls';
   const startTls = settings.security === 'starttls';
   const timeoutMs = settings.timeout_seconds * 1000;
