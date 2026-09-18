@@ -7,6 +7,12 @@ const { requireClientPermission, canManageClientShares, normalizePermissionSet }
 const digest = value => crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const fail = (code, statusCode=409) => { throw Object.assign(new Error(code), { code, statusCode }); };
 const categories = new Set(['cPanel','VPN','Servidor TS','Servidor Linux','Servidores Diversos','Dispositivos','__history']);
+const MAX_RECORDS = 20000;
+const MAX_CIPHERTEXT_BYTES = 64 * 1024 * 1024;
+const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const validateCapacity = (count, bytes) => {
+  if(count > MAX_RECORDS || bytes > MAX_CIPHERTEXT_BYTES) fail('VAULT_CAPACITY_EXCEEDED',413);
+};
 const envelopeValid = value => value?.version === 2 && typeof value.iv === 'string' && Buffer.from(value.iv,'base64').length === 12 && typeof value.ciphertext === 'string' && value.ciphertext.length >= 24 && value.ciphertext.length <= 16*1024*1024;
 const transaction = handler => async (req,res) => {
   const client = await db.pool.connect();
@@ -19,7 +25,11 @@ const transaction = handler => async (req,res) => {
   } catch(error) {
     await client.query('ROLLBACK').catch(()=>{});
     if (!error.statusCode) console.error('Falha na operação criptográfica.', { code:error.code || 'CRYPTO_OPERATION_FAILED' });
-    res.status(error.statusCode || 500).json({ code:error.statusCode ? error.code : 'CRYPTO_OPERATION_FAILED', error:error.statusCode ? error.code : 'Não foi possível concluir a operação criptográfica.' });
+    const messages={
+      LEGACY_DIRECT_SHARES_REQUIRE_REVIEW:'Este cofre possui compartilhamentos diretos legados. A migração exige revisão pelo operador; os dados e compartilhamentos foram preservados.',
+      VAULT_CAPACITY_EXCEEDED:'O cofre atingiu o limite seguro de registros ou tamanho. Nenhuma alteração foi salva; solicite revisão pelo operador.'
+    };
+    res.status(error.statusCode || 500).json({ code:error.statusCode ? error.code : 'CRYPTO_OPERATION_FAILED', error:messages[error.code] || (error.statusCode ? error.code : 'Não foi possível concluir a operação criptográfica.') });
   } finally { client.release(); }
 };
 const lockVault = async (client,id,user,manage=false) => {
@@ -37,6 +47,10 @@ const normalizeShares = shares => {
   return result.sort((a,b)=>String(a.group_id).localeCompare(String(b.group_id)));
 };
 const recipients = async (client,vault,shares) => {
+  // Legacy direct shares are item-scoped, not vault-wide grants. Do not silently
+  // delete them or broaden them to a whole-vault DEK during migration.
+  if((await client.query(`SELECT 1 FROM vault_shares vs JOIN vault_items vi ON vi.id=vs.vault_item_id
+    WHERE vi.client_id=$1 LIMIT 1`,[vault.id])).rowCount) fail('LEGACY_DIRECT_SHARES_REQUIRE_REVIEW');
   const ids=shares.filter(share=>share.can_view).map(share=>share.group_id);
   const rows=(await client.query(`SELECT DISTINCT u.id,u.name,u.email,u.crypto_identity
     FROM users u WHERE u.is_active=TRUE AND (u.id=$1 OR EXISTS(
@@ -52,16 +66,17 @@ const source = async (client,vault) => {
   return {records,hash:digest({epoch:vault.crypto_epoch,revision:String(vault.crypto_revision),records})};
 };
 const validateRecords = (records,epoch) => {
-  if(!Array.isArray(records) || records.length>20000) fail('INVALID_RECORDS',400);
+  if(!Array.isArray(records) || records.length>MAX_RECORDS) fail('INVALID_RECORDS',400);
   const seen=new Set(), identities=new Set();
   for(const row of records) {
     const identity=JSON.stringify([row.category,row.collection,row.entity_id]);
-    if(!/^[0-9a-f-]{36}$/i.test(row.id) || seen.has(row.id) || identities.has(identity) || !categories.has(row.category) ||
+    if(!uuid.test(row.id) || seen.has(row.id) || identities.has(identity) || !categories.has(row.category) ||
       typeof row.collection!=='string' || !['cpanels','servers','users','sshCredentials','devices','deviceLogins','__config','snapshots'].includes(row.collection) ||
       typeof row.entity_id!=='string' || !row.entity_id || row.entity_id.length>128 ||
       !Number.isSafeInteger(row.revision) || row.revision<1 || row.epoch!==epoch || !envelopeValid(row.envelope)) fail('INVALID_RECORD',400);
     seen.add(row.id); identities.add(identity);
   }
+  validateCapacity(records.length,records.reduce((bytes,row)=>bytes+Buffer.byteLength(row.envelope.ciphertext),0));
 };
 const validateEnvelopes = (envelopes,targets,id,epoch) => {
   if(!Array.isArray(envelopes) || envelopes.length!==targets.length) fail('RECIPIENT_SET_CHANGED');
@@ -196,6 +211,7 @@ const mutateRecords = transaction(async(req,client)=>{
   if(!Array.isArray(mutations) || mutations.length>1000) fail('INVALID_MUTATIONS',400);
   const seen=new Set();
   for(const mutation of mutations) {
+    if(!uuid.test(mutation.id)) fail('INVALID_RECORD_ID',400);
     if(seen.has(mutation.id)) fail('DUPLICATE_MUTATION',400); seen.add(mutation.id);
     const current=(await client.query('SELECT * FROM vault_records WHERE client_id=$1 AND id=$2 FOR UPDATE',[vault.id,mutation.id])).rows[0];
     if(mutation.kind==='create') {
@@ -217,8 +233,14 @@ const mutateRecords = transaction(async(req,client)=>{
       }
     } else fail('INVALID_MUTATION',400);
   }
+  // Count tombstones as well: rotation carries them, so allowing unlimited
+  // creates/deletes would produce a vault that can no longer be rotated.
+  const capacity=(await client.query(`SELECT count(*)::int AS count,
+    COALESCE(sum(octet_length(envelope->>'ciphertext')),0)::bigint AS bytes
+    FROM vault_records WHERE client_id=$1`,[vault.id])).rows[0];
+  validateCapacity(capacity.count,Number(capacity.bytes));
   await client.query('UPDATE clients SET crypto_revision=crypto_revision+1 WHERE id=$1',[vault.id]);
   await audit(client,req,'vault_records_updated',{client_id:vault.id,epoch:vault.crypto_epoch,count:mutations.length});
   return {saved:mutations.length};
 });
-module.exports={getIdentity,saveIdentity,getState,getRecipients,stageEpoch,appendStage,activateEpoch,abortStage,mutateRecords,digest};
+module.exports={getIdentity,saveIdentity,getState,getRecipients,stageEpoch,appendStage,activateEpoch,abortStage,mutateRecords,digest,validateCapacity};

@@ -82,6 +82,15 @@ async function run() {
     try {
       await leastPrivilege.query('SET ROLE audit_runtime');
       await leastPrivilege.query('SELECT crypto_identity FROM users LIMIT 0');
+      const verifyRuntimeSchema=require('../src/config/verifyRuntimeSchema').verifyRuntimeSchema;
+      await verifyRuntimeSchema(leastPrivilege);
+      await leastPrivilege.query('RESET ROLE');
+      await database.query('GRANT CREATE ON SCHEMA public TO audit_runtime');
+      await leastPrivilege.query('SET ROLE audit_runtime');
+      await assert.rejects(verifyRuntimeSchema(leastPrivilege),/PRIVILEGED_RUNTIME_DATABASE_ROLE/);
+      await leastPrivilege.query('RESET ROLE');
+      await database.query('REVOKE CREATE ON SCHEMA public FROM audit_runtime');
+      await leastPrivilege.query('SET ROLE audit_runtime');
       await assert.rejects(leastPrivilege.query('ALTER TABLE users ADD COLUMN forbidden_test TEXT'),e=>e.code==='42501');
     } finally {await leastPrivilege.query('RESET ROLE');leastPrivilege.release();}
     const owner=crypto.randomUUID();
@@ -180,14 +189,49 @@ async function run() {
     ]);
     assert.equal(race.filter(r=>r.status==='fulfilled').length,1);
     assert.equal(race.find(r=>r.status==='rejected').reason.response.status,409);
+    const currentB=(await ownerApi.get('/crypto/vaults/'+vaultB)).data;
+    await assert.rejects(ownerApi.post('/crypto/vaults/'+vaultB+'/records',{
+      epoch:currentB.epoch,revision:currentB.revision,mutations:[{kind:'delete',id:'-'.repeat(36),expectedRevision:1}]
+    }),e=>e.response.status===400 && e.response.data.code==='INVALID_RECORD_ID');
+    const capacityGuard=require('../src/controllers/vaultCryptoController').validateCapacity;
+    capacityGuard(20000,64*1024*1024);
+    assert.throws(()=>capacityGuard(20001,0),e=>e.code==='VAULT_CAPACITY_EXCEEDED');
+    assert.throws(()=>capacityGuard(1,64*1024*1024+1),e=>e.code==='VAULT_CAPACITY_EXCEEDED');
+    const quotaVault=(await ownerApi.post('/clients',{name:'SYNTHETIC_QUOTA'})).data.id;
+    const quotaSession=new VaultSession({api:ownerApi,vaultId:quotaVault,user:ownerUser,keys:ownerKeys});
+    await quotaSession.load();
+    await database.query(`INSERT INTO vault_records(client_id,id,category,collection,entity_id,revision,epoch,envelope,deleted)
+      SELECT $1,uuid_generate_v4(),'Dispositivos','devices','quota-'||n,1,1,$2,true FROM generate_series(1,20000) n`,
+      [quotaVault,{version:2,iv:Buffer.alloc(12).toString('base64'),ciphertext:'A'.repeat(24)}]);
+    await assert.rejects(quotaSession.saveCategory('Dispositivos',{devices:[{id:'over-quota',name:'SYNTHETIC'}]}),
+      e=>e.response.status===413 && e.response.data.code==='VAULT_CAPACITY_EXCEEDED');
+    assert.equal((await database.query('SELECT count(*)::int n FROM vault_records WHERE client_id=$1',[quotaVault])).rows[0].n,20000,'quota failure rolls back inserted record');
+    assert.equal((await database.query('SELECT crypto_revision FROM clients WHERE id=$1',[quotaVault])).rows[0].crypto_revision,quotaSession.state.revision,'quota failure preserves revision');
+    // Remove only this synthetic quota fixture before backup; fake tombstones are not cryptographic test data.
+    await database.query('DELETE FROM clients WHERE id=$1',[quotaVault]);
+    console.log('PASS malformed UUID rejected and cumulative vault quota includes tombstones with transactional rollback.');
 
     const legacyVault=(await ownerApi.post('/clients',{name:'SYNTHETIC_LEGACY'})).data.id;
     const legacyData={servers:[{id:'old-server',name:'SYNTHETIC_LEGACY_RECORD'}],users:[]};
     const cipher=await legacy.encryptData(legacyData,oldKey);
     await database.query("INSERT INTO vault_items(client_id,category,encrypted_data,created_by) VALUES($1,'Servidor TS',$2,$3)",[legacyVault,cipher,owner]);
+    const legacyItem=(await database.query('SELECT id FROM vault_items WHERE client_id=$1',[legacyVault])).rows[0].id;
+    await database.query('INSERT INTO vault_shares(vault_item_id,user_id,encrypted_vault_key) VALUES($1,$2,$3)',[legacyItem,newAccount.id,'SYNTHETIC_LEGACY_ENVELOPE']);
+    await assert.rejects(ownerApi.post('/crypto/vaults/'+legacyVault+'/recipients',{}),
+      e=>e.response.status===409 && e.response.data.code==='LEGACY_DIRECT_SHARES_REQUIRE_REVIEW');
+    assert.equal((await database.query('SELECT count(*)::int n FROM vault_shares WHERE vault_item_id=$1',[legacyItem])).rows[0].n,1,'direct item grants must not be silently deleted');
+    // The test operator explicitly removes the synthetic grant; production migration must not do this automatically.
+    await database.query('DELETE FROM vault_shares WHERE vault_item_id=$1',[legacyItem]);
     const interruptedApi={...ownerApi,post:async(url,payload)=>{if(url.endsWith('/activate'))throw new Error('SYNTHETIC_INTERRUPT');return ownerApi.post(url,payload);}};
     await assert.rejects(new VaultSession({api:interruptedApi,vaultId:legacyVault,user:ownerUser,keys:ownerKeys}).load(),/SYNTHETIC_INTERRUPT/);
     assert.equal((await ownerApi.get('/crypto/vaults/'+legacyVault)).data.epoch,0);
+    await database.query('INSERT INTO vault_shares(vault_item_id,user_id,encrypted_vault_key) VALUES($1,$2,$3)',[legacyItem,newAccount.id,'SYNTHETIC_LATE_GRANT']);
+    const blockedStage=(await ownerApi.get('/crypto/vaults/'+legacyVault)).data.stage;
+    await assert.rejects(ownerApi.post('/crypto/vaults/'+legacyVault+'/stages/'+blockedStage.id+'/activate',{verifiedManifestHash:blockedStage.manifest_hash}),
+      e=>e.response.data.code==='LEGACY_DIRECT_SHARES_REQUIRE_REVIEW');
+    assert.equal((await database.query('SELECT crypto_epoch FROM clients WHERE id=$1',[legacyVault])).rows[0].crypto_epoch,0);
+    await database.query('DELETE FROM vault_shares WHERE vault_item_id=$1',[legacyItem]);
+    console.log('PASS legacy direct shares block staging/activation without widening grants or deleting originals.');
     const resumed=new VaultSession({api:ownerApi,vaultId:legacyVault,user:ownerUser,keys:ownerKeys});
     await database.query("CREATE FUNCTION audit_fail_activation() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'SYNTHETIC_ACTIVATION_FAILURE'; END $$");
     await database.query('CREATE TRIGGER audit_fail_activation BEFORE INSERT ON vault_records FOR EACH ROW EXECUTE FUNCTION audit_fail_activation()');
@@ -323,8 +367,17 @@ async function run() {
     console.log('PASS backup v2 N=131072 and restore into SECOND isolated PostgreSQL database, fresh login and client-side vault opening.');
     console.log('PASS integrated HTTP + PostgreSQL: independent identity, new users, per-vault keys, per-record add/edit/read restrictions, CSRF/session, revocation rotation, stale revision, legacy migration interruption/resume/idempotence and preserved originals.');
   } finally {
-    if(httpServer) await new Promise(resolve=>httpServer.close(resolve));
+    console.log('Integration: closing HTTP server.');
+    if(httpServer) {
+      const closed=new Promise(resolve=>httpServer.close(resolve));
+      // All assertions completed; close lingering clients from aborted-upload
+      // scenarios before draining PostgreSQL. They must not hang the test runner.
+      httpServer.closeAllConnections();
+      await closed;
+    }
+    console.log('Integration: draining database connections.');
     if(database) await drainPool(database.pool);
+    console.log('Integration: stopping isolated PostgreSQL.');
     await postgres.stop().catch(()=>{});
     // Only the random directory created above may be removed.
     assert.ok(path.resolve(directory).startsWith(path.resolve(os.tmpdir())+path.sep+'fullpassword-audit-test-'));

@@ -23,10 +23,13 @@ const protectedRead=file=>{
   if(directory===path.dirname(directory)) break;
  }
  const stat=fs.lstatSync(file);
- if(stat.isSymbolicLink() || stat.uid!==0 || (stat.mode&0o022)) throw new Error('UNTRUSTED_OPERATOR_FILE');
+ if(!stat.isFile() || stat.isSymbolicLink() || stat.uid!==0 || (stat.mode&0o022)) throw new Error('UNTRUSTED_OPERATOR_FILE');
  return fs.readFileSync(file);
 };
-const run=(command,args)=>{const result=spawnSync(command,args,{encoding:'utf8',stdio:['ignore','pipe','pipe'],windowsHide:true});if(result.status!==0)throw new Error('DEPLOY_COMMAND_FAILED: '+command);return result.stdout.trim();};
+const run=(command,args)=>{const result=spawnSync(command,args,{encoding:'utf8',stdio:['ignore','pipe','pipe'],windowsHide:true,timeout:600000,maxBuffer:4*1024*1024});if(result.status!==0)throw new Error('DEPLOY_COMMAND_FAILED: '+command);return result.stdout.trim();};
+const verifyInstalledRevision=(manifest,health,frontend)=>{
+ if(health.commit!==manifest.revision || health.schema_ready!==true || frontend.revision!==manifest.revision) throw new Error('DEPLOY_REVISION_MISMATCH');
+};
 const deploy=(manifestPath,signaturePath)=>{
  if(process.platform==='win32' || process.getuid?.()!==0) throw new Error('OPERATOR_ROOT_REQUIRED');
  const policy=JSON.parse(protectedRead('/etc/fullpassword/release-policy.json'));
@@ -39,6 +42,9 @@ const deploy=(manifestPath,signaturePath)=>{
  fs.mkdirSync(state,{recursive:true,mode:0o700});
  const stateStat=fs.lstatSync(state);
  if(stateStat.isSymbolicLink() || stateStat.uid!==0 || (stateStat.mode&0o077)) throw new Error('UNTRUSTED_RELEASE_STATE');
+ const lock=path.join(state,'deployment.lock');
+ const lockFd=fs.openSync(lock,'wx',0o600); // Stale locks require operator investigation, never automatic replay.
+ try {
  const compose=['compose','--project-directory',path.dirname(policy.composeFile),'-f',policy.composeFile];
  const resolved=JSON.parse(run('docker',[...compose,'config','--format','json']));
  if(resolved.services?.backend?.environment?.APP_ORIGIN!==policy.origin) throw new Error('INSTALLED_ORIGIN_MISMATCH');
@@ -56,16 +62,18 @@ const deploy=(manifestPath,signaturePath)=>{
   run('docker',[...compose,'-f',override,'pull','backend','frontend']);
   run('docker',[...compose,'-f',override,'up','-d','--no-build','--wait','--wait-timeout','180','backend','frontend']);
   const health=JSON.parse(run('docker',[...compose,'exec','-T','backend','node','-e',"fetch('http://127.0.0.1:3000/api/health').then(r=>r.text()).then(console.log)"]));
-  if(health.commit!==manifest.revision || !health.schema_ready) throw new Error('DEPLOY_REVISION_MISMATCH');
+  const frontend=JSON.parse(run('docker',[...compose,'exec','-T','frontend','cat','/usr/share/nginx/html/version.json']));
+  verifyInstalledRevision(manifest,health,frontend);
   fs.writeFileSync(path.join(state,'installed.json'),JSON.stringify({revision:manifest.revision,backend:manifest.backend,frontend:manifest.frontend,rollback}),{mode:0o600});
  } catch(error) {
   run('docker',[...compose,'-f',rollback,'up','-d','--no-build','--wait','--wait-timeout','180','backend','frontend']);
   throw error;
  }
  console.log('Verified test release installed: '+manifest.revision);
+ } finally {fs.closeSync(lockFd);fs.unlinkSync(lock);}
 };
 if(require.main===module){
  try{if(process.argv.length!==4)throw new Error('Usage: node deploy-approved-release.js manifest.json manifest.sig');deploy(process.argv[2],process.argv[3]);}
  catch(error){console.error(error.message);process.exitCode=1;}
 }
-module.exports={validateManifest};
+module.exports={validateManifest,verifyInstalledRevision};

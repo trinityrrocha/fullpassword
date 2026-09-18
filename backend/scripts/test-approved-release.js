@@ -1,6 +1,6 @@
 const assert=require('node:assert/strict');
 const crypto=require('node:crypto');
-const {validateManifest}=require('../../scripts/deploy-approved-release');
+const {validateManifest,verifyInstalledRevision}=require('../../scripts/deploy-approved-release');
 const {publicKey,privateKey}=crypto.generateKeyPairSync('rsa',{modulusLength:3072});
 const manifest={repository:'trinityrrocha/fullpassword',revision:'a'.repeat(40),origin:'https://test.example.invalid',
  backend:'ghcr.io/trinityrrocha/fullpassword-backend@sha256:'+'b'.repeat(64),frontend:'ghcr.io/trinityrrocha/fullpassword-frontend@sha256:'+'c'.repeat(64)};
@@ -13,3 +13,10 @@ assert.throws(()=>verify({...manifest,backend:'ghcr.io/trinityrrocha/fullpasswor
 assert.throws(()=>verify({...manifest,origin:'https://production.example.invalid'}),/TEST_ENVIRONMENT/);
 assert.throws(()=>validateManifest(Buffer.from(JSON.stringify(manifest)),Buffer.alloc(384),publicKey,policy),/SIGNATURE/);
 console.log('PASS signed release: invalid signature/origin/mutable tag/non-test target rejected; no deployment executed.');
+const healthy={commit:manifest.revision,schema_ready:true};
+verifyInstalledRevision(manifest,healthy,{revision:manifest.revision});
+assert.throws(()=>verifyInstalledRevision(manifest,healthy,{revision:null}),/REVISION_MISMATCH/);
+assert.throws(()=>verifyInstalledRevision(manifest,healthy,{revision:'d'.repeat(40)}),/REVISION_MISMATCH/);
+assert.throws(()=>verifyInstalledRevision(manifest,{...healthy,commit:'unknown'},{revision:manifest.revision}),/REVISION_MISMATCH/);
+assert.throws(()=>verifyInstalledRevision(manifest,{...healthy,schema_ready:false},{revision:manifest.revision}),/REVISION_MISMATCH/);
+console.log('PASS release completion requires exact frontend AND backend revision and ready schema.');

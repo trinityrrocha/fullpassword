@@ -4,8 +4,9 @@ Este roteiro não autoriza alterar produção. Nenhuma etapa remota foi executad
 
 ## Pré-condições obrigatórias
 
-1. Operador confirma por escrito URL/host exclusivamente de homologação, mecanismo
-   autorizado e ausência de clientes reais afetados. Identificar SHA e digests
+1. O responsável confirmou em 2026-09-18 que pw.sti1.com.br é exclusivamente
+   de homologação e autorizou update web. Essa condição não precisa ser
+   perguntada novamente. Ainda é necessário identificar host, SHA e digests
    efetivamente instalados; health com `unknown` não basta.
 2. Pausar escritores/agendadores e obter backup consistente cifrado de banco e
    volumes. Guardar JWT_SECRET, CONFIG_ENCRYPTION_KEY, certificados e frase do
@@ -67,6 +68,44 @@ uma cópia cifrada do estado de falha e restaurar banco+volumes+segredos e image
 compatíveis a partir da recuperação verificada. Comparar contagens e abrir
 cofres/MFA/configurações antes de reabrir o serviço. Não apagar staging/originais
 para obter um status verde. Não usar reset destrutivo de identidade.
+
+O deploy agora usa trava exclusiva e exige SHA completo no health do backend
+e no version.json da imagem frontend. Uma trava deixada por crash não deve ser
+apagada automaticamente: investigar estado de imagens/banco e recuperar
+antes de autorizar nova tentativa. Timeout de comando não comprova rollback.
+
+## Continuação de homologação e update web
+
+O painel antigo prometia atualizar main, mas a API já recusava essa operação.
+Nesta continuação ele passa a ser somente leitura e não inicia contagem de
+sucesso nem oferece inicializar versão mediante deploy de main. O frontend
+publica version.json com SHA completo; unknown/ausente não é revisão comprovada.
+
+O desenho preparado para manter o update web seguro está em
+[security-web-update-design.md](security-web-update-design.md).
+**A ponte web/agente ainda não está implementada ou instalada.** Não é correto
+afirmar que o código do PR, ainda não implantado, atualiza o painel existente.
+
+A skill computer-use proíbe automação de gerenciadores de senhas e diálogos de
+autenticação. Portanto, esta execução não faz login, update nem testes remotos
+por UI ou por HTTP alternativo. O responsável deverá executar o roteiro manual;
+nenhum resultado visual será atribuído ao PR sem revisão instalada comprovada.
+
+Registro manual obrigatório após implantação autorizada:
+
+| Campo | Valor nesta execução |
+|---|---|
+| Revisão frontend instalada | Não comprovada |
+| Revisão backend instalada | Não comprovada |
+| SHA/digests aprovados para implantação | Não provisionados |
+| Backup do host e restauração isolada desse backup | Não executados |
+| Acionamento único do update web | Não executado |
+| Início/fim da implantação | Não aplicável |
+| Início/fim da espera de pelo menos 60 segundos | Não aplicável |
+| Testes funcionais remotos | Não executados |
+
+Não confundir a restauração de fixtures em PostgreSQL local com recuperação
+validada do host. Não configurar restoreVerified antes dessa comprovação.
 
 ## Roteiro visual manual (não executado)
 
