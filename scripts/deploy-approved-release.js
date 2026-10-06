@@ -67,17 +67,23 @@ const deploy=(manifestPath,signaturePath,expectedRelease)=>{
  const lockFd=fs.openSync(lock,'wx',0o600); // Stale locks require operator investigation, never automatic replay.
  try {
  const compose=['compose','--project-directory',path.dirname(policy.composeFile),'-f',policy.composeFile];
- const resolved=JSON.parse(run('docker',[...compose,'config','--format','json'],'compose_config'));
+ const resolved=JSON.parse(run('docker',[...compose,'--profile','operator','config','--format','json'],'compose_config'));
  if(resolved.services?.backend?.environment?.APP_ORIGIN!==policy.origin) throw new Error('INSTALLED_ORIGIN_MISMATCH');
  if(resolved.services?.backend?.environment?.DB_SCHEMA_MODE!=='verify') throw new Error('LEAST_PRIVILEGE_RUNTIME_REQUIRED');
+ if(policy.migrateSchema===true && !resolved.services?.['schema-migrate']) throw new Error('SCHEMA_MIGRATION_SERVICE_REQUIRED');
  for(const mount of resolved.services.backend.volumes || []) {
   if(String(mount.source || '').includes('docker.sock') || String(mount.target || '').includes('docker.sock')) throw new Error('BACKEND_DOCKER_SOCKET_FORBIDDEN');
  }
- const previous={services:{}};
+ const previous={services:{},'x-verified-image-ids':{}};
  for(const service of ['backend','frontend']){
   const id=run('docker',[...compose,'ps','--all','-q',service]);
   if(!id) throw new Error('CURRENT_SERVICE_UNIDENTIFIED');
-  previous.services[service]={image:run('docker',['inspect','--format','{{.Image}}',id])};
+  const imageId=run('docker',['inspect','--format','{{.Image}}',id]);
+  if(!/^sha256:[a-f0-9]{64}$/.test(imageId)) throw new Error('INVALID_PREVIOUS_IMAGE_ID');
+  const rollbackTag='fullpassword-rollback-'+service+':'+imageId.slice(7);
+  run('docker',['image','tag',imageId,rollbackTag],'capture_rollback_image');
+  previous.services[service]={image:rollbackTag};
+  previous['x-verified-image-ids'][service]=imageId;
  }
  const rollback=path.join(state,'rollback-'+Date.now()+'.json');
  fs.writeFileSync(rollback,JSON.stringify(previous),{mode:0o600,flag:'wx'});
@@ -86,7 +92,6 @@ const deploy=(manifestPath,signaturePath,expectedRelease)=>{
  try {
   run('docker',[...compose,'-f',override,'pull','backend','frontend'],'pull_images');
   if(policy.migrateSchema===true) {
-   if(!resolved.services?.['schema-migrate']) throw new Error('SCHEMA_MIGRATION_SERVICE_REQUIRED');
    // A short-lived operator service holds DDL credentials; they never enter the runtime backend.
    fs.writeFileSync(override,JSON.stringify({services:{backend:{image:manifest.backend},frontend:{image:manifest.frontend},'schema-migrate':{image:manifest.backend}}}),{mode:0o600});
    run('docker',[...compose,'stop','backend'],'stop_writers');
@@ -96,7 +101,13 @@ const deploy=(manifestPath,signaturePath,expectedRelease)=>{
   verifyDeployment(policy,manifest);
   fs.writeFileSync(path.join(state,'installed.json'),JSON.stringify({revision:manifest.revision,backend:manifest.backend,frontend:manifest.frontend,rollback}),{mode:0o600});
  } catch(error) {
-  try {run('docker',[...compose,'-f',rollback,'up','-d','--no-build','--wait','--wait-timeout','180','backend','frontend'],'image_rollback');}
+  try {
+   run('docker',[...compose,'-f',rollback,'up','-d','--no-build','--pull','never','--wait','--wait-timeout','180','backend','frontend'],'image_rollback');
+   for(const service of ['backend','frontend']) {
+    const id=run('docker',[...compose,'ps','-q',service]);
+    if(run('docker',['inspect','--format','{{.Image}}',id])!==previous['x-verified-image-ids'][service]) throw new Error('ROLLBACK_IMAGE_MISMATCH');
+   }
+  }
   catch {throw new Error(error.message+'; IMAGE_ROLLBACK_FAILED');}
   throw error;
  }

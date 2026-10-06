@@ -70,7 +70,7 @@ export default function UpdateStatusPanel() {
       {identified(versions.backend) && identified(versions.frontend) && versions.backend !== versions.frontend &&
         <p role="alert" className="text-red-600 dark:text-red-400">Frontend e backend estão em revisões diferentes.</p>}
       <div role="status" aria-live="polite">
-        {agent.progress ? phases[agent.progress.state] || 'Estado não identificado; consulte o operador.' : agent.requested ? phases.requested : 'Nenhuma implantação solicitada.'}
+        {agent.requested && agent.progress?.approvalId !== release?.approvalId ? phases.requested : agent.progress ? phases[agent.progress.state] || 'Estado não identificado; consulte o operador.' : agent.requested ? phases.requested : 'Nenhuma implantação solicitada.'}
       </div>
       {agent.progress && <p className="break-all font-mono text-xs">Revisão do pedido: {agent.progress.revision}</p>}
       {release ? <div className="space-y-2">
