@@ -12,12 +12,13 @@ no remoto ao iniciar. Nenhuma intervenção no host/VM foi executada.
 | FP-11 API | Super Admin, CSRF global, reauth purpose system_release vinculada ao payload/sessão, MFA habilitado, fila sem credenciais | test-vault-integrated-postgres.js via HTTP + PostgreSQL real | Não validada |
 | FP-11 painel | Release aprovada, SHA/digests completos, um POST, polling GET, sem countdown cosmético/retry automático | ESLint/build, testes frontend; audit strict da fatia nova | Navegador não executado |
 | FP-02/04 itens diretos | Chave aleatória por item, envelope por destinatário, grant original preservado; snapshot exato e anexo; nunca entrega DEK do cofre | HTTP/WebCrypto/PG: recipient abre item, não abre histórico nem cofre; chave não abre registros do cofre; revogação seletiva | Não implantado |
-| Atualização d9a7a37 | init.sql e schema guard carregados do objeto Git d9a7a3786143379df43ff1910263894df33449bf; fixtures criadas ANTES da nova migração | Schema idempotente, grants, permissões limitadas, snapshots/anexo preservados; migração interrompida e retomada | Instalação Docker antiga ainda não ensaiada nesta primeira revisão |
+| Atualização d9a7a37 | init.sql/guard e imagens reais da revisão antiga; fixtures criadas ANTES da nova migração | PG/WebCrypto: idempotência, grants, permissões limitadas, snapshots/anexo, interrupção/retomada. Docker/CI: imagens antigas -> bootstrap -> bcd9468, preservação e update pela API | Não executada na VM |
 | Recuperação | Original ciphertext retido, staging transacional; backup cifrado restaurado em segunda base | Falha de ativação, rollback/retomada, fresh login/cofre/MFA/config após restauração | Backup/restore da VM não executado |
 
 O ensaio PostgreSQL parte do schema efetivo antigo e de dados previamente
-inseridos; não é uma instalação nova do schema v2. Ainda não equivale a um
-ensaio completo de containers/install.sh antigo; essa distinção é obrigatória.
+inseridos; não é uma instalação nova do schema v2. O ensaio Docker usa as
+imagens construídas do Git antigo e init.sql antigo, não executa o instalador
+interativo/cloudflared completo. Essa distinção é obrigatória.
 
 ## Validações locais
 
@@ -57,7 +58,8 @@ descriptografa o cofre v2. Itens existentes continuam somente leitura.
 ## Pendências concretas
 
 Docker/Compose indisponíveis neste Windows (WSL sem distro). CI de imagens/deploy
-deve ser registrado depois da execução. Nenhum digest publicado/signer de VM
+aprovou o job images no SHA bcd94682da864d6b498bd2e9aebf5e8174b594fb.
+Nenhum digest publicado/signer de VM
 foi presumido. Sem acesso ao host: inventário real, custódia de configuração e
 segredos, backup consistente e restore isolado da VM, aprovação/registry e
 bootstrap são pendências operacionais.
@@ -67,7 +69,11 @@ parte das imagens de d9a7a37, instala o bootstrap 821efb2, solicita a segunda
 release pela API com CSRF/reauth, aguarda efetivamente 60s e verifica SHA/digests.
 Também provoca release inconsistente, verifica rollback de imagens e restaura
 DB/configuração sintética em um segundo volume PostgreSQL com fresh login.
-Até a execução da CI, isto é implementação do ensaio, não evidência de sucesso.
+O bootstrap instala a cópia root do agente e confere seu conteúdo antes dos
+pedidos. Timer permanece parado; o ensaio invoca o agente instalado diretamente.
+Evidência aprovada: [CI 37399889906, job images](https://github.com/trinityrrocha/fullpassword/actions/runs/37399889906/job/112064491733)
+e `evidence/release-upgrade-bcd9468.json`, com SHAs/digests exatos. Não é release
+publicada em GHCR nem implantação em pw.sti1.com.br; registry é efêmero/loopback.
 Os ciphertexts da fixture Docker verificam preservação; a validade criptográfica
 dos dados/anexos é testada pela suíte nativa de upgrade separada.
 
@@ -87,6 +93,12 @@ atualizado para 2.0.8. A restauração Docker inicialmente tentou enviar o dump
 com metacomandos psql ao driver SQL; agora usa psql com ON_ERROR_STOP=1.
 A execução 37399137305 restaurou a instalação antiga em um segundo volume,
 mas falhou na fase de deployment e no audit frontend anterior aos patches.
+37399559435 identificou o profile operator ausente no Compose resolvido e a
+referência inadequada da imagem de rollback. Corrigidos: resolver profile
+explicitamente, tag local baseada no ID capturado, pull=never no rollback e
+verificação do ID efetivamente restaurado. A suíte images 37399889906 passou
+após ambas as correções; regression passou todos os testes e falhou somente
+no audit completo frontend residual abaixo.
 Nenhuma dessas execuções é apresentada como CI verde.
 
 Patches compatíveis: axios 1.20.0, DOMPurify 3.4.16, source-map-js 1.2.2 e
@@ -100,7 +112,8 @@ derivadas de braces e postcss-selector-parser na cadeia Tailwind 3 de build.
 Audit completo backend: 3 high na cadeia nodemon/chokidar/braces de desenvolvimento.
 braces 3.0.3 não tem patch publicado. Não executado npm audit fix --force:
 ele propõe Tailwind 4 e uma migração visual global fora desta entrega.
-O gate de audit completo NÃO foi afrouxado para deixar a CI verde.
+O gate de audit completo NÃO foi afrouxado para deixar a CI verde. O check
+de whitespace e audit frontend de produção executam mesmo se o audit dev falhar.
 
 Fontes primárias: [proxy-addr](https://github.com/advisories/GHSA-jqcg-44mw-7w3h),
 [braces](https://github.com/advisories/GHSA-vfj7-8cjw-p6xm),

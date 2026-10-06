@@ -43,7 +43,11 @@ jobs:
         working-directory: backend
       - run: npm audit
         working-directory: frontend
+      - run: npm audit --omit=dev
+        if: always()
+        working-directory: frontend
       - run: git diff --check
+        if: always()
   images:
     runs-on: ubuntu-latest
     timeout-minutes: 45
