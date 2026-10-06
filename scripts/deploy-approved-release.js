@@ -45,10 +45,16 @@ const verifyDeployment=(policy,manifest)=>{
   if(image!==expected || !digests?.includes(manifest[service])) throw new Error('DEPLOY_DIGEST_MISMATCH');
  }
 };
-const deploy=(manifestPath,signaturePath)=>{
+const assertExpectedRelease=(policy,bytes,expected)=>{
+ if(expected && (policy.approvalId!==expected.approvalId || policy.approvedRevision!==expected.revision ||
+   crypto.createHash('sha256').update(bytes).digest('hex')!==expected.manifestHash)) throw new Error('APPROVAL_CHANGED_BEFORE_DEPLOY');
+};
+const deploy=(manifestPath,signaturePath,expectedRelease)=>{
  if(process.platform==='win32' || process.getuid?.()!==0) throw new Error('OPERATOR_ROOT_REQUIRED');
  const policy=JSON.parse(protectedRead('/etc/fullpassword/release-policy.json'));
- const manifest=validateManifest(fs.readFileSync(manifestPath),fs.readFileSync(signaturePath),protectedRead(policy.publicKeyFile),policy);
+ const bytes=protectedRead(manifestPath);
+ assertExpectedRelease(policy,bytes,expectedRelease);
+ const manifest=validateManifest(bytes,protectedRead(signaturePath),protectedRead(policy.publicKeyFile),policy);
  protectedRead(policy.composeFile);
  // Recovery approval is external to this application. Check the exact protected archive, not merely existence.
  const recovery=protectedRead(policy.recoveryArchive);
@@ -100,4 +106,4 @@ if(require.main===module){
  try{if(process.argv.length!==4)throw new Error('Usage: node deploy-approved-release.js manifest.json manifest.sig');deploy(process.argv[2],process.argv[3]);}
  catch(error){console.error(error.message);process.exitCode=1;}
 }
-module.exports={validateManifest,verifyInstalledRevision,protectedRead,deploy,verifyDeployment};
+module.exports={validateManifest,verifyInstalledRevision,protectedRead,deploy,verifyDeployment,assertExpectedRelease};

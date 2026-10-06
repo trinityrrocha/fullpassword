@@ -19,7 +19,7 @@ const atomic = (file, value, mode = 0o600) => {
   syncDirectory(path.dirname(file));
 };
 const readRequest = file => {
-  const fd = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0));
+  const fd = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0) | (fs.constants.O_NONBLOCK || 0));
   try {
     const stat = fs.fstatSync(fd);
     if (!stat.isFile() || stat.size > 1024 || stat.nlink !== 1) throw new Error('INVALID_REQUEST_FILE');
@@ -52,7 +52,7 @@ const processRequest = async ({ policy, request, state, status, read = protected
   const publish = phase => atomic(path.join(status, 'status.json'), { ...base, ...phase }, 0o644);
   try {
     publish({ state: 'deploying' });
-    performDeploy(policy.manifestFile, policy.signatureFile);
+    performDeploy(policy.manifestFile, policy.signatureFile, release);
     publish({ state: 'stabilizing', healthyAt: new Date().toISOString() });
     await wait(60000); // no cosmetic countdown: recheck the real installation after the minimum window
     verify(policy, release);
@@ -69,7 +69,7 @@ const main = async () => {
     protectedRead(path.join(directory, '.operator-owned'));
   }
   const queueStat = fs.lstatSync(policy.queueDirectory);
-  if (!queueStat.isDirectory() || queueStat.isSymbolicLink() || (queueStat.mode & 0o002)) throw new Error('UNTRUSTED_QUEUE_DIRECTORY');
+  if (!queueStat.isDirectory() || queueStat.isSymbolicLink() || queueStat.uid !== 0 || (queueStat.mode & 0o002)) throw new Error('UNTRUSTED_QUEUE_DIRECTORY');
   const lock = path.join(policy.stateDirectory, 'agent.lock');
   let fd;
   try {

@@ -21,6 +21,16 @@ async function run(){
    assert.throws(()=>readRequest(file),/INVALID_REQUEST/);
   }
   fs.writeFileSync(file,'x'.repeat(1025));assert.throws(()=>readRequest(file),/INVALID_REQUEST_FILE/);
+  fs.writeFileSync(file,JSON.stringify(request));
+  const hardlink=path.join(directory,'hardlink.json');fs.linkSync(file,hardlink);
+  assert.throws(()=>readRequest(file),/INVALID_REQUEST_FILE/);fs.unlinkSync(hardlink);
+  if(process.platform==='linux') {
+   const fifo=path.join(directory,'request.fifo');
+   assert.equal(require('node:child_process').spawnSync('mkfifo',[fifo]).status,0);
+   assert.throws(()=>readRequest(fifo),/INVALID_REQUEST_FILE/);
+   const link=path.join(directory,'symlink.json');fs.symlinkSync(file,link);
+   assert.throws(()=>readRequest(link),e=>e.code==='ELOOP');
+  }
   assert.throws(()=>approval({...policy,expiresAt:'invalid'},read),/APPROVAL_EXPIRED/);
   assert.throws(()=>approval({...policy,approvedRevision:'d'.repeat(40)},read),/RELEASE_NOT_APPROVED/);
   assert.throws(()=>approval(policy,file=>file==='signature'?Buffer.alloc(signature.length):read(file)),/INVALID_RELEASE_SIGNATURE/);

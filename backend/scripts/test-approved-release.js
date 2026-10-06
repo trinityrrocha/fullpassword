@@ -1,12 +1,17 @@
 const assert=require('node:assert/strict');
 const crypto=require('node:crypto');
-const {validateManifest,verifyInstalledRevision}=require('../../scripts/deploy-approved-release');
+const {validateManifest,verifyInstalledRevision,assertExpectedRelease}=require('../../scripts/deploy-approved-release');
 const {publicKey,privateKey}=crypto.generateKeyPairSync('rsa',{modulusLength:3072});
 const manifest={repository:'trinityrrocha/fullpassword',revision:'a'.repeat(40),origin:'https://test.example.invalid',
  backend:'ghcr.io/trinityrrocha/fullpassword-backend@sha256:'+'b'.repeat(64),frontend:'ghcr.io/trinityrrocha/fullpassword-frontend@sha256:'+'c'.repeat(64)};
 const policy={origin:manifest.origin,environment:'test',approvedRevision:manifest.revision};
 const verify=value=>{const bytes=Buffer.from(JSON.stringify(value));return validateManifest(bytes,crypto.sign('sha256',bytes,privateKey),publicKey,policy);};
 assert.equal(verify(manifest).revision,manifest.revision);
+const approvedBytes=Buffer.from(JSON.stringify(manifest));
+const expected={approvalId:crypto.randomUUID(),revision:manifest.revision,manifestHash:crypto.createHash('sha256').update(approvedBytes).digest('hex')};
+assertExpectedRelease({...policy,approvalId:expected.approvalId},approvedBytes,expected);
+assert.throws(()=>assertExpectedRelease({...policy,approvalId:crypto.randomUUID()},approvedBytes,expected),/APPROVAL_CHANGED/);
+assert.throws(()=>assertExpectedRelease({...policy,approvalId:expected.approvalId},Buffer.from('{}'),expected),/APPROVAL_CHANGED/);
 assert.throws(()=>verify({...manifest,revision:'d'.repeat(40)}),/NOT_APPROVED/);
 assert.throws(()=>verify({...manifest,repository:'attacker/repo'}),/ORIGIN/);
 assert.throws(()=>verify({...manifest,backend:'ghcr.io/trinityrrocha/fullpassword-backend:latest'}),/UNPINNED/);
