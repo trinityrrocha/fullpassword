@@ -42,6 +42,10 @@ const { startCloudBackupScheduler } = require('./services/cloudBackupScheduler')
 const { startDomainExpirationScheduler } = require('./services/domainExpirationScheduler');
 
 const app = express();
+app.use('/api', (_req, res, next) => {
+  res.setHeader('Cache-Control', 'no-store');
+  next();
+});
 const PORT = process.env.PORT || 3000;
 let schemaReady = false;
 
@@ -129,6 +133,7 @@ app.use(
   validateEncryptedVaultPayload,
   vaultRoutes
 );
+app.use('/api/crypto', vaultWriteLimiter, enforceContentLength(18 * 1024 * 1024, { jsonOnly: true }), express.json({limit:18 * 1024 * 1024}), require('./routes/vaultCryptoRoutes'));
 app.use('/api', enforceContentLength(DEFAULT_JSON_LIMIT_BYTES, { jsonOnly: true }), defaultJsonParser);
 
 // Configuração das rotas da API
@@ -155,7 +160,8 @@ app.use((err, req, res, next) => {
 const startServer = async () => {
   schemaReady = false;
   try {
-    await ensureSecuritySchema();
+    if (process.env.DB_SCHEMA_MODE === 'verify') await require('./config/verifyRuntimeSchema').verifyRuntimeSchema();
+    else await ensureSecuritySchema();
     schemaReady = true;
     console.log('Schema de segurança validado e confirmado no banco.');
     return app.listen(PORT, () => {

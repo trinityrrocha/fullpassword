@@ -1,0 +1,15 @@
+# Operator-only overlay, used AFTER provisioning. No socket in any application service.
+services:
+  backend:
+    volumes:
+      - type: bind
+        source: /var/lib/fullpassword-release-public
+        target: /var/lib/fullpassword-release-public
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /var/lib/fullpassword-release-queue
+        target: /var/lib/fullpassword-release-queue
+        bind:
+          create_host_path: false

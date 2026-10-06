@@ -234,11 +234,11 @@ const run = async () => {
       { valid: true, errors: [] }
     );
     assert.equal(result.revokedSessions, 2);
-    assert.equal(result.removedClientShares, 3);
-    assert.equal(result.removedVaultShares, 4);
-    assert.equal(queryLog.some(({ sql }) => sql.includes('token_version = token_version + 1')), true);
-    assert.equal(queryLog.some(({ sql }) => sql.includes('DELETE FROM client_key_shares')), true);
-    assert.equal(queryLog.some(({ sql }) => sql.includes('DELETE FROM vault_shares')), true);
+    assert.equal(result.removedClientShares, 0);
+    assert.equal(result.removedVaultShares, 0);
+    assert.equal(queryLog.some(({ sql }) => /token_version\s*=\s*token_version\s*\+\s*1/.test(sql)), true);
+    assert.equal(queryLog.some(({ sql }) => sql.includes('DELETE FROM client_key_shares')), false);
+    assert.equal(queryLog.some(({ sql }) => sql.includes('DELETE FROM vault_shares')), false);
     assert.equal(queryLog.some(({ sql }) => sql.includes("revoke_reason = 'password_reset'")), true);
     assert.equal(queryLog.some(({ params }) => params.includes(rawToken)), false);
     assert.equal(queryLog.some(({ params }) => params.includes(newPassword)), false);

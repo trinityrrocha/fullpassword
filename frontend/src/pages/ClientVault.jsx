@@ -8,11 +8,8 @@ import VaultReadOnlyGuard from '../components/VaultReadOnlyGuard';
 import { useAuth } from '../context/AuthContext';
 import useClearOnVaultLock from '../hooks/useClearOnVaultLock';
 import { safeLogError } from '../utils/safeLogger';
-import { encryptData, encryptFile, decryptData, base64ToBlob, downloadBlob, isValidCryptoSalt } from '../services/cryptoService';
-import {
-  decryptVaultKeyShare,
-  reencryptVaultKeyShareForPublicKeys
-} from '../services/clientVaultKeyService';
+import { encryptFile, decryptData, base64ToBlob, downloadBlob } from '../services/cryptoService';
+import { VaultSession } from '../services/vaultSessionService';
 import api from '../services/api';
 import {
   MAX_VAULT_ATTACHMENT_BYTES,
@@ -212,14 +209,14 @@ export default function ClientVault() {
     vaultLockReason,
     lockVault,
     unlockVault,
-    encryptOwnerVaultKeyForPublicKeys
+    identityKeys
   } = useAuth();
   const [unlockPassword, setUnlockPassword] = useState('');
   const [isSaving, setIsSaving] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
+  const [, setIsLoading] = useState(false);
   const [savedItems, setSavedItems] = useState([]);
   const [vaultDataKey, setVaultDataKey] = useState(null);
-  const [encryptedVaultKeyShare, setEncryptedVaultKeyShare] = useState(null);
+  const vaultSessionRef = useRef(null);
   const [vaultPermissions, setVaultPermissions] = useState(null);
   const [vaultKeyError, setVaultKeyError] = useState('');
   const [isSharingModalOpen, setIsSharingModalOpen] = useState(false);
@@ -232,7 +229,8 @@ export default function ClientVault() {
     setDevicesForm({ devices: [], deviceLogins: [] });
     setSavedItems([]);
     setVaultDataKey(null);
-    setEncryptedVaultKeyShare(null);
+    vaultSessionRef.current?.clear();
+    vaultSessionRef.current = null;
     setVaultPermissions(null);
     setVaultKeyError('');
     setUnlockPassword('');
@@ -276,7 +274,7 @@ export default function ClientVault() {
     setModulesLoaded(false);
     try {
       const [itemsResponse, modulesResponse] = await Promise.all([
-        api.get(`/vault-items/${id}`),
+        Promise.resolve({data:vaultSessionRef.current.categories()}),
         api.get(`/clients/${id}/modules`)
       ]);
       const items = itemsResponse.data || [];
@@ -286,7 +284,7 @@ export default function ClientVault() {
 
       for (const item of items) {
         try {
-          const decryptedData = await decryptData(item.encrypted_data, vaultDataKey);
+          const decryptedData = item.decrypted;
           decryptedItems.push({ ...item, decrypted: decryptedData });
 
           // O backend retorna por created_at DESC. Só o primeiro item de cada categoria deve popular o formulário.
@@ -339,7 +337,8 @@ export default function ClientVault() {
     let cancelled = false;
     const loadVaultAccess = async () => {
       setVaultDataKey(null);
-      setEncryptedVaultKeyShare(null);
+      vaultSessionRef.current?.clear();
+    vaultSessionRef.current = null;
       setVaultKeyError('');
       try {
         const permissionsResponse = await api.get(`/vault-items/${id}/permissions`);
@@ -356,31 +355,12 @@ export default function ClientVault() {
         if (cancelled) return;
         setVaultPermissions(normalizedPermissions);
 
-        const keyResponse = await api.get(`/vault-items/${id}/key-share`);
-        if (keyResponse.data?.encrypted_client_key) {
-          if (!user.encrypted_private_key) {
-            throw new Error('Sua chave privada ainda não está disponível. Desbloqueie o cofre novamente.');
-          }
-
-          const encryptedClientKey = keyResponse.data.encrypted_client_key;
-          const sharedKey = await decryptVaultKeyShare(
-            encryptedClientKey,
-            user.encrypted_private_key,
-            masterKey
-          );
-          if (!cancelled) {
-            setEncryptedVaultKeyShare(encryptedClientKey);
-            setVaultDataKey(sharedKey);
-          }
-          return;
-        }
-
-        if (normalizedPermissions.is_owner) {
-          if (!cancelled) setVaultDataKey(masterKey);
-          return;
-        }
-
-        throw new Error('A chave criptográfica deste cofre ainda não foi entregue. Peça ao proprietário para salvar o compartilhamento novamente.');
+        const session = new VaultSession({api,vaultId:id,user,keys:identityKeys});
+        await session.load();
+        if (!cancelled) {
+          vaultSessionRef.current = session;
+          setVaultDataKey(session.key);
+        } else session.clear();
       } catch (error) {
         safeLogError('Erro ao carregar acesso criptográfico do cofre.', error);
         if (!cancelled) {
@@ -391,38 +371,25 @@ export default function ClientVault() {
 
     loadVaultAccess();
     return () => { cancelled = true; };
-  }, [id, isVaultUnlocked, masterKey, user]);
+  }, [id, isVaultUnlocked, masterKey, user, identityKeys]);
 
-  const prepareVaultKeyShares = async (publicKeysBase64) => {
-    if (!effectiveVaultPermissions || (!effectiveVaultPermissions.is_owner && !effectiveVaultPermissions.is_admin)) {
-      throw new Error('Você não possui permissão para redistribuir a chave deste cofre.');
-    }
-
-    if (encryptedVaultKeyShare) {
-      return reencryptVaultKeyShareForPublicKeys(
-        encryptedVaultKeyShare,
-        user?.encrypted_private_key,
-        masterKey,
-        publicKeysBase64
-      );
-    }
-
-    if (effectiveVaultPermissions.is_owner) {
-      return encryptOwnerVaultKeyForPublicKeys(publicKeysBase64);
-    }
-
-    throw new Error('A chave criptográfica deste cofre não está disponível para compartilhamento.');
+  const saveCryptoShares = async (shares) => {
+    if (!vaultSessionRef.current) throw new Error('Cofre bloqueado.');
+    await vaultSessionRef.current.migrateOrRotate(shares);
+    setVaultDataKey(vaultSessionRef.current.key);
   };
 
   useEffect(() => {
-    if (vaultDataKey) loadVaultItems();
+    if (vaultDataKey) queueMicrotask(loadVaultItems);
+    // Loading is keyed to the active vault and its in-memory key, not form edits.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, vaultDataKey]);
 
   const handleSaveData = async (category, data, options = {}) => {
     const { showSuccess = true, successMessage } = options;
 
     if (!vaultDataKey) {
-      alert('Cofre bloqueado. Por favor, insira sua senha mestre para continuar.');
+      alert('Cofre bloqueado. Por favor, insira seu segredo de desbloqueio para continuar.');
       return false;
     }
 
@@ -434,14 +401,6 @@ export default function ClientVault() {
     setIsSaving(true);
     try {
       const normalizedData = category === 'Servidor TS' ? normalizeTsForm(data) : data;
-      const metadata = {
-        category,
-        description: category === 'Servidor TS'
-          ? `${normalizedData.servers.length} servidor(es), ${normalizedData.users.length} usuário(s)`
-          : normalizedData.type || normalizedData.url || normalizedData.port || 'Registro do cofre',
-        timestamp: new Date().toISOString()
-      };
-
       let encryptedAttachment = null;
       let dataToEncrypt = { ...normalizedData };
 
@@ -456,17 +415,10 @@ export default function ClientVault() {
         dataToEncrypt.attachmentName = normalizedData.attachment.name;
       }
 
-      const encryptedData = await encryptData(dataToEncrypt, vaultDataKey);
-      const payload = {
-        category,
-        encrypted_data: encryptedData,
-        encrypted_attachment: encryptedAttachment,
-        metadata
-      };
+      if (encryptedAttachment) dataToEncrypt.encryptedAttachment = encryptedAttachment;
+      await vaultSessionRef.current.saveCategory(category, dataToEncrypt);
 
-      await api.post(`/vault-items/${id}`, payload);
-
-      if (category === 'cPanel') {
+      if (category === 'cPanel' && effectiveVaultPermissions?.can_edit) {
         const notifications = (Array.isArray(normalizedData.cpanels) ? normalizedData.cpanels : [])
           .filter((cpanel) => cpanel?.domainExpirationNotifyEnabled)
           .map((cpanel) => ({
@@ -572,8 +524,9 @@ export default function ClientVault() {
     setIsDeletingModule(true);
     try {
       const response = await api.delete(`/clients/${id}/modules/${modulePendingDeletion.id}`, {
-        data: { confirmation: moduleDeleteConfirmation.trim() }
+        data: { confirmation: moduleDeleteConfirmation.trim(), revision: vaultSessionRef.current?.state?.revision }
       });
+      await vaultSessionRef.current.load();
       const nextModules = normalizeEnabledModules(response.data?.enabledModules) || [];
       const deletedCategories = MODULE_VAULT_CATEGORIES[modulePendingDeletion.id] || [];
 
@@ -601,15 +554,7 @@ export default function ClientVault() {
 
   const handleUnlock = async (e) => {
     e.preventDefault();
-    const userWrappedKey = user?.wrapped_key;
-    const userSalt = user?.crypto_salt;
-
-    if (!userWrappedKey || !isValidCryptoSalt(userSalt)) {
-      alert('Não foi possível inicializar a chave criptográfica do usuário. Entre em contato com o administrador.');
-      return;
-    }
-
-    const result = await unlockVault(unlockPassword, userWrappedKey, userSalt);
+    const result = await unlockVault(unlockPassword);
     if (!result.success) {
       alert(result.error);
     } else {
@@ -622,6 +567,8 @@ export default function ClientVault() {
     lockVault('manual');
   };
 
+  // Legacy JSX retained as a Vite transform anchor.
+  // eslint-disable-next-line no-unused-vars
   const handleDownloadAttachment = async (item) => {
     if (!item.encrypted_attachment) return;
 
@@ -734,6 +681,7 @@ export default function ClientVault() {
     }
   };
 
+  // eslint-disable-next-line no-unused-vars
   const updateTsUser = (userId, field, value) => {
     setTsForm((current) => ({
       ...current,
@@ -741,6 +689,7 @@ export default function ClientVault() {
     }));
   };
 
+  // eslint-disable-next-line no-unused-vars
   const removeTsUser = async (userId) => {
     if (!window.confirm('Deseja remover este usuário da lista?')) return;
     
@@ -808,13 +757,13 @@ export default function ClientVault() {
           <h2 className="text-xl font-bold text-slate-900">Cofre Bloqueado</h2>
           <p className="text-sm text-slate-500 mt-2">
             {vaultLockReason === 'inactivity'
-              ? 'Cofre bloqueado por inatividade. Digite sua senha para desbloquear novamente.'
-              : 'Sua chave de criptografia foi removida da memória. Insira sua senha mestre novamente para derivar a chave e desbloquear o cofre.'}
+              ? 'Cofre bloqueado por inatividade. Digite seu segredo de desbloqueio novamente.'
+              : 'Sua chave de criptografia foi removida da memória. Insira seu segredo de desbloqueio novamente para derivar a chave e desbloquear o cofre.'}
           </p>
         </div>
 
         <form onSubmit={handleUnlock} className="space-y-4">
-          <SecurePasswordInput name="unlock_password" label="Senha Mestre" value={unlockPassword} onChange={(e) => setUnlockPassword(e.target.value)} required />
+          <SecurePasswordInput name="unlock_password" label="Segredo de desbloqueio" value={unlockPassword} onChange={(e) => setUnlockPassword(e.target.value)} required />
           <button type="submit" className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700">
             Desbloquear Cofre
           </button>
@@ -828,6 +777,11 @@ export default function ClientVault() {
       <div className="max-w-2xl mx-auto mt-10 rounded-lg border border-amber-200 bg-amber-50 p-6 text-amber-900">
         <h2 className="text-lg font-semibold">Acesso criptográfico pendente</h2>
         <p className="mt-2 text-sm">{vaultKeyError}</p>
+        {effectiveVaultPermissions?.is_owner && <button type="button" className="mt-3 rounded border px-3 py-2 text-sm" onClick={async()=>{
+          const session=new VaultSession({api,vaultId:id,user,keys:identityKeys});
+          try {await session.abortMigration();await session.load();vaultSessionRef.current=session;setVaultDataKey(session.key);setVaultKeyError('');}
+          catch(error){setVaultKeyError(error.response?.data?.code || error.message);}
+        }}>Descartar somente o staging e repetir a migração</button>}
         <Link to="/" className="inline-flex mt-4 text-sm font-medium text-indigo-600 hover:text-indigo-800">Voltar aos cofres</Link>
       </div>
     );
@@ -1267,7 +1221,7 @@ export default function ClientVault() {
               </button>
             </div>
             <div className="p-6">
-              <VaultSharingManager clientId={id} prepareKeyShares={prepareVaultKeyShares} compact />
+              <VaultSharingManager clientId={id} saveCryptoShares={saveCryptoShares} compact />
             </div>
           </div>
         </div>

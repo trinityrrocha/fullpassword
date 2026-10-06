@@ -29,6 +29,11 @@ services:
         BACKEND_APP_COMMIT: ${BACKEND_APP_COMMIT:-unknown}
     container_name: fullpassword_backend
     restart: always
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=512m
     healthcheck:
       test: ["CMD", "node", "scripts/check-health.js"]
       interval: 10s
@@ -44,6 +49,7 @@ services:
       - DB_USER=${DB_USER:-fullpassword_user}
       - DB_PASSWORD=${DB_PASSWORD:?DB_PASSWORD obrigatória}
       - DB_NAME=${DB_NAME:-fullpassword_db}
+      - DB_SCHEMA_MODE=${DB_SCHEMA_MODE:-migrate}
       - NODE_ENV=production
       - JWT_SECRET=${JWT_SECRET:?JWT_SECRET obrigatória}
       - JWT_EXPIRES_IN=${JWT_EXPIRES_IN:-8h}
@@ -65,22 +71,6 @@ services:
     volumes:
       - updater_requests:/var/lib/fullpassword-updater
       - backup_archives:/var/lib/fullpassword-backups
-    networks:
-      - fullpassword_network
-
-  updater:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    container_name: fullpassword_updater
-    restart: always
-    command: ["sh", "/opt/fullpassword/scripts/updater-daemon.sh"]
-    environment:
-      - APP_DIR=/opt/fullpassword
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - ./:/opt/fullpassword
-      - updater_requests:/var/lib/fullpassword-updater
     networks:
       - fullpassword_network
 

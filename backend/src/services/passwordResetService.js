@@ -280,7 +280,7 @@ const completePasswordReset = async (req, payload, passwordValidation) => {
     );
   }
 
-  const identity = validateResetCryptoPayload(payload);
+  // Recovery changes authentication only. Never replace or delete encryption identities.
   const passwordHash = await argon2.hash(payload.new_password, { type: argon2.argon2id });
   const client = await db.pool.connect();
   let resetUser;
@@ -312,7 +312,8 @@ const completePasswordReset = async (req, payload, passwordValidation) => {
         : '';
       if (/^\d{6}$/.test(mfaCode) && settings) {
         try {
-          mfaValid = verifyTotp(settings, mfaCode);
+          await require('./sensitiveFactorService').consumeTotp(client,reset.user_id,mfaCode);
+          mfaValid = true;
           if (mfaValid) mfaMethod = 'totp';
         } catch {
           mfaValid = false;
@@ -342,36 +343,8 @@ const completePasswordReset = async (req, payload, passwordValidation) => {
     }
 
     await client.query(
-      `UPDATE users
-       SET hash_senha_login = $1,
-           crypto_salt = $2,
-           wrapped_key = $3,
-           public_key = $4,
-           encrypted_private_key = $5,
-           kdf_version = $6,
-           kdf_name = $7,
-           kdf_hash = $8,
-           kdf_iterations = $9,
-           rsa_key_size = $10,
-           rsa_key_version = $11,
-           token_version = token_version + 1,
-           must_change_password = FALSE,
-           updated_at = CURRENT_TIMESTAMP
-       WHERE id = $12`,
-      [
-        passwordHash,
-        payload.crypto_salt,
-        payload.wrapped_key,
-        identity.publicKey,
-        identity.encryptedPrivateKey,
-        CURRENT_KDF_PARAMS.version,
-        CURRENT_KDF_PARAMS.name,
-        CURRENT_KDF_PARAMS.hash,
-        CURRENT_KDF_PARAMS.iterations,
-        identity.rsaKeySize,
-        identity.rsaKeyVersion,
-        reset.user_id
-      ]
+      'UPDATE users SET hash_senha_login=$1, token_version=token_version+1, must_change_password=FALSE, updated_at=CURRENT_TIMESTAMP WHERE id=$2',
+      [passwordHash,reset.user_id]
     );
 
     const sessions = await client.query(
@@ -380,16 +353,8 @@ const completePasswordReset = async (req, payload, passwordValidation) => {
        WHERE user_id = $1 AND revoked_at IS NULL`,
       [reset.user_id]
     );
-    const clientShares = await client.query(
-      'DELETE FROM client_key_shares WHERE user_id = $1',
-      [reset.user_id]
-    );
-    const vaultShares = await client.query(
-      'DELETE FROM vault_shares WHERE user_id = $1',
-      [reset.user_id]
-    );
-    removedClientShares = clientShares.rowCount || 0;
-    removedVaultShares = vaultShares.rowCount || 0;
+    // Existing envelopes remain recoverable with the unchanged independent unlock secret.
+
 
     await client.query(
       `UPDATE password_reset_tokens

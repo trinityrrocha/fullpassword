@@ -22,20 +22,20 @@ function readGitCommitFromDir(gitDir) {
     const refPath = path.join(gitDir, head.replace('ref:', '').trim())
 
     if (fs.existsSync(refPath)) {
-      return fs.readFileSync(refPath, 'utf8').trim().slice(0, 7)
+      return fs.readFileSync(refPath, 'utf8').trim()
     }
 
     return null
   }
 
-  return head.slice(0, 7)
+  return head
 }
 
 function readGitCommit() {
   const envCommit = process.env.VITE_APP_COMMIT || process.env.APP_COMMIT || process.env.GIT_COMMIT
 
   if (envCommit) {
-    return String(envCommit).trim().slice(0, 7)
+    return String(envCommit).trim()
   }
 
   const possibleGitDirs = [
@@ -179,11 +179,20 @@ function clientVaultUiPlugin() {
   }
 }
 
-const appCommit = readGitCommit()
+const appRevision = readGitCommit()
+const appCommit = appRevision === 'unknown' ? appRevision : appRevision.slice(0, 7)
+const releaseMetadataPlugin = () => ({
+  name: 'release-metadata',
+  generateBundle() {
+    this.emitFile({ type: 'asset', fileName: 'version.json', source: JSON.stringify({
+      revision: /^[a-f0-9]{40}$/.test(appRevision) ? appRevision : null
+    }) })
+  }
+})
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [clientVaultUiPlugin(), clientVaultSharingPlugin(), clientVaultClientHeaderPlugin(), clientVaultVpnPlugin(), clientVaultWindowsPlugin(), clientVaultLinuxPlugin(), clientVaultDevicesPlugin(), clientVaultCardIconsPlugin(), react()],
+  plugins: [releaseMetadataPlugin(), clientVaultUiPlugin(), clientVaultSharingPlugin(), clientVaultClientHeaderPlugin(), clientVaultVpnPlugin(), clientVaultWindowsPlugin(), clientVaultLinuxPlugin(), clientVaultDevicesPlugin(), clientVaultCardIconsPlugin(), react()],
   define: {
     __APP_COMMIT__: JSON.stringify(appCommit),
     Share2: '((props) => null)',

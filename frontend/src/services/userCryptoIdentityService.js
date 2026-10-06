@@ -1,69 +1,40 @@
-import {
-  deriveMasterKey,
-  encryptPrivateKey,
-  exportPublicKey,
-  generateRSAKeyPair,
-  resolveKdfParams,
-  unwrapMasterKey
-} from './cryptoService.js';
+import { deriveMasterKey, resolveKdfParams, unwrapMasterKeyForTransientUse } from './cryptoService.js';
+import { createIndependentIdentity, unlockIndependentIdentity, sealLegacyArchive, openLegacyArchive } from './vaultCryptoV2.js';
 
-export const hasUserCryptoIdentity = (user) => Boolean(
-  user?.public_key && user?.encrypted_private_key
-);
-
-export const ensureUserCryptoIdentity = async ({
-  user,
-  password,
-  saveIdentity
-}) => {
+export const hasUserCryptoIdentity = user => user?.crypto_identity?.version === 2;
+export const ensureUserCryptoIdentity = async ({user,password,unlockSecret,saveIdentity,mfaCode}) => {
   if (!user) throw new Error('Usuário não autenticado.');
-  if (hasUserCryptoIdentity(user)) return { user, created: false };
-  if (
-    !password
-    || !user.wrapped_key
-    || !user.crypto_salt
-    || typeof saveIdentity !== 'function'
-  ) {
-    throw new Error('Não foi possível inicializar a identidade criptográfica da conta.');
+  if (hasUserCryptoIdentity(user)) return {user,created:false};
+  if (!unlockSecret || unlockSecret.length < 16 || unlockSecret === password) {
+    throw new Error('Use um segredo de desbloqueio diferente da senha de login, com pelo menos 16 caracteres.');
   }
-
-  const transientCryptoMaterial = [];
-  try {
-    const kek = await deriveMasterKey(
-      password,
-      user.crypto_salt,
-      resolveKdfParams(user)
-    );
-    transientCryptoMaterial.push(kek);
-
-    const operationalUserKey = await unwrapMasterKey(user.wrapped_key, kek);
-    transientCryptoMaterial.push(operationalUserKey);
-
-    const keyPair = await generateRSAKeyPair();
-    transientCryptoMaterial.push(keyPair.privateKey);
-
-    const publicKey = await exportPublicKey(keyPair.publicKey);
-    const encryptedPrivateKey = await encryptPrivateKey(
-      keyPair.privateKey,
-      operationalUserKey
-    );
-    const response = await saveIdentity({
-      public_key: publicKey,
-      encrypted_private_key: encryptedPrivateKey
-    });
-
-    return {
-      created: true,
-      user: {
-        ...user,
-        public_key: publicKey,
-        encrypted_private_key: encryptedPrivateKey,
-        ...(response?.key_metadata || {})
-      }
-    };
-  } finally {
-    // CryptoKeys não podem ser sobrescritas pela Web Crypto API. Remover todas
-    // as referências locais garante que o material transitório seja coletável.
-    transientCryptoMaterial.length = 0;
+  const identity = await createIndependentIdentity(user.id,unlockSecret);
+  const keys = await unlockIndependentIdentity(identity,unlockSecret);
+  if (user.wrapped_key) {
+    const kek = await deriveMasterKey(password,user.crypto_salt,resolveKdfParams(user));
+    const legacyKey = await unwrapMasterKeyForTransientUse(user.wrapped_key,kek,'rewrap');
+    const bytes = new Uint8Array(await crypto.subtle.exportKey('raw',legacyKey));
+    try {
+      identity.legacyArchive = await sealLegacyArchive(keys.masterKey,user.id,{
+        masterKey:btoa(String.fromCharCode(...bytes)), encryptedPrivateKey:user.encrypted_private_key || null,
+        publicKey:user.public_key || null
+      });
+    } finally { bytes.fill(0); }
   }
+  // Only authentication password is submitted. unlockSecret never leaves this function.
+  const response = await saveIdentity({identity,current_password:password,mfa_code:mfaCode || undefined});
+  return {created:true,user:{...user,crypto_identity:response.identity},keys};
+};
+
+export const unlockUserIdentity = async (user,secret) => {
+  const keys = await unlockIndependentIdentity(user.crypto_identity,secret);
+  const archive = await openLegacyArchive(keys.masterKey,user.crypto_identity);
+  if (archive) {
+    const raw = Uint8Array.from(atob(archive.masterKey),c=>c.charCodeAt(0));
+    try {
+      keys.legacyMasterKey=await crypto.subtle.importKey('raw',raw,'AES-GCM',false,['encrypt','decrypt']);
+      keys.legacyEncryptedPrivateKey=archive.encryptedPrivateKey;
+    } finally { raw.fill(0); archive.masterKey=null; }
+  }
+  return keys;
 };

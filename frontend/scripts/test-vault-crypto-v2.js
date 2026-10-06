@@ -1,0 +1,36 @@
+import assert from 'node:assert/strict';
+import { createIndependentIdentity, unlockIndependentIdentity, createVaultEpoch, openVaultEnvelope, encryptVaultRecord, decryptVaultRecord, stageVaultRecords } from '../src/services/vaultCryptoV2.js';
+const ownerId = crypto.randomUUID(), memberId = crypto.randomUUID();
+const started = performance.now();
+const identity = await createIndependentIdentity(ownerId, 'AUDIT_TEST independent unlock secret');
+const member = await createIndependentIdentity(memberId, 'AUDIT_TEST another independent unlock secret');
+const ownerKeys = await unlockIndependentIdentity(identity, 'AUDIT_TEST independent unlock secret');
+const memberKeys = await unlockIndependentIdentity(member, 'AUDIT_TEST another independent unlock secret');
+await assert.rejects(unlockIndependentIdentity(identity, 'AUDIT_TEST login password known by backend'));
+const vaultA = crypto.randomUUID(), vaultB = crypto.randomUUID();
+const a = await createVaultEpoch(vaultA, 1, [identity, member]);
+const b = await createVaultEpoch(vaultB, 1, [identity]);
+const metadata = { vaultId: vaultA, recordId: crypto.randomUUID(), category: 'synthetic', epoch: 1, revision: 1 };
+const envelope = await encryptVaultRecord(a.key, metadata, { value: 'AUDIT_TEST' });
+const memberEnvelope = a.envelopes.find(entry => entry.userId === memberId);
+const memberVaultKey = await openVaultEnvelope(memberKeys.privateKey, memberEnvelope, { vaultId: vaultA, epoch: 1, userId: memberId, fingerprint: member.fingerprint });
+assert.deepEqual(await decryptVaultRecord(memberVaultKey, metadata, envelope), { value: 'AUDIT_TEST' });
+await assert.rejects(decryptVaultRecord(b.key, metadata, envelope));
+await assert.rejects(decryptVaultRecord(ownerKeys.masterKey, metadata, envelope));
+for (const changes of [{ vaultId: vaultB }, { recordId: crypto.randomUUID() }, { category: 'other' }, { epoch: 2 }, { revision: 2 }]) {
+  await assert.rejects(decryptVaultRecord(a.key, { ...metadata, ...changes }, envelope));
+}
+await assert.rejects(openVaultEnvelope(memberKeys.privateKey, memberEnvelope, { vaultId: vaultB, epoch: 1, userId: memberId, fingerprint: member.fingerprint }));
+const rotated = await createVaultEpoch(vaultA, 2, [identity]);
+assert.equal(rotated.envelopes.length, 1);
+const future = await encryptVaultRecord(rotated.key, { ...metadata, epoch: 2 }, { value: 'future' });
+await assert.rejects(decryptVaultRecord(memberVaultKey, { ...metadata, epoch: 2 }, future));
+await assert.rejects(crypto.subtle.exportKey('raw', a.key));
+const records = [{ id: metadata.recordId, category: 'synthetic', data: { value: 'AUDIT_TEST' } }];
+const staged = await stageVaultRecords(a.key, { vaultId: vaultA, epoch: 1 }, records);
+const resumed = await stageVaultRecords(a.key, { vaultId: vaultA, epoch: 1 }, records, new Map([[metadata.recordId, staged[0].envelope]]));
+assert.deepEqual(resumed, staged);
+await assert.rejects(stageVaultRecords(a.key, { vaultId: vaultA, epoch: 1 }, [{ ...records[0], data: 'tampered' }], new Map([[metadata.recordId, staged[0].envelope]])));
+console.log('PASS crypto v2 primitives: independent secret, vault isolation, recipient binding, rotation, AAD, non-exportability, resumable staging.');
+console.log('Synthetic identity + KDF + crypto scenario ms:', Math.round(performance.now() - started));
+console.log('Primitive test only; application migration/API coverage is in backend/scripts/test-vault-integrated-postgres.js.');

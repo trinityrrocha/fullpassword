@@ -6,7 +6,7 @@ const { safeLogError } = require('../utils/safeLogger');
 
 const isRequiredPasswordChangeRoute = (req) => {
   return (req.method === 'PUT' && req.baseUrl === '/api/users' && req.path === '/profile') ||
-    (req.baseUrl === '/api/auth' && ['/me', '/logout'].includes(req.path));
+    (req.baseUrl === '/api/auth' && ['/me', '/logout', '/reauth'].includes(req.path));
 };
 
 const verifyToken = async (req, res, next) => {

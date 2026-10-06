@@ -17,17 +17,18 @@ const unlockVaultSection = authContext.slice(
   authContext.indexOf('const encryptOwnerVaultKeyForPublicKeys')
 );
 
-assert.match(authContext, /ensureUserCryptoIdentity\(\{[\s\S]*user: authenticatedUser,[\s\S]*password,/);
+assert.match(authContext, /ensureUserCryptoIdentity\(\{[\s\S]*user,[\s\S]*password, unlockSecret, mfaCode/);
+assert.doesNotMatch(authContext.slice(authContext.indexOf('const login ='),authContext.indexOf('const verifyMfaLogin')), /ensureUserCryptoIdentity/);
 assert.match(authContext, /cryptoIdentitySetupRequired: !hasUserCryptoIdentity\(data\.user\)/);
 assert.match(authContext, /ensureCurrentUserCryptoIdentity/);
 assert.doesNotMatch(unlockVaultSection, /generateRSAKeyPair|exportPublicKey|encryptPrivateKey|\/users\/keys/);
 
 assert.match(login, /const submittedPassword = password;\s+setPassword\(''\);\s+const result = await login/);
-assert.match(setupModal, /new FormData\(form\)\.get\('master_password'\)/);
+assert.match(setupModal, /values\.get\('master_password'\)/);
 assert.match(setupModal, /form\.reset\(\)/);
 assert.doesNotMatch(setupModal, /\[password,\s*setPassword\]/);
 assert.match(setupModal, /Configuração de segurança necessária/);
-assert.match(setupModal, /poder receber cofres compartilhados/);
+assert.match(setupModal, /segredo de desbloqueio diferente da senha de login/);
 
 assert.doesNotMatch(
   sharingManager,
@@ -35,7 +36,7 @@ assert.doesNotMatch(
 );
 assert.match(
   sharingManager,
-  /precisam entrar no sistema uma vez para concluir a configuração das chaves de segurança da conta/
+  /saveCryptoShares\(cleanedShares\)/
 );
 assert.match(
   clientsList,

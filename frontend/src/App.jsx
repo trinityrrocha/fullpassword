@@ -1,5 +1,6 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import DashboardLayout from './layouts/DashboardLayout';
+import ReauthDialog from './components/ReauthDialog';
 
 // Páginas (serão criadas nos próximos passos)
 import Login from './pages/Login';
@@ -40,6 +41,7 @@ function RouteErrorFallback() {
 function App() {
   return (
     <Router>
+      <ReauthDialog />
       <Routes>
         <Route path="/login" element={<Login />} errorElement={<RouteErrorFallback />} />
         <Route path="/forgot-password" element={<ForgotPassword />} errorElement={<RouteErrorFallback />} />

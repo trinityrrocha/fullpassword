@@ -21,12 +21,16 @@ export default function UserCryptoIdentitySetup() {
     if (isSaving) return;
 
     const form = event.currentTarget;
-    const password = String(new FormData(form).get('master_password') || '');
+    const values = new FormData(form);
+    const password = String(values.get('master_password') || '');
+    const unlockSecret = String(values.get('unlock_secret') || '');
+    if (unlockSecret !== values.get('unlock_confirm')) { setError('Os segredos de desbloqueio não coincidem.'); return; }
+    const mfaCode = String(values.get('mfa_code') || '');
     form.reset();
     setError('');
     setIsSaving(true);
     try {
-      const result = await ensureCurrentUserCryptoIdentity(password);
+      const result = await ensureCurrentUserCryptoIdentity(password, unlockSecret, mfaCode);
       if (!result.success) setError(result.error);
     } finally {
       setIsSaving(false);
@@ -50,11 +54,11 @@ export default function UserCryptoIdentitySetup() {
         <form onSubmit={handleSubmit}>
           <div className="space-y-4 p-6">
             <p className="text-sm text-slate-600">
-              Sua conta precisa concluir a geração das chaves criptográficas para poder receber cofres compartilhados. Informe sua senha mestre para concluir a configuração.
+              Crie um segredo de desbloqueio diferente da senha de login. Ele nunca é enviado ao servidor. Guarde-o com segurança: redefinir a senha de login não recupera este segredo. Os cofres antigos serão migrados pelo proprietário ao serem abertos.
             </p>
             <div>
               <label htmlFor="crypto-identity-password" className="mb-1 block text-sm font-medium text-slate-700">
-                Senha mestre
+                Senha de login atual
               </label>
               <input
                 id="crypto-identity-password"
@@ -66,6 +70,15 @@ export default function UserCryptoIdentitySetup() {
                 className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
               />
             </div>
+            <label className="block text-sm">Novo segredo de desbloqueio (mínimo 16 caracteres)
+              <input name="unlock_secret" type="password" minLength={16} required autoComplete="new-password" className="w-full rounded border p-2" />
+            </label>
+            <label className="block text-sm">Confirmar segredo de desbloqueio
+              <input name="unlock_confirm" type="password" minLength={16} required autoComplete="new-password" className="w-full rounded border p-2" />
+            </label>
+            <label className="block text-sm">Código MFA atual, se habilitado
+              <input name="mfa_code" inputMode="numeric" autoComplete="one-time-code" maxLength={6} className="w-full rounded border p-2" />
+            </label>
             {error && (
               <p role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
                 {error}

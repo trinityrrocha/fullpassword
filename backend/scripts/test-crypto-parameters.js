@@ -87,7 +87,7 @@ const run = async () => {
   assert.match(initSql, /kdf_iterations INTEGER NOT NULL DEFAULT 100000/);
   assert.match(initSql, /rsa_key_size INTEGER NOT NULL DEFAULT 2048/);
   assert.match(cryptoService, /modulusLength:\s*RSA_KEY_PARAMS\.modulusLength/);
-  assert.match(authContext, /resolveKdfParams\(user \|\| \{\}\)/);
+  assert.match(authContext, /unlockUserIdentity\(user,secret\)/);
   assert.match(profileModal, /deriveMasterKey\(formData\.newPassword, currentSalt, KDF_PARAMS\)/);
 
   console.log('Crypto parameter versioning tests passed.');
