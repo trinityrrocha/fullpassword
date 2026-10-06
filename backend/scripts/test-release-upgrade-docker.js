@@ -94,7 +94,8 @@ async function main(){
   run('docker',['run','-d','--name',recoveryContainer,'--network',project+'_default','-p','127.0.0.1:55433:5432','-e','POSTGRES_PASSWORD='+pgPassword,'-v',project+'_recovery_data:/var/lib/postgresql/data','postgres:15-alpine']);
   await waitFor(()=>run('docker',['exec',recoveryContainer,'pg_isready','-U','postgres']).includes('accepting connections'));
   restoredDatabase=new Client({host:'127.0.0.1',port:55433,user:'postgres',password:pgPassword,database:'postgres'});await restoredDatabase.connect();
-  await restoredDatabase.query(dump);assert.deepEqual(await snapshot(restoredDatabase),before);
+  run('docker',['exec','-i',recoveryContainer,'psql','-v','ON_ERROR_STOP=1','-U','postgres','-d','postgres'],{input:dump});
+  assert.deepEqual(await snapshot(restoredDatabase),before);
   console.log('PASS old image/schema + data, stopped writers, recovery restored into a SECOND PostgreSQL container/volume.');
   await database.query("CREATE ROLE fp_runtime LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD '"+runtimePassword+"'");
   await database.query('GRANT CONNECT ON DATABASE postgres TO fp_runtime; REVOKE CREATE ON SCHEMA public FROM PUBLIC; GRANT USAGE ON SCHEMA public TO fp_runtime; GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA public TO fp_runtime; GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA public TO fp_runtime; ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT,INSERT,UPDATE,DELETE ON TABLES TO fp_runtime; ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE,SELECT ON SEQUENCES TO fp_runtime;');
@@ -160,7 +161,8 @@ async function main(){
   // Recovery is MORE than image rollback: restore the saved bootstrap DB into the second
   // PostgreSQL volume, with preserved operational config/secrets and compatible backend.
   await restoredDatabase.query("CREATE ROLE fp_runtime LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD '"+runtimePassword+"'");
-  await restoredDatabase.query(bootstrapDump);assert.deepEqual(await snapshot(restoredDatabase),before);
+  run('docker',['exec','-i',recoveryContainer,'psql','-v','ON_ERROR_STOP=1','-U','postgres','-d','postgres'],{input:bootstrapDump});
+  assert.deepEqual(await snapshot(restoredDatabase),before);
   const recoveryApi=project+'-recovery-api';
   const recoveryEnvironment={...config.services.backend.environment,DB_HOST:recoveryContainer};
   const envArgs=Object.entries(recoveryEnvironment).flatMap(([name,value])=>['-e',name+'='+value]);
