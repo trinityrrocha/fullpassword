@@ -30,6 +30,19 @@ const run=(command,args)=>{const result=spawnSync(command,args,{encoding:'utf8',
 const verifyInstalledRevision=(manifest,health,frontend)=>{
  if(health.commit!==manifest.revision || health.schema_ready!==true || frontend.revision!==manifest.revision) throw new Error('DEPLOY_REVISION_MISMATCH');
 };
+const verifyDeployment=(policy,manifest)=>{
+ const compose=['compose','--project-directory',path.dirname(policy.composeFile),'-f',policy.composeFile];
+ const health=JSON.parse(run('docker',[...compose,'exec','-T','backend','node','-e',"fetch('http://127.0.0.1:3000/api/health').then(r=>r.text()).then(console.log)"]));
+ const frontend=JSON.parse(run('docker',[...compose,'exec','-T','frontend','cat','/usr/share/nginx/html/version.json']));
+ verifyInstalledRevision(manifest,health,frontend);
+ for(const service of ['backend','frontend']) {
+  const id=run('docker',[...compose,'ps','-q',service]);
+  const image=run('docker',['inspect','--format','{{.Image}}',id]);
+  const expected=run('docker',['image','inspect','--format','{{.Id}}',manifest[service]]);
+  const digests=JSON.parse(run('docker',['image','inspect','--format','{{json .RepoDigests}}',manifest[service]]));
+  if(image!==expected || !digests?.includes(manifest[service])) throw new Error('DEPLOY_DIGEST_MISMATCH');
+ }
+};
 const deploy=(manifestPath,signaturePath)=>{
  if(process.platform==='win32' || process.getuid?.()!==0) throw new Error('OPERATOR_ROOT_REQUIRED');
  const policy=JSON.parse(protectedRead('/etc/fullpassword/release-policy.json'));
@@ -60,10 +73,15 @@ const deploy=(manifestPath,signaturePath)=>{
  fs.writeFileSync(override,JSON.stringify({services:{backend:{image:manifest.backend},frontend:{image:manifest.frontend}}}),{mode:0o600});
  try {
   run('docker',[...compose,'-f',override,'pull','backend','frontend']);
+  if(policy.migrateSchema===true) {
+   if(!resolved.services?.['schema-migrate']) throw new Error('SCHEMA_MIGRATION_SERVICE_REQUIRED');
+   // A short-lived operator service holds DDL credentials; they never enter the runtime backend.
+   fs.writeFileSync(override,JSON.stringify({services:{backend:{image:manifest.backend},frontend:{image:manifest.frontend},'schema-migrate':{image:manifest.backend}}}),{mode:0o600});
+   run('docker',[...compose,'stop','backend']);
+   run('docker',[...compose,'-f',override,'run','--rm','--no-deps','schema-migrate','node','scripts/migrate-schema.js']);
+  }
   run('docker',[...compose,'-f',override,'up','-d','--no-build','--wait','--wait-timeout','180','backend','frontend']);
-  const health=JSON.parse(run('docker',[...compose,'exec','-T','backend','node','-e',"fetch('http://127.0.0.1:3000/api/health').then(r=>r.text()).then(console.log)"]));
-  const frontend=JSON.parse(run('docker',[...compose,'exec','-T','frontend','cat','/usr/share/nginx/html/version.json']));
-  verifyInstalledRevision(manifest,health,frontend);
+  verifyDeployment(policy,manifest);
   fs.writeFileSync(path.join(state,'installed.json'),JSON.stringify({revision:manifest.revision,backend:manifest.backend,frontend:manifest.frontend,rollback}),{mode:0o600});
  } catch(error) {
   run('docker',[...compose,'-f',rollback,'up','-d','--no-build','--wait','--wait-timeout','180','backend','frontend']);
@@ -76,4 +94,4 @@ if(require.main===module){
  try{if(process.argv.length!==4)throw new Error('Usage: node deploy-approved-release.js manifest.json manifest.sig');deploy(process.argv[2],process.argv[3]);}
  catch(error){console.error(error.message);process.exitCode=1;}
 }
-module.exports={validateManifest,verifyInstalledRevision};
+module.exports={validateManifest,verifyInstalledRevision,protectedRead,deploy,verifyDeployment};

@@ -84,7 +84,14 @@ export class VaultSession {
     if(!state.stage) {
       const directory=(await this.api.post(this.path('/recipients'),shares ? {shares} : {})).data;
       const next=await createVaultEpoch(this.id,state.epoch+1,directory.recipients);
-      await this.api.post(this.path('/stages'),{sourceHash:state.sourceHash,recordCount:original.length,records:[],envelopes:next.envelopes,shares:directory.shares});
+      const scopedItems=[];
+      for(const item of directory.directItems || []) {
+        const snapshot=original.find(row=>row.category==='__history' && row.entity_id===item.itemId)?.data;
+        if(!snapshot) throw new Error('Item compartilhado ausente. Originais preservados.');
+        const scoped=await createVaultEpoch(item.itemId,1,item.recipients);
+        scopedItems.push({itemId:item.itemId,envelopes:scoped.envelopes,envelope:await encryptVaultRecord(scoped.key,{vaultId:item.itemId,recordId:item.itemId,category:'legacy-item',epoch:1,revision:1},snapshot)});
+      }
+      await this.api.post(this.path('/stages'),{sourceHash:state.sourceHash,recordCount:original.length,records:[],envelopes:next.envelopes,shares:directory.shares,scopedItems});
       state=await this.readState();
     }
     let stage=state.stage;
@@ -109,6 +116,12 @@ export class VaultSession {
     stage=(await this.readState()).stage;
     const candidateKey=await this.openEnvelope(stage.envelopes,stage.target_epoch);
     const verified=await this.decode(stage.records,candidateKey);
+    for(const item of stage.scoped_items || []) {
+      const envelope=item.envelopes.find(e=>e.userId===this.user.id);
+      const key=await openVaultEnvelope(this.keys.privateKey,envelope,{vaultId:item.itemId,epoch:1,userId:this.user.id,fingerprint:this.user.crypto_identity.fingerprint});
+      const snapshot=await decryptVaultRecord(key,{vaultId:item.itemId,recordId:item.itemId,category:'legacy-item',epoch:1,revision:1},item.envelope);
+      if(canonical(snapshot)!==canonical(original.find(row=>row.category==='__history' && row.entity_id===item.itemId)?.data)) throw new Error('Falha na verificação do item compartilhado. Originais preservados.');
+    }
     if(state.epoch) {
       const byId=new Map(original.map(r=>[r.id,r]));
       if(verified.length!==original.length || verified.some(r=>canonical(r.data)!==canonical(byId.get(r.id)?.data))) throw new Error('Falha na verificação da rotação.');

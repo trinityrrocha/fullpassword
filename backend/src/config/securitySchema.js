@@ -449,6 +449,7 @@ const ensureSecuritySchema = async () => {
 
     await assertNavigationPreferencesSchema(client);
     await require('./vaultCryptoSchema').ensureVaultCryptoSchema(client);
+    await require('./itemCryptoSchema').ensureItemCryptoSchema(client);
     await require('../services/reauthService').ensureSchema(client);
     await client.query('COMMIT');
   } catch (error) {

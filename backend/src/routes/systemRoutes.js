@@ -117,9 +117,9 @@ router.patch('/ip-rules/:id/deactivate', asyncRoute(securityController.deactivat
 router.post('/ip-rules/block-from-audit', asyncRoute(securityController.blockFromAudit));
 router.get('/security-notifications', asyncRoute(securityController.getSecurityNotifications));
 router.post('/security-notifications/mark-seen', asyncRoute(securityController.markSecurityNotificationsSeen));
-router.post('/update', systemController.updateSystem);
+router.post('/update', requireSuperAdmin, asyncRoute(require('../controllers/releaseController').request));
 // systemUpdateLimiter / CSRF já são aplicados a /api/system/update no server.
-router.get('/update/status', asyncRoute(updateStatusController.getStatus));
+router.get('/update/status', requireSuperAdmin, require('../controllers/releaseController').status);
 router.post('/update/check', asyncRoute(updateStatusController.requestCheck));
 router.post('/update/mark-seen', asyncRoute(updateStatusController.markSeen));
 router.get('/backup', systemController.rejectLegacyBackupDownload);

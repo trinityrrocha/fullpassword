@@ -57,8 +57,40 @@ async function run() {
     });
     database = require('../src/config/database');
     trackPool(database.pool);
-    await database.query(await fs.readFile(path.join(__dirname, '../../database/init.sql'), 'utf8'));
+    await require('./legacy-upgrade-fixture').prepareLegacySchema(database);
+    global.window=globalThis;
+    // Populate representative data BEFORE applying any new schema guards.
+    const legacyService=await import(require('node:url').pathToFileURL(path.join(__dirname,'../../frontend/src/services/cryptoService.js')));
+    const argonBefore=require('argon2');
+    const password='SYNTHETIC_Login_!'+crypto.randomBytes(12).toString('hex');
+    const owner=crypto.randomUUID(),legacyRecipient=crypto.randomUUID(),legacyVault=crypto.randomUUID();
+    const oldKey=await legacyService.generateMasterKey(),oldSalt=crypto.randomBytes(32).toString('hex');
+    const oldParams={version:1,name:'PBKDF2',hash:'SHA-256',iterations:100000};
+    const oldWrapped=await legacyService.wrapMasterKey(oldKey,await legacyService.deriveMasterKey(password,oldSalt,oldParams));
+    await database.query("INSERT INTO users(id,name,email,hash_senha_login,role,is_super_admin,wrapped_key,crypto_salt,kdf_version,kdf_name,kdf_hash,kdf_iterations) VALUES($1,'SYNTHETIC_OWNER','owner@example.invalid',$2,'admin',true,$3,$4,1,'PBKDF2','SHA-256',100000)",[owner,await argonBefore.hash(password),oldWrapped,oldSalt]);
+    await database.query("INSERT INTO users(id,name,email,hash_senha_login,role) VALUES($1,'SYNTHETIC_ITEM_RECIPIENT','item@example.invalid',$2,'user')",[legacyRecipient,await argonBefore.hash(password)]);
+    await database.query("INSERT INTO clients(id,name,created_by) VALUES($1,'SYNTHETIC_LEGACY',$2)",[legacyVault,owner]);
+    const legacyData={servers:[{id:'old-server',name:'SYNTHETIC_LEGACY_RECORD'}],users:[]};
+    const cipher=await legacyService.encryptData(legacyData,oldKey);
+    const attachment={filename:'synthetic.txt',content:'SYNTHETIC_ATTACHMENT_ONLY'};
+    const attachmentCipher=await legacyService.encryptData(attachment,oldKey);
+    const legacyItem=(await database.query("INSERT INTO vault_items(client_id,category,encrypted_data,encrypted_attachment,created_by) VALUES($1,'Servidor TS',$2,$3,$4) RETURNING id",[legacyVault,cipher,attachmentCipher,owner])).rows[0].id;
+    const historicData={servers:[{id:'old-server',name:'SYNTHETIC_PREVIOUS_VERSION'}],users:[]};
+    const historicItem=(await database.query("INSERT INTO vault_items(client_id,category,encrypted_data,created_by,created_at) VALUES($1,'Servidor TS',$2,$3,CURRENT_TIMESTAMP-INTERVAL '1 hour') RETURNING id",[legacyVault,await legacyService.encryptData(historicData,oldKey),owner])).rows[0].id;
+    await database.query('INSERT INTO vault_shares(vault_item_id,user_id,encrypted_vault_key) VALUES($1,$2,$3)',[legacyItem,legacyRecipient,'SYNTHETIC_LEGACY_ENVELOPE']);
+    const existingGroup=crypto.randomUUID();
+    await database.query("INSERT INTO groups(id,name,can_view,can_edit,can_add,can_delete) VALUES($1,'SYNTHETIC_EXISTING_READER',true,false,false,false)",[existingGroup]);
+    await database.query('INSERT INTO user_groups(user_id,group_id) VALUES($1,$2)',[legacyRecipient,existingGroup]);
+    // A distinct old vault for group access; direct access to legacyVault must stay item-only.
+    const existingGroupVault=crypto.randomUUID();
+    await database.query("INSERT INTO clients(id,name,created_by) VALUES($1,'SYNTHETIC_OLD_GROUP_VAULT',$2)",[existingGroupVault,owner]);
+    await database.query('INSERT INTO client_group_access(client_id,group_id,can_view,can_edit,can_add,can_delete) VALUES($1,$2,true,false,false,false)',[existingGroupVault,existingGroup]);
     await require('../src/config/securitySchema').ensureSecuritySchema();
+    await require('../src/config/securitySchema').ensureSecuritySchema();
+    assert.equal((await database.query('SELECT encrypted_data FROM vault_items WHERE id=$1',[legacyItem])).rows[0].encrypted_data,cipher);
+    assert.equal((await database.query('SELECT count(*)::int n FROM vault_shares WHERE vault_item_id=$1',[legacyItem])).rows[0].n,1);
+    assert.equal((await database.query('SELECT can_edit FROM client_group_access WHERE client_id=$1',[existingGroupVault])).rows[0].can_edit,false);
+    console.log('PASS d9a7a37 -> current schema: pre-existing users, group/item grants, limited permissions, snapshots and attachment preserved.');
     console.log('Integration: schema ready.');
     const stagingSql = await fs.readFile(path.join(__dirname, '../../database/migrations/21_stage_isolated_vault_crypto.sql'), 'utf8');
     await database.query(stagingSql);
@@ -73,7 +105,6 @@ async function run() {
     const v2=await frontend('vaultCryptoV2.js');
     const legacy=await frontend('cryptoService.js');
     const argon2=require('argon2');
-    const password='SYNTHETIC_Login_!'+crypto.randomBytes(12).toString('hex');
     await database.query("CREATE ROLE audit_runtime NOSUPERUSER NOCREATEDB NOCREATEROLE");
     await database.query('GRANT USAGE ON SCHEMA public TO audit_runtime');
     await database.query('GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA public TO audit_runtime');
@@ -93,11 +124,11 @@ async function run() {
       await leastPrivilege.query('SET ROLE audit_runtime');
       await assert.rejects(leastPrivilege.query('ALTER TABLE users ADD COLUMN forbidden_test TEXT'),e=>e.code==='42501');
     } finally {await leastPrivilege.query('RESET ROLE');leastPrivilege.release();}
-    const owner=crypto.randomUUID();
-    const oldKey=await legacy.generateMasterKey(), oldSalt=crypto.randomBytes(32).toString('hex');
-    const oldWrapped=await legacy.wrapMasterKey(oldKey,await legacy.deriveMasterKey(password,oldSalt,legacy.KDF_PARAMS));
-    await database.query("INSERT INTO users(id,name,email,hash_senha_login,role,is_super_admin,wrapped_key,crypto_salt,kdf_version,kdf_name,kdf_hash,kdf_iterations) VALUES($1,'SYNTHETIC_OWNER','owner@example.invalid',$2,'admin',true,$3,$4,$5,$6,$7,$8)",[owner,await argon2.hash(password),oldWrapped,oldSalt,legacy.KDF_PARAMS.version,legacy.KDF_PARAMS.name,legacy.KDF_PARAMS.hash,legacy.KDF_PARAMS.iterations]);
     const {app}=require('../src/server');
+    const releasePublic=path.join(directory,'release-public'),releaseQueue=path.join(directory,'release-queue');
+    await fs.mkdir(releasePublic);await fs.mkdir(releaseQueue);
+    const releaseFixture=require('../src/controllers/releaseController').createController(releasePublic,releaseQueue);
+    app.post('/api/release-test',require('../src/middleware/authMiddleware').verifyToken,(req,res,next)=>Promise.resolve(releaseFixture.request(req,res)).catch(next));
     httpServer=await new Promise(resolve=>{const server=app.listen(0,'127.0.0.1',()=>resolve(server));});
     const base='http://127.0.0.1:'+httpServer.address().port+'/api';
     function browserClient() {
@@ -211,37 +242,32 @@ async function run() {
     await database.query('DELETE FROM clients WHERE id=$1',[quotaVault]);
     console.log('PASS malformed UUID rejected and cumulative vault quota includes tombstones with transactional rollback.');
 
-    const legacyVault=(await ownerApi.post('/clients',{name:'SYNTHETIC_LEGACY'})).data.id;
-    const legacyData={servers:[{id:'old-server',name:'SYNTHETIC_LEGACY_RECORD'}],users:[]};
-    const cipher=await legacy.encryptData(legacyData,oldKey);
-    const attachment={filename:'synthetic.txt',content:'SYNTHETIC_ATTACHMENT_ONLY'};
-    const attachmentCipher=await legacy.encryptData(attachment,oldKey);
-    await database.query("INSERT INTO vault_items(client_id,category,encrypted_data,encrypted_attachment,created_by) VALUES($1,'Servidor TS',$2,$3,$4)",[legacyVault,cipher,attachmentCipher,owner]);
-    const legacyItem=(await database.query('SELECT id FROM vault_items WHERE client_id=$1',[legacyVault])).rows[0].id;
-    const historicData={servers:[{id:'old-server',name:'SYNTHETIC_PREVIOUS_VERSION'}],users:[]};
-    await database.query("INSERT INTO vault_items(client_id,category,encrypted_data,created_by,created_at) VALUES($1,'Servidor TS',$2,$3,CURRENT_TIMESTAMP-INTERVAL '1 hour')",[legacyVault,await legacy.encryptData(historicData,oldKey),owner]);
     const uninitialized=crypto.randomUUID(),missingGroup=crypto.randomUUID();
     await database.query("INSERT INTO users(id,name,email,hash_senha_login,role) VALUES($1,'SYNTHETIC_MISSING','missing@example.invalid',$2,'user')",[uninitialized,await argon2.hash(password)]);
     await database.query("INSERT INTO groups(id,name,can_view) VALUES($1,'SYNTHETIC_MISSING',true)",[missingGroup]);
     await database.query('INSERT INTO user_groups(user_id,group_id) VALUES($1,$2)',[uninitialized,missingGroup]);
     await assert.rejects(ownerApi.post('/crypto/vaults/'+legacyVault+'/recipients',{shares:[{group_id:missingGroup,can_view:true}]}),
       e=>e.response.data.code==='RECIPIENT_IDENTITY_MIGRATION_REQUIRED');
-    await database.query('INSERT INTO vault_shares(vault_item_id,user_id,encrypted_vault_key) VALUES($1,$2,$3)',[legacyItem,newAccount.id,'SYNTHETIC_LEGACY_ENVELOPE']);
+    // Absent direct-recipient identity is a non-destructive blocker, resolved by that holder.
     await assert.rejects(ownerApi.post('/crypto/vaults/'+legacyVault+'/recipients',{}),
-      e=>e.response.status===409 && e.response.data.code==='LEGACY_DIRECT_SHARES_REQUIRE_REVIEW');
+      e=>e.response.status===409 && e.response.data.code==='RECIPIENT_IDENTITY_MIGRATION_REQUIRED');
     assert.equal((await database.query('SELECT count(*)::int n FROM vault_shares WHERE vault_item_id=$1',[legacyItem])).rows[0].n,1,'direct item grants must not be silently deleted');
-    // The test operator explicitly removes the synthetic grant; production migration must not do this automatically.
-    await database.query('DELETE FROM vault_shares WHERE vault_item_id=$1',[legacyItem]);
+    const directApi=browserClient();
+    let directUser=(await directApi.post('/auth/login',{email:'item@example.invalid',password})).data.user;
+    const directSecret='SYNTHETIC_Direct_Unlock_'+crypto.randomBytes(24).toString('hex');
+    directUser=(await ensureUserCryptoIdentity({user:directUser,password,unlockSecret:directSecret,saveIdentity:p=>directApi.post('/crypto/identity',p).then(r=>r.data)})).user;
+    const directKeys=await unlockUserIdentity(directUser,directSecret);
     const interruptedApi={...ownerApi,post:async(url,payload)=>{if(url.endsWith('/activate'))throw new Error('SYNTHETIC_INTERRUPT');return ownerApi.post(url,payload);}};
     await assert.rejects(new VaultSession({api:interruptedApi,vaultId:legacyVault,user:ownerUser,keys:ownerKeys}).load(),/SYNTHETIC_INTERRUPT/);
     assert.equal((await ownerApi.get('/crypto/vaults/'+legacyVault)).data.epoch,0);
+    // A new grant invalidates staging, but neither old nor new grants are deleted to resume.
     await database.query('INSERT INTO vault_shares(vault_item_id,user_id,encrypted_vault_key) VALUES($1,$2,$3)',[legacyItem,newAccount.id,'SYNTHETIC_LATE_GRANT']);
     const blockedStage=(await ownerApi.get('/crypto/vaults/'+legacyVault)).data.stage;
     await assert.rejects(ownerApi.post('/crypto/vaults/'+legacyVault+'/stages/'+blockedStage.id+'/activate',{verifiedManifestHash:blockedStage.manifest_hash}),
-      e=>e.response.data.code==='LEGACY_DIRECT_SHARES_REQUIRE_REVIEW');
+      e=>e.response.data.code==='SOURCE_CHANGED');
     assert.equal((await database.query('SELECT crypto_epoch FROM clients WHERE id=$1',[legacyVault])).rows[0].crypto_epoch,0);
-    await database.query('DELETE FROM vault_shares WHERE vault_item_id=$1',[legacyItem]);
-    console.log('PASS legacy direct shares block staging/activation without widening grants or deleting originals.');
+    await ownerApi.delete('/crypto/vaults/'+legacyVault+'/stages/'+blockedStage.id);
+    console.log('PASS changed item grants invalidate staging; resume restages without deleting any grant.');
     const resumed=new VaultSession({api:ownerApi,vaultId:legacyVault,user:ownerUser,keys:ownerKeys});
     await database.query("CREATE FUNCTION audit_fail_activation() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'SYNTHETIC_ACTIVATION_FAILURE'; END $$");
     await database.query('CREATE TRIGGER audit_fail_activation BEFORE INSERT ON vault_records FOR EACH ROW EXECUTE FUNCTION audit_fail_activation()');
@@ -259,7 +285,45 @@ async function run() {
     assert.equal(migratedHistory.length,2);
     assert.deepEqual(migratedHistory.find(r=>r.entity_id===legacyItem).data.attachment,attachment);
     assert.ok(migratedHistory.some(r=>r.data.data.servers[0].name==='SYNTHETIC_PREVIOUS_VERSION'));
+    const {openSharedItem}=await frontend('sharedItemService.js');
+    const directSnapshot=await openSharedItem({api:directApi,itemId:legacyItem,user:directUser,keys:directKeys});
+    assert.deepEqual(directSnapshot.data,legacyData);
+    assert.deepEqual(directSnapshot.attachment,attachment);
+    assert.equal((await directApi.get('/crypto/shared-items')).data.items.length,1);
+    await assert.rejects(directApi.get('/crypto/shared-items/'+historicItem),e=>e.response.status===404);
+    await assert.rejects(directApi.get('/crypto/vaults/'+legacyVault),e=>e.response.status===404);
+    assert.equal((await database.query('SELECT count(*)::int n FROM vault_crypto_envelopes WHERE client_id=$1 AND user_id=$2',[legacyVault,legacyRecipient])).rows[0].n,0);
+    assert.equal((await database.query('SELECT count(*)::int n FROM vault_shares WHERE vault_item_id=$1',[legacyItem])).rows[0].n,2);
+    const itemKeyEnvelope=(await directApi.get('/crypto/shared-items/'+legacyItem)).data.key_envelope;
+    const itemKey=await v2.openVaultEnvelope(directKeys.privateKey,itemKeyEnvelope,{vaultId:legacyItem,epoch:1,userId:directUser.id,fingerprint:directUser.crypto_identity.fingerprint});
+    await assert.rejects(v2.decryptVaultRecord(itemKey,{vaultId:legacyVault,recordId:resumed.rows[0].id,category:resumed.rows[0].category+'/'+resumed.rows[0].collection+'/'+resumed.rows[0].entity_id,epoch:1,revision:1},resumed.rows[0].envelope));
+    await database.query('DELETE FROM vault_shares WHERE vault_item_id=$1 AND user_id=$2',[legacyItem,newAccount.id]);
+    await assert.rejects(memberApi.get('/crypto/shared-items/'+legacyItem),e=>e.response.status===404);
+    assert.deepEqual((await openSharedItem({api:directApi,itemId:legacyItem,user:directUser,keys:directKeys})).data,legacyData,'revoking another recipient must not revoke this grant');
+    const groupSession=new VaultSession({api:ownerApi,vaultId:existingGroupVault,user:ownerUser,keys:ownerKeys});
+    await groupSession.load();
+    await new VaultSession({api:directApi,vaultId:existingGroupVault,user:directUser,keys:directKeys}).load();
+    console.log('PASS pre-existing direct grant: independent item key, exact snapshot/attachment, no history/vault access, no vault DEK, preserved grants and selective revocation; old group path still opens.');
     console.log('PASS missing recipient identity is blocked; legacy history and attachment decrypt identically, original ciphertexts preserved.');
+    // Real API + PostgreSQL reauth; only the transport paths are isolated test directories.
+    const releaseAction={approvalId:crypto.randomUUID(),revision:'a'.repeat(40),manifestHash:'b'.repeat(64)};
+    await fs.writeFile(path.join(releasePublic,'catalog.json'),JSON.stringify({...releaseAction,expiresAt:new Date(Date.now()+3600000).toISOString()}));
+    await assert.rejects(directApi.post('/release-test',releaseAction),e=>e.response.status===403);
+    await assert.rejects(ownerApi.post('/release-test',{...releaseAction,url:'https://evil.example.invalid'}),e=>e.response.status===400);
+    await assert.rejects(ownerApi.post('/release-test',releaseAction),e=>e.response.data.code==='REAUTH_REQUIRED');
+    const releaseMfa=require('../src/services/mfaService'),authenticatorRelease=require('otplib').authenticator;
+    const releaseTotp=authenticatorRelease.generateSecret();
+    await database.query('INSERT INTO user_mfa_settings(user_id,totp_secret_encrypted,enabled) VALUES($1,$2,true)',[owner,releaseMfa.encryptSecret(releaseTotp)]);
+    await assert.rejects(ownerApi.post('/auth/reauth',{purpose:'system_release',action:releaseAction,current_password:password}),e=>e.response.status===403);
+    const releaseGrant=(await ownerApi.post('/auth/reauth',{purpose:'system_release',action:releaseAction,current_password:password,mfa_code:authenticatorRelease.generate(releaseTotp)})).data.token;
+    await assert.rejects(ownerApi.post('/release-test',{...releaseAction,manifestHash:'c'.repeat(64),_reauth_token:releaseGrant}),e=>e.response.status===409);
+    assert.equal((await ownerApi.post('/release-test',{...releaseAction,_reauth_token:releaseGrant})).data.state,'requested');
+    await assert.rejects(ownerApi.post('/release-test',{...releaseAction,_reauth_token:releaseGrant}),e=>e.response.data.code==='REAUTH_REQUIRED');
+    const queued=JSON.parse(await fs.readFile(path.join(releaseQueue,releaseAction.approvalId+'.json'),'utf8'));
+    assert.deepEqual(Object.keys(queued).sort(),['approvalId','manifestHash','requestId','revision']);
+    assert.equal(queued.revision,releaseAction.revision);
+    await database.query('DELETE FROM user_mfa_settings WHERE user_id=$1',[owner]);
+    console.log('PASS release API: Super Admin, exact payload, real PostgreSQL action-bound reauth/MFA, one-time grant and credential-free queue.');
     // Reauth is session-, purpose- and exact-action-bound and single use.
     const profile={name:'SYNTHETIC_OWNER',email:'new-owner@example.invalid'};
     await assert.rejects(ownerApi.put('/users/profile',profile),e=>e.response.data.code==='REAUTH_REQUIRED');
@@ -333,7 +397,12 @@ async function run() {
     assert.equal(childState.ready,true);
     const exited=new Promise(resolve=>child.once('exit',resolve));child.kill('SIGKILL');await exited;
     const afterCrash=makePair();passed=false;
-    await createRestoreUploadGuard()(afterCrash.req,afterCrash.res,()=>{passed=true;});
+    // OS exit precedes PostgreSQL processing the socket EOF; bound the observation,
+    // never forcibly release another worker's lock to make this assertion pass.
+    for(let attempt=0;attempt<25 && !passed;attempt++) {
+      await createRestoreUploadGuard()(afterCrash.req,afterCrash.res,()=>{passed=true;});
+      if(!passed) await new Promise(resolve=>setTimeout(resolve,200));
+    }
     assert.equal(passed,true,'new instance acquires lease after worker process death');
     assert.equal(await fs.stat(childState.upload).then(()=>true,()=>false),false,'orphan removed after real process death');
     await afterCrash.req.releaseRestoreLease();

@@ -37,7 +37,8 @@ const issue=async(req,res)=>{
  try {
   await client.query('BEGIN');
   const purpose=req.body.purpose;
-  if(!/^profile_change$|^admin_(?:user_change|mfa_policy|mfa_reset|user_delete):[0-9a-f-]{36}$/.test(purpose || '')) throw denied(purpose);
+  if(!/^profile_change$|^system_release$|^admin_(?:user_change|mfa_policy|mfa_reset|user_delete):[0-9a-f-]{36}$/.test(purpose || '')) throw denied(purpose);
+  if(purpose==='system_release' && !require('../config/security').isSuperAdmin(req.user)) throw denied(purpose);
   const user=(await client.query('SELECT hash_senha_login,token_version FROM users WHERE id=$1 FOR UPDATE',[req.user.id])).rows[0];
   if(typeof req.body.current_password!=='string' || !(await argon2.verify(user.hash_senha_login,req.body.current_password))) throw denied(purpose);
   const settings=(await client.query('SELECT enabled FROM user_mfa_settings WHERE user_id=$1',[req.user.id])).rows[0];

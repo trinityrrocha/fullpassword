@@ -3,6 +3,7 @@ const {assertNavigationPreferencesSchema}=require('./navigationPreferences');
 const verifyRuntimeSchema=async(queryable=db)=>{
   await assertNavigationPreferencesSchema(queryable);
   await queryable.query('SELECT u.crypto_identity,c.crypto_epoch,c.crypto_revision,c.rotation_required FROM users u CROSS JOIN clients c LIMIT 0');
+  await queryable.query('SELECT s.scoped_items,i.envelope,e.user_id FROM vault_migration_stages s CROSS JOIN vault_item_crypto i CROSS JOIN vault_item_crypto_envelopes e LIMIT 0');
   const tables=['vault_crypto_epochs','vault_crypto_envelopes','vault_records','vault_record_history','vault_migration_stages','sensitive_auth_grants','sensitive_auth_attempts','email_change_requests','mfa_login_challenges'];
   for(const table of tables) {
     if(!(await queryable.query('SELECT to_regclass($1) AS present',[table])).rows[0].present) throw new Error('DATABASE_SCHEMA_OUTDATED');

@@ -1,5 +1,13 @@
 # Preparação do update web por release assinada
 
+Atualização em 2026-10-05: a ponte agora possui código executável em
+scripts/release-agent.js, releaseController.js e UpdateStatusPanel.jsx.
+O contrato abaixo foi implementado com fila separada, ledger externo, reauth/MFA,
+status persistente e verificação de digests/SHA após 60 segundos. Testes locais
+do agente e HTTP/PostgreSQL passaram. A VM não foi implantada; o registro de
+homologação atual está em security-homologation-2026-10-05.md.
+Os parágrafos datados de 2026-09-18 abaixo preservam o histórico, não o estado atual.
+
 Estado em 2026-09-18: **desenho de implementação, não agente executável**.
 O deploy assinado por operador já existe; a ponte web abaixo ainda precisa de
 implementação e ensaio isolado. Não deve ser habilitada por configuração apenas.

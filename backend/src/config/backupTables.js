@@ -12,6 +12,8 @@ const BACKUP_TABLES = Object.freeze([
   'vault_records',
   'vault_record_history',
   'vault_migration_stages',
+  'vault_item_crypto',
+  'vault_item_crypto_envelopes',
   'vault_access_audit',
   'domain_expiration_notifications',
   'user_mfa_settings',

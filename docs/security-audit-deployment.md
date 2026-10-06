@@ -1,5 +1,10 @@
 # Implantação de teste e recuperação — PR #3
 
+Continuação 2026-10-05: infraestrutura informada = VM/Docker Compose direto,
+sem Coolify. Agente executável e API/painel adicionados. Não houve acesso ao host
+nem instalação remota. Consultar security-homologation-2026-10-05.md para o
+estado atual; este roteiro mantém o registro histórico de 2026-09-18.
+
 Este roteiro não autoriza alterar produção. Nenhuma etapa remota foi executada.
 
 ## Pré-condições obrigatórias

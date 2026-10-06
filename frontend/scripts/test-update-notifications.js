@@ -28,8 +28,9 @@ await assert.rejects(() => requestUpdateCheck({ ...api, get: async () => ({ data
 assert.equal(time, 30000);
 const read = (file) => fs.readFileSync(new URL(file, import.meta.url), 'utf8');
 const panel = read('../src/components/UpdateStatusPanel.jsx');
-assert.doesNotMatch(panel, /api\.post|onUpdate|<button/);
-assert.match(panel, /Atualização web indisponível/);
+assert.match(panel, /api\.post\('\/system\/update', \{ approvalId: release.approvalId, revision: release.revision, manifestHash: release.manifestHash \}/);
+assert.doesNotMatch(panel, /onUpdate|api\.post\([^\n]*(branch|command|path|image)/);
+assert.match(panel, /recovery_required/);
 assert.match(panel, /version\.json/);
 assert.match(panel, /versions.backend !== versions.frontend/);
 assert.match(panel, /dark:/);

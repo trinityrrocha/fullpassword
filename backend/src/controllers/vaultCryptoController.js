@@ -47,10 +47,6 @@ const normalizeShares = shares => {
   return result.sort((a,b)=>String(a.group_id).localeCompare(String(b.group_id)));
 };
 const recipients = async (client,vault,shares) => {
-  // Legacy direct shares are item-scoped, not vault-wide grants. Do not silently
-  // delete them or broaden them to a whole-vault DEK during migration.
-  if((await client.query(`SELECT 1 FROM vault_shares vs JOIN vault_items vi ON vi.id=vs.vault_item_id
-    WHERE vi.client_id=$1 LIMIT 1`,[vault.id])).rowCount) fail('LEGACY_DIRECT_SHARES_REQUIRE_REVIEW');
   const ids=shares.filter(share=>share.can_view).map(share=>share.group_id);
   const rows=(await client.query(`SELECT DISTINCT u.id,u.name,u.email,u.crypto_identity
     FROM users u WHERE u.is_active=TRUE AND (u.id=$1 OR EXISTS(
@@ -59,11 +55,40 @@ const recipients = async (client,vault,shares) => {
   if(rows.some(row=>!row.crypto_identity)) fail('RECIPIENT_IDENTITY_MIGRATION_REQUIRED');
   return rows.map(row=>({userId:row.id,name:row.name,email:row.email,publicKey:row.crypto_identity.publicKey,fingerprint:row.crypto_identity.fingerprint}));
 };
+const directRecipients = async (client,vault) => {
+  if(vault.crypto_epoch>0) return [];
+  const rows=(await client.query(`SELECT vs.vault_item_id,u.id,u.name,u.email,u.crypto_identity
+    FROM vault_shares vs JOIN vault_items vi ON vi.id=vs.vault_item_id JOIN users u ON u.id=vs.user_id
+    WHERE vi.client_id=$1 ORDER BY vs.vault_item_id,u.id`,[vault.id])).rows;
+  if(rows.some(row=>!row.crypto_identity)) fail('RECIPIENT_IDENTITY_MIGRATION_REQUIRED');
+  const result=[];
+  for(const row of rows) {
+    let item=result.find(item=>item.itemId===row.vault_item_id);
+    if(!item) {item={itemId:row.vault_item_id,recipients:[]};result.push(item);}
+    item.recipients.push({userId:row.id,publicKey:row.crypto_identity.publicKey,fingerprint:row.crypto_identity.fingerprint});
+  }
+  // Owner envelope permits authenticated verification/resume without granting any recipient a vault DEK.
+  const owner=(await client.query('SELECT crypto_identity FROM users WHERE id=$1',[vault.created_by])).rows[0].crypto_identity;
+  for(const item of result) if(!item.recipients.some(r=>r.userId===vault.created_by)) item.recipients.push({userId:vault.created_by,publicKey:owner.publicKey,fingerprint:owner.fingerprint});
+  return result;
+};
+const validateScopedItems = (items,directory) => {
+  if(!Array.isArray(items) || items.length!==directory.length) fail('DIRECT_ITEM_SET_CHANGED');
+  const seen=new Set();
+  for(const target of directory) {
+    const item=items.find(item=>item.itemId===target.itemId);
+    if(!item || seen.has(item.itemId) || !envelopeValid(item.envelope)) fail('INVALID_DIRECT_ITEM',400);
+    seen.add(item.itemId);
+    validateEnvelopes(item.envelopes,target.recipients,item.itemId,1);
+  }
+  validateCapacity(items.length,items.reduce((size,item)=>size+Buffer.byteLength(item.envelope.ciphertext),0));
+};
 const source = async (client,vault) => {
   const records=vault.crypto_epoch>0
     ? (await client.query('SELECT * FROM vault_records WHERE client_id=$1 ORDER BY id',[vault.id])).rows
     : (await client.query('SELECT * FROM vault_items WHERE client_id=$1 ORDER BY created_at DESC,id',[vault.id])).rows;
-  return {records,hash:digest({epoch:vault.crypto_epoch,revision:String(vault.crypto_revision),records})};
+  const grants=vault.crypto_epoch ? [] : (await client.query(`SELECT vs.vault_item_id,vs.user_id,vs.encrypted_vault_key FROM vault_shares vs JOIN vault_items vi ON vi.id=vs.vault_item_id WHERE vi.client_id=$1 ORDER BY vs.vault_item_id,vs.user_id`,[vault.id])).rows;
+  return {records,hash:digest({epoch:vault.crypto_epoch,revision:String(vault.crypto_revision),records,grants})};
 };
 const validateRecords = (records,epoch) => {
   if(!Array.isArray(records) || records.length>MAX_RECORDS) fail('INVALID_RECORDS',400);
@@ -125,7 +150,7 @@ const getRecipients = transaction(async(req,client)=>{
   const vault=await lockVault(client,req.params.id,req.user,true);
   const shares=req.body.shares ? normalizeShares(req.body.shares) : await currentShares(client,vault.id);
   const targets=await recipients(client,vault,shares);
-  return {recipients:targets,recipientsHash:digest(targets),shares};
+  return {recipients:targets,directItems:await directRecipients(client,vault),recipientsHash:digest(targets),shares};
 });
 const stageEpoch = transaction(async(req,client)=>{
   const vault=await lockVault(client,req.params.id,req.user,true);
@@ -134,6 +159,9 @@ const stageEpoch = transaction(async(req,client)=>{
   if(req.body.sourceHash!==data.hash) fail('SOURCE_CHANGED');
   const shares=normalizeShares(req.body.shares);
   const targets=await recipients(client,vault,shares);
+  const direct=await directRecipients(client,vault);
+  const scopedItems=req.body.scopedItems || [];
+  validateScopedItems(scopedItems,direct);
   const epoch=vault.crypto_epoch+1;
   validateRecords(req.body.records,epoch);
   validateEnvelopes(req.body.envelopes,targets,vault.id,epoch);
@@ -144,12 +172,14 @@ const stageEpoch = transaction(async(req,client)=>{
   }
   const count=req.body.recordCount ?? req.body.records.length;
   if(!Number.isInteger(count) || count<req.body.records.length || count>20000) fail('INVALID_RECORD_COUNT',400);
-  const manifestHash=digest(req.body.records);
+  validateCapacity(count+scopedItems.length,req.body.records.reduce((size,row)=>size+Buffer.byteLength(row.envelope.ciphertext),0)+scopedItems.reduce((size,item)=>size+Buffer.byteLength(item.envelope.ciphertext),0));
+  const manifestHash=digest({records:req.body.records,scopedItems});
   const id=crypto.randomUUID();
   const existing=(await client.query("SELECT id FROM vault_migration_stages WHERE client_id=$1 AND state='staging'",[vault.id])).rows[0];
   if(existing) fail('MIGRATION_ALREADY_STAGED');
   await client.query(`INSERT INTO vault_migration_stages(id,client_id,actor_id,source_revision,source_hash,target_epoch,recipients_hash,shares,records,envelopes,manifest_hash,record_count)
-    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,[id,vault.id,req.user.id,vault.crypto_revision,data.hash,epoch,digest(targets),JSON.stringify(shares),JSON.stringify(req.body.records),JSON.stringify(req.body.envelopes),manifestHash,count]);
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,[id,vault.id,req.user.id,vault.crypto_revision,data.hash,epoch,digest({targets,direct}),JSON.stringify(shares),JSON.stringify(req.body.records),JSON.stringify(req.body.envelopes),manifestHash,count]);
+  await client.query('UPDATE vault_migration_stages SET scoped_items=$2 WHERE id=$1',[id,JSON.stringify(scopedItems)]);
   return {id,manifestHash};
 });
 const appendStage = transaction(async(req,client)=>{
@@ -160,7 +190,8 @@ const appendStage = transaction(async(req,client)=>{
   const rows=[...stage.records,...req.body.records];
   if(rows.length>stage.record_count) fail('STAGE_COUNT_EXCEEDED',400);
   validateRecords(rows,stage.target_epoch);
-  await client.query('UPDATE vault_migration_stages SET records=$2,manifest_hash=$3 WHERE id=$1',[stage.id,JSON.stringify(rows),digest(rows)]);
+  validateCapacity(rows.length+stage.scoped_items.length,rows.reduce((size,row)=>size+Buffer.byteLength(row.envelope.ciphertext),0)+stage.scoped_items.reduce((size,item)=>size+Buffer.byteLength(item.envelope.ciphertext),0));
+  await client.query('UPDATE vault_migration_stages SET records=$2,manifest_hash=$3 WHERE id=$1',[stage.id,JSON.stringify(rows),digest({records:rows,scopedItems:stage.scoped_items})]);
   return {received:rows.length};
 });
 const abortStage = transaction(async(req,client)=>{
@@ -177,7 +208,9 @@ const activateEpoch = transaction(async(req,client)=>{
   const data=await source(client,vault);
   if(stage.source_hash!==data.hash || String(stage.source_revision)!==String(vault.crypto_revision)) fail('SOURCE_CHANGED');
   const targets=await recipients(client,vault,stage.shares);
-  if(digest(targets)!==stage.recipients_hash) fail('RECIPIENT_SET_CHANGED');
+  const direct=await directRecipients(client,vault);
+  if(digest({targets,direct})!==stage.recipients_hash) fail('RECIPIENT_SET_CHANGED');
+  validateScopedItems(stage.scoped_items,direct);
   if(stage.records.length!==stage.record_count) fail('STAGE_INCOMPLETE');
   if(vault.crypto_epoch>0) {
     const structural=rows=>rows.map(r=>[r.id,r.category,r.collection,r.entity_id,r.revision,!!r.deleted]).sort((a,b)=>a[0].localeCompare(b[0]));
@@ -196,7 +229,10 @@ const activateEpoch = transaction(async(req,client)=>{
   await client.query('DELETE FROM vault_crypto_envelopes WHERE client_id=$1 AND user_id<>$2',[vault.id,vault.created_by]);
   for(const e of stage.envelopes) await client.query('INSERT INTO vault_crypto_envelopes(client_id,epoch,user_id,identity_fingerprint,envelope) VALUES($1,$2,$3,$4,$5)',[vault.id,stage.target_epoch,e.userId,e.fingerprint,e]);
   await client.query('DELETE FROM client_key_shares WHERE client_id=$1',[vault.id]);
-  await client.query('DELETE FROM vault_shares WHERE vault_item_id IN (SELECT id FROM vault_items WHERE client_id=$1)',[vault.id]);
+  for(const item of stage.scoped_items) {
+    await client.query('INSERT INTO vault_item_crypto(item_id,envelope) VALUES($1,$2)',[item.itemId,item.envelope]);
+    for(const envelope of item.envelopes) await client.query('INSERT INTO vault_item_crypto_envelopes(item_id,user_id,envelope) VALUES($1,$2,$3)',[item.itemId,envelope.userId,envelope]);
+  }
   await client.query('UPDATE clients SET crypto_epoch=$2,crypto_revision=crypto_revision+1,rotation_required=false WHERE id=$1',[vault.id,stage.target_epoch]);
   await client.query("UPDATE vault_migration_stages SET state='active' WHERE id=$1",[stage.id]);
   await audit(client,req,'vault_epoch_activated',{client_id:vault.id,epoch:stage.target_epoch,record_count:stage.records.length,recipient_count:targets.length});
@@ -243,4 +279,16 @@ const mutateRecords = transaction(async(req,client)=>{
   await audit(client,req,'vault_records_updated',{client_id:vault.id,epoch:vault.crypto_epoch,count:mutations.length});
   return {saved:mutations.length};
 });
-module.exports={getIdentity,saveIdentity,getState,getRecipients,stageEpoch,appendStage,activateEpoch,abortStage,mutateRecords,digest,validateCapacity};
+const listSharedItems = transaction(async(req,client)=>({items:(await client.query(`SELECT vi.id,vi.category,vi.created_at,vi.client_id,c.name AS client_name,(ic.item_id IS NOT NULL) AS migrated
+ FROM vault_shares vs JOIN vault_items vi ON vi.id=vs.vault_item_id JOIN clients c ON c.id=vi.client_id
+ LEFT JOIN vault_item_crypto ic ON ic.item_id=vi.id WHERE vs.user_id=$1 ORDER BY vi.created_at DESC`,[req.user.id])).rows}));
+const readSharedItem = transaction(async(req,client)=>{
+  if(!uuid.test(req.params.itemId)) fail('INVALID_ITEM_ID',400);
+  const item=(await client.query(`SELECT vi.id,vi.category,ic.envelope,e.envelope AS key_envelope
+   FROM vault_shares vs JOIN vault_items vi ON vi.id=vs.vault_item_id
+   JOIN vault_item_crypto ic ON ic.item_id=vi.id JOIN vault_item_crypto_envelopes e ON e.item_id=vi.id AND e.user_id=vs.user_id
+   WHERE vs.vault_item_id=$1 AND vs.user_id=$2`,[req.params.itemId,req.user.id])).rows[0];
+  if(!item) fail('SHARED_ITEM_UNAVAILABLE',404);
+  return item; // never returns other records or a vault envelope
+});
+module.exports={getIdentity,saveIdentity,getState,getRecipients,stageEpoch,appendStage,activateEpoch,abortStage,mutateRecords,listSharedItems,readSharedItem,digest,validateCapacity};
