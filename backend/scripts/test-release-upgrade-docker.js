@@ -112,12 +112,16 @@ async function main(){
    fs.writeFileSync(path.join(operator,'release-policy.json'),JSON.stringify(policy),{mode:0o600});
   };
   // Initial operator bootstrap from old installation; no old web-main button is used.
-  approve(bootstrap);deploy(policy.manifestFile,policy.signatureFile);
+  approve(bootstrap);
+  run('bash',[path.join(ROOT,'scripts/bootstrap-release-agent.sh'),ROOT,'1000'],{env:{...process.env,PATH:path.dirname(process.execPath)+':'+process.env.PATH}});
+  const agentPath='/usr/local/lib/fullpassword-release/release-agent.js';
+  assert.equal(fs.readFileSync(agentPath,'utf8'),fs.readFileSync(path.join(ROOT,'scripts/release-agent.js'),'utf8'));
+  deploy(policy.manifestFile,policy.signatureFile);
   assert.deepEqual(await snapshot(database),before);
   verifyDeployment(policy,{revision:bootstrap,...images[bootstrap]});
   const bootstrapDump=dockerCompose(['exec','-T','db','pg_dump','-U','postgres','--clean','--if-exists','postgres']);
   approve(target);
-  run(process.execPath,[path.join(ROOT,'scripts/release-agent.js')]); // publish catalog, no request yet
+  run(process.execPath,[agentPath]); // installed host agent publishes catalog, no request yet
   const cookies={};
   const api=async(method,url,body)=>{
    const headers={'Content-Type':'application/json',Cookie:Object.entries(cookies).map(([name,value])=>name+'='+value).join('; ')};
@@ -133,7 +137,7 @@ async function main(){
   const grant=(await api('POST','/auth/reauth',{purpose:'system_release',action,current_password:loginPassword})).data.token;
   assert.equal((await api('POST','/system/update',{...action,_reauth_token:grant})).status,202);
   const requestStarted=Date.now();
-  run(process.execPath,[path.join(ROOT,'scripts/release-agent.js')]);
+  run(process.execPath,[agentPath]);
   assert.ok(Date.now()-requestStarted>=60000);
   const completed=JSON.parse(fs.readFileSync(path.join(publicDir,'status.json')));
   assert.equal(completed.state,'completed');assert.equal(completed.revision,target);
@@ -142,18 +146,18 @@ async function main(){
   assert.equal((await database.query('SELECT can_edit FROM client_group_access WHERE client_id=$1',[vault])).rows[0].can_edit,false);
   // Replay is ignored and cannot trigger another rollout.
   const originalFinished=completed.finishedAt;
-  run(process.execPath,[path.join(ROOT,'scripts/release-agent.js')]);
+  run(process.execPath,[agentPath]);
   assert.equal(JSON.parse(fs.readFileSync(path.join(publicDir,'status.json'))).finishedAt,originalFinished);
   // A correctly signed but internally inconsistent release must fail and request recovery.
   approve(target);
   const broken=Buffer.from(JSON.stringify({repository:'trinityrrocha/fullpassword',revision:target,origin:environment.APP_ORIGIN,backend:images[target].backend,frontend:images[bootstrap].frontend}));
   fs.writeFileSync(policy.manifestFile,broken,{mode:0o600});fs.writeFileSync(policy.signatureFile,crypto.sign('sha256',broken,signing.privateKey),{mode:0o600});
-  run(process.execPath,[path.join(ROOT,'scripts/release-agent.js')]);
+  run(process.execPath,[agentPath]);
   const brokenRelease=(await api('GET','/system/update/status')).data.release;
   const brokenAction={approvalId:brokenRelease.approvalId,revision:brokenRelease.revision,manifestHash:brokenRelease.manifestHash};
   const brokenGrant=(await api('POST','/auth/reauth',{purpose:'system_release',action:brokenAction,current_password:loginPassword})).data.token;
   assert.equal((await api('POST','/system/update',{...brokenAction,_reauth_token:brokenGrant})).status,202);
-  const failed=spawnSync(process.execPath,[path.join(ROOT,'scripts/release-agent.js')],{cwd:ROOT,encoding:'utf8',timeout:1200000});
+  const failed=spawnSync(process.execPath,[agentPath],{cwd:ROOT,encoding:'utf8',timeout:1200000});
   assert.equal(failed.status,1);
   assert.equal(JSON.parse(fs.readFileSync(path.join(publicDir,'status.json'))).state,'recovery_required');
   verifyDeployment(policy,{revision:target,...images[target]}); // image rollback actually restored the prior healthy services
@@ -171,7 +175,7 @@ async function main(){
   assert.equal((await (await fetch('http://127.0.0.1:53001/api/health')).json()).commit,bootstrap);
   const recoveredLogin=await fetch('http://127.0.0.1:53001/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:'audit@example.invalid',password:loginPassword})});
   assert.equal(recoveredLogin.status,200);
-  console.log(JSON.stringify({passed:true,base:BASE,bootstrap,target,images,webRequest:true,minimumStabilityMs:60000,restoredRecovery:true,secondPostgresVolume:true,failureAndImageRollback:true,recoveredLogin:true,preservedOldData:true,replayBlocked:true},null,2));
+  console.log(JSON.stringify({passed:true,base:BASE,bootstrap,target,agentRevision:target,agentBootstrapped:true,images,webRequest:true,minimumStabilityMs:60000,restoredRecovery:true,secondPostgresVolume:true,failureAndImageRollback:true,recoveredLogin:true,preservedOldData:true,replayBlocked:true},null,2));
  } finally {
   await database?.end().catch(()=>{});
   await restoredDatabase?.end().catch(()=>{});

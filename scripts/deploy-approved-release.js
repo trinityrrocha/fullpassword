@@ -28,7 +28,7 @@ const protectedRead=file=>{
  if(!stat.isFile() || stat.isSymbolicLink() || stat.uid!==0 || (stat.mode&0o022)) throw new Error('UNTRUSTED_OPERATOR_FILE');
  return fs.readFileSync(file);
 };
-const run=(command,args)=>{const result=spawnSync(command,args,{encoding:'utf8',stdio:['ignore','pipe','pipe'],windowsHide:true,timeout:600000,maxBuffer:4*1024*1024});if(result.status!==0)throw new Error('DEPLOY_COMMAND_FAILED: '+command);return result.stdout.trim();};
+const run=(command,args,phase='metadata')=>{const result=spawnSync(command,args,{encoding:'utf8',stdio:['ignore','pipe','pipe'],windowsHide:true,timeout:600000,maxBuffer:4*1024*1024});if(result.status!==0)throw new Error('DEPLOY_COMMAND_FAILED: '+phase);return result.stdout.trim();};
 const verifyInstalledRevision=(manifest,health,frontend)=>{
  if(health.commit!==manifest.revision || health.schema_ready!==true || frontend.revision!==manifest.revision) throw new Error('DEPLOY_REVISION_MISMATCH');
 };
@@ -67,7 +67,7 @@ const deploy=(manifestPath,signaturePath,expectedRelease)=>{
  const lockFd=fs.openSync(lock,'wx',0o600); // Stale locks require operator investigation, never automatic replay.
  try {
  const compose=['compose','--project-directory',path.dirname(policy.composeFile),'-f',policy.composeFile];
- const resolved=JSON.parse(run('docker',[...compose,'config','--format','json']));
+ const resolved=JSON.parse(run('docker',[...compose,'config','--format','json'],'compose_config'));
  if(resolved.services?.backend?.environment?.APP_ORIGIN!==policy.origin) throw new Error('INSTALLED_ORIGIN_MISMATCH');
  if(resolved.services?.backend?.environment?.DB_SCHEMA_MODE!=='verify') throw new Error('LEAST_PRIVILEGE_RUNTIME_REQUIRED');
  for(const mount of resolved.services.backend.volumes || []) {
@@ -84,19 +84,20 @@ const deploy=(manifestPath,signaturePath,expectedRelease)=>{
  const override=path.join(state,'release-'+manifest.revision+'.json');
  fs.writeFileSync(override,JSON.stringify({services:{backend:{image:manifest.backend},frontend:{image:manifest.frontend}}}),{mode:0o600});
  try {
-  run('docker',[...compose,'-f',override,'pull','backend','frontend']);
+  run('docker',[...compose,'-f',override,'pull','backend','frontend'],'pull_images');
   if(policy.migrateSchema===true) {
    if(!resolved.services?.['schema-migrate']) throw new Error('SCHEMA_MIGRATION_SERVICE_REQUIRED');
    // A short-lived operator service holds DDL credentials; they never enter the runtime backend.
    fs.writeFileSync(override,JSON.stringify({services:{backend:{image:manifest.backend},frontend:{image:manifest.frontend},'schema-migrate':{image:manifest.backend}}}),{mode:0o600});
-   run('docker',[...compose,'stop','backend']);
-   run('docker',[...compose,'-f',override,'run','--rm','--no-deps','schema-migrate','node','scripts/migrate-schema.js']);
+   run('docker',[...compose,'stop','backend'],'stop_writers');
+   run('docker',[...compose,'-f',override,'run','--rm','--no-deps','schema-migrate','node','scripts/migrate-schema.js'],'schema_migrate');
   }
-  run('docker',[...compose,'-f',override,'up','-d','--no-build','--wait','--wait-timeout','180','backend','frontend']);
+  run('docker',[...compose,'-f',override,'up','-d','--no-build','--wait','--wait-timeout','180','backend','frontend'],'start_services');
   verifyDeployment(policy,manifest);
   fs.writeFileSync(path.join(state,'installed.json'),JSON.stringify({revision:manifest.revision,backend:manifest.backend,frontend:manifest.frontend,rollback}),{mode:0o600});
  } catch(error) {
-  run('docker',[...compose,'-f',rollback,'up','-d','--no-build','--wait','--wait-timeout','180','backend','frontend']);
+  try {run('docker',[...compose,'-f',rollback,'up','-d','--no-build','--wait','--wait-timeout','180','backend','frontend'],'image_rollback');}
+  catch {throw new Error(error.message+'; IMAGE_ROLLBACK_FAILED');}
   throw error;
  }
  console.log('Verified test release installed: '+manifest.revision);
