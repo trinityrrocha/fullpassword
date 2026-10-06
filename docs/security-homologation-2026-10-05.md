@@ -59,6 +59,19 @@ foi presumido. Sem acesso ao host: inventário real, custódia de configuração
 segredos, backup consistente e restore isolado da VM, aprovação/registry e
 bootstrap são pendências operacionais.
 
+O script `backend/scripts/test-release-upgrade-docker.js` foi acrescentado à CI:
+parte das imagens de d9a7a37, instala o bootstrap 821efb2, solicita a segunda
+release pela API com CSRF/reauth, aguarda efetivamente 60s e verifica SHA/digests.
+Também provoca release inconsistente, verifica rollback de imagens e restaura
+DB/configuração sintética em um segundo volume PostgreSQL com fresh login.
+Até a execução da CI, isto é implementação do ensaio, não evidência de sucesso.
+Os ciphertexts da fixture Docker verificam preservação; a validade criptográfica
+dos dados/anexos é testada pela suíte nativa de upgrade separada.
+
+O procedimento operacional está em `release-agent-bootstrap-vm.md`:
+inventário real, recuperação, bootstrap root protegido e homologação manual de
+duas revisões, sem presumir Coolify, /opt ou caminho de instalação.
+
 Skill computer-use lida na versão atual: proíbe automação de autenticação e
 gerenciadores de senhas. Nenhuma credencial foi usada por via alternativa.
 Validação pelo painel real ficará manual, com SHA/digests e evidências de 60s.

@@ -11,6 +11,9 @@ GID=$2
 NODE=$(command -v node)
 [[ -n $NODE && $NODE == /* ]] || { echo 'Node do host indisponível' >&2; exit 1; }
 [[ -f /etc/fullpassword/release-policy.json ]] || { echo 'Política protegida ainda não provisionada' >&2; exit 1; }
+# Stop before replacing executable files; preserve any stale locks for reconciliation.
+systemctl stop fullpassword-release-agent.timer 2>/dev/null || true
+systemctl stop fullpassword-release-agent.service 2>/dev/null || true
 install -d -o root -g root -m 0755 /usr/local/lib/fullpassword-release
 install -o root -g root -m 0644 "$SOURCE/scripts/release-agent.js" /usr/local/lib/fullpassword-release/release-agent.js
 install -o root -g root -m 0644 "$SOURCE/scripts/deploy-approved-release.js" /usr/local/lib/fullpassword-release/deploy-approved-release.js
@@ -22,9 +25,7 @@ for directory in /var/lib/fullpassword-release-agent /var/lib/fullpassword-relea
     install -o root -g root -m 0644 /dev/null "$directory/.operator-owned"
   fi
 done
-# Deliberately stop an existing NEW agent while replacing its code. Do not guess legacy service names.
-systemctl stop fullpassword-release-agent.timer 2>/dev/null || true
-systemctl stop fullpassword-release-agent.service 2>/dev/null || true
+# Deliberately do not guess legacy service names; the operator confirms exclusivity.
 umask 077
 printf '[Unit]\nDescription=FullPassword signed release agent\n[Service]\nType=oneshot\nExecStart=%s /usr/local/lib/fullpassword-release/release-agent.js\nUser=root\nUMask=0077\nTimeoutStartSec=30min\n' "$NODE" > /etc/systemd/system/fullpassword-release-agent.service
 printf '[Unit]\nDescription=Poll approved FullPassword release requests\n[Timer]\nOnBootSec=30s\nOnUnitInactiveSec=10s\nUnit=fullpassword-release-agent.service\n[Install]\nWantedBy=timers.target\n' > /etc/systemd/system/fullpassword-release-agent.timer

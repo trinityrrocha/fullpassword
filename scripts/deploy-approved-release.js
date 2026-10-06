@@ -9,8 +9,10 @@ const validateManifest=(bytes,signature,publicKey,policy)=>{
  const manifest=JSON.parse(bytes);
  if(manifest.repository!==REPOSITORY || !/^[a-f0-9]{40}$/.test(manifest.revision)) throw new Error('INVALID_RELEASE_ORIGIN');
  if(policy.approvedRevision!==manifest.revision) throw new Error('RELEASE_NOT_APPROVED');
+ const registry=policy.registry==='loopback-test' && policy.origin==='https://audit.example.invalid'
+  ? '127\\.0\\.0\\.1:5000' : 'ghcr\\.io';
  for(const service of ['backend','frontend']) {
-  if(!new RegExp('^ghcr\\.io/trinityrrocha/fullpassword-'+service+'@sha256:[a-f0-9]{64}$').test(manifest[service])) throw new Error('UNPINNED_RELEASE_IMAGE');
+  if(!new RegExp('^'+registry+'/trinityrrocha/fullpassword-'+service+'@sha256:[a-f0-9]{64}$').test(manifest[service])) throw new Error('UNPINNED_RELEASE_IMAGE');
  }
  if(policy.environment!=='test' || manifest.origin!==policy.origin || !/^https:\/\//.test(policy.origin)) throw new Error('TEST_ENVIRONMENT_REQUIRED');
  return manifest;
@@ -61,9 +63,13 @@ const deploy=(manifestPath,signaturePath)=>{
  const compose=['compose','--project-directory',path.dirname(policy.composeFile),'-f',policy.composeFile];
  const resolved=JSON.parse(run('docker',[...compose,'config','--format','json']));
  if(resolved.services?.backend?.environment?.APP_ORIGIN!==policy.origin) throw new Error('INSTALLED_ORIGIN_MISMATCH');
+ if(resolved.services?.backend?.environment?.DB_SCHEMA_MODE!=='verify') throw new Error('LEAST_PRIVILEGE_RUNTIME_REQUIRED');
+ for(const mount of resolved.services.backend.volumes || []) {
+  if(String(mount.source || '').includes('docker.sock') || String(mount.target || '').includes('docker.sock')) throw new Error('BACKEND_DOCKER_SOCKET_FORBIDDEN');
+ }
  const previous={services:{}};
  for(const service of ['backend','frontend']){
-  const id=run('docker',[...compose,'ps','-q',service]);
+  const id=run('docker',[...compose,'ps','--all','-q',service]);
   if(!id) throw new Error('CURRENT_SERVICE_UNIDENTIFIED');
   previous.services[service]={image:run('docker',['inspect','--format','{{.Image}}',id])};
  }

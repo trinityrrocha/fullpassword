@@ -1,5 +1,9 @@
 # Auditoria de segurança — continuação integrada do PR #3
 
+Estado atual em 2026-10-05:
+[matriz atual](security-homologation-2026-10-05.md). Agente executável e migração
+scoped de itens foram adicionados; os resultados antigos abaixo são históricos.
+
 Atualização de 2026-09-18: consulte também a
 [matriz de homologação](security-homologation-2026-09-18.md), que separa revisão,
 implementação, validação local/CI, implantação e validação remota. O relatório
