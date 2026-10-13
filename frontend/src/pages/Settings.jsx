@@ -555,7 +555,7 @@ export default function Settings() {
                       onChange={(e) => setBackupConfirmation(e.target.value)}
                       placeholder="Digite EXPORTAR BACKUP"
                       autoComplete="off"
-                      className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                      className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                     />
                   </div>
                   <div>
@@ -566,7 +566,7 @@ export default function Settings() {
                       onChange={(e) => setBackupPassphrase(e.target.value)}
                       minLength={16}
                       autoComplete="new-password"
-                      className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                      className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                     />
                     <p className="mt-1 text-xs text-slate-500">Mínimo de 16 caracteres. Não salve esta frase junto ao arquivo.</p>
                   </div>
@@ -575,7 +575,7 @@ export default function Settings() {
                 <button
                   onClick={handleDownloadBackup}
                   disabled={isDownloadingBackup}
-                  className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                  className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
                 >
                   <Download className="w-4 h-4 mr-2" />
                   {isDownloadingBackup ? 'Preparando e baixando...' : `Baixar Backup ${backupFormat.toUpperCase()}`}

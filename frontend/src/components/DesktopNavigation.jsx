@@ -12,7 +12,7 @@ export default function DesktopNavigation({ user, navigation, onProfile, onLogou
   const top = preferences.menu_position === 'top';
   const icons = preferences.menu_display === 'icons';
   const Container = top ? 'header' : 'aside';
-  const focus = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400';
+  const focus = 'focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-indigo-400';
   return <Container data-desktop-navigation={`${preferences.menu_position}/${preferences.menu_display}`} className={top
     ? 'hidden h-16 shrink-0 items-center gap-2 border-b border-slate-800 bg-slate-900 px-3 text-white md:flex'
     : `hidden shrink-0 flex-col bg-slate-900 text-white md:flex ${icons ? 'w-20' : 'w-64'}`}>

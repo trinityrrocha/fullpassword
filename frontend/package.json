@@ -11,7 +11,7 @@
     "lint": "eslint .",
     "test:server-ports-users": "node scripts/test-server-ports-users.js",
     "test:server-ports-users:browser": "node scripts/test-server-ports-users-browser.js",
-    "test": "node scripts/test-crypto-key-extractability.js && node scripts/test-vault-lock-cleanup.js && node scripts/test-csp-hardening.js && node scripts/test-user-crypto-identity.js && node scripts/test-smtp-settings.js && node scripts/test-password-reset.js && node scripts/test-mfa-recovery-codes.js && node scripts/test-security-notifications.js && node scripts/test-vault-sharing-selector.js && node scripts/test-google-drive-backup.js && node scripts/test-theme.js && node scripts/test-devices-pppoe.js && node scripts/test-devices-pabx.js && node scripts/test-devices-wifi-nas.js && node scripts/test-devices-access-unification.js && node scripts/test-device-networks-domain-expiration.js",
+    "test": "node scripts/test-crypto-key-extractability.js && node scripts/test-vault-lock-cleanup.js && node scripts/test-csp-hardening.js && node scripts/test-user-crypto-identity.js && node scripts/test-smtp-settings.js && node scripts/test-password-reset.js && node scripts/test-mfa-recovery-codes.js && node scripts/test-security-notifications.js && node scripts/test-vault-sharing-selector.js && node scripts/test-google-drive-backup.js && node scripts/test-tooling-compat.js && node scripts/test-theme.js && node scripts/test-devices-pppoe.js && node scripts/test-devices-pabx.js && node scripts/test-devices-wifi-nas.js && node scripts/test-devices-access-unification.js && node scripts/test-device-networks-domain-expiration.js",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -31,13 +31,13 @@
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.3",
-    "autoprefixer": "^10.5.2",
+    "@tailwindcss/vite": "4.3.3",
     "eslint": "^10.6.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.3",
     "globals": "^17.7.0",
     "postcss": "8.5.28",
-    "tailwindcss": "^3.4.19",
+    "tailwindcss": "4.3.3",
     "vite": "^8.1.1"
   }
 }

@@ -337,7 +337,7 @@ function ProfileContent({ onClose, forcePasswordChange = false }) {
     <div className="fixed inset-0 z-50 overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
       <div className="flex min-h-screen items-center justify-center p-4 text-center">
         <div
-          className="fixed inset-0 bg-slate-900 bg-opacity-75 transition-opacity"
+          className="fixed inset-0 bg-slate-900/75 transition-opacity"
           aria-hidden="true"
           onClick={() => {
             if (!forcePasswordChange) handleClose();
@@ -406,7 +406,7 @@ function ProfileContent({ onClose, forcePasswordChange = false }) {
                         value={formData.name}
                         onChange={handleChange}
                         required
-                        className="mt-1 block h-8 w-full rounded-md border border-slate-300 px-3 text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-indigo-500"
+                        className="mt-1 block h-8 w-full rounded-md border border-slate-300 px-3 text-sm shadow-sm focus:border-indigo-500 focus:outline-hidden focus:ring-indigo-500"
                       />
                     </div>
                     
@@ -418,7 +418,7 @@ function ProfileContent({ onClose, forcePasswordChange = false }) {
                         value={formData.email}
                         onChange={(event) => setFormData((previous) => ({ ...previous, email: event.target.value.toLowerCase() }))}
                         required
-                        className="mt-1 block h-8 w-full rounded-md border border-slate-300 px-3 text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-indigo-500"
+                        className="mt-1 block h-8 w-full rounded-md border border-slate-300 px-3 text-sm shadow-sm focus:border-indigo-500 focus:outline-hidden focus:ring-indigo-500"
                       />
                     </div>
 
@@ -534,7 +534,7 @@ function ProfileContent({ onClose, forcePasswordChange = false }) {
               type="submit"
               form="profileForm"
               disabled={isSaving}
-              className={`inline-flex h-8 w-full items-center justify-center rounded-md border border-transparent bg-indigo-600 px-3 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 sm:ml-3 sm:w-auto ${isSaving ? 'opacity-70 cursor-not-allowed' : ''}`}
+              className={`inline-flex h-8 w-full items-center justify-center rounded-md border border-transparent bg-indigo-600 px-3 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 sm:ml-3 sm:w-auto ${isSaving ? 'opacity-70 cursor-not-allowed' : ''}`}
             >
               {isSaving ? (
                 <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Salvando...</>
@@ -545,7 +545,7 @@ function ProfileContent({ onClose, forcePasswordChange = false }) {
                 type="button"
                 onClick={handleClose}
                 disabled={isSaving}
-                className="mt-3 inline-flex h-8 w-full items-center justify-center rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 sm:ml-3 sm:mt-0 sm:w-auto"
+                className="mt-3 inline-flex h-8 w-full items-center justify-center rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 sm:ml-3 sm:mt-0 sm:w-auto"
               >
                 Cancelar
               </button>

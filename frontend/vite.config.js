@@ -1,6 +1,7 @@
 /* global process, __dirname */
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import tailwindcss from '@tailwindcss/vite'
 import fs from 'node:fs'
 import path from 'node:path'
 import clientVaultVpnPlugin from './viteClientVaultVpnPlugin.js'
@@ -192,10 +193,8 @@ const releaseMetadataPlugin = () => ({
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [releaseMetadataPlugin(), clientVaultUiPlugin(), clientVaultSharingPlugin(), clientVaultClientHeaderPlugin(), clientVaultVpnPlugin(), clientVaultWindowsPlugin(), clientVaultLinuxPlugin(), clientVaultDevicesPlugin(), clientVaultCardIconsPlugin(), react()],
+  plugins: [tailwindcss(), releaseMetadataPlugin(), clientVaultUiPlugin(), clientVaultSharingPlugin(), clientVaultClientHeaderPlugin(), clientVaultVpnPlugin(), clientVaultWindowsPlugin(), clientVaultLinuxPlugin(), clientVaultDevicesPlugin(), clientVaultCardIconsPlugin(), react()],
   define: {
-    __APP_COMMIT__: JSON.stringify(appCommit),
-    Share2: '((props) => null)',
-    handleShareClick: '((category) => window.alert(`Compartilhamento de ${category} ainda não foi implementado nesta versão.`))'
+    __APP_COMMIT__: JSON.stringify(appCommit)
   }
 })

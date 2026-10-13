@@ -21,7 +21,7 @@ export default function DeleteConfirmationControl({ value, onChange, onDelete, d
         title="Digite EXCLUIR para confirmar a exclusão"
         placeholder="EXCLUIR"
         autoComplete="off"
-        className="h-9 w-28 rounded-md border border-red-300 px-2 text-sm focus:border-red-500 focus:outline-none focus:ring-1 focus:ring-red-500"
+        className="h-9 w-28 rounded-md border border-red-300 px-2 text-sm focus:border-red-500 focus:outline-hidden focus:ring-1 focus:ring-red-500"
       />
     </div>
   );

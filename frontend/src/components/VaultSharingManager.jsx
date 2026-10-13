@@ -60,7 +60,7 @@ function VaultGroupSelector({ groups, selectedGroupIds, onToggle, disabled }) {
         aria-haspopup="listbox"
         aria-controls={listboxId}
         onClick={() => setIsOpen((current) => !current)}
-        className="flex h-10 w-full items-center justify-between gap-2 rounded-md border border-slate-300 bg-white px-3 text-left text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-60"
+        className="flex h-10 w-full items-center justify-between gap-2 rounded-md border border-slate-300 bg-white px-3 text-left text-sm shadow-sm focus:border-indigo-500 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-60"
       >
         <span className={selectedCount ? 'text-slate-700' : 'text-slate-500'}>{selectionLabel}</span>
         <ChevronDown className={`h-4 w-4 shrink-0 text-slate-500 transition-transform ${isOpen ? 'rotate-180' : ''}`} aria-hidden="true" />

@@ -67,7 +67,7 @@ export default function UserCryptoIdentitySetup() {
                 required
                 autoFocus
                 autoComplete="current-password"
-                className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-hidden focus:ring-1 focus:ring-indigo-500"
               />
             </div>
             <label className="block text-sm">Novo segredo de desbloqueio (mínimo 16 caracteres)

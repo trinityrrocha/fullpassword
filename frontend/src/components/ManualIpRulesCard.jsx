@@ -91,7 +91,7 @@ export default function ManualIpRulesCard() {
             />
             <label className="block w-[160px] shrink-0 text-[11px] font-medium uppercase tracking-wide text-slate-600">
               Tipo
-              <select value={form.rule_type} onChange={(e) => setForm({ ...form, rule_type: e.target.value })} title={ruleLabels[form.rule_type]} className="mt-1 block h-[35px] w-[160px] rounded-md border border-slate-300 bg-white px-2 text-sm normal-case tracking-normal text-slate-900 outline-none"><option value="allow">Whitelist</option><option value="block">Blacklist permanente</option><option value="temporary_block">Blacklist temporária</option></select>
+              <select value={form.rule_type} onChange={(e) => setForm({ ...form, rule_type: e.target.value })} title={ruleLabels[form.rule_type]} className="mt-1 block h-[35px] w-[160px] rounded-md border border-slate-300 bg-white px-2 text-sm normal-case tracking-normal text-slate-900 outline-hidden"><option value="allow">Whitelist</option><option value="block">Blacklist permanente</option><option value="temporary_block">Blacklist temporária</option></select>
             </label>
             <label className="block min-w-[180px] flex-1 text-[11px] font-medium uppercase tracking-wide text-slate-600 lg:min-w-0 lg:max-w-[240px]">
               Motivo (opcional)
@@ -110,7 +110,7 @@ export default function ManualIpRulesCard() {
           {form.rule_type === 'temporary_block' && (
             <label className="block w-[200px] text-[11px] font-medium uppercase tracking-wide text-slate-600">
               Duração
-              <select value={form.duration_minutes} onChange={(e) => setForm({ ...form, duration_minutes: Number(e.target.value) })} className="mt-1 block h-[35px] w-[200px] rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-900 outline-none">
+              <select value={form.duration_minutes} onChange={(e) => setForm({ ...form, duration_minutes: Number(e.target.value) })} className="mt-1 block h-[35px] w-[200px] rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-900 outline-hidden">
                 {durations.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
               </select>
             </label>

@@ -52,7 +52,7 @@ const MEGA_REGIONS = Object.freeze([
   ['ap-tokyo', 'APAC - Tokyo', 'https://s3.ap-tokyo.megas4.com']
 ]);
 const WEEKDAYS = Object.freeze([[0, 'Dom'], [1, 'Seg'], [2, 'Ter'], [3, 'Qua'], [4, 'Qui'], [5, 'Sex'], [6, 'Sáb']]);
-const fieldClass = 'w-full rounded-md border border-slate-300 bg-white px-2.5 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 disabled:bg-slate-100 disabled:text-slate-500';
+const fieldClass = 'w-full rounded-md border border-slate-300 bg-white px-2.5 py-2 text-sm outline-hidden focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 disabled:bg-slate-100 disabled:text-slate-500';
 const MASKED_SECRET = '••••••••••••••••';
 const EMPTY_STATUS = Object.freeze({
   active_provider: 'none',

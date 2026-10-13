@@ -1,6 +1,5 @@
+import spacingCompatibility from './tailwind-spacing-compat.js';
 export default {
-  plugins: {
-    tailwindcss: {},
-    autoprefixer: {},
-  },
+  // Tailwind compilation/imports/prefixing are owned by @tailwindcss/vite.
+  plugins: [spacingCompatibility()],
 }

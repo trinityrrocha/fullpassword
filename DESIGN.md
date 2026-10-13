@@ -42,6 +42,14 @@ Preservar a identidade visual existente; esta etapa não redesenha telas antigas
 Anti-referência: painéis promocionais, gradientes decorativos e progresso inventado.
 Tokens são espelho documental, não geradores: fonte canônica é
 frontend/tailwind.config.js + frontend/src/index.css (modelo runtime existente).
+O compilador é Tailwind 4; `frontend/legacy-tailwind-theme.js` fixa os tokens
+visuais previamente usados pelo Tailwind 3.4.19. Caminho canônico:
+legacy-tailwind-theme → tailwind.config → @config em index.css → utilitários.
+Não adotar a nova paleta/escala v4 implicitamente. Opacidade usa modificadores
+`/60`/`/75`; `outline-hidden` mantém o outline transparente em forced-colors.
+Os defaults de border/placeholder/ring/cursor e dark/hover foram mantidos no CSS.
+`tailwind-v3-spacing.css` → `tailwind-spacing-compat.js` preserva somente os
+seletores de margens/divisores existentes; classes novas seguem o compilador v4.
 O diff de classes e ESLint/build são o gate de deriva nesta fatia.
 
 ## Colors

@@ -1151,7 +1151,7 @@ export default function ClientVault() {
                     <div className="space-y-1 text-center">
                       <HardDrive className="mx-auto h-12 w-12 text-slate-400" />
                       <div className="flex text-sm text-slate-600 justify-center">
-                        <label htmlFor="file-upload" className="relative cursor-pointer bg-white rounded-md font-medium text-indigo-600 hover:text-indigo-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-indigo-500">
+                        <label htmlFor="file-upload" className="relative cursor-pointer bg-white rounded-md font-medium text-indigo-600 hover:text-indigo-500 focus-within:outline-hidden focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-indigo-500">
                           <span>Selecione um arquivo</span>
                           <input id="file-upload" name="file-upload" type="file" className="sr-only" accept=".txt,.pem,.key,.csv" onChange={(e) => setServerForm({ ...serverForm, attachment: e.target.files[0] })} />
                         </label>
@@ -1175,7 +1175,7 @@ export default function ClientVault() {
       )}
 
       {modulePendingDeletion && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900 bg-opacity-60 p-4" role="dialog" aria-modal="true" aria-labelledby="delete-module-title">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4" role="dialog" aria-modal="true" aria-labelledby="delete-module-title">
           <div className="w-full max-w-lg rounded-lg bg-white shadow-xl">
             <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
               <h2 id="delete-module-title" className="text-lg font-semibold text-slate-900">Excluir servidor</h2>
@@ -1197,7 +1197,7 @@ export default function ClientVault() {
                   placeholder="EXCLUIR"
                   autoComplete="off"
                   disabled={isDeletingModule}
-                  className="h-9 w-28 rounded-md border border-red-300 px-2 text-sm focus:border-red-500 focus:outline-none focus:ring-1 focus:ring-red-500 disabled:opacity-50"
+                  className="h-9 w-28 rounded-md border border-red-300 px-2 text-sm focus:border-red-500 focus:outline-hidden focus:ring-1 focus:ring-red-500 disabled:opacity-50"
                 />
                 <button type="button" disabled={isDeletingModule} onClick={closeDeleteModuleModal} className="inline-flex h-9 items-center justify-center rounded-md border border-slate-300 bg-white px-4 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50">
                   Cancelar
@@ -1212,7 +1212,7 @@ export default function ClientVault() {
       )}
 
       {isSharingModalOpen && hasEnabledModules && (effectiveVaultPermissions.is_owner || effectiveVaultPermissions.is_admin) && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900 bg-opacity-60 p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
               <h2 className="text-lg font-semibold text-slate-900">Compartilhamento do Cofre</h2>
@@ -1228,7 +1228,7 @@ export default function ClientVault() {
       )}
 
       {editingUser && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900 bg-opacity-60 p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
               <h3 className="text-lg font-semibold text-slate-900">Editar usuário</h3>
@@ -1332,7 +1332,7 @@ export default function ClientVault() {
       )}
 
       {editingServer && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900 bg-opacity-60 p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
               <h3 className="text-lg font-semibold text-slate-900">Editar servidor</h3>

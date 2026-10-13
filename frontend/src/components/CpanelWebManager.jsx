@@ -529,7 +529,7 @@ export default function CpanelWebManager({ cpanelForm, setCpanelForm, handleSave
       </div>
 
       {showCpanelCreateModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900 bg-opacity-60 p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
               <h3 className="text-lg font-semibold text-slate-900">Adicionar Servidor hospedagem</h3>
@@ -568,7 +568,7 @@ export default function CpanelWebManager({ cpanelForm, setCpanelForm, handleSave
       )}
 
       {showUserCreateModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900 bg-opacity-60 p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
               <h3 className="text-lg font-semibold text-slate-900">Adicionar usuário</h3>
@@ -614,7 +614,7 @@ export default function CpanelWebManager({ cpanelForm, setCpanelForm, handleSave
       {viewingUser && <CpanelUserReadOnlyModal user={viewingUser} cpanel={getCpanelById(viewingUser.cpanelId)} login={getUserLoginWithDomain(viewingUser)} onClose={() => setViewingUser(null)} />}
 
       {editingCpanel && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900 bg-opacity-60 p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
               <h3 className="text-lg font-semibold text-slate-900">Detalhes do Servidor hospedagem</h3>
@@ -656,7 +656,7 @@ export default function CpanelWebManager({ cpanelForm, setCpanelForm, handleSave
       )}
 
       {editingUser && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900 bg-opacity-60 p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
               <h3 className="text-lg font-semibold text-slate-900">Detalhes do usuário</h3>
