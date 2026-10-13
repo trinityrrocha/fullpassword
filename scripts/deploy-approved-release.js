@@ -49,6 +49,43 @@ const assertExpectedRelease=(policy,bytes,expected)=>{
  if(expected && (policy.approvalId!==expected.approvalId || policy.approvedRevision!==expected.revision ||
    crypto.createHash('sha256').update(bytes).digest('hex')!==expected.manifestHash)) throw new Error('APPROVAL_CHANGED_BEFORE_DEPLOY');
 };
+// Pure validation of the operator-resolved Compose; never logs credentials.
+const validateReleaseCompose=(resolved,policy)=>{
+ const services=resolved.services || {},backend=services.backend,owner=services.db?.environment || {};
+ const runtime=backend?.environment || {},migration=services['schema-migrate'];
+ if(runtime.APP_ORIGIN!==policy.origin) throw new Error('INSTALLED_ORIGIN_MISMATCH');
+ if(runtime.DB_SCHEMA_MODE!=='verify') throw new Error('LEAST_PRIVILEGE_RUNTIME_REQUIRED');
+ const ownerUser=owner.POSTGRES_USER || 'postgres';
+ if(!runtime.DB_USER || !runtime.DB_PASSWORD || runtime.DB_USER===ownerUser ||
+   !owner.POSTGRES_PASSWORD || runtime.DB_PASSWORD===owner.POSTGRES_PASSWORD) throw new Error('SEPARATE_RUNTIME_CREDENTIALS_REQUIRED');
+ if(['DB_HOST','DB_PORT','DB_NAME'].some(key=>!runtime[key]) || runtime.DB_NAME!==(owner.POSTGRES_DB || ownerUser)) throw new Error('SHARED_DATABASE_CONFIG_REQUIRED');
+ if(backend.read_only!==true || !backend.cap_drop?.includes('ALL') ||
+   !backend.security_opt?.some(value=>/^no-new-privileges(?::true|=true)?$/.test(value)) ||
+   !backend.tmpfs?.length) throw new Error('HARDENED_RUNTIME_REQUIRED');
+ for(const service of ['backend','frontend','db','schema-migrate']) {
+  for(const mount of services[service]?.volumes || []) {
+   if(String(mount.source || '').includes('docker.sock') || String(mount.target || '').includes('docker.sock')) throw new Error('APPLICATION_DOCKER_SOCKET_FORBIDDEN');
+  }
+ }
+ const publicMount=backend.volumes?.find(m=>m.target==='/var/lib/fullpassword-release-public');
+ const queueMount=backend.volumes?.find(m=>m.target==='/var/lib/fullpassword-release-queue');
+ if(publicMount?.type!=='bind' || publicMount.source!==publicMount.target || publicMount.read_only!==true ||
+   queueMount?.type!=='bind' || queueMount.source!==queueMount.target || queueMount.read_only===true) throw new Error('RELEASE_AUTHORITY_MOUNTS_REQUIRED');
+ if(policy.migrateSchema===true && !migration) throw new Error('SCHEMA_MIGRATION_SERVICE_REQUIRED');
+ if(migration) {
+  const ddl=migration.environment || {};
+  if(JSON.stringify(migration.profiles)!==JSON.stringify(['operator']) || JSON.stringify(migration.command)!==JSON.stringify(['node','scripts/migrate-schema.js']) ||
+    !['no',undefined].includes(migration.restart) || migration.ports?.length || migration.build) throw new Error('OPERATOR_MIGRATION_SERVICE_REQUIRED');
+  if(!backend.image || migration.image!==backend.image || !/@sha256:[a-f0-9]{64}$/.test(backend.image)) throw new Error('SHARED_PINNED_BACKEND_IMAGE_REQUIRED');
+  if(ddl.DB_USER!==ownerUser || ddl.DB_USER===runtime.DB_USER || !ddl.DB_PASSWORD ||
+    ddl.DB_PASSWORD!==owner.POSTGRES_PASSWORD || ddl.DB_PASSWORD===runtime.DB_PASSWORD ||
+    ['DB_HOST','DB_PORT','DB_NAME'].some(key=>String(ddl[key] || '')!==String(runtime[key] || ''))) throw new Error('SCHEMA_OWNER_CREDENTIALS_REQUIRED');
+  const networks=service=>Object.keys(service?.networks || {});
+  if(!networks(backend).some(name=>networks(migration).includes(name) && networks(services.db).includes(name))) throw new Error('SHARED_DATABASE_NETWORK_REQUIRED');
+  if(migration.volumes?.some(m=>String(m.target || '').startsWith('/var/lib/fullpassword-release-'))) throw new Error('MIGRATION_AUTHORITY_MOUNT_FORBIDDEN');
+ }
+ return resolved;
+};
 const deploy=(manifestPath,signaturePath,expectedRelease)=>{
  if(process.platform==='win32' || process.getuid?.()!==0) throw new Error('OPERATOR_ROOT_REQUIRED');
  const policy=JSON.parse(protectedRead('/etc/fullpassword/release-policy.json'));
@@ -68,12 +105,7 @@ const deploy=(manifestPath,signaturePath,expectedRelease)=>{
  try {
  const compose=['compose','--project-directory',path.dirname(policy.composeFile),'-f',policy.composeFile];
  const resolved=JSON.parse(run('docker',[...compose,'--profile','operator','config','--format','json'],'compose_config'));
- if(resolved.services?.backend?.environment?.APP_ORIGIN!==policy.origin) throw new Error('INSTALLED_ORIGIN_MISMATCH');
- if(resolved.services?.backend?.environment?.DB_SCHEMA_MODE!=='verify') throw new Error('LEAST_PRIVILEGE_RUNTIME_REQUIRED');
- if(policy.migrateSchema===true && !resolved.services?.['schema-migrate']) throw new Error('SCHEMA_MIGRATION_SERVICE_REQUIRED');
- for(const mount of resolved.services.backend.volumes || []) {
-  if(String(mount.source || '').includes('docker.sock') || String(mount.target || '').includes('docker.sock')) throw new Error('BACKEND_DOCKER_SOCKET_FORBIDDEN');
- }
+ validateReleaseCompose(resolved,policy);
  const previous={services:{},'x-verified-image-ids':{}};
  for(const service of ['backend','frontend']){
   const id=run('docker',[...compose,'ps','--all','-q',service]);
@@ -118,4 +150,4 @@ if(require.main===module){
  try{if(process.argv.length!==4)throw new Error('Usage: node deploy-approved-release.js manifest.json manifest.sig');deploy(process.argv[2],process.argv[3]);}
  catch(error){console.error(error.message);process.exitCode=1;}
 }
-module.exports={validateManifest,verifyInstalledRevision,protectedRead,deploy,verifyDeployment,assertExpectedRelease};
+module.exports={validateManifest,verifyInstalledRevision,protectedRead,deploy,verifyDeployment,assertExpectedRelease,validateReleaseCompose};

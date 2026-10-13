@@ -67,7 +67,7 @@ async function main(){
    db:{image:'postgres:15-alpine',environment:{POSTGRES_PASSWORD:pgPassword},ports:['127.0.0.1:55432:5432'],volumes:['data:/var/lib/postgresql/data',path.join(old,'database/init.sql')+':/docker-entrypoint-initdb.d/init.sql:ro'],healthcheck:{test:['CMD-SHELL','pg_isready -U postgres'],interval:'2s',timeout:'2s',retries:60}},
    backend:{image:'fp-rehearsal-old-backend',environment,ports:['127.0.0.1:53000:3000'],depends_on:{db:{condition:'service_healthy'}},healthcheck:{test:['CMD','node','scripts/check-health.js'],interval:'2s',timeout:'5s',retries:90,start_period:'20s'},volumes:[publicDir+':'+publicDir+':ro',queue+':'+queue]},
    frontend:{image:'fp-rehearsal-old-frontend'},
-   'schema-migrate':{image:images[target].backend,profiles:['operator'],environment,depends_on:{db:{condition:'service_healthy'}}}
+   'schema-migrate':{image:images[target].backend,profiles:['operator'],command:['node','scripts/migrate-schema.js'],restart:'no',environment,depends_on:{db:{condition:'service_healthy'}}}
   },volumes:{data:{}}};
   fs.writeFileSync(compose,JSON.stringify(config),{mode:0o600});
   dockerCompose(['up','-d','--wait','--wait-timeout','180','db','backend','frontend']);
@@ -100,6 +100,8 @@ async function main(){
   await database.query("CREATE ROLE fp_runtime LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD '"+runtimePassword+"'");
   await database.query('GRANT CONNECT ON DATABASE postgres TO fp_runtime; REVOKE CREATE ON SCHEMA public FROM PUBLIC; GRANT USAGE ON SCHEMA public TO fp_runtime; GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA public TO fp_runtime; GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA public TO fp_runtime; ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT,INSERT,UPDATE,DELETE ON TABLES TO fp_runtime; ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE,SELECT ON SEQUENCES TO fp_runtime;');
   config.services.backend.environment={...environment,DB_USER:'fp_runtime',DB_PASSWORD:runtimePassword,DB_SCHEMA_MODE:'verify'};
+  config.services.backend.image=images[bootstrap].backend;
+  config.services['schema-migrate'].image=images[bootstrap].backend;
   Object.assign(config.services.backend,{read_only:true,cap_drop:['ALL'],security_opt:['no-new-privileges:true'],tmpfs:['/tmp:rw,noexec,nosuid,size=512m']});
   fs.writeFileSync(compose,JSON.stringify(config),{mode:0o600});
   const signing=crypto.generateKeyPairSync('rsa',{modulusLength:3072});

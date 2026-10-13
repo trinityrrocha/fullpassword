@@ -1,6 +1,12 @@
-# Operator-only overlay, used AFTER provisioning. No socket in any application service.
+# Operator-only overlay, used AFTER provisioning the separate DML role.
+# DB_USER/DB_PASSWORD remain the PostgreSQL owner, never the backend runtime.
 services:
   backend:
+    image: ${RELEASE_BACKEND_IMAGE:?RELEASE_BACKEND_IMAGE por digest obrigatória}
+    environment:
+      DB_USER: ${RUNTIME_DB_USER:-fullpassword_runtime}
+      DB_PASSWORD: ${RUNTIME_DB_PASSWORD:?RUNTIME_DB_PASSWORD exclusiva obrigatória}
+      DB_SCHEMA_MODE: verify
     volumes:
       - type: bind
         source: /var/lib/fullpassword-release-public
@@ -13,3 +19,31 @@ services:
         target: /var/lib/fullpassword-release-queue
         bind:
           create_host_path: false
+
+  frontend:
+    image: ${RELEASE_FRONTEND_IMAGE:?RELEASE_FRONTEND_IMAGE por digest obrigatória}
+
+  schema-migrate:
+    image: ${RELEASE_BACKEND_IMAGE:?RELEASE_BACKEND_IMAGE por digest obrigatória}
+    profiles: [operator]
+    restart: "no"
+    command: [node, scripts/migrate-schema.js]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=512m
+    environment:
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_NAME: ${DB_NAME:-fullpassword_db}
+      DB_USER: ${DB_USER:-fullpassword_user}
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD do owner obrigatória}
+      # securitySchema imports security.js; these are the existing secrets, not new ones.
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET obrigatória}
+      ADMIN_BOOTSTRAP_TOKEN: ${ADMIN_BOOTSTRAP_TOKEN:?ADMIN_BOOTSTRAP_TOKEN obrigatório}
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - fullpassword_network

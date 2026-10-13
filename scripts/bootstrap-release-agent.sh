@@ -1,5 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
+validate_host_node() {
+  NODE=$(command -v node || true)
+  [[ -n $NODE && $NODE == /* && -x $NODE ]] || { echo 'NODE_HOST_UNAVAILABLE' >&2; return 1; }
+  local version
+  version=$("$NODE" --version) || { echo 'NODE_HOST_VERSION_UNSUPPORTED' >&2; return 1; }
+  # Lowest tested line is 24.19 (local); Linux CI/homologation uses 24.21.
+  [[ $version =~ ^v24\.([0-9]+)\.([0-9]+)$ ]] && (( 10#${BASH_REMATCH[1]} >= 19 )) || {
+    echo 'NODE_HOST_VERSION_UNSUPPORTED: requer Node 24.x >= 24.19.0; recomendado 24.21.0.' >&2
+    return 1
+  }
+}
+
+main() {
 # No guessed application directory; caller supplies the reviewed checkout and queue GID.
 if [[ $# -ne 2 || $EUID -ne 0 ]]; then
   echo 'Uso: sudo bash bootstrap-release-agent.sh CHECKOUT_REVISADO GID_BACKEND' >&2
@@ -8,8 +21,7 @@ fi
 SOURCE=$(realpath -- "$1")
 GID=$2
 [[ $GID =~ ^[0-9]+$ ]] || { echo 'GID inválido' >&2; exit 1; }
-NODE=$(command -v node)
-[[ -n $NODE && $NODE == /* ]] || { echo 'Node do host indisponível' >&2; exit 1; }
+validate_host_node
 [[ -f /etc/fullpassword/release-policy.json ]] || { echo 'Política protegida ainda não provisionada' >&2; exit 1; }
 # Stop before replacing executable files; preserve any stale locks for reconciliation.
 systemctl stop fullpassword-release-agent.timer 2>/dev/null || true
@@ -32,3 +44,7 @@ printf '[Unit]\nDescription=Poll approved FullPassword release requests\n[Timer]
 systemctl daemon-reload
 echo 'Agente instalado, timer parado. Verifique política, restauração e exclusividade antes de habilitar.'
 echo 'Habilitação: systemctl enable --now fullpassword-release-agent.timer'
+}
+
+# Sourcing defines the preflight for tests; executable invocation retains the root gate.
+if [[ ${BASH_SOURCE[0]} == "$0" ]]; then main "$@"; fi

@@ -33,6 +33,8 @@ jobs:
         working-directory: backend
       - run: node scripts/test-release-agent.js
         working-directory: backend
+      - run: node scripts/test-release-compose.js && node scripts/test-runtime-role-postgres.js && node scripts/test-release-bootstrap.js
+        working-directory: backend
       - run: node scripts/test-audit-tls.js
         working-directory: backend
       - run: npm test && node scripts/test-vault-crypto-v2.js && npm run build
@@ -42,6 +44,10 @@ jobs:
       - run: npm audit --omit=dev
         working-directory: backend
       - run: npm audit
+        if: always()
+        working-directory: backend
+      - run: npm audit
+        if: always()
         working-directory: frontend
       - run: npm audit --omit=dev
         if: always()
@@ -62,6 +68,10 @@ jobs:
           node-version: 24.21.0
       - run: npm ci
         working-directory: backend
+      - name: Resolve release Compose and verify bootstrap preflight has no effects
+        run: |
+          node backend/scripts/test-release-compose.js --docker
+          sudo "$(command -v node)" backend/scripts/test-release-bootstrap.js
       - name: Build final backend and frontend images (no deployment)
         run: |
           docker build --build-arg BACKEND_APP_COMMIT="${{ github.event.pull_request.head.sha || github.sha }}" -t fullpassword-audit-backend ./backend

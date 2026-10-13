@@ -4,6 +4,30 @@ Autorização de teste já confirmada; não há Coolify. Nenhuma instrução aba
 executada na VM por esta execução. Não usar o botão antigo que atualiza main.
 Não presumir caminho do app, Compose, nome de projeto ou versão em execução.
 
+## 0. Pré-requisito do HOST: Node suportado
+
+`release-agent.js` e `deploy-approved-release.js` executam no **host Linux/root**.
+Node no container backend não substitui essa dependência. Antes de qualquer
+provisionamento, pull ou bootstrap, verificar no mesmo ambiente root do operador:
+
+```sh
+command -v node
+node --version
+```
+
+Política suportada: **Node 24.x >= 24.19.0**, sem prerelease. A linha mínima foi
+exercitada localmente (24.19); CI Linux e homologação recomendada usam **24.21.0**.
+Novos patches/minors da major 24 são aceitos; outra major requer revisão/testes
+antes de mudar o gate. Não aceitar uma versão antiga/desconhecida só porque existe
+um comando `node`. Executável e ancestrais devem ser root-controlled e o caminho
+deve ser absoluto; o bootstrap grava esse caminho no ExecStart.
+
+O bootstrap rejeita ausência com `NODE_HOST_UNAVAILABLE` e incompatibilidade com
+`NODE_HOST_VERSION_UNSUPPORTED`, antes de systemd, instalação, fila ou state.
+Não instala Node automaticamente. P0.3 encontrou `HOST_NODE_AVAILABLE: NO`;
+provisionar Node exige procedimento/autorização separados, não contornar via
+container nem retomar staging/deploy automaticamente.
+
 ## 1. Inventário privado, sem valores de ambiente
 
 No checkout revisado fornecido pelo responsável:
@@ -82,30 +106,72 @@ Chave pública, manifesto/assinatura, política, Compose resolvido e recuperaç�
 devem estar em caminhos absolutos root-owned, sem escrita grupo/outros e sem
 symlink em qualquer ancestral. A chave privada nunca entra no host/app/registry.
 
-Provisionar papel runtime DML conforme database/provision-runtime-role.sql,
-verificar se já existe antes de criar e definir senha por psql \password.
-Configurar backend com DB_SCHEMA_MODE=verify e esse papel. Configurar serviço
-schema-migrate separado com credenciais do dono; somente o operador tem essa
-configuração. Comando do serviço: node scripts/migrate-schema.js. Ele usa a
-imagem backend aprovada; o agente não aceita comandos da fila.
+Provisionar papel runtime DML conforme `database/provision-runtime-role.sql`,
+executado pelo owner real das tabelas (default privileges valem para objetos
+criados por esse owner). Verificar se a role já existe antes de criar, comparar
+atributos/grants e definir senha exclusiva por `psql \password`. Não promover
+runtime a owner, não conceder CREATE ou privilégios administrativos. Testar DML e
+sequences em transação sintética com rollback, e negar CREATE/ALTER/DROP/ROLE/DB.
 
-Adicionar o overlay docker-compose.release-agent.yml preservando todo o resto.
-O Compose protegido deve incluir:
+O Compose convencional mantém seu fluxo inicial de migration com o owner.
+**O modo release-agent é o Compose base + overlay versionado**
+`docker-compose.release-agent.yml`. Esse overlay agora cria `schema-migrate` de
+verdade, com profile `operator`, comando `node scripts/migrate-schema.js`, sem
+build separado, porta, socket ou mounts de fila/status. Ele não é um daemon.
+
+Configuração protegida obrigatória (valores reais somente no host/root):
+
+| Variável de entrada | Destino | Autoridade |
+|---|---|---|
+| `DB_USER` / `DB_PASSWORD` | db POSTGRES_USER/PASSWORD e schema-migrate DB_USER/PASSWORD | owner/DDL existente |
+| `RUNTIME_DB_USER` (default fullpassword_runtime) / `RUNTIME_DB_PASSWORD` (obrigatória) | backend DB_USER/PASSWORD | runtime DML, credencial exclusiva |
+| `RELEASE_BACKEND_IMAGE` (obrigatória, repo@sha256) | backend e schema-migrate | mesma imagem aprovada |
+| `RELEASE_FRONTEND_IMAGE` (obrigatória, repo@sha256) | frontend | imagem aprovada |
+
+Não substituir o DB_USER/DB_PASSWORD global legado por runtime: isso também
+alteraria a configuração do PostgreSQL/healthcheck. O backend resolvido fica
+explicitamente com `DB_SCHEMA_MODE=verify`, mesmo se o ambiente/base disser
+`migrate`. O runtime não recebe credencial do owner. `schema-migrate` recebe a
+autoridade owner e somente os segredos de configuração existentes necessários
+ao import de securitySchema; não recebe mounts de autoridade do agente.
+
+O deploy valida esse contrato antes de capturar rollback/parar serviços. Rejeita
+migration ausente quando migrateSchema=true, runtime/owner iguais, modo não-verify,
+hardening removido, socket nos quatro serviços, imagem migration diferente/não
+pinada, comando/profile/porta/restart inválidos, rede/DB divergentes ou mounts de
+autoridade no migration. Durante o deploy, backend e migration são sobrescritos
+juntos com `manifest.backend`, sem novo build.
+
+Combinar com o Compose efetivo da VM **em staging root-only**, preservando:
 - backend com mounts public read-only e queue read-write;
 - schema-migrate com profile operator, mesmo network/DB, sem socket;
 - db/proxy/volumes/portas/domínio HTTPS existentes sem substituição.
+
+Não editar o Compose/.env legado durante staging. Usar um arquivo de variáveis
+operacionais distinto, root:root 0600, sem copiar valores para relatórios. Manter
+JWT_SECRET/CONFIG_ENCRYPTION_KEY e demais segredos existentes; não gerar fallback.
+Identificar previamente nomes reais de volumes/redes/binds e tornar paths
+absolutos no staging. Se houver múltiplos owners de objetos, revisar os default
+privileges por owner: não ampliar grants cegamente. A role SQL não foi alterada
+por estética; o teste PostgreSQL cobre grants existentes e objetos futuros.
 
 Após preencher variáveis somente com caminhos já identificados:
 
 ```sh
 install -d -o root -g root -m 0755 /etc/fullpassword
 umask 077
-docker compose --project-directory "$APP_DIR" -p "$PROJECT" --env-file "$ENV_FILE" -f "$COMPOSE_FILE" -f "$AGENT_OVERLAY" config --format json > /etc/fullpassword/compose.json
+docker compose --project-directory "$APP_DIR" -p "$PROJECT" --env-file "$OPERATOR_ENV_FILE" -f "$STAGED_BASE_COMPOSE" -f "$AGENT_OVERLAY" --profile operator config --format json > /etc/fullpassword/compose.json
 chmod 600 /etc/fullpassword/compose.json
 ```
 
 Isso contém configuração operacional: fica somente root, não vai para Git/evidência.
 Nunca executar config imprimindo seus segredos no relatório.
+Confirmar no JSON protegido `name` do projeto real, volumes e redes reais,
+separação de roles/passwords e backend verify. Remover campos `build` do Compose
+operacional resolvido se presentes por herança da instalação convencional;
+release é por digest e o deploy usa `--no-build`. Nunca subir serviços para validar
+config. O operador deve comparar uma projeção sanitizada, não compartilhar JSON
+completo. O timer permanece parado durante staging.
 
 Política root /etc/fullpassword/release-policy.json:
 
@@ -136,12 +202,19 @@ loopback-test na VM: existe somente para o ensaio CI em audit.example.invalid.
 
 ## 4. Instalação inicial repetível
 
-Node compatível já provisionado no host, root-owned. Usar cópia revisada da
+Node host conforme seção 0 já provisionado, root-owned. Usar cópia revisada da
 branch em staging root protegido, não diretório gravável pela aplicação.
 Obter o GID real da imagem backend pelo digest aprovado (id -g), não adivinhar.
 
 ```sh
 sudo bash "$CHECKOUT_REVISADO/scripts/bootstrap-release-agent.sh" "$CHECKOUT_REVISADO" "$GID_BACKEND"
+```
+
+O bootstrap acima só instala e deixa service/timer parados. Não executar agente,
+criar request ou habilitar timer durante staging. Os passos abaixo são **cutover**,
+exigem janela, recuperação revalidada e autorização separada:
+
+```sh
 sudo node "$CHECKOUT_REVISADO/scripts/deploy-approved-release.js" "$MANIFEST_FILE" "$SIGNATURE_FILE"
 sudo node /usr/local/lib/fullpassword-release/release-agent.js
 sudo systemctl enable --now fullpassword-release-agent.timer
@@ -183,7 +256,31 @@ compatíveis em procedimento controlado. Verificar antes de reabrir.
 Somente após reconciliação o operador arquiva locks/estado de falha e emite
 NOVA aprovação. Não apagar consumed ou grants para “tentar de novo”.
 
-Entradas indispensáveis ainda ausentes: inventário sanitizado real; SHAs/digests
-instalados; acesso operacional pelo responsável; custódia de signer/public key;
-registry aprovado; checksum e restore isolado da recuperação. Não é uma nova
-solicitação de autorização de ambiente — são dependências técnicas concretas.
+Entradas operacionais a revalidar em cada fase: inventário sanitizado real;
+SHAs/digests instalados; acesso operacional pelo responsável; custódia de
+signer/public key; registry aprovado; checksum e restore isolado da recuperação.
+São dependências técnicas concretas, não autorização para executar a fase seguinte.
+
+## 7. Evidências históricas e nova revisão candidata
+
+P0.2B publicou imagens/manifesto para `999f889`; P0.3 foi interrompida no gate
+Node, sem staging/deploy. Um novo commit de contrato torna aquelas imagens,
+manifesto e approval **históricos**, não release final do novo HEAD. Antes de
+retomar P0.3, reconstruir/publicar imagens do novo SHA em tarefa autorizada e
+emitir manifesto/assinatura/aprovação correspondentes. Não reusar metadata de
+999f889 como prova do novo código nem retomar a VM automaticamente.
+
+Testes do contrato (somente fixtures/dados sintéticos, nunca configuração da VM):
+
+```sh
+node backend/scripts/test-release-compose.js
+node backend/scripts/test-runtime-role-postgres.js
+node backend/scripts/test-release-bootstrap.js
+```
+
+Na CI Linux com Docker, `test-release-compose.js --docker` resolve os dois
+Composes reais com variáveis sintéticas e `--profile operator`, sem `up`/pull.
+O teste bootstrap executado como root usa Node incompatível falso para comprovar
+falha antes de install/systemd. O ensaio Docker de upgrade existente continua
+testando a implantação assinada, estabilização e rollback somente no runner
+descartável; não é deploy/homologação da VM.
