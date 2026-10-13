@@ -2,8 +2,8 @@
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Status](https://img.shields.io/badge/status-em%20evolu%C3%A7%C3%A3o-green.svg)
-![Node.js](https://img.shields.io/badge/node.js-18+-brightgreen.svg)
-![React](https://img.shields.io/badge/react-18+-blue.svg)
+![Node.js](https://img.shields.io/badge/node.js-24-brightgreen.svg)
+![React](https://img.shields.io/badge/react-19-blue.svg)
 
 **FullPassword** é um cofre de credenciais e informações operacionais voltado para MSPs, equipes de TI e prestadores de suporte técnico. O sistema organiza acessos por empresa/cliente, separa os dados por módulos operacionais e mantém informações sensíveis criptografadas no navegador usando a **Web Crypto API**.
 
@@ -23,8 +23,8 @@ O projeto reúne gestão de usuários e grupos, permissões granulares, comparti
 - Backup e restauração criptografados nos formatos V1 e V2.
 - Backup Nuvem com Google Drive, Backblaze B2, MEGA S4 e FTP/FTPS.
 - Alertas de vencimento de domínio por e-mail.
-- WebUpdater pelo painel, restrito ao Super Admin.
-- Verificação automática de novas atualizações na branch `main`.
+- WebUpdate por release assinada e approval de uso único, restrito ao Super Admin.
+- Descoberta de releases pelo catálogo protegido do agente externo (não por pull de `main`).
 - Instalação automatizada em dois modos:
   - **IP público + Let's Encrypt**.
   - **Cloudflare Tunnel sem IP público**.
@@ -51,7 +51,8 @@ O projeto reúne gestão de usuários e grupos, permissões granulares, comparti
 ### Parâmetros criptográficos versionados
 
 - Usuários e wraps legados continuam compatíveis com PBKDF2-SHA-256 de 100.000 iterações.
-- Novos usuários, bootstrap e trocas de senha utilizam PBKDF2-SHA-256 versão 2 com 310.000 iterações.
+- A identidade independente ativa usa PBKDF2-SHA-256 com 600.000 iterações e segredo de desbloqueio próprio, diferente da senha de login.
+- Wraps pessoais anteriores (100.000/310.000 iterações) permanecem compatíveis para migração recuperável; troca/reset de login não deriva nem substitui chaves.
 - Novos pares de compartilhamento usam RSA-OAEP 3072 bits; chaves RSA-2048 existentes continuam importáveis.
 - O salt criptográfico continua sendo individual por usuário.
 
@@ -326,7 +327,7 @@ Combinações comuns:
 
 O FullPassword possui recuperação de conta por e-mail com token temporário de uso único.
 
-Por causa da arquitetura Zero-Knowledge, a recuperação de acesso **não recupera a senha mestre anterior nem descriptografa automaticamente cofres ligados à identidade criptográfica antiga**. O fluxo cria nova identidade criptográfica e pode exigir novo compartilhamento dos cofres pelo administrador.
+O reset altera somente a senha de autenticação, revoga as sessões antigas e preserva a identidade criptográfica, os envelopes e os cofres. O usuário continua usando o mesmo segredo independente de desbloqueio. O reset de login não recupera um segredo de desbloqueio perdido, não cria outra identidade e não exige novo compartilhamento.
 
 Quando MFA está ativo, a recuperação também exige TOTP válido ou código de recuperação ainda não utilizado.
 
@@ -334,35 +335,15 @@ Quando MFA está ativo, a recuperação também exige TOTP válido ou código de
 
 ## 🔔 Atualizações e WebUpdater
 
-O FullPassword possui atualização pelo próprio painel, restrita ao Super Admin.
+O painel solicita somente uma release previamente aprovada, restrita ao Super Admin
+com CSRF e reauth/MFA. O backend não possui Docker socket nem autoridade de deploy.
 
 ### Descoberta automática de novas versões
 
-O sistema não depende de tags, Releases ou CHANGELOG para determinar se existe atualização.
-
-A fonte de verdade é a branch oficial:
-
-```text
-origin/main
-```
-
-O Updater Daemon executa `git fetch origin main`:
-
-- ao iniciar, quando há estado válido;
-- automaticamente a cada 24 horas;
-- quando o Super Admin clica em **Verificar atualizações**.
-
-A interface mostra:
-
-- commit instalado;
-- commit disponível;
-- quantidade de alterações;
-- lista dos subjects dos commits disponíveis;
-- data da última verificação.
-
-O sino de notificações avisa o Super Admin quando um novo commit fica disponível. O mesmo commit não gera uma nova notificação diária depois de visualizado.
-
-> Verificar atualização **não instala** a atualização. O deploy continua dependendo da ação explícita do Super Admin.
+O agente externo publica um catálogo protegido da approval vigente. Manifesto
+assinado fixa SHA e imagens por digest; a fila aceita apenas IDs/SHA/checksum,
+nunca URL, comando, branch ou credencial. Consultar atualização não faz deploy
+nem git pull de main. Approval tem expiração e uso único, com ledger antes dos efeitos.
 
 ### Versão instalada
 
@@ -370,16 +351,14 @@ A versão instalada é o commit do último deploy concluído com sucesso, e não
 
 ### Atualização em produção
 
-Fluxo recomendado:
-
-1. Entrar como Super Admin.
-2. Abrir **Configurações do Sistema > Atualização do Sistema**.
-3. Verificar atualizações.
-4. Revisar as alterações disponíveis.
-5. Confirmar **Atualizar sistema**.
-6. Aguardar healthchecks e conclusão do WebUpdater.
-
-Evite usar `git pull` e rebuild manual como rotina de produção.
+O contrato atual é autorizado somente em ambiente de teste; não habilitar a ponte
+em produção por este README. O operador prepara recovery restore-tested, imagens,
+assinatura e policy root-only antes do painel. O agente atualiza só backend/frontend
+com --no-deps e verifica SHA/digests/health/estabilização; não reconcilia PostgreSQL.
+Migrações usam schema operator separado e só quando explicitamente necessárias.
+P0.6/homologação operacional está suspensa durante o fechamento do PR #3.
+Ver [contrato vigente](docs/crypto-recovery-release.md) e
+[fechamento de implementação](docs/implementation-closeout.md).
 
 ---
 

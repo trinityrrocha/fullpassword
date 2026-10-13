@@ -449,6 +449,7 @@ async function run() {
       await backup.cleanupBackupWorkspace(archive.workspace);
     }
     console.log('PASS backup v2 N=131072 and restore into SECOND isolated PostgreSQL database, fresh login and client-side vault opening.');
+    await require('./password-reset-preservation-fixture')({ database, ownerApi, ownerUser, secret, legacyVault, VaultSession, unlockUserIdentity, password });
     console.log('PASS integrated HTTP + PostgreSQL: independent identity, new users, per-vault keys, per-record add/edit/read restrictions, CSRF/session, revocation rotation, stale revision, legacy migration interruption/resume/idempotence and preserved originals.');
   } finally {
     console.log('Integration: closing HTTP server.');

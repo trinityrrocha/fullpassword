@@ -385,6 +385,8 @@ const run = async () => {
   const authControllerSource = read('backend/src/controllers/authController.js');
   const userControllerSource = read('backend/src/controllers/userController.js');
   assert.match(controllerSource, /PASSWORD_RESET_GENERIC_MESSAGE/);
+  assert.match(controllerSource, /action: 'password_reset_crypto_identity_preserved'/);
+  assert.doesNotMatch(controllerSource, /password_reset_crypto_identity_rotated/);
   assert.match(routesSource, /\/password-reset\/request/);
   assert.match(routesSource, /\/password-reset\/validate/);
   assert.match(routesSource, /\/password-reset\/complete/);

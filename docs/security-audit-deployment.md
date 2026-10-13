@@ -1,5 +1,12 @@
 # Implantação de teste e recuperação — PR #3
 
+> ROTEIRO HISTÓRICO (2026-09/10): as afirmações antigas de ausência de agente,
+> publicação ou acesso ao host não descrevem o estado P0.5. Para o contrato
+> corrente ver [crypto-recovery-release.md](crypto-recovery-release.md) e a
+> matriz datada [implementation-closeout.md](implementation-closeout.md).
+> Não executar etapas remotas por instrução deste documento; a homologação
+> operacional está adiada e depende de autorização própria.
+
 Continuação 2026-10-05: infraestrutura informada = VM/Docker Compose direto,
 sem Coolify. Agente executável e API/painel adicionados. Não houve acesso ao host
 nem instalação remota. Consultar security-homologation-2026-10-05.md para o

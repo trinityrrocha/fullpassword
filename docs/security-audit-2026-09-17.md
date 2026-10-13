@@ -1,5 +1,10 @@
 # Auditoria de segurança — continuação integrada do PR #3
 
+> HISTÓRICO: números de audit, publicação e implantação abaixo pertencem às
+> datas indicadas; não reutilizá-los como prova atual. Ver
+> [fechamento de implementação](implementation-closeout.md) para FP-10 e
+> [contrato corrente](crypto-recovery-release.md) para reset/crypto/release.
+
 Estado atual em 2026-10-05:
 [matriz atual](security-homologation-2026-10-05.md). Agente executável e migração
 scoped de itens foram adicionados; os resultados antigos abaixo são históricos.

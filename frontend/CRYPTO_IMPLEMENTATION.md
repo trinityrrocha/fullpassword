@@ -1,5 +1,12 @@
 # Implementação de Criptografia Zero-Knowledge - FullPassword
 
+> HISTÓRICO / SUPERADO: este texto descreve o modelo anterior de MK ligada à
+> senha de login e dados por categoria. Não é o contrato ativo. Consulte
+> [contrato atual de crypto/recovery/release](../docs/crypto-recovery-release.md)
+> para identidade independente, PBKDF2-600.000, DEK por cofre, CRUD por registro,
+> sessão HttpOnly e reset que preserva identidade. As descrições antigas abaixo
+> são mantidas como registro, não instruções de implementação vigente.
+
 ## Visão Geral da Arquitetura
 
 O FullPassword implementa uma arquitetura **Zero-Knowledge** onde toda a criptografia é feita no navegador do cliente. O backend nunca tem acesso a dados sensíveis em texto claro.

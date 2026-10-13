@@ -13,6 +13,7 @@ const resetPassword = read('src/pages/ResetPassword.jsx');
 const resetCrypto = read('src/services/passwordResetCryptoService.js');
 const api = read('src/services/api.js');
 const teamList = read('src/pages/TeamList.jsx');
+const settings = read('src/pages/Settings.jsx');
 
 assert.match(app, /path="\/forgot-password"/);
 assert.match(app, /path="\/reset-password"/);
@@ -47,5 +48,8 @@ assert.match(api, /\/auth\/password-reset\/validate/);
 assert.match(api, /\/auth\/password-reset\/complete/);
 assert.match(teamList, /o usuário deve usar “Esqueceu a senha\?” na tela de login/);
 assert.doesNotMatch(teamList, /payload\.password = editUser\.password/);
+assert.match(settings, /\['password_reset_crypto_identity_preserved', 'Senha de login redefinida; identidade criptográfica preservada'\]/);
+assert.match(settings, /\['password_reset_crypto_identity_rotated', 'Reset de senha — registro histórico de identidade'\]/);
+assert.doesNotMatch(settings, /Identidade criptográfica renovada/);
 
 console.log('Zero-knowledge password reset frontend tests passed.');

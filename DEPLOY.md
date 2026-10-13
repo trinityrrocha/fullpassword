@@ -1,5 +1,11 @@
 # FullPassword - Guia de Deploy em Produção (VPS)
 
+> HISTÓRICO / SUPERADO para implantação do PR #3: este roteiro registra o
+> instalador legado publicado em main. Não autoriza instalar a branch de
+> auditoria nem usar o updater antigo. O contrato vigente é release assinada,
+> agente host-side, approval one-shot, runtime DML e schema operator separado:
+> [crypto/recovery/release](docs/crypto-recovery-release.md).
+
 Este guia explica como realizar o deploy do FullPassword em uma VPS Linux (Ubuntu 20.04/22.04 LTS ou Debian 11/12) de forma 100% automatizada.
 
 ## Pré-requisitos (Importante!)

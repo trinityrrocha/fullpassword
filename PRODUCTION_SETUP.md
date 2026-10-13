@@ -1,5 +1,9 @@
 # FullPassword - Configuração de Produção (Resumo Executivo)
 
+> HISTÓRICO / SUPERADO para o PR #3: preservar este roteiro do instalador legado.
+> Para o candidato de auditoria, usar o [contrato vigente de release e recovery](docs/crypto-recovery-release.md).
+> Deploy/VM/migration exigem autorização separada; não atualizar por pull/build de main.
+
 ## 🚀 Deploy em 3 Passos
 
 ### Passo 1: Preparação do Domínio

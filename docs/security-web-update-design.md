@@ -1,5 +1,12 @@
 # Preparação do update web por release assinada
 
+> HISTÓRICO / SUPERADO nos parágrafos datados abaixo. Contrato vigente:
+> [crypto-recovery-release.md](crypto-recovery-release.md). O agente/API já
+> existem; foram publicadas releases operacionais em builders dedicadas e
+> preparadas autoridades fora da aplicação. Isso não autoriza operar WebUpdate.
+> A P0.6 está suspensa durante o fechamento de implementação; novo código não
+> equivale a nova release/approval nem à revisão instalada.
+
 Atualização em 2026-10-05: a ponte agora possui código executável em
 scripts/release-agent.js, releaseController.js e UpdateStatusPanel.jsx.
 O contrato abaixo foi implementado com fila separada, ledger externo, reauth/MFA,

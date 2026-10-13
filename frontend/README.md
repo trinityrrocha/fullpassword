@@ -1,5 +1,10 @@
 # FullPassword Frontend - React UI
 
+> Referência histórica de telas/estrutura inicial abaixo. Stack atual: React 19,
+> Vite 8, Tailwind 4.3.3 com tokens visuais v3 preservados, WebCrypto v2 e
+> identidade independente. A criptografia já está implementada. Consulte
+> [contrato vigente](../docs/crypto-recovery-release.md) e DESIGN.md na raiz.
+
 ## Visão Geral
 
 O frontend do FullPassword é construído com React (Vite), Tailwind CSS e focado em fornecer uma interface limpa, segura e responsiva para Managed Service Providers (MSPs). Esta estrutura prepara o terreno para a implementação da criptografia Zero-Knowledge.
