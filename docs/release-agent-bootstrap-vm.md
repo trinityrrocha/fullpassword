@@ -142,6 +142,29 @@ pinada, comando/profile/porta/restart inválidos, rede/DB divergentes ou mounts 
 autoridade no migration. Durante o deploy, backend e migration são sobrescritos
 juntos com `manifest.backend`, sem novo build.
 
+### Reconciliação restrita da aplicação (forward e image rollback)
+
+Os dois caminhos de `compose up` reconciliam **somente backend/frontend**, com
+`--no-deps --no-build --wait --wait-timeout`. PostgreSQL e demais dependências
+não devem ser recriados, reiniciados, substituídos ou reconciliados por uma
+release normal. Não trocar isso por `docker restart`: as imagens aprovadas dos
+dois serviços ainda precisam ser efetivamente atualizadas/recriadas.
+
+O banco já deve estar disponível. O fluxo continua: parar backend writer,
+executar `schema-migrate` separado (owner/DDL, `run --no-deps`), iniciar a aplicação
+com runtime DML e `DB_SCHEMA_MODE=verify`. Não repetir migration após falha.
+`--no-deps` não desfaz SQL já aplicado: **image rollback != database rollback**;
+falha após migration continua podendo exigir `RECOVERY REQUIRED` e restauração
+consistente de banco/volumes/configuração antes de reabrir os writers.
+
+Regressões obrigatórias na CI: o teste de argumentos efetivamente executados
+`test-release-no-db-reconcile.js` cobre os dois `up`; o ensaio Docker real
+`test-release-upgrade-docker.js` verifica DB container ID, StartedAt, RestartCount,
+image ID, volume/source e disponibilidade `SELECT 1`, além da atualização real
+de backend/frontend e de seu rollback. Um desvio sintético na configuração de
+`db` deve permanecer **não aplicado** ao reconciliar a aplicação; dados
+preservados sozinhos não provam ausência de recriação/restart.
+
 Combinar com o Compose efetivo da VM **em staging root-only**, preservando:
 - backend com mounts public read-only e queue read-write;
 - schema-migrate com profile operator, mesmo network/DB, sem socket;

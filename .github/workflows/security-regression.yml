@@ -31,6 +31,9 @@ jobs:
         working-directory: backend
       - run: node scripts/test-approved-release.js
         working-directory: backend
+      - name: Deployment must not recreate database dependency (executed argv regression)
+        run: node scripts/test-release-no-db-reconcile.js
+        working-directory: backend
       - run: node scripts/test-release-agent.js
         working-directory: backend
       - run: node scripts/test-release-compose.js && node scripts/test-runtime-role-postgres.js && node scripts/test-release-bootstrap.js
@@ -97,5 +100,5 @@ jobs:
           done
           docker logs --tail 40 fp-audit-api
           exit 1
-      - name: Old install bootstrap and signed web-requested update (isolated)
+      - name: Signed forward and rollback must not recreate or restart database dependency (isolated)
         run: sudo --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT "$(command -v node)" backend/scripts/test-release-upgrade-docker.js

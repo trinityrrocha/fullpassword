@@ -129,12 +129,12 @@ const deploy=(manifestPath,signaturePath,expectedRelease)=>{
    run('docker',[...compose,'stop','backend'],'stop_writers');
    run('docker',[...compose,'-f',override,'run','--rm','--no-deps','schema-migrate','node','scripts/migrate-schema.js'],'schema_migrate');
   }
-  run('docker',[...compose,'-f',override,'up','-d','--no-build','--wait','--wait-timeout','180','backend','frontend'],'start_services');
+  run('docker',[...compose,'-f',override,'up','-d','--no-deps','--no-build','--wait','--wait-timeout','180','backend','frontend'],'start_services');
   verifyDeployment(policy,manifest);
   fs.writeFileSync(path.join(state,'installed.json'),JSON.stringify({revision:manifest.revision,backend:manifest.backend,frontend:manifest.frontend,rollback}),{mode:0o600});
  } catch(error) {
   try {
-   run('docker',[...compose,'-f',rollback,'up','-d','--no-build','--pull','never','--wait','--wait-timeout','180','backend','frontend'],'image_rollback');
+   run('docker',[...compose,'-f',rollback,'up','-d','--no-deps','--no-build','--pull','never','--wait','--wait-timeout','180','backend','frontend'],'image_rollback');
    for(const service of ['backend','frontend']) {
     const id=run('docker',[...compose,'ps','-q',service]);
     if(run('docker',['inspect','--format','{{.Image}}',id])!==previous['x-verified-image-ids'][service]) throw new Error('ROLLBACK_IMAGE_MISMATCH');
