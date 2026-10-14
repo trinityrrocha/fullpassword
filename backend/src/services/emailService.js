@@ -12,6 +12,9 @@ class EmailDeliveryError extends Error {
 }
 
 const createTransportOptions = (settings) => {
+  if (!['ssl_tls', 'starttls'].includes(settings.security)) {
+    throw new SmtpSettingsError('SMTP exige SSL/TLS ou STARTTLS obrigatório.', 'SMTP_TLS_REQUIRED');
+  }
   const directTls = settings.security === 'ssl_tls';
   const startTls = settings.security === 'starttls';
   const timeoutMs = settings.timeout_seconds * 1000;
@@ -40,9 +43,9 @@ const createTransportOptions = (settings) => {
   return options;
 };
 
-const sendEmail = async ({ to, subject, text, html }, { allowDisabled = false } = {}) => {
+const sendEmail = async ({ to, subject, text, html }, { allowDisabled = false, queryable } = {}) => {
   if (!isValidEmail(to)) throw new SmtpSettingsError('O destinatário do e-mail é inválido.');
-  const settings = await getSmtpDeliverySettings({ allowDisabled });
+  const settings = await getSmtpDeliverySettings({ allowDisabled, queryable });
   const transporter = nodemailer.createTransport(createTransportOptions(settings));
 
   try {

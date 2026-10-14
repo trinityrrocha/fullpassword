@@ -57,7 +57,7 @@ export default function IpCidrInput({
             maxLength={maxLength}
             aria-invalid={effectiveState === 'invalid'}
             aria-describedby={showHelperText && error ? `${id}-error` : undefined}
-            className={`min-w-0 flex-1 bg-transparent font-mono text-xs tracking-tight text-slate-900 outline-none placeholder:text-slate-400 ${inputClassName}`}
+            className={`min-w-0 flex-1 bg-transparent font-mono text-xs tracking-tight text-slate-900 outline-hidden placeholder:text-slate-400 ${inputClassName}`}
           />
         </div>
       </div>

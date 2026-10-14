@@ -1,6 +1,5 @@
 const db = require('../config/database');
 const {
-  ensureSharingSchema,
   requireClientPermission,
   canManageClientShares,
   logVaultAccess
@@ -9,7 +8,6 @@ const { safeLogError } = require('../utils/safeLogger');
 
 const getClientKeyShare = async (req, res) => {
   try {
-    await ensureSharingSchema();
 
     const { clientId } = req.params;
     await requireClientPermission(clientId, req.user, 'view');
@@ -34,8 +32,9 @@ const getClientKeyShare = async (req, res) => {
 };
 
 const updateClientKeyShares = async (req, res) => {
+  let transaction;
   try {
-    await ensureSharingSchema();
+    transaction = await db.pool.connect();
 
     const { clientId } = req.params;
     const { shares } = req.body;
@@ -44,13 +43,13 @@ const updateClientKeyShares = async (req, res) => {
       return res.status(400).json({ error: 'Lista de chaves compartilhadas inválida' });
     }
 
-    const canManage = await canManageClientShares(clientId, req.user);
+    const canManage = await canManageClientShares(clientId, req.user, transaction);
     if (!canManage) {
       await logVaultAccess(clientId, req.user.id, 'client_key_share_update_denied');
       return res.status(403).json({ error: 'Apenas o dono do cofre ou admin pode atualizar chaves de compartilhamento' });
     }
 
-    await db.query('BEGIN');
+    await transaction.query('BEGIN');
 
     let saved = 0;
     for (const share of shares) {
@@ -59,10 +58,10 @@ const updateClientKeyShares = async (req, res) => {
 
       if (!userId || !encryptedClientKey) continue;
 
-      const userCheck = await db.query('SELECT id FROM users WHERE id = $1 AND is_active = TRUE', [userId]);
+      const userCheck = await transaction.query('SELECT id FROM users WHERE id = $1 AND is_active = TRUE', [userId]);
       if (userCheck.rows.length === 0) continue;
 
-      await db.query(
+      await transaction.query(
         `INSERT INTO client_key_shares (client_id, user_id, encrypted_client_key, created_by)
          VALUES ($1, $2, $3, $4)
          ON CONFLICT (client_id, user_id)
@@ -74,14 +73,16 @@ const updateClientKeyShares = async (req, res) => {
       saved += 1;
     }
 
-    await db.query('COMMIT');
+    await transaction.query('COMMIT');
     await logVaultAccess(clientId, req.user.id, 'client_key_share_update', { shares: saved });
 
     res.status(200).json({ message: 'Chaves de compartilhamento atualizadas', saved });
   } catch (error) {
-    await db.query('ROLLBACK');
+    if (transaction) await transaction.query('ROLLBACK').catch(() => {});
     safeLogError('Erro ao atualizar chaves compartilhadas do cofre.', error);
     res.status(500).json({ error: 'Erro ao atualizar chaves compartilhadas do cofre' });
+  } finally {
+    transaction?.release();
   }
 };
 

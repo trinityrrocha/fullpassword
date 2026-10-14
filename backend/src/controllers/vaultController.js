@@ -1,6 +1,5 @@
 const db = require('../config/database');
 const {
-  ensureSharingSchema,
   normalizePermissionSet,
   getClientPermissions,
   requireClientPermission,
@@ -66,7 +65,12 @@ const createVaultItem = async (req, res) => {
       return res.status(400).json({ error: 'Categoria e dados criptografados são obrigatórios' });
     }
 
-    await requireClientPermission(clientId, req.user, 'write');
+    // Legacy snapshots can replace or remove existing records inside ciphertext.
+    // Until migrated to record-level writes, require the complete permission set.
+    const permissions = await requireClientPermission(clientId, req.user, 'add');
+    if (!permissions.can_edit || !permissions.can_delete) {
+      return res.status(403).json({ error: 'Este formato legado exige permissão completa de gravação.', code: 'LEGACY_SNAPSHOT_FULL_WRITE_REQUIRED' });
+    }
 
     const result = await db.query(
       `INSERT INTO vault_items 
@@ -99,7 +103,6 @@ const getClientShares = async (req, res) => {
       return res.status(403).json({ error: 'Apenas o dono do cofre ou admin pode gerenciar compartilhamentos' });
     }
 
-    await ensureSharingSchema();
 
     const result = await db.query(
       `SELECT
@@ -128,7 +131,9 @@ const getClientShares = async (req, res) => {
 
 // PUT /api/vault-items/:clientId/shares - Atualiza grupos e permissões do compartilhamento do cofre
 const updateClientShares = async (req, res) => {
+  let transaction;
   try {
+    transaction = await db.pool.connect();
     const { clientId } = req.params;
     const { shares } = req.body;
 
@@ -136,26 +141,25 @@ const updateClientShares = async (req, res) => {
       return res.status(400).json({ error: 'Lista de compartilhamentos inválida' });
     }
 
-    const canManage = await canManageClientShares(clientId, req.user);
+    const canManage = await canManageClientShares(clientId, req.user, transaction);
     if (!canManage) {
       await logVaultAccess(clientId, req.user.id, 'vault_share_update_denied');
       return res.status(403).json({ error: 'Apenas o dono do cofre ou admin pode gerenciar compartilhamentos' });
     }
 
-    await ensureSharingSchema();
-    await db.query('BEGIN');
+    await transaction.query('BEGIN');
 
-    await db.query('DELETE FROM client_group_access WHERE client_id = $1', [clientId]);
+    await transaction.query('DELETE FROM client_group_access WHERE client_id = $1', [clientId]);
 
     for (const share of shares) {
       if (!share.group_id) continue;
       const permissions = normalizePermissionSet(share);
       if (!permissions.can_view) continue;
 
-      const groupCheck = await db.query('SELECT id FROM groups WHERE id = $1', [share.group_id]);
+      const groupCheck = await transaction.query('SELECT id FROM groups WHERE id = $1', [share.group_id]);
       if (groupCheck.rows.length === 0) continue;
 
-      await db.query(
+      await transaction.query(
         `INSERT INTO client_group_access
            (client_id, group_id, can_view, can_edit, can_add, can_delete)
          VALUES ($1, $2, $3, $4, $5, $6)
@@ -170,19 +174,23 @@ const updateClientShares = async (req, res) => {
       );
     }
 
-    await db.query('COMMIT');
+    await transaction.query('COMMIT');
     await logVaultAccess(clientId, req.user.id, 'vault_share_update', { shares: shares.length });
     res.status(200).json({ message: 'Compartilhamento atualizado com sucesso' });
   } catch (error) {
-    await db.query('ROLLBACK');
+    if (transaction) await transaction.query('ROLLBACK').catch(() => {});
     safeLogError('Erro ao atualizar compartilhamentos do cofre.', error);
     res.status(500).json({ error: 'Erro ao atualizar compartilhamentos do cofre' });
+  } finally {
+    transaction?.release();
   }
 };
 
 // POST /api/vault-items/:id/share - Compartilha um item criptográfico com múltiplos usuários (compatibilidade)
 const shareVaultItem = async (req, res) => {
+  let transaction;
   try {
+    transaction = await db.pool.connect();
     const { id } = req.params;
     const { shares } = req.body;
 
@@ -190,7 +198,7 @@ const shareVaultItem = async (req, res) => {
       return res.status(400).json({ error: 'Nenhum dado de compartilhamento fornecido' });
     }
 
-    const itemCheck = await db.query(
+    const itemCheck = await transaction.query(
       'SELECT id, client_id FROM vault_items WHERE id = $1',
       [id]
     );
@@ -200,16 +208,16 @@ const shareVaultItem = async (req, res) => {
     }
 
     const clientId = itemCheck.rows[0].client_id;
-    const canManage = await canManageClientShares(clientId, req.user);
+    const canManage = await canManageClientShares(clientId, req.user, transaction);
     if (!canManage) {
       await logVaultAccess(clientId, req.user.id, 'vault_item_share_denied', { item_id: id });
       return res.status(403).json({ error: 'Apenas o dono do cofre ou admin pode compartilhar este item' });
     }
 
-    await db.query('BEGIN');
+    await transaction.query('BEGIN');
 
     for (const share of shares) {
-      await db.query(
+      await transaction.query(
         `INSERT INTO vault_shares (vault_item_id, user_id, encrypted_vault_key)
          VALUES ($1, $2, $3)
          ON CONFLICT (vault_item_id, user_id) 
@@ -218,16 +226,18 @@ const shareVaultItem = async (req, res) => {
       );
     }
 
-    await db.query('COMMIT');
+    await transaction.query('COMMIT');
     await logVaultAccess(clientId, req.user.id, 'vault_item_share_update', {
       item_id: id,
       shares: shares.length
     });
     res.status(200).json({ message: 'Cofre compartilhado com sucesso' });
   } catch (error) {
-    await db.query('ROLLBACK');
+    if (transaction) await transaction.query('ROLLBACK').catch(() => {});
     safeLogError('Erro ao compartilhar cofre.', error);
     res.status(500).json({ error: 'Erro ao compartilhar cofre' });
+  } finally {
+    transaction?.release();
   }
 };
 

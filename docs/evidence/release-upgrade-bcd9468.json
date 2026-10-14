@@ -1,0 +1,29 @@
+{
+  "run": "https://github.com/trinityrrocha/fullpassword/actions/runs/37399889906",
+  "job": 112064491733,
+  "scope": "Disposable GitHub-hosted Docker rehearsal; NOT pw.sti1.com.br; registry removed after test.",
+  "passed": true,
+  "base": "d9a7a3786143379df43ff1910263894df33449bf",
+  "bootstrap": "821efb2659974b9a96ab7947dc07f988038042a5",
+  "target": "bcd94682da864d6b498bd2e9aebf5e8174b594fb",
+  "agentRevision": "bcd94682da864d6b498bd2e9aebf5e8174b594fb",
+  "agentBootstrapped": true,
+  "images": {
+    "821efb2659974b9a96ab7947dc07f988038042a5": {
+      "backend": "127.0.0.1:5000/trinityrrocha/fullpassword-backend@sha256:b141d6040a59cbfb97ad56190efa21c0f3136bf54a5661c690f2c7b56dc8b97d",
+      "frontend": "127.0.0.1:5000/trinityrrocha/fullpassword-frontend@sha256:d7a8bb7068fbc9503aac8cfaa13dcc40df7fe9455d888c13700a769c88f4ec80"
+    },
+    "bcd94682da864d6b498bd2e9aebf5e8174b594fb": {
+      "backend": "127.0.0.1:5000/trinityrrocha/fullpassword-backend@sha256:969da6bfa5fe4dae45fc41e626aba45fef415761b395f1e70f6a77c7666157fc",
+      "frontend": "127.0.0.1:5000/trinityrrocha/fullpassword-frontend@sha256:0eb1b16be7e25448fdc38bb527710201583044f9a970d7e90009ac9433dbe294"
+    }
+  },
+  "webRequest": true,
+  "minimumStabilityMs": 60000,
+  "restoredRecovery": true,
+  "secondPostgresVolume": true,
+  "failureAndImageRollback": true,
+  "recoveredLogin": true,
+  "preservedOldData": true,
+  "replayBlocked": true
+}

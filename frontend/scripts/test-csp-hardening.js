@@ -33,10 +33,12 @@ for (const sourcePath of frontendSources) {
 
 const cspFiles = [
   path.join(projectRoot, 'docker', 'nginx.conf'),
-  path.join(projectRoot, 'scripts', 'install.sh'),
-  path.join(projectRoot, 'scripts', 'update.sh')
+  path.join(projectRoot, 'scripts', 'install.sh')
 ];
 const unsafeInlineDirective = ['unsafe', 'inline'].join('-');
+const updateScript = read(path.join(projectRoot, 'scripts', 'update.sh'));
+assert.match(updateScript, /deploy-approved-release\.js/);
+assert.doesNotMatch(updateScript, /nginx\.conf|git pull/, 'Updater cannot overwrite protected proxy policy or follow mutable main');
 
 for (const cspPath of cspFiles) {
   const source = read(cspPath);

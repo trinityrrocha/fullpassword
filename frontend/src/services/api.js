@@ -44,7 +44,14 @@ api.interceptors.response.use(
   (response) => {
     return response;
   },
-  (error) => {
+  async (error) => {
+    if (error.response?.data?.code === 'REAUTH_REQUIRED' && error.response.data.purpose && !error.config?._reauthRetried) {
+      const action = (typeof error.config.data === 'string' ? JSON.parse(error.config.data) : error.config.data) || {};
+      const token = await new Promise(resolve => window.dispatchEvent(new CustomEvent('fullpassword:reauth', {
+        detail:{purpose:error.response.data.purpose,action,resolve}
+      })));
+      if (token) return api.request({...error.config,_reauthRetried:true,data:{...action,_reauth_token:token}});
+    }
     if (error.response?.status === 429) {
       const headerValue = Number.parseInt(error.response.headers?.['retry-after'], 10);
       const bodyValue = Number.parseInt(error.response.data?.retry_after_seconds, 10);

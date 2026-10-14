@@ -60,7 +60,7 @@ function VaultGroupSelector({ groups, selectedGroupIds, onToggle, disabled }) {
         aria-haspopup="listbox"
         aria-controls={listboxId}
         onClick={() => setIsOpen((current) => !current)}
-        className="flex h-10 w-full items-center justify-between gap-2 rounded-md border border-slate-300 bg-white px-3 text-left text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-60"
+        className="flex h-10 w-full items-center justify-between gap-2 rounded-md border border-slate-300 bg-white px-3 text-left text-sm shadow-sm focus:border-indigo-500 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-60"
       >
         <span className={selectedCount ? 'text-slate-700' : 'text-slate-500'}>{selectionLabel}</span>
         <ChevronDown className={`h-4 w-4 shrink-0 text-slate-500 transition-transform ${isOpen ? 'rotate-180' : ''}`} aria-hidden="true" />
@@ -102,7 +102,7 @@ function VaultGroupSelector({ groups, selectedGroupIds, onToggle, disabled }) {
   );
 }
 
-export default function VaultSharingManager({ clientId, prepareKeyShares, compact = false }) {
+export default function VaultSharingManager({ clientId, saveCryptoShares, compact = false }) {
   const [groups, setGroups] = useState([]);
   const [shares, setShares] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -166,52 +166,6 @@ export default function VaultSharingManager({ clientId, prepareKeyShares, compac
     setShares((current) => toggleVaultGroupShare(current, group));
   };
 
-  const syncKeyShares = async (groupIds) => {
-    if (typeof prepareKeyShares !== 'function') {
-      const error = new Error('A chave do cofre ainda não foi carregada.');
-      error.code = 'VAULT_LOCKED';
-      throw error;
-    }
-
-    const usersResponse = await api.get('/users');
-    const currentUsers = usersResponse.data || [];
-
-    const selected = new Set(groupIds);
-    const targetUsers = currentUsers.filter((item) => (
-      item.is_active !== false &&
-      Array.isArray(item.groups) &&
-      item.groups.some((group) => selected.has(group.id))
-    ));
-
-    const pending = targetUsers.filter((item) => !item.public_key);
-
-    if (pending.length > 0) {
-      const names = pending
-        .map((item) => item.name && item.email ? `${item.name} (${item.email})` : item.name || item.email)
-        .map((name) => `- ${name}`)
-        .join('\n');
-      throw new Error(
-        `Não foi possível compartilhar com todos os usuários do grupo.\n\n` +
-        `Usuários sem chave pública:\n${names}\n\n` +
-        `Esses usuários precisam entrar no sistema uma vez para concluir a configuração das chaves de segurança da conta. Depois disso, tente compartilhar novamente.`
-      );
-    }
-
-    const encryptedKeys = targetUsers.length > 0
-      ? await prepareKeyShares(targetUsers.map((item) => item.public_key))
-      : [];
-    if (!Array.isArray(encryptedKeys) || encryptedKeys.length !== targetUsers.length) {
-      throw new Error('Não foi possível preparar todas as chaves do compartilhamento.');
-    }
-
-    const prepared = targetUsers.map((item, index) => ({
-      user_id: item.id,
-      encrypted_client_key: encryptedKeys[index]
-    }));
-
-    await api.put(`/vault-items/${clientId}/key-shares`, { shares: prepared });
-  };
-
   const saveShares = async () => {
     const cleanedShares = shares
       .filter((share) => share.group_id)
@@ -232,9 +186,7 @@ export default function VaultSharingManager({ clientId, prepareKeyShares, compac
     setIsSaving(true);
     let stage = 'prepare_key_shares';
     try {
-      await syncKeyShares([...uniqueGroupIds]);
-      stage = 'persist_group_shares';
-      await api.put(`/vault-items/${clientId}/shares`, { shares: cleanedShares });
+      await saveCryptoShares(cleanedShares);
       stage = 'reload_group_shares';
       await loadSharingData();
       alert('Compartilhamento do cofre atualizado com sucesso.');
@@ -256,10 +208,9 @@ export default function VaultSharingManager({ clientId, prepareKeyShares, compac
     try {
       const sharesResponse = await api.get(`/vault-items/${clientId}/shares`);
       const currentShares = (sharesResponse.data || []).map(normalizeVaultShare);
-      const currentGroupIds = currentShares.map((share) => share.group_id).filter(Boolean);
       setShares(currentShares);
       stage = 'prepare_key_shares';
-      await syncKeyShares(currentGroupIds);
+      await saveCryptoShares(currentShares);
       alert('Chaves do compartilhamento ressincronizadas com sucesso.');
     } catch (err) {
       safeLogError('Erro ao ressincronizar chaves do compartilhamento.', err, {

@@ -2,8 +2,6 @@ const db = require('../config/database');
 const { isSuperAdmin } = require('../config/security');
 const { safeLogError } = require('../utils/safeLogger');
 
-let schemaReady = false;
-
 const normalizeBoolean = (value) => value === true || value === 'true' || value === 1 || value === '1';
 
 const normalizePermissionSet = (permissions = {}) => {
@@ -13,7 +11,7 @@ const normalizePermissionSet = (permissions = {}) => {
   const explicitView = permissions.can_view ?? permissions.canView;
 
   return {
-    can_view: normalizeBoolean(explicitView) || canEdit || canAdd || canDelete,
+    can_view: explicitView === undefined ? canEdit || canAdd || canDelete : normalizeBoolean(explicitView),
     can_edit: canEdit,
     can_add: canAdd,
     can_delete: canDelete
@@ -40,24 +38,22 @@ const emptyPermissions = () => ({
   source: 'none'
 });
 
-const ensureSharingSchema = async () => {
-  if (schemaReady) return;
-
-  await db.query('BEGIN');
-  try {
-    await db.query('CREATE EXTENSION IF NOT EXISTS "uuid-ossp"');
-    await db.query('ALTER TABLE clients ADD COLUMN IF NOT EXISTS created_by UUID REFERENCES users(id) ON DELETE SET NULL');
-    await db.query('ALTER TABLE clients ADD COLUMN IF NOT EXISTS enabled_modules TEXT[]');
-    await db.query('ALTER TABLE groups ADD COLUMN IF NOT EXISTS can_view BOOLEAN NOT NULL DEFAULT TRUE');
-    await db.query('ALTER TABLE groups ADD COLUMN IF NOT EXISTS can_edit BOOLEAN NOT NULL DEFAULT FALSE');
-    await db.query('ALTER TABLE groups ADD COLUMN IF NOT EXISTS can_add BOOLEAN NOT NULL DEFAULT FALSE');
-    await db.query('ALTER TABLE groups ADD COLUMN IF NOT EXISTS can_delete BOOLEAN NOT NULL DEFAULT FALSE');
-    await db.query('ALTER TABLE client_group_access ADD COLUMN IF NOT EXISTS can_view BOOLEAN NOT NULL DEFAULT TRUE');
-    await db.query('ALTER TABLE client_group_access ADD COLUMN IF NOT EXISTS can_edit BOOLEAN NOT NULL DEFAULT TRUE');
-    await db.query('ALTER TABLE client_group_access ADD COLUMN IF NOT EXISTS can_add BOOLEAN NOT NULL DEFAULT TRUE');
-    await db.query('ALTER TABLE client_group_access ADD COLUMN IF NOT EXISTS can_delete BOOLEAN NOT NULL DEFAULT FALSE');
-    await db.query('ALTER TABLE client_group_access ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP');
-    await db.query(`CREATE TABLE IF NOT EXISTS client_key_shares (
+// Startup only: DDL belongs to the caller's reserved migration transaction.
+const ensureSharingSchema = async (client) => {
+    if (!client) throw new Error('SHARING_SCHEMA_REQUIRES_MIGRATION_CLIENT');
+    await client.query('CREATE EXTENSION IF NOT EXISTS "uuid-ossp"');
+    await client.query('ALTER TABLE clients ADD COLUMN IF NOT EXISTS created_by UUID REFERENCES users(id) ON DELETE SET NULL');
+    await client.query('ALTER TABLE clients ADD COLUMN IF NOT EXISTS enabled_modules TEXT[]');
+    await client.query('ALTER TABLE groups ADD COLUMN IF NOT EXISTS can_view BOOLEAN NOT NULL DEFAULT TRUE');
+    await client.query('ALTER TABLE groups ADD COLUMN IF NOT EXISTS can_edit BOOLEAN NOT NULL DEFAULT FALSE');
+    await client.query('ALTER TABLE groups ADD COLUMN IF NOT EXISTS can_add BOOLEAN NOT NULL DEFAULT FALSE');
+    await client.query('ALTER TABLE groups ADD COLUMN IF NOT EXISTS can_delete BOOLEAN NOT NULL DEFAULT FALSE');
+    await client.query('ALTER TABLE client_group_access ADD COLUMN IF NOT EXISTS can_view BOOLEAN NOT NULL DEFAULT TRUE');
+    await client.query('ALTER TABLE client_group_access ADD COLUMN IF NOT EXISTS can_edit BOOLEAN NOT NULL DEFAULT TRUE');
+    await client.query('ALTER TABLE client_group_access ADD COLUMN IF NOT EXISTS can_add BOOLEAN NOT NULL DEFAULT TRUE');
+    await client.query('ALTER TABLE client_group_access ADD COLUMN IF NOT EXISTS can_delete BOOLEAN NOT NULL DEFAULT FALSE');
+    await client.query('ALTER TABLE client_group_access ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP');
+    await client.query(`CREATE TABLE IF NOT EXISTS client_key_shares (
       id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
       client_id UUID REFERENCES clients(id) ON DELETE CASCADE,
       user_id UUID REFERENCES users(id) ON DELETE CASCADE,
@@ -67,10 +63,7 @@ const ensureSharingSchema = async () => {
       updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
       UNIQUE(client_id, user_id)
     )`);
-    await db.query(`UPDATE groups
-       SET can_view = TRUE, can_edit = TRUE, can_add = TRUE, can_delete = TRUE
-       WHERE name = 'Administradores'`);
-    await db.query(`CREATE TABLE IF NOT EXISTS vault_access_audit (
+    await client.query(`CREATE TABLE IF NOT EXISTS vault_access_audit (
       id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
       client_id UUID REFERENCES clients(id) ON DELETE CASCADE,
       actor_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
@@ -78,47 +71,35 @@ const ensureSharingSchema = async () => {
       details JSONB,
       created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
     )`);
-    await db.query('COMMIT');
-    schemaReady = true;
-  } catch (error) {
-    await db.query('ROLLBACK');
-    throw error;
-  }
 };
 
-const getUserGroups = (user = {}) => Array.isArray(user.groups) ? user.groups.filter(Boolean) : [];
-
-const getClientPermissions = async (clientId, user = {}) => {
-  await ensureSharingSchema();
+const getClientPermissions = async (clientId, user = {}, queryable = db) => {
 
   if (!user.id) return emptyPermissions();
 
-  // O criador usa a própria Master Key como chave do cofre. A propriedade deve
-  // prevalecer até para o Super Admin; tratá-lo primeiro como admin exigiria uma
-  // key share que não existe nem é necessária para o dono.
+  // Ownership is evaluated before administrative access.
   if (isSuperAdmin(user)) {
-    const ownerResult = await db.query('SELECT created_by FROM clients WHERE id = $1 LIMIT 1', [clientId]);
+    const ownerResult = await queryable.query('SELECT created_by FROM clients WHERE id = $1 LIMIT 1', [clientId]);
     if (ownerResult.rows.length === 0) return emptyPermissions();
     if (ownerResult.rows[0].created_by === user.id) return fullPermissions('owner');
     return fullPermissions('admin');
   }
 
-  const userGroups = getUserGroups(user);
-  const result = await db.query(
+  const result = await queryable.query(
     `SELECT
        c.created_by,
-       COALESCE(bool_or(g.can_view), false) AS can_view,
-       COALESCE(bool_or(g.can_edit), false) AS can_edit,
-       COALESCE(bool_or(g.can_add), false) AS can_add,
-       COALESCE(bool_or(cga.can_delete), false) AS can_delete
+       COALESCE(bool_or(g.can_view AND cga.can_view), false) AS can_view,
+       COALESCE(bool_or(g.can_view AND cga.can_view AND g.can_edit AND cga.can_edit), false) AS can_edit,
+       COALESCE(bool_or(g.can_view AND cga.can_view AND g.can_add AND cga.can_add), false) AS can_add,
+       COALESCE(bool_or(g.can_view AND cga.can_view AND g.can_delete AND cga.can_delete), false) AS can_delete
      FROM clients c
      LEFT JOIN client_group_access cga
        ON c.id = cga.client_id
-      AND cga.group_id = ANY($2::uuid[])
+      AND cga.group_id IN (SELECT group_id FROM user_groups WHERE user_id = $2)
      LEFT JOIN groups g ON g.id = cga.group_id
      WHERE c.id = $1
      GROUP BY c.id, c.created_by`,
-    [clientId, userGroups]
+    [clientId, user.id]
   );
 
   if (result.rows.length === 0) return emptyPermissions();
@@ -151,8 +132,8 @@ const hasPermission = (permissions, action) => {
   return false;
 };
 
-const requireClientPermission = async (clientId, user, action) => {
-  const permissions = await getClientPermissions(clientId, user);
+const requireClientPermission = async (clientId, user, action, queryable = db) => {
+  const permissions = await getClientPermissions(clientId, user, queryable);
   if (!hasPermission(permissions, action)) {
     const error = new Error('Acesso negado');
     error.statusCode = action === 'view' ? 404 : 403;
@@ -162,15 +143,14 @@ const requireClientPermission = async (clientId, user, action) => {
   return permissions;
 };
 
-const canManageClientShares = async (clientId, user) => {
-  const permissions = await getClientPermissions(clientId, user);
+const canManageClientShares = async (clientId, user, queryable = db) => {
+  const permissions = await getClientPermissions(clientId, user, queryable);
   return permissions.is_admin || permissions.is_owner;
 };
 
-const logVaultAccess = async (clientId, actorUserId, action, details = {}) => {
+const logVaultAccess = async (clientId, actorUserId, action, details = {}, queryable = db) => {
   try {
-    await ensureSharingSchema();
-    await db.query(
+    await queryable.query(
       'INSERT INTO vault_access_audit (client_id, actor_user_id, action, details) VALUES ($1, $2, $3, $4)',
       [clientId, actorUserId || null, action, details]
     );

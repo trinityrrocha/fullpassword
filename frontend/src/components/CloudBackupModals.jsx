@@ -10,7 +10,7 @@ import {
 import { formatDateTimeShort } from '../utils/formatDateTimeShort';
 import { getCloudStatus } from '../utils/cloudBackupUiState';
 
-const fieldClass = 'w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 disabled:bg-slate-100 disabled:text-slate-500';
+const fieldClass = 'w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm outline-hidden focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 disabled:bg-slate-100 disabled:text-slate-500';
 
 const STATUS_MAP = Object.freeze({
   online: { label: 'Online', color: 'bg-green-500', text: 'text-green-700' },

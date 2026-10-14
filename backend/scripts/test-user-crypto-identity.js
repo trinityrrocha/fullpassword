@@ -85,6 +85,6 @@ assert.match(controller, /CRYPTO_IDENTITY_ALREADY_CONFIGURED/);
 assert.match(controller, /public_key IS NULL AND encrypted_private_key IS NULL/);
 assert.doesNotMatch(controller, /generateKeyPair|privateKey/);
 assert.doesNotMatch(backendCryptoIdentityService, /generateKeyPair|privateKey/);
-assert.match(userRoutes, /router\.use\(verifyToken\)[\s\S]*router\.put\('\/keys', userController\.updateKeys\)/);
+assert.match(userRoutes, /router\.use\(verifyToken\)[\s\S]*router\.put\('\/keys',[^\n]+IDENTITY_V2_REQUIRED/);
 
 console.log('User crypto identity backend tests passed.');

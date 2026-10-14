@@ -1,0 +1,46 @@
+{
+  "date": "2026-09-17",
+  "base_commit": "d9a7a3786143379df43ff1910263894df33449bf",
+  "branch": "security/audit-remediation-2026-09-17",
+  "completion": "partial-not-approved-for-deployment",
+  "environment": { "os": "Windows", "node": "24.19.0", "postgresql": "15.18 native temporary cluster", "timezone": "America/Sao_Paulo" },
+  "results": {
+    "backend_existing_suite": "17 scripts passed",
+    "frontend_existing_suite": "16 scripts passed",
+    "native_postgresql_http_audit": "passed",
+    "smtp_ftps_downgrade_and_smtp_invalid_certificate": "passed",
+    "inactive_crypto_v2_primitives": "passed; scenario 1685 ms, not migration of application data",
+    "frontend_build": "passed; warning for chunk above 500 kB",
+    "frontend_changed_source_eslint": "passed",
+    "changed_javascript_syntax": "passed",
+    "git_diff_check": "passed",
+    "npm_ci_backend_frontend": "passed",
+    "npm_audit_backend_frontend": "0 advisories at execution time"
+  },
+  "not_executed": [
+    "final Docker image build locally",
+    "deployment",
+    "authenticated browser flows",
+    "full application cryptographic migration",
+    "production data access or modification",
+    "SMTP delivery to dedicated mailbox",
+    "FTPS invalid-certificate integration",
+    "complete upload abort/crash/space matrix"
+  ],
+  "test_data": "Only dedicated synthetic users, keys, passwords and records; temporary native database removed.",
+  "ci": {
+    "url": "https://github.com/trinityrrocha/fullpassword/actions/runs/35297987678",
+    "code_head": "8dfd00f023a4d6c2e7fb0a31e26e4ca4a28dde9f",
+    "result": "success: regression and images",
+    "runtime_in_final_backend_image": "v24.21.0 linux x64 Argon2 OK",
+    "backend_image_id": "sha256:1ef805f56bea9b7358bf7af0b7a2c19ed61fac0a6eab4feed68387dd8471a3d9",
+    "frontend_image_id": "sha256:b81ccbac7e535b145a0b84bde9a602be3e2f6bc5f6220ca21280b4699b100125",
+    "published_or_deployed": false
+  },
+  "pending_external_information": [
+    "FullPassword_Evidencias_2026-09-17.zip",
+    "confirmation of exclusive test environment",
+    "current deployment identity and authorized mechanism",
+    "protected backup and isolated recovery verification"
+  ]
+}

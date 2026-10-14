@@ -108,16 +108,12 @@ const run = async () => {
     assert.equal(startTls.requireTLS, true);
     assert.equal(startTls.tls.rejectUnauthorized, true);
 
-    const localOnly = createTransportOptions({
+    assert.throws(() => createTransportOptions({
       ...delivery,
       security: 'none',
       username: '',
       password: ''
-    });
-    assert.equal(localOnly.secure, false);
-    assert.equal(localOnly.requireTLS, false);
-    assert.equal(Object.hasOwn(localOnly, 'tls'), false);
-    assert.equal(Object.hasOwn(localOnly, 'auth'), false);
+    }), error => error.code === 'SMTP_TLS_REQUIRED');
   } finally {
     db.query = previousQuery;
   }
@@ -326,8 +322,8 @@ const run = async () => {
   assert.match(emailServiceSource, /throw new EmailDeliveryError\(\)/);
   assert.match(rateLimitSource, /code: 'SMTP_TEST_RATE_LIMITED'/);
   assert.match(rateLimitSource, /Limite de testes SMTP atingido\. Aguarde alguns minutos/);
-  assert.match(updateScriptSource, /ensure_config_encryption_key/);
-  assert.match(updateScriptSource, /CONFIG_ENCRYPTION_KEY ausente; uma nova chave foi gerada no \.env\./);
+  assert.match(updateScriptSource, /deploy-approved-release\.js/);
+  assert.doesNotMatch(updateScriptSource, /ensure_config_encryption_key|openssl rand/,'Update must not silently replace operational encryption keys');
 };
 
 run()

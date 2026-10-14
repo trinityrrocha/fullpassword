@@ -206,7 +206,7 @@ const run = async () => {
     true
   );
   assert.throws(
-    () => validateFtpConfig({ host: 'ftp://example.test', username: 'user', password: 'secret' }),
+    () => validateFtpConfig({ host: 'ftp://example.test', username: 'user', password: 'secret', secure: true }),
     (error) => error.code === 'CLOUD_BACKUP_INVALID_FTP_HOST'
   );
   assert.equal(

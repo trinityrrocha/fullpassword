@@ -30,6 +30,8 @@ function ProfileContent({ onClose, forcePasswordChange = false }) {
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [emailConfirmation, setEmailConfirmation] = useState('');
+  const [emailChangePending, setEmailChangePending] = useState(false);
   const [mfaStatus, setMfaStatus] = useState(null);
   const [mfaSetup, setMfaSetup] = useState(null);
   const [mfaCode, setMfaCode] = useState('');
@@ -143,6 +145,8 @@ function ProfileContent({ onClose, forcePasswordChange = false }) {
           throw new Error('A nova senha deve ter pelo menos 12 caracteres.');
         }
 
+        payload.new_password = formData.newPassword;
+        if (!user.crypto_identity && user.wrapped_key) {
         const currentWrappedKey = user?.wrapped_key;
         const currentSalt = user?.crypto_salt;
 
@@ -184,12 +188,14 @@ function ProfileContent({ onClose, forcePasswordChange = false }) {
         } finally {
           transientMasterKey = null;
         }
+        }
       }
 
       const response = await api.put('/users/profile', payload);
 
+      setEmailChangePending(response.data?.email_change_pending === true);
       setSuccess(
-        response.data?.session_invalidated
+        response.data?.email_change_pending ? 'Confirme o código enviado ao novo e-mail. O endereço atual ainda não mudou.' : response.data?.session_invalidated
           ? 'Perfil atualizado. Faça login novamente com a nova senha.'
           : 'Perfil atualizado com sucesso!'
       );
@@ -207,7 +213,7 @@ function ProfileContent({ onClose, forcePasswordChange = false }) {
           window.location.href = '/login';
           return;
         }
-        window.location.reload();
+        if (!response.data?.email_change_pending) window.location.reload();
       }, 1800);
 
     } catch (err) {
@@ -331,7 +337,7 @@ function ProfileContent({ onClose, forcePasswordChange = false }) {
     <div className="fixed inset-0 z-50 overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
       <div className="flex min-h-screen items-center justify-center p-4 text-center">
         <div
-          className="fixed inset-0 bg-slate-900 bg-opacity-75 transition-opacity"
+          className="fixed inset-0 bg-slate-900/75 transition-opacity"
           aria-hidden="true"
           onClick={() => {
             if (!forcePasswordChange) handleClose();
@@ -374,6 +380,17 @@ function ProfileContent({ onClose, forcePasswordChange = false }) {
                     </div>
                   )}
 
+                  <div className="space-y-2">
+                    <label className="block text-sm">Confirmar alteração de e-mail (código recebido)
+                      <input value={emailConfirmation} onChange={event=>setEmailConfirmation(event.target.value)} autoComplete="off" className="w-full rounded border p-2" placeholder={emailChangePending ? 'Cole o código enviado ao novo e-mail' : 'Somente se você solicitou uma alteração'} />
+                    </label>
+                    <button type="button" disabled={!emailConfirmation || isSaving} onClick={async()=>{
+                      setIsSaving(true);
+                      try {await api.post('/auth/confirm-email',{token:emailConfirmation});setEmailConfirmation('');await logout();window.location.assign('/login');}
+                      catch {setError('Código de confirmação inválido, expirado ou e-mail indisponível.');}
+                      finally {setIsSaving(false);}
+                    }} className="rounded border px-3 py-1">Confirmar novo e-mail</button>
+                  </div>
                   {success && (
                     <div className="mb-4 bg-emerald-50 border-l-4 border-emerald-400 p-4">
                       <p className="text-sm text-emerald-700">{success}</p>
@@ -389,7 +406,7 @@ function ProfileContent({ onClose, forcePasswordChange = false }) {
                         value={formData.name}
                         onChange={handleChange}
                         required
-                        className="mt-1 block h-8 w-full rounded-md border border-slate-300 px-3 text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-indigo-500"
+                        className="mt-1 block h-8 w-full rounded-md border border-slate-300 px-3 text-sm shadow-sm focus:border-indigo-500 focus:outline-hidden focus:ring-indigo-500"
                       />
                     </div>
                     
@@ -401,7 +418,7 @@ function ProfileContent({ onClose, forcePasswordChange = false }) {
                         value={formData.email}
                         onChange={(event) => setFormData((previous) => ({ ...previous, email: event.target.value.toLowerCase() }))}
                         required
-                        className="mt-1 block h-8 w-full rounded-md border border-slate-300 px-3 text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-indigo-500"
+                        className="mt-1 block h-8 w-full rounded-md border border-slate-300 px-3 text-sm shadow-sm focus:border-indigo-500 focus:outline-hidden focus:ring-indigo-500"
                       />
                     </div>
 
@@ -517,7 +534,7 @@ function ProfileContent({ onClose, forcePasswordChange = false }) {
               type="submit"
               form="profileForm"
               disabled={isSaving}
-              className={`inline-flex h-8 w-full items-center justify-center rounded-md border border-transparent bg-indigo-600 px-3 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 sm:ml-3 sm:w-auto ${isSaving ? 'opacity-70 cursor-not-allowed' : ''}`}
+              className={`inline-flex h-8 w-full items-center justify-center rounded-md border border-transparent bg-indigo-600 px-3 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 sm:ml-3 sm:w-auto ${isSaving ? 'opacity-70 cursor-not-allowed' : ''}`}
             >
               {isSaving ? (
                 <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Salvando...</>
@@ -528,7 +545,7 @@ function ProfileContent({ onClose, forcePasswordChange = false }) {
                 type="button"
                 onClick={handleClose}
                 disabled={isSaving}
-                className="mt-3 inline-flex h-8 w-full items-center justify-center rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 sm:ml-3 sm:mt-0 sm:w-auto"
+                className="mt-3 inline-flex h-8 w-full items-center justify-center rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 sm:ml-3 sm:mt-0 sm:w-auto"
               >
                 Cancelar
               </button>

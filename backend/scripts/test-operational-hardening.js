@@ -24,7 +24,8 @@ assert.doesNotMatch(vaultController, /!canManage\s*&&\s*itemCheck\.rows\[0\]\.cr
 assert.match(vaultController, /vault_item_share_denied/);
 assert.match(vaultController, /vault_item_share_update/);
 assert.match(vaultController, /vault_share_update_denied/);
-assert.match(accessControlService, /try\s*{\s*await ensureSharingSchema\(\)/);
+assert.doesNotMatch(accessControlService.slice(accessControlService.indexOf('const getClientPermissions')), /ensureSharingSchema\(/);
+assert.match(read('backend/src/config/securitySchema.js'), /await ensureSharingSchema\(client\)/);
 
 assert.match(authController, /httpOnly:\s*true/);
 assert.match(authController, /sameSite:\s*'strict'/);
@@ -32,12 +33,10 @@ assert.match(authController, /secure:\s*process\.env\.NODE_ENV\s*===\s*'producti
 assert.match(authMiddleware, /validateUserSession/);
 assert.doesNotMatch(authContext, /(?:localStorage|sessionStorage)\.setItem\([^)]*(?:token|jwt)/i);
 
-assert.match(updateScript, /https:\/\/github\.com\/trinityrrocha\/fullpassword\.git/);
-assert.match(updateScript, /git fetch origin main/);
-assert.match(updateScript, /git pull --ff-only origin main/);
-assert.match(updateScript, /git rev-parse origin\/main/);
-assert.match(updateScript, /db\|backend\|frontend\|nginx/);
-assert.doesNotMatch(updateScript, /git (?:fetch|pull|checkout).*\$\{?(?:BRANCH|REMOTE|URL|COMMAND)/i);
+assert.match(updateScript, /deploy-approved-release\.js/);
+assert.doesNotMatch(updateScript, /git (?:fetch|pull|checkout)/);
+assert.match(read('scripts/deploy-approved-release.js'), /crypto\.verify/);
+assert.match(read('scripts/deploy-approved-release.js'), /UNPINNED_RELEASE_IMAGE/);
 
 assert.doesNotMatch(backupControllers, /console\.(?:log|warn|error)\([^)]*(?:passphrase|ciphertext|req\.body)/i);
 assert.match(backupControllers, /safeLogError/);

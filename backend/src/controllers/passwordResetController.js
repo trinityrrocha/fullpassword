@@ -55,7 +55,7 @@ const completeReset = async (req, res) => {
     });
     await recordAuditEvent({
       user: resetResult.user,
-      action: 'password_reset_crypto_identity_rotated',
+      action: 'password_reset_crypto_identity_preserved',
       status: 'success',
       req,
       metadata: auditMetadata

@@ -30,8 +30,13 @@ export default function GroupModal({ isOpen, onClose, groupToEdit, onSaveSuccess
   });
 
   useEffect(() => {
-    if (isOpen) {
-      loadUsers();
+    if (!isOpen) return;
+    let current = true;
+    const controller = new AbortController();
+    const initialise = async () => {
+      // Initialise after the effect subscribes; stale/closed loads never commit.
+      await Promise.resolve();
+      if (!current) return;
       if (groupToEdit) {
         setFormData({
           name: groupToEdit.name || '',
@@ -50,20 +55,19 @@ export default function GroupModal({ isOpen, onClose, groupToEdit, onSaveSuccess
           ...defaultPermissions
         });
       }
-    }
+      setIsLoadingUsers(true);
+      try {
+        const response = await api.get('/users', { signal: controller.signal });
+        if (current) setUsers(response.data.filter(u => u.is_active));
+      } catch (error) {
+        if (current) safeLogError('Erro ao carregar usuários.', error);
+      } finally {
+        if (current) setIsLoadingUsers(false);
+      }
+    };
+    void initialise();
+    return () => { current = false; controller.abort(); };
   }, [isOpen, groupToEdit]);
-
-  const loadUsers = async () => {
-    setIsLoadingUsers(true);
-    try {
-      const response = await api.get('/users');
-      setUsers(response.data.filter(u => u.is_active));
-    } catch (error) {
-      safeLogError('Erro ao carregar usuários.', error);
-    } finally {
-      setIsLoadingUsers(false);
-    }
-  };
 
   const handleCheckboxChange = (userId) => {
     setFormData(prev => {
@@ -117,7 +121,7 @@ export default function GroupModal({ isOpen, onClose, groupToEdit, onSaveSuccess
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
       <div className="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
-        <div className="fixed inset-0 bg-slate-500 bg-opacity-75 transition-opacity" aria-hidden="true" onClick={onClose}></div>
+        <div className="fixed inset-0 bg-slate-500/75 transition-opacity" aria-hidden="true" onClick={onClose}></div>
         <span className="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
         
         <div className="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-xl sm:w-full">
@@ -211,7 +215,7 @@ export default function GroupModal({ isOpen, onClose, groupToEdit, onSaveSuccess
               type="submit" 
               form="groupForm"
               disabled={isSaving}
-              className={`w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-indigo-600 text-base font-medium text-white hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:ml-3 sm:w-auto sm:text-sm ${isSaving ? 'opacity-70 cursor-not-allowed' : ''}`}
+              className={`w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-indigo-600 text-base font-medium text-white hover:bg-indigo-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:ml-3 sm:w-auto sm:text-sm ${isSaving ? 'opacity-70 cursor-not-allowed' : ''}`}
             >
               {isSaving ? (
                 <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Salvando...</>
@@ -220,7 +224,7 @@ export default function GroupModal({ isOpen, onClose, groupToEdit, onSaveSuccess
             <button 
               type="button" 
               onClick={onClose}
-              className="mt-3 w-full inline-flex justify-center rounded-md border border-slate-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
+              className="mt-3 w-full inline-flex justify-center rounded-md border border-slate-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-slate-700 hover:bg-slate-50 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
             >
               Cancelar
             </button>

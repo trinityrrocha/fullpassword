@@ -13,6 +13,7 @@ const resetPassword = read('src/pages/ResetPassword.jsx');
 const resetCrypto = read('src/services/passwordResetCryptoService.js');
 const api = read('src/services/api.js');
 const teamList = read('src/pages/TeamList.jsx');
+const settings = read('src/pages/Settings.jsx');
 
 assert.match(app, /path="\/forgot-password"/);
 assert.match(app, /path="\/reset-password"/);
@@ -21,9 +22,10 @@ assert.match(login, /Esqueceu a senha\?/);
 assert.match(forgotPassword, /Se o e-mail estiver cadastrado, enviaremos instruções para recuperação de acesso\./);
 assert.doesNotMatch(forgotPassword, /usuário encontrado|e-mail não cadastrado/i);
 
-assert.match(resetPassword, /Esta recuperação redefine o acesso à conta, mas não recupera sua senha mestre antiga\./);
+assert.match(resetPassword, /Sua identidade criptográfica e seus compartilhamentos serão preservados\./);
 assert.match(resetPassword, /Códigos de recuperação servem para validar MFA/);
 assert.match(resetPassword, /RESETAR ACESSO/);
+assert.doesNotMatch(resetPassword, /createPasswordResetCryptoIdentity|wrapped_key/);
 assert.match(resetPassword, /validation\.requires_mfa/);
 assert.match(resetPassword, /recovery_code: mfaCode/);
 assert.match(resetPassword, /mfa_code: mfaCode/);
@@ -46,5 +48,8 @@ assert.match(api, /\/auth\/password-reset\/validate/);
 assert.match(api, /\/auth\/password-reset\/complete/);
 assert.match(teamList, /o usuário deve usar “Esqueceu a senha\?” na tela de login/);
 assert.doesNotMatch(teamList, /payload\.password = editUser\.password/);
+assert.match(settings, /\['password_reset_crypto_identity_preserved', 'Senha de login redefinida; identidade criptográfica preservada'\]/);
+assert.match(settings, /\['password_reset_crypto_identity_rotated', 'Reset de senha — registro histórico de identidade'\]/);
+assert.doesNotMatch(settings, /Identidade criptográfica renovada/);
 
 console.log('Zero-knowledge password reset frontend tests passed.');

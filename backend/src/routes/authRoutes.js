@@ -32,6 +32,8 @@ router.post(
   passwordResetCompleteLimiter,
   passwordResetController.completeReset
 );
+router.post('/reauth', verifyToken, require('../middleware/writeRateLimiters').sensitiveOperationLimiter, require('../services/reauthService').attemptLimit, require('../services/reauthService').issue);
+router.post('/confirm-email', verifyToken, require('../services/reauthService').confirmEmail);
 router.post('/logout', authController.logout);
 router.get('/me', verifyToken, authController.me);
 router.get('/csrf', verifyToken, authController.csrf);

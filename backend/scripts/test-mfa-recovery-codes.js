@@ -97,6 +97,8 @@ const run = async () => {
         totpRecoveryCodesPresent = false;
         return { rows: [], rowCount: 10 };
       }
+      if (sql.startsWith('SELECT * FROM user_mfa_settings')) return {rows:[{enabled:totpMfaEnabled,last_totp_step:null,totp_secret_encrypted:mfaService.encryptSecret(totpSecret)}]};
+      if (sql.startsWith('UPDATE user_mfa_settings SET last_totp_step')) return {rows:[],rowCount:1};
       if (sql.startsWith('DELETE FROM user_mfa_settings')) {
         totpMfaEnabled = false;
         return { rows: [{ user_id: 'user-1' }], rowCount: 1 };
@@ -123,6 +125,14 @@ const run = async () => {
   const originalAuthControllerCache = require.cache[authControllerPath];
   const originalAuditServiceCache = require.cache[auditServicePath];
   const originalDbQuery = db.query;
+  const challengeServicePath = require.resolve('../src/services/mfaChallengeService');
+  const originalChallengeCache = require.cache[challengeServicePath];
+  require.cache[challengeServicePath] = { exports: {
+    consumeChallenge: async (_payload, { recoveryCode }) => {
+      if (recoveryCode !== oneTimeCode) throw new Error('invalid test factor');
+      return { recoveryCodeUsed: true };
+    }
+  } };
   const auditEvents = [];
   let completedLogin = false;
 
@@ -219,6 +229,8 @@ const run = async () => {
     assert.equal(JSON.stringify(auditEvents).includes(oneTimeCode), false);
   } finally {
     db.query = originalDbQuery;
+    if (originalChallengeCache) require.cache[challengeServicePath] = originalChallengeCache;
+    else delete require.cache[challengeServicePath];
     require.cache[mfaServicePath] = originalMfaServiceCache;
     require.cache[authControllerPath] = originalAuthControllerCache;
     require.cache[auditServicePath] = originalAuditServiceCache;

@@ -1,6 +1,28 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+@config "../tailwind.config.js";
+@source "../index.html";
+@source "./";
+
+/* Preserve v3 defaults, including keyboard/forced-colors behavior, not a redesign. */
+@theme {
+  --default-ring-width: 3px;
+  --default-ring-color: #3b82f6;
+}
+@custom-variant dark (&:is(.dark *));
+@custom-variant hover (&:hover);
+@utility flex-shrink-0 { flex-shrink: 0; }
+
+@layer base {
+  *, ::after, ::before, ::backdrop, ::file-selector-button {
+    border-color: var(--color-gray-200, #e5e7eb);
+  }
+  input::placeholder, textarea::placeholder {
+    color: var(--color-gray-400, #9ca3af);
+    opacity: 1;
+  }
+  button:not(:disabled), [role="button"]:not(:disabled) { cursor: pointer; }
+  dialog { margin: auto; }
+}
 
 @layer components {
   /* Only icon-only view/edit/delete actions opt in; text buttons stay unchanged. */

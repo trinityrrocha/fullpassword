@@ -30,7 +30,9 @@ assert.match(hosting, /Adicione pelo menos um e-mail/, 'Notificação ativa deve
 assert.match(hosting, /Notificação: \{cpanel\.domainExpirationNotifyEnabled/, 'Lista deve mostrar status da notificação');
 assert.match(hosting, /<ReadOnlyField label="Senha">\*\*\*\*/, 'Senha deve permanecer mascarada');
 
-const notificationPayload = vault.slice(vault.indexOf("if (category === 'cPanel')"), vault.indexOf('if (showSuccess)', vault.indexOf("if (category === 'cPanel')")));
+const notificationStart = vault.indexOf("if (category === 'cPanel' && effectiveVaultPermissions?.can_edit)");
+assert.ok(notificationStart > 0, 'Inclusão limitada não deve tentar alterar configuração de notificações');
+const notificationPayload = vault.slice(notificationStart, vault.indexOf('if (showSuccess)', notificationStart));
 assert.match(notificationPayload, /domainExpirationNotifyEnabled/, 'Somente notificações explicitamente ativas devem ser sincronizadas');
 assert.doesNotMatch(notificationPayload, /password|username|notes|url/i, 'Metadados operacionais não podem conter dados sensíveis do cofre');
 

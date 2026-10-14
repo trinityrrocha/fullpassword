@@ -23,7 +23,7 @@ for (const [type, icon] of [
   ['DEVICE_TYPE_WIFI_CONTROLLER', 'WifiCog'],
   ['DVR', 'Cctv'],
   ['IMPRESSORA', 'Printer'],
-  ['DEVICE_TYPE_NAS_STORAGE', 'ServerPlus'],
+  ['DEVICE_TYPE_NAS_STORAGE', 'ServerCog'],
   ['PABX_DEVICE_TYPE', 'Phone'],
   ['DEVICE_TYPE_ROUTER_GATEWAY', 'Router']
 ]) {

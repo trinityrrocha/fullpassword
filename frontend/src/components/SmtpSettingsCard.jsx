@@ -28,7 +28,7 @@ const CONFIG_ENCRYPTION_UI_ERROR = [
 ].join('\n\n');
 const SMTP_RATE_LIMIT_ERROR = 'Limite de testes SMTP atingido. Aguarde alguns minutos antes de tentar novamente.';
 const LOCAL_COOLDOWN_SECONDS = 60;
-const fieldClass = 'w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500';
+const fieldClass = 'w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-indigo-500 focus:outline-hidden focus:ring-2 focus:ring-indigo-500';
 
 const portSecurityWarning = (port, security) => {
   const numericPort = Number(port);
@@ -264,7 +264,6 @@ export default function SmtpSettingsCard({ isSuperAdmin }) {
               >
                 <option value="ssl_tls">SSL/TLS direto</option>
                 <option value="starttls">STARTTLS</option>
-                <option value="none">Sem criptografia</option>
               </select>
               {tlsPortWarning && (
                 <span className="mt-1 block text-xs font-normal text-amber-700">{tlsPortWarning}</span>

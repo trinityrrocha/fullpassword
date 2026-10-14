@@ -3,7 +3,6 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { AlertTriangle, KeyRound, ShieldAlert } from 'lucide-react';
 import SecurePasswordInput from '../components/SecurePasswordInput';
 import api from '../services/api';
-import { createPasswordResetCryptoIdentity } from '../services/passwordResetCryptoService';
 
 let transientResetToken = '';
 
@@ -93,13 +92,12 @@ export default function ResetPassword() {
 
     setIsSubmitting(true);
     try {
-      const cryptoIdentity = await createPasswordResetCryptoIdentity(newPassword);
       const response = await api.post('/auth/password-reset/complete', {
         token: tokenRef.current,
         new_password: newPassword,
         confirmation,
         ...(useRecoveryCode ? { recovery_code: mfaCode } : { mfa_code: mfaCode }),
-        ...cryptoIdentity
+
       });
       clearSensitiveState();
       setSuccess(response.data?.message || 'Acesso redefinido com sucesso. Entre novamente com a nova senha.');
@@ -158,22 +156,20 @@ export default function ResetPassword() {
         <p className="mt-1 text-sm text-slate-600">Conta: {validation.email_masked}</p>
 
         <div className="mt-5 space-y-2 rounded-md border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
-          <p className="font-semibold">Atenção: esta ação cria uma nova identidade criptográfica.</p>
-          <p>Esta recuperação redefine o acesso à conta, mas não recupera sua senha mestre antiga.</p>
+          <p className="font-semibold">Esta ação redefine somente a senha de login.</p>
+          <p>Sua identidade criptográfica e seus compartilhamentos serão preservados.</p>
           <p>
-            Por segurança Zero-Knowledge, esta redefinição não recupera sua senha mestre antiga.
+            O segredo independente de desbloqueio não é alterado nem recuperado por e-mail.
           </p>
           <p>
-            Ao continuar, sua conta receberá uma nova identidade criptográfica. Cofres anteriormente compartilhados
-            com você poderão precisar ser ressincronizados por um administrador antes de ficarem acessíveis novamente.
-            Esta operação não descriptografa cofres antigos.
+            Você precisará do segredo de desbloqueio para abrir os cofres. Contas legadas ainda precisam da senha anterior para migrar suas chaves. Não descartamos o material cifrado original.
           </p>
           <p>
             Códigos de recuperação servem para validar MFA quando necessário. Eles não descriptografam cofres.
           </p>
           {validation.privileged_account && (
             <p className="font-semibold">
-              Esta conta possui privilégios administrativos. Cofres dependentes da identidade antiga poderão precisar ser ressincronizados.
+              Esta conta possui privilégios administrativos. Todas as sessões serão revogadas após a confirmação.
             </p>
           )}
         </div>

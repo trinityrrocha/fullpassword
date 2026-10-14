@@ -8,7 +8,7 @@ O backend do FullPassword é uma aplicação Node.js/Express que implementa uma 
 
 ### Zero-Knowledge Architecture
 
-O backend **NUNCA** realiza descriptografia ou tem acesso a senhas em texto claro. Toda a criptografia (AES-256-GCM) e derivação de chaves (Argon2id) é feita no Frontend (Client-Side Encryption) antes do envio ao servidor.
+O backend não descriptografa o conteúdo dos cofres nem recebe o segredo de desbloqueio. Recebe a senha de autenticação via HTTPS para verificar/gerar seu hash Argon2id; segredos operacionais SMTP/backup têm criptografia server-side separada. A identidade ativa é gerada no navegador com PBKDF2-SHA-256 (600.000), AES-256-GCM e RSA-OAEP. Reset de login preserva essa identidade e os envelopes.
 
 ### Segurança Implementada
 
@@ -22,7 +22,7 @@ O backend **NUNCA** realiza descriptografia ou tem acesso a senhas em texto clar
 
 ### Pré-requisitos
 
-- Node.js 20+ instalado
+- Node.js 24 (host release-agent: 24.19+; imagem backend: 24.21.0 por digest)
 - PostgreSQL 15+ rodando
 - Variáveis de ambiente configuradas
 

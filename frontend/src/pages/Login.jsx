@@ -215,7 +215,7 @@ export default function Login() {
                   onChange={(e) => bootstrapRequired
                     ? setBootstrap((value) => ({ ...value, email: e.target.value.toLowerCase() }))
                     : setEmail(e.target.value.toLowerCase())}
-                  className="appearance-none block w-full px-3 py-2 border border-slate-300 rounded-md shadow-sm placeholder-slate-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                  className="appearance-none block w-full px-3 py-2 border border-slate-300 rounded-md shadow-sm placeholder-slate-400 focus:outline-hidden focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                   placeholder={bootstrapRequired ? superAdminEmail : 'mail@exemplo.com'}
                 />
               </div>
@@ -279,7 +279,7 @@ export default function Login() {
                 type={recoveryCodes.length ? 'button' : 'submit'}
                 onClick={recoveryCodes.length ? finishRecoveryCodeReview : undefined}
                 disabled={isLoading}
-                className={`w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 ${isLoading ? 'opacity-70 cursor-not-allowed' : ''}`}
+                className={`w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 ${isLoading ? 'opacity-70 cursor-not-allowed' : ''}`}
               >
                 {isLoading ? (
                   <span className="flex items-center">

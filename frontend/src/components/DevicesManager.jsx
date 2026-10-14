@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Cctv, Edit2, EthernetPort, Eye, Phone, Plus, Printer, Router, ServerPlus, ShieldCheck, Trash2, UserRound, UserStar, WifiCog, X } from 'lucide-react';
+import { Cctv, Edit2, EthernetPort, Eye, Phone, Plus, Printer, Router, ServerCog, ShieldCheck, Trash2, UserRound, UserStar, WifiCog, X } from 'lucide-react';
 import CopyButton from './CopyButton';
 import DeleteConfirmationControl from './DeleteConfirmationControl';
 import IpCidrInput from './IpCidrInput';
@@ -28,7 +28,7 @@ const DEVICE_TYPE_ICONS = {
   [DEVICE_TYPE_WIFI_CONTROLLER]: WifiCog,
   DVR: Cctv,
   IMPRESSORA: Printer,
-  [DEVICE_TYPE_NAS_STORAGE]: ServerPlus,
+  [DEVICE_TYPE_NAS_STORAGE]: ServerCog,
   [PABX_DEVICE_TYPE]: Phone,
   [DEVICE_TYPE_ROUTER_GATEWAY]: Router
 };
@@ -566,7 +566,7 @@ function CompactInlineInput({ label, value, onChange, placeholder, widthClass = 
   return (
     <div className={`flex h-10 shrink-0 items-center overflow-hidden rounded-md border border-slate-300 bg-white shadow-sm ${widthClass}`}>
       <div className="flex h-full shrink-0 items-center border-r border-slate-200 bg-slate-50 px-2 text-xs font-medium text-slate-600">{label}</div>
-      <input type="text" inputMode={inputMode} aria-label={label} className="h-full min-w-0 flex-1 border-0 px-2 text-sm outline-none focus:ring-0" value={value} onChange={onChange} placeholder={placeholder} />
+      <input type="text" inputMode={inputMode} aria-label={label} className="h-full min-w-0 flex-1 border-0 px-2 text-sm outline-hidden focus:ring-0" value={value} onChange={onChange} placeholder={placeholder} />
     </div>
   );
 }
@@ -1612,7 +1612,7 @@ function DeviceLoginModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900 bg-opacity-60 p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4">
       <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-lg bg-white shadow-xl dark:bg-slate-900">
         <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4 dark:border-slate-700">
           <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">{title}</h3>
@@ -2130,7 +2130,7 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900 bg-opacity-60 p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4">
       <div className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-lg bg-white shadow-xl">
         <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
           <h3 className="text-lg font-semibold text-slate-900">{title}</h3>
@@ -2256,15 +2256,15 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
               <div className="flex flex-wrap items-end gap-2">
                 <label className="block">
                   <span className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">IP</span>
-                  <input type="text" inputMode="decimal" aria-label="IP do DVR" className={`h-[32px] w-[120px] rounded-md border bg-white px-2 text-[13px] shadow-sm outline-none dark:bg-slate-900 dark:text-slate-100 ${validateIpv4(dvrAccess.ip).state === 'invalid' ? 'border-red-400 dark:border-red-500' : 'border-slate-300 dark:border-slate-700'}`} value={dvrAccess.ip} onChange={(event) => updateDvrAccess('ip', event.target.value)} placeholder="192.168.1.10" />
+                  <input type="text" inputMode="decimal" aria-label="IP do DVR" className={`h-[32px] w-[120px] rounded-md border bg-white px-2 text-[13px] shadow-sm outline-hidden dark:bg-slate-900 dark:text-slate-100 ${validateIpv4(dvrAccess.ip).state === 'invalid' ? 'border-red-400 dark:border-red-500' : 'border-slate-300 dark:border-slate-700'}`} value={dvrAccess.ip} onChange={(event) => updateDvrAccess('ip', event.target.value)} placeholder="192.168.1.10" />
                 </label>
                 {DVR_PORT_FIELDS.map(([field, label]) => {
                   const invalid = !isOptionalValidPort(dvrAccess[field]);
-                  return <label key={field} className="block"><span className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">{label}</span><input type="text" inputMode="numeric" aria-label={label} className={`h-[32px] w-[77px] rounded-md border bg-white px-2 text-[13px] shadow-sm outline-none dark:bg-slate-900 dark:text-slate-100 ${invalid ? 'border-red-400 dark:border-red-500' : 'border-slate-300 dark:border-slate-700'}`} value={dvrAccess[field]} onChange={(event) => updateDvrAccess(field, event.target.value)} /></label>;
+                  return <label key={field} className="block"><span className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">{label}</span><input type="text" inputMode="numeric" aria-label={label} className={`h-[32px] w-[77px] rounded-md border bg-white px-2 text-[13px] shadow-sm outline-hidden dark:bg-slate-900 dark:text-slate-100 ${invalid ? 'border-red-400 dark:border-red-500' : 'border-slate-300 dark:border-slate-700'}`} value={dvrAccess[field]} onChange={(event) => updateDvrAccess(field, event.target.value)} /></label>;
                 })}
               </div>
               <div className="flex flex-wrap items-end gap-2">
-                {[['deviceId', 'ID'], ['mac', 'MAC'], ['ddns', 'DDNS']].map(([field, label]) => <label key={field} className="block"><span className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">{label}</span><input type="text" aria-label={label} className="h-[32px] w-[250px] max-w-full rounded-md border border-slate-300 bg-white px-2 text-[13px] shadow-sm outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={dvrAccess[field]} onChange={(event) => updateDvrAccess(field, event.target.value)} /></label>)}
+                {[['deviceId', 'ID'], ['mac', 'MAC'], ['ddns', 'DDNS']].map(([field, label]) => <label key={field} className="block"><span className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">{label}</span><input type="text" aria-label={label} className="h-[32px] w-[250px] max-w-full rounded-md border border-slate-300 bg-white px-2 text-[13px] shadow-sm outline-hidden dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={dvrAccess[field]} onChange={(event) => updateDvrAccess(field, event.target.value)} /></label>)}
               </div>
             </section>
           )}
@@ -2338,9 +2338,9 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
                 <button type="button" onClick={() => setShowLanNetworkList(true)} className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800">Exibir redes LAN</button>
               </div>
               <div className="flex flex-wrap items-end gap-2 rounded-md border border-slate-200 bg-slate-50 p-2 dark:border-slate-700 dark:bg-slate-800">
-                <label className="min-w-[140px] flex-1"><span className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">IP</span><input type="text" inputMode="decimal" aria-label="IP da nova rede LAN" className={`h-[32px] w-full rounded-md border bg-white px-2 text-[13px] shadow-sm outline-none dark:bg-slate-900 dark:text-slate-100 ${lanDraftIpValidation.state === 'invalid' ? 'border-red-500' : 'border-slate-300 dark:border-slate-700'}`} value={lanNetworkDraft.ip} onChange={(event) => setLanNetworkDraft({ ...lanNetworkDraft, ip: sanitizeIpv4Input(event.target.value) })} placeholder="192.168.1.1" /></label>
-                <label className="min-w-[130px] flex-1"><span className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">Máscara</span><input type="text" inputMode="decimal" aria-label="Máscara da nova rede LAN" className={`h-[32px] w-full rounded-md border bg-white px-2 text-[13px] shadow-sm outline-none dark:bg-slate-900 dark:text-slate-100 ${lanDraftMaskValidation.state === 'invalid' ? 'border-red-500' : 'border-slate-300 dark:border-slate-700'}`} value={lanNetworkDraft.mask} onChange={(event) => setLanNetworkDraft({ ...lanNetworkDraft, mask: sanitizeLanMaskInput(event.target.value) })} placeholder="/24 ou 255.255.255.0" /></label>
-                <label className="w-[80px]"><span className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">VLAN</span><input type="text" inputMode="numeric" aria-label="VLAN da nova rede LAN" className={`h-[32px] w-full rounded-md border bg-white px-2 text-[13px] shadow-sm outline-none dark:bg-slate-900 dark:text-slate-100 ${isValidOptionalVlan(lanNetworkDraft.vlan) ? 'border-slate-300 dark:border-slate-700' : 'border-red-500'}`} value={lanNetworkDraft.vlan} onChange={(event) => setLanNetworkDraft({ ...lanNetworkDraft, vlan: sanitizeVlanInput(event.target.value) })} placeholder="10" /></label>
+                <label className="min-w-[140px] flex-1"><span className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">IP</span><input type="text" inputMode="decimal" aria-label="IP da nova rede LAN" className={`h-[32px] w-full rounded-md border bg-white px-2 text-[13px] shadow-sm outline-hidden dark:bg-slate-900 dark:text-slate-100 ${lanDraftIpValidation.state === 'invalid' ? 'border-red-500' : 'border-slate-300 dark:border-slate-700'}`} value={lanNetworkDraft.ip} onChange={(event) => setLanNetworkDraft({ ...lanNetworkDraft, ip: sanitizeIpv4Input(event.target.value) })} placeholder="192.168.1.1" /></label>
+                <label className="min-w-[130px] flex-1"><span className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">Máscara</span><input type="text" inputMode="decimal" aria-label="Máscara da nova rede LAN" className={`h-[32px] w-full rounded-md border bg-white px-2 text-[13px] shadow-sm outline-hidden dark:bg-slate-900 dark:text-slate-100 ${lanDraftMaskValidation.state === 'invalid' ? 'border-red-500' : 'border-slate-300 dark:border-slate-700'}`} value={lanNetworkDraft.mask} onChange={(event) => setLanNetworkDraft({ ...lanNetworkDraft, mask: sanitizeLanMaskInput(event.target.value) })} placeholder="/24 ou 255.255.255.0" /></label>
+                <label className="w-[80px]"><span className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">VLAN</span><input type="text" inputMode="numeric" aria-label="VLAN da nova rede LAN" className={`h-[32px] w-full rounded-md border bg-white px-2 text-[13px] shadow-sm outline-hidden dark:bg-slate-900 dark:text-slate-100 ${isValidOptionalVlan(lanNetworkDraft.vlan) ? 'border-slate-300 dark:border-slate-700' : 'border-red-500'}`} value={lanNetworkDraft.vlan} onChange={(event) => setLanNetworkDraft({ ...lanNetworkDraft, vlan: sanitizeVlanInput(event.target.value) })} placeholder="10" /></label>
                 <label className="w-[100px]"><span className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">Tipo</span><select aria-label="Tipo da nova rede LAN" className="h-[32px] w-full rounded-md border border-slate-300 bg-white px-2 text-[13px] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={lanNetworkDraft.networkType} onChange={(event) => setLanNetworkDraft({ ...lanNetworkDraft, networkType: event.target.value })}>{LAN_NETWORK_TYPES.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
                 <label className="min-w-[180px] flex-1"><span className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">Observação</span><input type="text" aria-label="Observação da nova rede LAN" className="h-[32px] w-full min-w-0 rounded-md border border-slate-300 bg-white px-2 text-[13px] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" value={lanNetworkDraft.notes} onChange={(event) => setLanNetworkDraft({ ...lanNetworkDraft, notes: event.target.value })} placeholder="Rede administrativa" /></label>
                 <button type="button" disabled={!canAddLanNetwork} onClick={addLanNetwork} className="inline-flex h-[32px] items-center justify-center rounded-md border border-slate-300 bg-white px-3 text-[13px] font-medium text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"><Plus className="mr-1 h-4 w-4" /> Adicionar</button>
@@ -2387,7 +2387,7 @@ function DeviceModal({ title, device, setDevice, isSaving, onCancel, onSave, onD
                       <div className="flex h-10 w-full min-w-0 items-center gap-2 rounded-md border border-slate-200 bg-white px-2 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
                         <ConnectionIcon type={connection.type} />
                         <span className="shrink-0">{getConnectionLabel(connection, connections)}</span>
-                        <input type="text" aria-label="Nome da conexão" className="min-w-0 flex-1 border-0 bg-transparent p-0 text-sm text-slate-700 outline-none placeholder:text-slate-400 focus:ring-0 dark:text-slate-200 dark:placeholder-slate-500" value={connection.name} onChange={(event) => updateConnection(connection.id, 'name', event.target.value)} placeholder="Nome" />
+                        <input type="text" aria-label="Nome da conexão" className="min-w-0 flex-1 border-0 bg-transparent p-0 text-sm text-slate-700 outline-hidden placeholder:text-slate-400 focus:ring-0 dark:text-slate-200 dark:placeholder-slate-500" value={connection.name} onChange={(event) => updateConnection(connection.id, 'name', event.target.value)} placeholder="Nome" />
                       </div>
                       {isVpn ? (
                         <>

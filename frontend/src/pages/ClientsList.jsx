@@ -1,12 +1,12 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { Building2, Search, Plus, Pencil, Eye, Trash2, X, Loader2 } from 'lucide-react';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import useClearOnVaultLock from '../hooks/useClearOnVaultLock';
 import { safeLogError } from '../utils/safeLogger';
-import { decryptData, isValidCryptoSalt } from '../services/cryptoService';
-import { decryptVaultKeyShare } from '../services/clientVaultKeyService';
+import { VaultSession } from '../services/vaultSessionService';
+import SharedItemsPanel from '../components/SharedItemsPanel';
 
 const formatDate = (value) => {
   if (!value) return 'Não informado';
@@ -53,7 +53,8 @@ const SUMMARY_MODULES = [
 ];
 
 export default function ClientsList() {
-  const { user, masterKey, unlockVault } = useAuth();
+  const { user, masterKey, identityKeys, unlockVault } = useAuth();
+  const accessEpochRef = useRef(0);
   const [searchTerm, setSearchTerm] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -75,6 +76,7 @@ export default function ClientsList() {
   });
 
   useClearOnVaultLock(() => {
+    accessEpochRef.current += 1;
     setViewClient(null);
     setViewSummary({ loading: false, lines: [], error: '' });
     setUnlockClient(null);
@@ -133,65 +135,24 @@ export default function ClientsList() {
     }
   };
 
-  const loadClientSummary = async (client, activeMasterKey = masterKey, activeUser = user) => {
+  const loadClientSummary = async (client, keys = identityKeys, activeUser = user) => {
+    const accessEpoch = accessEpochRef.current;
     setViewSummary({ loading: true, lines: [], error: '' });
-    if (!activeMasterKey || !activeUser) {
-      setViewSummary({ loading: false, lines: [], error: 'Não foi possível abrir o resumo deste cofre. Verifique a senha informada.' });
-      return;
-    }
-
+    const session = new VaultSession({ api, vaultId: client.id, user: activeUser, keys });
     try {
-      const [permissionsResponse, keyResponse] = await Promise.all([
-        api.get(`/vault-items/${client.id}/permissions`),
-        api.get(`/vault-items/${client.id}/key-share`)
-      ]);
-      const permissions = permissionsResponse.data || {};
-      let vaultKey = null;
-
-      if (keyResponse.data?.encrypted_client_key) {
-        if (!activeUser.encrypted_private_key) throw new Error('Chave privada indisponível');
-        vaultKey = await decryptVaultKeyShare(keyResponse.data.encrypted_client_key, activeUser.encrypted_private_key, activeMasterKey);
-      } else if (permissions.is_owner === true || permissions.isOwner === true) {
-        vaultKey = activeMasterKey;
-      }
-
-      if (!vaultKey) throw new Error('Chave do cofre indisponível');
-
-      const itemsResponse = await api.get(`/vault-items/${client.id}`);
-      const items = itemsResponse.data || [];
-      const lines = [];
-      let decryptedModules = 0;
-      let decryptionFailures = 0;
-
-      for (const module of SUMMARY_MODULES) {
-        const item = items.find((candidate) => module.categories.includes(candidate.category));
-        if (!item) {
-          lines.push(summarizeModule(module.id));
-          continue;
-        }
-        try {
-          const decrypted = await decryptData(item.encrypted_data, vaultKey);
-          lines.push(summarizeModule(module.id, decrypted));
-          decryptedModules += 1;
-        } catch (error) {
-          decryptionFailures += 1;
-          console.warn('Não foi possível carregar o resumo criptografado do módulo.', {
-            clientId: client.id,
-            moduleId: module.id,
-            itemId: item.id,
-            errorName: error?.name || 'Error'
-          });
-          lines.push(`${module.label}: Não foi possível carregar o resumo deste módulo.`);
-        }
-      }
-      if (decryptionFailures > 0 && decryptedModules === 0) {
-        setViewSummary({ loading: false, lines: [], error: 'Não foi possível abrir o resumo deste cofre. Verifique a senha informada.' });
-        return;
-      }
+      if (!keys) throw new Error('Cofre bloqueado.');
+      await session.load();
+      if (accessEpoch !== accessEpochRef.current) return;
+      const items = session.categories();
+      const lines = SUMMARY_MODULES.map(module => summarizeModule(module.id,
+        items.find(candidate => module.categories.includes(candidate.category))?.decrypted));
       setViewSummary({ loading: false, lines, error: '' });
     } catch (error) {
-      console.warn('Resumo seguro do cofre indisponível.', { clientId: client.id, errorName: error?.name || 'Error' });
-      setViewSummary({ loading: false, lines: [], error: 'Não foi possível abrir o resumo deste cofre. Verifique a senha informada.' });
+      safeLogError('Resumo seguro do cofre indisponível.', error);
+      if (accessEpoch !== accessEpochRef.current) return;
+      setViewSummary({ loading: false, lines: [], error: 'Resumo indisponível. Desbloqueie sua identidade; cofres legados precisam ser migrados pelo proprietário.' });
+    } finally {
+      session.clear();
     }
   };
 
@@ -203,7 +164,7 @@ export default function ClientsList() {
       return;
     }
     setViewClient(client);
-    loadClientSummary(client, masterKey, user);
+    loadClientSummary(client, identityKeys, user);
   };
 
   const closeViewClient = () => {
@@ -222,7 +183,7 @@ export default function ClientsList() {
     event.preventDefault();
     if (!unlockClient || isUnlocking) return;
 
-    if (!user?.wrapped_key || !isValidCryptoSalt(user?.crypto_salt)) {
+    if (user?.crypto_identity?.version !== 2) {
       setUnlockError('Não foi possível inicializar a chave criptográfica do usuário. Entre em contato com o administrador.');
       return;
     }
@@ -231,7 +192,7 @@ export default function ClientsList() {
     setUnlockError('');
     const client = unlockClient;
     try {
-      const result = await unlockVault(unlockPassword, user.wrapped_key, user.crypto_salt);
+      const result = await unlockVault(unlockPassword);
       if (!result.success || !result.key) {
         setUnlockError('Não foi possível abrir o resumo deste cofre. Verifique a senha informada.');
         return;
@@ -240,7 +201,7 @@ export default function ClientsList() {
       setUnlockClient(null);
       setUnlockPassword('');
       setViewClient(client);
-      await loadClientSummary(client, result.key, result.user || user);
+      await loadClientSummary(client, result.keys, result.user || user);
     } finally {
       setIsUnlocking(false);
     }
@@ -288,6 +249,7 @@ export default function ClientsList() {
 
   return (
     <div className="space-y-6">
+      <SharedItemsPanel />
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Clientes</h1>
@@ -295,7 +257,7 @@ export default function ClientsList() {
         </div>
         <button 
           onClick={() => setIsModalOpen(true)}
-          className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+          className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
         >
           <Plus className="w-4 h-4 mr-2" />
           Novo Cliente
@@ -363,10 +325,10 @@ export default function ClientsList() {
             </div>
             <form onSubmit={unlockClientPreview}>
               <div className="space-y-4 p-6">
-                <p className="text-sm text-slate-600">Informe a senha do cofre para visualizar o resumo desta empresa.</p>
+                <p className="text-sm text-slate-600">Informe seu segredo independente de desbloqueio para visualizar o resumo desta empresa.</p>
                 <div>
-                  <label htmlFor="clientPreviewPassword" className="mb-1 block text-sm font-medium text-slate-700">Senha do cofre</label>
-                  <input id="clientPreviewPassword" type="password" required autoFocus autoComplete="current-password" value={unlockPassword} onChange={(event) => setUnlockPassword(event.target.value)} className="w-full rounded-md border border-slate-300 p-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
+                  <label htmlFor="clientPreviewPassword" className="mb-1 block text-sm font-medium text-slate-700">Segredo de desbloqueio</label>
+                  <input id="clientPreviewPassword" type="password" required autoFocus autoComplete="current-password" value={unlockPassword} onChange={(event) => setUnlockPassword(event.target.value)} className="w-full rounded-md border border-slate-300 p-2 text-sm focus:border-indigo-500 focus:outline-hidden focus:ring-1 focus:ring-indigo-500" />
                 </div>
                 {unlockError && <p role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{unlockError}</p>}
               </div>
@@ -442,7 +404,7 @@ export default function ClientsList() {
           <div className="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
             
             {/* Background overlay */}
-            <div className="fixed inset-0 bg-slate-500 bg-opacity-75 transition-opacity" aria-hidden="true" onClick={() => setIsModalOpen(false)}></div>
+            <div className="fixed inset-0 bg-slate-500/75 transition-opacity" aria-hidden="true" onClick={() => setIsModalOpen(false)}></div>
 
             <span className="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
 
@@ -511,7 +473,7 @@ export default function ClientsList() {
                   type="submit" 
                   form="newClientForm"
                   disabled={isSaving}
-                  className={`w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-indigo-600 text-base font-medium text-white hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:ml-3 sm:w-auto sm:text-sm ${isSaving ? 'opacity-70 cursor-not-allowed' : ''}`}
+                  className={`w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-indigo-600 text-base font-medium text-white hover:bg-indigo-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:ml-3 sm:w-auto sm:text-sm ${isSaving ? 'opacity-70 cursor-not-allowed' : ''}`}
                 >
                   {isSaving ? (
                     <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Salvando...</>
@@ -520,7 +482,7 @@ export default function ClientsList() {
                 <button 
                   type="button" 
                   onClick={() => setIsModalOpen(false)}
-                  className="mt-3 w-full inline-flex justify-center rounded-md border border-slate-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
+                  className="mt-3 w-full inline-flex justify-center rounded-md border border-slate-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-slate-700 hover:bg-slate-50 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
                 >
                   Cancelar
                 </button>
