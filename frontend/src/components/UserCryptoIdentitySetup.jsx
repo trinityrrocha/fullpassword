@@ -7,6 +7,7 @@ export default function UserCryptoIdentitySetup() {
   const [error, setError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const { user, ensureCurrentUserCryptoIdentity, logout } = useAuth();
+  const mfaEnabled = user?.mfa_enabled === true;
 
   const setupRequired = Boolean(
     user
@@ -25,7 +26,7 @@ export default function UserCryptoIdentitySetup() {
     const password = String(values.get('master_password') || '');
     const unlockSecret = String(values.get('unlock_secret') || '');
     if (unlockSecret !== values.get('unlock_confirm')) { setError('Os segredos de desbloqueio não coincidem.'); return; }
-    const mfaCode = String(values.get('mfa_code') || '');
+    const mfaCode = mfaEnabled ? String(values.get('mfa_code') || '') : undefined;
     form.reset();
     setError('');
     setIsSaving(true);
@@ -76,9 +77,9 @@ export default function UserCryptoIdentitySetup() {
             <label className="block text-sm">Confirmar segredo de desbloqueio
               <input name="unlock_confirm" type="password" minLength={16} required autoComplete="new-password" className="w-full rounded border p-2" />
             </label>
-            <label className="block text-sm">Código MFA atual, se habilitado
+            {mfaEnabled && <label className="block text-sm">Código MFA atual
               <input name="mfa_code" inputMode="numeric" autoComplete="one-time-code" maxLength={6} className="w-full rounded border p-2" />
-            </label>
+            </label>}
             {error && (
               <p role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
                 {error}

@@ -133,9 +133,9 @@ async function run() {
     const base='http://127.0.0.1:'+httpServer.address().port+'/api';
     function browserClient() {
       const cookies={}; const payloads=[];
-      const call=async(method,url,data,retries=0)=>{
+      const call=async(method,url,data,retries=0,withoutCsrf=false)=>{
         const headers={'Content-Type':'application/json',Cookie:Object.entries(cookies).map(([k,v])=>k+'='+v).join('; ')};
-        if(cookies.fp_csrf) headers['x-csrf-token']=cookies.fp_csrf;
+        if(cookies.fp_csrf && !withoutCsrf) headers['x-csrf-token']=cookies.fp_csrf;
         if(data) payloads.push(JSON.stringify(data));
         const response=await fetch(base+url,{method,headers,body:data?JSON.stringify(data):undefined});
         for(const value of response.headers.getSetCookie()) { const pair=value.split(';')[0], index=pair.indexOf('=');cookies[pair.slice(0,index)]=pair.slice(index+1); }
@@ -143,16 +143,19 @@ async function run() {
         if(response.status===429 && body.code==='RATE_LIMIT_EXCEEDED' && retries<2) {
           console.log('Integration: honoring API rate-limit window.');
           await new Promise(resolve=>setTimeout(resolve,Math.min(60000,Math.max(1000,body.retry_after_seconds*1000+200))));
-          return call(method,url,data,retries+1);
+          return call(method,url,data,retries+1,withoutCsrf);
         }
         if(!response.ok) throw Object.assign(new Error(body.code || body.error),{response:{status:response.status,data:body}});
-        return {data:body};
+        return {data:body,status:response.status};
       };
-      return {get:url=>call('GET',url),post:(url,data)=>call('POST',url,data),put:(url,data)=>call('PUT',url,data),delete:url=>call('DELETE',url),payloads};
+      return {get:url=>call('GET',url),post:(url,data)=>call('POST',url,data),postWithoutCsrf:(url,data)=>call('POST',url,data,0,true),put:(url,data)=>call('PUT',url,data),delete:url=>call('DELETE',url),payloads};
     }
     const ownerApi=browserClient();
     let ownerUser=(await ownerApi.post('/auth/login',{email:'owner@example.invalid',password})).data.user;
     assert.equal(ownerUser.id,owner);
+    assert.equal(ownerUser.mfa_enabled,false);
+    assert.equal((await ownerApi.get('/auth/me')).data.user.mfa_enabled,false);
+    assert.ok(!('hash_senha_login' in ownerUser));
     const secret='SYNTHETIC_Unlock_'+crypto.randomBytes(24).toString('hex');
     ownerUser=(await ensureUserCryptoIdentity({user:ownerUser,password,unlockSecret:secret,saveIdentity:payload=>ownerApi.post('/crypto/identity',payload).then(r=>r.data)})).user;
     const ownerKeys=await unlockUserIdentity(ownerUser,secret);
@@ -305,25 +308,54 @@ async function run() {
     await new VaultSession({api:directApi,vaultId:existingGroupVault,user:directUser,keys:directKeys}).load();
     console.log('PASS pre-existing direct grant: independent item key, exact snapshot/attachment, no history/vault access, no vault DEK, preserved grants and selective revocation; old group path still opens.');
     console.log('PASS missing recipient identity is blocked; legacy history and attachment decrypt identically, original ciphertexts preserved.');
-    // Real API + PostgreSQL reauth; only the transport paths are isolated test directories.
+    // Approved release request: real session/CSRF/PostgreSQL; no reauth endpoint or grant.
     const releaseAction={approvalId:crypto.randomUUID(),revision:'a'.repeat(40),manifestHash:'b'.repeat(64)};
     await fs.writeFile(path.join(releasePublic,'catalog.json'),JSON.stringify({...releaseAction,expiresAt:new Date(Date.now()+3600000).toISOString()}));
     await assert.rejects(directApi.post('/release-test',releaseAction),e=>e.response.status===403);
     await assert.rejects(ownerApi.post('/release-test',{...releaseAction,url:'https://evil.example.invalid'}),e=>e.response.status===400);
-    await assert.rejects(ownerApi.post('/release-test',releaseAction),e=>e.response.data.code==='REAUTH_REQUIRED');
+    const ordinaryAdmin=crypto.randomUUID(),ordinaryAdminApi=browserClient();
+    await database.query("INSERT INTO users(id,name,email,hash_senha_login,role,is_super_admin) VALUES($1,'SYNTHETIC_ADMIN','normal-admin@example.invalid',$2,'admin',false)",[ordinaryAdmin,await argon2.hash(password)]);
+    await ordinaryAdminApi.post('/auth/login',{email:'normal-admin@example.invalid',password});
+    await assert.rejects(ordinaryAdminApi.post('/release-test',releaseAction),e=>e.response.status===403);
+    await assert.rejects(ownerApi.postWithoutCsrf('/release-test',releaseAction),e=>e.response.status===403);
+    for(const key of ['approvalId','revision','manifestHash']) {
+      const tampered={...releaseAction,[key]:key==='approvalId'?crypto.randomUUID():key==='revision'?'c'.repeat(40):'c'.repeat(64)};
+      await assert.rejects(ownerApi.post('/release-test',tampered),e=>e.response.status===409 && e.response.data.code==='APPROVAL_CHANGED');
+    }
+    await assert.rejects(ownerApi.post('/release-test',{...releaseAction,_reauth_token:'SYNTHETIC_UNUSED'}),e=>e.response.status===400);
     const releaseMfa=require('../src/services/mfaService'),authenticatorRelease=require('otplib').authenticator;
     const releaseTotp=authenticatorRelease.generateSecret();
     await database.query('INSERT INTO user_mfa_settings(user_id,totp_secret_encrypted,enabled) VALUES($1,$2,true)',[owner,releaseMfa.encryptSecret(releaseTotp)]);
-    await assert.rejects(ownerApi.post('/auth/reauth',{purpose:'system_release',action:releaseAction,current_password:password}),e=>e.response.status===403);
-    const releaseGrant=(await ownerApi.post('/auth/reauth',{purpose:'system_release',action:releaseAction,current_password:password,mfa_code:authenticatorRelease.generate(releaseTotp)})).data.token;
-    await assert.rejects(ownerApi.post('/release-test',{...releaseAction,manifestHash:'c'.repeat(64),_reauth_token:releaseGrant}),e=>e.response.status===409);
-    assert.equal((await ownerApi.post('/release-test',{...releaseAction,_reauth_token:releaseGrant})).data.state,'requested');
-    await assert.rejects(ownerApi.post('/release-test',{...releaseAction,_reauth_token:releaseGrant}),e=>e.response.data.code==='REAUTH_REQUIRED');
+    assert.equal((await ownerApi.get('/auth/me')).data.user.mfa_enabled,true);
+    const mfaLoginApi=browserClient();
+    const challenge=(await mfaLoginApi.post('/auth/login',{email:'owner@example.invalid',password})).data;
+    assert.equal(challenge.mfa_required,true);
+    const mfaLogin=(await mfaLoginApi.post('/auth/mfa/verify-login',{challenge_token:challenge.challenge_token,code:authenticatorRelease.generate(releaseTotp)})).data.user;
+    assert.equal(mfaLogin.mfa_enabled,true);
+    assert.equal((await mfaLoginApi.get('/auth/me')).data.user.mfa_enabled,true);
+    const grantsBefore=(await database.query("SELECT count(*)::int n FROM sensitive_auth_grants WHERE purpose='system_release'")).rows[0].n;
+    const accepted=await ownerApi.post('/release-test',releaseAction);
+    assert.equal(accepted.status,202);assert.equal(accepted.data.state,'requested');
+    await assert.rejects(ownerApi.post('/release-test',releaseAction),e=>e.response.status===409 && e.response.data.code==='ALREADY_REQUESTED');
+    assert.equal((await database.query("SELECT count(*)::int n FROM sensitive_auth_grants WHERE purpose='system_release'")).rows[0].n,grantsBefore);
     const queued=JSON.parse(await fs.readFile(path.join(releaseQueue,releaseAction.approvalId+'.json'),'utf8'));
     assert.deepEqual(Object.keys(queued).sort(),['approvalId','manifestHash','requestId','revision']);
     assert.equal(queued.revision,releaseAction.revision);
     await database.query('DELETE FROM user_mfa_settings WHERE user_id=$1',[owner]);
-    console.log('PASS release API: Super Admin, exact payload, real PostgreSQL action-bound reauth/MFA, one-time grant and credential-free queue.');
+    const releaseAudit=(await database.query("SELECT user_id,status,metadata FROM system_audit_events WHERE action='signed_release_requested' ORDER BY id DESC LIMIT 1")).rows[0];
+    assert.equal(releaseAudit.user_id,owner);assert.equal(releaseAudit.status,'success');
+    assert.equal(releaseAudit.metadata.revision,releaseAction.revision);assert.equal(releaseAudit.metadata.approval_id,releaseAction.approvalId);
+    console.log('PASS approved release API: normal user/admin denied, CSRF required, exact catalog IDs, no reauth/MFA grant, 202 direct, duplicate rejected, transactional audit and bounded queue.');
+    console.log('PASS mfa_enabled serialization: ordinary login/me false; genuine MFA login/me true; no password hash returned.');
+    const setupMfaApi=browserClient();
+    const setupUser=(await setupMfaApi.post('/auth/login',{email:'missing@example.invalid',password})).data.user;
+    assert.equal(setupUser.mfa_enabled,false);
+    const setupTotp=authenticatorRelease.generateSecret();
+    await database.query('INSERT INTO user_mfa_settings(user_id,totp_secret_encrypted,enabled) VALUES($1,$2,true)',[uninitialized,releaseMfa.encryptSecret(setupTotp)]);
+    const setupIdentity=await v2.createIndependentIdentity(uninitialized,'SYNTHETIC_Setup_Unlock_'+crypto.randomBytes(24).toString('hex'));
+    await assert.rejects(setupMfaApi.post('/crypto/identity',{identity:setupIdentity,current_password:password}),e=>e.response.status===403);
+    assert.equal((await setupMfaApi.post('/crypto/identity',{identity:setupIdentity,current_password:password,mfa_code:authenticatorRelease.generate(setupTotp)})).data.identity.version,2);
+    console.log('PASS identity save still requires current TOTP from real PostgreSQL when enabled; non-MFA identity setup already succeeded without a code.');
     // Reauth is session-, purpose- and exact-action-bound and single use.
     const profile={name:'SYNTHETIC_OWNER',email:'new-owner@example.invalid'};
     await assert.rejects(ownerApi.put('/users/profile',profile),e=>e.response.data.code==='REAUTH_REQUIRED');

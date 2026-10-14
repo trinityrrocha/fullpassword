@@ -257,7 +257,8 @@ Publicar segunda release, SHA/digests reais e manifesto assinado, nova aprovaç�
 root e checksum/restore prévio. Registrar revisão do agente e dos dois serviços.
 Em Settings/WebUpdater:
 1. Conferir origin, SHA e digests da release aprovada.
-2. Solicitar uma vez como Super Admin; reauth com senha de login e MFA fresco.
+2. Solicitar uma vez como Super Admin autenticado com CSRF válido; sem reauth/MFA
+   adicional no WebUpdate. O painel somente solicita a approval externa, não a cria.
 3. Conferir requested -> deploying -> stabilizing -> completed.
 4. Falha/recovery_required/timeout: consultar estado, não repetir POST.
 5. Confirmar full SHA frontend/backend, digests executados e schema_ready.

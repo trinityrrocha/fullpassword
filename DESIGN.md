@@ -101,6 +101,9 @@ ReauthDialog é o owner de confirmação sensível: portal, background inert,
 foco contido/restaurado, Escape quando o request não está pendente, noValidate.
 Senhas mascaradas por padrão; toggle acessível e MFA opcional conforme backend.
 Atualizações não usam alert/confirm/prompt nem modal paralelo.
+WebUpdate não abre reauth: somente sessão Super Admin/CSRF solicita a approval
+externa. UserCryptoIdentitySetup conserva seu formulário e só renderiza o campo
+MFA quando mfa_enabled é true; mfa_required não é usado como indicador de MFA ativo.
 
 ### Iconography
 

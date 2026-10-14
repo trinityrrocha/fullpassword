@@ -7,6 +7,12 @@
 > A P0.6 está suspensa durante o fechamento de implementação; novo código não
 > equivale a nova release/approval nem à revisão instalada.
 
+Contrato atual após a revisão de UX: Super Admin autenticado + CSRF solicita
+somente uma release preaprovada externamente, sem senha/MFA/reauth adicional.
+Rate limit, catálogo protegido, IDs/revision/hash exatos, assinatura/digests,
+expiry, ledger/replay e recovery continuam obrigatórios. `system_release` em
+textos/testes históricos abaixo descreve a versão anterior; não o fluxo atual.
+
 Atualização em 2026-10-05: a ponte agora possui código executável em
 scripts/release-agent.js, releaseController.js e UpdateStatusPanel.jsx.
 O contrato abaixo foi implementado com fila separada, ledger externo, reauth/MFA,

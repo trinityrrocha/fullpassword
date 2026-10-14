@@ -9,7 +9,7 @@ WCAG 2.2 AA; esta documentação não declara auditoria global das telas antigas
 
 | Escopo | Fonte autoritativa | Revisão |
 |---|---|---|
-| Update aprovado e recuperação | docs/security-web-update-design.md e pedido do responsável em 2026-10-05 | 2026-10-05 |
+| Update aprovado e recuperação | docs/crypto-recovery-release.md e revisão UX autorizada pelo responsável | 2026-10-13 |
 | Permissão por cofre | backend/src/services/accessControlService.js | 2026-10-05 |
 | Compartilhamento por item | database/migrations/24_scope_legacy_item_shares.sql e vaultCryptoController.js | 2026-10-05 |
 | Implantação isolada | docs/security-audit-deployment.md | 2026-10-05 |
@@ -30,7 +30,8 @@ DESIGN.md espelha Tailwind/index.css; runtime é canônico. Não alterar tokens 
 
 | Operação | Pendente | Sucesso | Falha/retorno | Fonte |
 |---|---|---|---|---|
-| Solicitar release | botão bloqueado; reauth comum | 202; acompanha GET | resultado incerto não repete POST; consulta estado | releaseController |
+| Solicitar release | botão bloqueado; POST com sessão/CSRF, sem reauth extra | 202; acompanha GET | resultado incerto não repete POST; consulta estado | releaseController |
+| Configurar identidade | senha atual + segredo independente; MFA só quando mfa_enabled=true | identidade persistida; segredo em memória | erro inline; backend confere MFA real | UserCryptoIdentitySetup + vaultCryptoController |
 | Implantação | deploying/stabilizing, sem porcentagem | digests + SHAs + saúde depois de 60s | recovery_required; intervenção operador | release-agent |
 | Ler item | loading; cancela leitura anterior | snapshot exato em memória | permanece na lista; mensagem amigável | sharedItemService |
 | Bloquear identidade | cancela request e invalida geração | conteúdo removido | não restaura plaintext antigo | useClearOnVaultLock |
@@ -56,8 +57,10 @@ Nenhuma aprovação vira novamente disponível depois de crash sem reconciliaç�
 
 ## Validation and permission
 
-Super Admin + CSRF + reauth vinculado a propósito/ação/sessão e MFA habilitado.
-Somente IDs/SHA/checksum aceitos. Itens leem seu grant original; chave isolada,
+WebUpdate: Super Admin autenticado + CSRF; sem reauth/MFA adicional. O painel não
+aprova releases, somente solicita uma approval externa com IDs/SHA/checksum exatos.
+Outras operações sensíveis mantêm reauth vinculado a propósito/ação/sessão e MFA.
+Itens leem seu grant original; chave isolada,
 sem permissão de escrita e sem envelope do cofre. Sensitive values em memória.
 Senha de reauth não é segredo de desbloqueio e não é escrita na fila.
 

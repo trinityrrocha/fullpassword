@@ -336,7 +336,9 @@ Quando MFA está ativo, a recuperação também exige TOTP válido ou código de
 ## 🔔 Atualizações e WebUpdater
 
 O painel solicita somente uma release previamente aprovada, restrita ao Super Admin
-com CSRF e reauth/MFA. O backend não possui Docker socket nem autoridade de deploy.
+autenticado e com CSRF válido, sem reauth/MFA adicional nesse botão. O painel não
+aprova releases: solicita uma approval criada externamente. O backend não possui
+Docker socket nem autoridade de deploy.
 
 ### Descoberta automática de novas versões
 

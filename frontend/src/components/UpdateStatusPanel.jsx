@@ -77,7 +77,7 @@ export default function UpdateStatusPanel() {
         <p>Release aprovada pelo operador para {release.origin}</p>
         <p className="break-all font-mono text-xs">{release.revision}</p>
         <p className="break-all font-mono text-xs">Backend: {release.backend}<br />Frontend: {release.frontend}</p>
-        <p>A atualização exige senha de login recente e MFA, se habilitado. O agente verifica assinatura, digests e recuperação.</p>
+        <p>Somente o Super Admin pode solicitar uma release previamente aprovada. O agente verifica assinatura, revisão, imagens e recuperação antes da implantação.</p>
         <button type="button" disabled={busy || active} aria-busy={busy} onClick={requestRelease}
           className="cursor-pointer rounded bg-indigo-600 px-3 py-2 text-white hover:bg-indigo-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-50">
           {busy ? 'Confirmando solicitação…' : 'Solicitar release aprovada'}

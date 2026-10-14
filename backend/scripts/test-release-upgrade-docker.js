@@ -181,9 +181,15 @@ async function main(){
   assert.equal((await api('POST','/auth/login',{email:'audit@example.invalid',password:loginPassword})).status,200);
   const release=(await api('GET','/system/update/status')).data.release;
   const action={approvalId:release.approvalId,revision:release.revision,manifestHash:release.manifestHash};
-  assert.equal((await api('POST','/system/update',action)).data.code,'REAUTH_REQUIRED');
-  const grant=(await api('POST','/auth/reauth',{purpose:'system_release',action,current_password:loginPassword})).data.token;
-  assert.equal((await api('POST','/system/update',{...action,_reauth_token:grant})).status,202);
+  // The immutable historical bootstrap image predates this UX change. Its one-time
+  // transition keeps its historical authentication contract; never use this adapter
+  // against the current candidate. All requests served by target below are direct 202.
+  assert.equal((await api('GET','/health')).data.commit,bootstrap);
+  const bootstrapRequest=await api('POST','/system/update',action);
+  if(bootstrapRequest.data.code==='REAUTH_REQUIRED') {
+   const legacyGrant=(await api('POST','/auth/reauth',{purpose:'system_release',action,current_password:loginPassword})).data.token;
+   assert.equal((await api('POST','/system/update',{...action,_reauth_token:legacyGrant})).status,202);
+  } else assert.equal(bootstrapRequest.status,202);
   const requestStarted=Date.now();
   run(process.execPath,[agentPath]);
   assert.ok(Date.now()-requestStarted>=60000);
@@ -206,8 +212,8 @@ async function main(){
   run(process.execPath,[agentPath]);
   const brokenRelease=(await api('GET','/system/update/status')).data.release;
   const brokenAction={approvalId:brokenRelease.approvalId,revision:brokenRelease.revision,manifestHash:brokenRelease.manifestHash};
-  const brokenGrant=(await api('POST','/auth/reauth',{purpose:'system_release',action:brokenAction,current_password:loginPassword})).data.token;
-  assert.equal((await api('POST','/system/update',{...brokenAction,_reauth_token:brokenGrant})).status,202);
+  assert.equal((await api('GET','/health')).data.commit,target);
+  assert.equal((await api('POST','/system/update',brokenAction)).status,202);
   const failed=spawnSync(process.execPath,[agentPath],{cwd:ROOT,encoding:'utf8',timeout:1200000});
   assert.equal(failed.status,1);
   assert.equal(JSON.parse(fs.readFileSync(path.join(publicDir,'status.json'))).state,'recovery_required');

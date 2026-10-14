@@ -46,7 +46,8 @@ identidades/envelopes e segredos operacionais cifrados, com custódia fora do ho
 
 - Backend não tem Docker socket nem poder de montar/manipular containers. A API
   aceita somente IDs/SHA/hash de uma release já aprovada pelo operador, com
-  Super Admin, CSRF e reauth/MFA vinculada à ação/sessão.
+  Super Admin autenticado e CSRF válido, sem reauth/MFA adicional no WebUpdate.
+  O painel não aprova releases: somente solicita a approval criada externamente.
 - Manifesto assinado fixa repository/revision/origin/backend/frontend, com
   SHA completo e imagens por digest. A chave privada fica fora da aplicação,
   VM e imagens. A trust key não pode vir do pedido do navegador.
@@ -66,13 +67,23 @@ identidades/envelopes e segredos operacionais cifrados, com custódia fora do ho
 - Builders dedicadas publicam imagens reais por GITHUB_TOKEN. Assinatura e
   approval são externas ao CI; o workflow de regressão não emite autoridade.
 
-## Estado operacional de referência (não atualizado nesta tarefa)
+## Setup de identidade e MFA
 
-P0.5 preparou release de3bc952 e agente/policy corrigidos; aplicação instalada
-continuava fef7756, PostgreSQL intacto e timer disabled/inactive. P0.6 está
-suspensa durante o fechamento de implementação. Esta tarefa não acessa VM,
-não emite nova approval, não publica release, não migra/deploya nem habilita timer.
-Um novo HEAD do PR precisa de artefatos/approval próprios em etapa autorizada.
+O contrato user serializa `mfa_enabled` como boolean real no login e em `/auth/me`.
+`mfa_required` é a política de configuração, não o estado ativo. O setup só mostra
+e envia código MFA quando `mfa_enabled === true`; o backend consulta o estado real
+e continua exigindo TOTP atual quando habilitado. Senha de login e segredo de
+desbloqueio permanecem separados; nenhum parâmetro criptográfico foi alterado.
+
+## Estado operacional de referência
+
+P0.5 preparou de3bc952; depois f3d887 foi publicada/assinada/preparada. A homologação
+foi interrompida antes de qualquer request para corrigir WebUpdate/setup MFA.
+Somente o timer foi desligado; aplicação instalada continua fef7756, PostgreSQL
+intacto, updater legado parado e evidências históricas preservadas. A approval
+f3d887 não deve ser utilizada para homologar o novo código. Esta correção não cria
+builder, imagens GHCR, manifesto, approval ou policy novos e não executa deploy.
+O novo HEAD precisa de artefatos/approval próprios em etapa autorizada.
 
 ## Tooling e compatibilidade
 

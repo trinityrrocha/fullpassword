@@ -2,7 +2,6 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const db = require('../config/database');
-const { consume } = require('../services/reauthService');
 const { isSuperAdmin } = require('../config/security');
 const { recordAuditEvent } = require('../services/auditService');
 const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
@@ -35,14 +34,13 @@ const request = async (req, res) => {
   if (!isSuperAdmin(req.user)) return res.status(403).json({ error: 'Acesso restrito ao Super Admin.' });
   const client = await db.pool.connect();
   try {
-    const keys = Object.keys(req.body).filter(key => key !== '_reauth_token').sort().join(',');
+    const keys = Object.keys(req.body).sort().join(',');
     if (keys !== 'approvalId,manifestHash,revision') return res.status(400).json({ code: 'INVALID_RELEASE_REQUEST', error: 'Solicitação de release inválida.' });
     const release = catalog();
     if (['approvalId','manifestHash','revision'].some(key => req.body[key] !== release[key])) return res.status(409).json({ code: 'APPROVAL_CHANGED', error: 'A aprovação mudou. Atualize o painel.' });
     await client.query('BEGIN');
-    await consume(client, req, 'system_release');
     await recordAuditEvent({queryable:client,throwOnError:true,user:req.user,req,action:'signed_release_requested',status:'success',metadata:{revision:release.revision,approval_id:release.approvalId}});
-    await client.query('COMMIT'); // credentials/grant are never written to the untrusted queue
+    await client.query('COMMIT'); // Only the audited, externally approved identifiers enter the queue.
     const requestId = crypto.randomUUID();
     const file = path.join(queueDirectory, release.approvalId + '.json');
     const fd = fs.openSync(file, 'wx', 0o600);
@@ -52,7 +50,7 @@ const request = async (req, res) => {
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {});
     if (error.code === 'EEXIST') return res.status(409).json({ code:'ALREADY_REQUESTED',error:'Esta aprovação já foi solicitada. Consulte o progresso.' });
-    res.status(error.statusCode || 503).json({ code:error.code === 'REAUTH_REQUIRED' ? error.code : 'RELEASE_REQUEST_UNAVAILABLE',purpose:error.purpose,error:'Não foi possível solicitar a release. Consulte o progresso antes de tentar novamente.' });
+    res.status(error.statusCode || 503).json({ code:'RELEASE_REQUEST_UNAVAILABLE',error:'Não foi possível solicitar a release. Consulte o progresso antes de tentar novamente.' });
   } finally { client.release(); }
 };
 return { status, request };
