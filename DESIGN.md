@@ -92,6 +92,12 @@ primária. Consultar progresso não repete o POST. Pedidos bloqueados explicam o
 
 ### Navigation and data display
 
+WebUpdate usa resumo compacto com status, revisão curta e ação principal
+“Atualizar sistema”. SHA/digests completos e mensagens operacionais ficam em
+“Mais informações”, recolhido por padrão. O disclosure inline mantém o fluxo
+natural e não exige modal. Completed só anuncia versão confirmada quando os
+dois runtimes correspondem ao pedido; aprovação consumida não parece botão travado.
+
 O painel de itens é read-only no contexto Clientes. Metadados e valores longos
 quebram responsivamente; nenhuma nova tabela ou seleção foi introduzida.
 
@@ -120,7 +126,7 @@ por fase. Conteúdo de cofres só em memória e nunca em logs ou notificações.
 
 ## Do's and Don'ts
 
-- Do: exibir SHA e digests aprovados completos.
+- Do: preservar SHA e digests aprovados completos nos detalhes expansíveis.
 - Do: manter permissões efetivas na API além do gating visual.
 - Don't: confundir saúde com recuperação ou validação funcional completa.
 - Don't: criar aprovação, segredo ou comando a partir de campos do navegador.

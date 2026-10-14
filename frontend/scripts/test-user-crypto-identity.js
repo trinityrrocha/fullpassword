@@ -78,7 +78,7 @@ try {
   }
   const update=read('src/components/UpdateStatusPanel.jsx');
   assert.doesNotMatch(update,/auth\/reauth|_reauth_token|A atualização exige senha/);
-  assert.match(update,/Somente o Super Admin pode solicitar uma release previamente aprovada/);
+  assert.match(read('src/components/SystemUpdateView.jsx'),/Somente o Super Admin pode solicitar uma release previamente aprovada/);
   console.log('PASS actual identity JSX: MFA field/label absent when disabled/unknown, shown only for true; mfa_required alone does not show it.');
 } finally { await vite.close(); }
 console.log('User crypto identity bootstrap tests passed.');
