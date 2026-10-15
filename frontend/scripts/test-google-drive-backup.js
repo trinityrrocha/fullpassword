@@ -167,6 +167,6 @@ assert.match(settings, /<UpdateStatusPanel \/>/);
 assert.doesNotMatch(settings, /handleUpdateSystem|updateRequestLockRef/);
 const updatePanel = read('src/components/UpdateStatusPanel.jsx');
 assert.doesNotMatch(updatePanel, /onUpdate|branch:|command:/);
-assert.match(updatePanel, /Solicitar release aprovada/);
+assert.match(read('src/components/SystemUpdateView.jsx'), /Atualizar sistema/);
 
 console.log('Cloud Backup compact frontend tests passed.');

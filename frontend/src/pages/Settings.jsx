@@ -377,8 +377,7 @@ export default function Settings() {
       <div className="grid grid-cols-1 gap-6">
         <SettingsAccordionCard id="system-update" title="Atualização do Sistema" icon={<RefreshCw className="w-5 h-5 mr-2 text-indigo-500" />} badge={canManageSystem && <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">Super Admin</span>}>
             <p className="text-sm text-slate-600 mb-4">
-              Atualizações exigem uma release assinada, revisão explícita e recuperação verificada.
-              O atualizador antigo de main está desativado. A primeira instalação segura exige um operador autorizado.
+              Consulte a versão instalada e mantenha o sistema atualizado com segurança.
             </p>
 
             {isLoadingPermissions ? (

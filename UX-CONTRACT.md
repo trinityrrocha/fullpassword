@@ -38,6 +38,13 @@ DESIGN.md espelha Tailwind/index.css; runtime é canônico. Não alterar tokens 
 
 ## Navigation and responsive behavior
 
+WebUpdate: status e versões curtas no resumo; detalhes técnicos em disclosure
+inline “Mais informações”, fechado inicialmente, operável por teclado e com
+aria-expanded/aria-controls. Atualizar sistema conserva o POST existente;
+Consultar progresso é somente leitura. Completed confirmado oculta a ação de
+novo pedido, mesmo com request one-shot preservado. Falha de consulta não é
+falha de implantação; progresso antigo não representa uma aprovação nova.
+
 Nenhuma rota criada. Painéis seguem Settings/Clientes existentes; sem mudança no
 shell. SHA quebra linha. Itens diretos não navegam para um cofre não autorizado.
 Negação de cofre responde 404 deliberadamente para não divulgar sua existência.

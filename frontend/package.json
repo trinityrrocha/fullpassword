@@ -4,6 +4,9 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "test:system-update": "node scripts/test-system-update-panel.js",
+    "test:system-update:browser": "node scripts/test-system-update-panel-browser.js",
+    "pretest": "node scripts/test-system-update-panel.js",
     "test:profile-navigation:browser": "node scripts/test-profile-navigation-browser.js",
     "test:update-notifications": "node scripts/test-update-notifications.js",
     "dev": "vite",
