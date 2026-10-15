@@ -22,7 +22,9 @@ DESIGN.md espelha Tailwind/index.css; runtime é canônico. Não alterar tokens 
 
 | Capability | Canonical owner | Source of truth | Allowed variants | Verification |
 |---|---|---|---|---|
-| Form | ReauthDialog | frontend/src/components/ReauthDialog.jsx | confirmação sensível, sem valores persistidos | ESLint/build; browser pendente |
+| Form | FormDialog / ReauthDialog | frontend/src/components/FormDialog.jsx / ReauthDialog.jsx | perfil/equipe; confirmação sensível, sem valores persistidos | ESLint/build; browser isolado |
+| Form/Dialog | FormDialog | frontend/src/components/FormDialog.jsx | perfil, membro; filho, obrigatório, descarte | browser isolado: hit test, foco, scroll, 320/390/1280 light/dark |
+| Groups | GroupMembershipSelector | frontend/src/pages/TeamList.jsx | disclosure inline, checkboxes nativos, Escape retorna ao trigger | browser create/edit |
 | CRUD | API/backend | releaseController.js, vaultCryptoController.js | pedido pessimista; leitura somente para item | HTTP + PostgreSQL |
 | Scrollbar | frontend/src/index.css | CSS runtime existente | fluxo natural; sem novo scroller de tabela | revisão estática |
 
@@ -57,6 +59,25 @@ Erros inline persistentes; não há toast contendo conteúdo do cofre.
 
 ## Async and resilience
 
+Perfil: nome/e-mail/senhas/MFA/preferências/sessões nessa ordem. E-mail readonly
+abre fluxo existente de código e confirmação de posse; senha de login usa o
+PUT profile existente, mantém rewrap legado e não modifica crypto_identity v2.
+forcePasswordChange abre diretamente o formulário obrigatório, sem Cancelar.
+
+Troca do segredo independente: microcopy distingue login de desbloqueio.
+O formulário solicita login/TOTP para o serviço de reauth existente; o login
+também permite comparar localmente os segredos sem enviar o segredo dos cofres.
+É variante de captura para a mesma autorização purpose/action/session, não um
+novo mecanismo de autenticação. ReauthDialog permanece o fallback global.
+Novo endpoint só aceita envelope/KDF/salt/hash esperado, own-user, CAS JSONB,
+CSRF e rate limit. Nenhum campo imutável pode ser enviado/substituído.
+Invariantes de domínio: vaultCryptoV2.js, identityUnlockController.js e testes
+test-identity-unlock-change.js / identity-unlock-change-fixture.js.
+Sucesso limpa chaves, clipboard e callbacks, incrementa epoch e exige unlock.
+Cada unlock v2 recarrega o envelope atual; uma geração impede conclusão antiga
+de restaurar chaves depois do bloqueio. Falha conserva o diálogo, não os segredos.
+Um 409 orienta fechar/reabrir: não há overwrite forçado nem retry automático.
+
 Pessimista, um request por aprovação, ledger externo antes dos efeitos.
 Polling somente GET, um request de leitura por vez, abort ao desmontar.
 Timeout não significa falha de implantação e não dispara retry de POST.
@@ -78,6 +99,11 @@ com alert/confirm nesta tarefa. Superfícies novas não podem introduzir esses b
 Retenção de ciphertexts e grants antigos é intencional, sem destruição para migração.
 
 ## Verification
+
+Perfil/Equipe são exercitados em fixture localhost isolada usando componentes,
+CSS e criptografia reais, APIs fictícias e bloqueio de acesso externo. Isso não
+é teste da instalação nem autorização para VM. PostgreSQL integrado é nativo,
+temporário e localhost, com dados fictícios. Nenhuma migration nova é necessária.
 
 Node checks, testes de assinatura/agente, HTTP/PostgreSQL, frontend ESLint/build,
 audit_project strict focado nos novos painéis. Navegador Windows é proibido pela

@@ -23,6 +23,7 @@ export const AuthProvider = ({ children }) => {
   // público do contexto. Nenhuma chave exportável é mantida nesta referência.
   const transientMasterKeySourceRef = useRef(null);
   const vaultLockCleanupsRef = useRef(new Set());
+  const vaultGenerationRef = useRef(0);
 
   const registerVaultLockCleanup = useCallback((cleanup) => {
     if (typeof cleanup !== 'function') return () => undefined;
@@ -48,6 +49,7 @@ export const AuthProvider = ({ children }) => {
 
   const finishAuthentication = (data) => {
     if (!data?.user) return { success: false, error: 'Resposta de autenticação inválida' };
+    vaultGenerationRef.current += 1;
     setUser(data.user);
     setVaultLockReason(null);
     return {
@@ -107,6 +109,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   const clearSensitiveVaultState = useCallback((reason = 'manual') => {
+    vaultGenerationRef.current += 1;
     const hadSensitiveKey = Boolean(masterKey || transientMasterKeySourceRef.current);
     if (!hadSensitiveKey) return false;
     notifyVaultLockCleanups();
@@ -155,6 +158,7 @@ export const AuthProvider = ({ children }) => {
   }, [lockVault, masterKey]);
 
   const logout = async () => {
+    vaultGenerationRef.current += 1;
     try {
       await api.post('/auth/logout');
     } catch (error) {
@@ -190,15 +194,33 @@ export const AuthProvider = ({ children }) => {
   };
 
   const unlockVault = async (secret) => {
+    const generation = vaultGenerationRef.current;
     try {
-      const keys = await unlockUserIdentity(user,secret);
+      // Never unlock a stale wrapper retained by another tab after a secret change.
+      const currentUser = hasUserCryptoIdentity(user)
+        ? {...user,crypto_identity:(await api.get('/crypto/identity')).data.identity} : user;
+      const keys = await unlockUserIdentity(currentUser,secret);
+      if (generation !== vaultGenerationRef.current) return {success:false,error:'O desbloqueio foi cancelado.'};
+      setUser(currentUser);
       setIdentityKeys(keys);
       setMasterKey(keys.masterKey);
       setVaultLockReason(null);
-      return {success:true,key:keys.masterKey,keys,user};
+      return {success:true,key:keys.masterKey,keys,user:currentUser};
     } catch {
       return {success:false,error:'Segredo de desbloqueio incorreto ou identidade ainda não migrada.'};
     }
+  };
+
+  const completeIdentityUnlockChange = (identity) => {
+    vaultGenerationRef.current += 1;
+    notifyVaultLockCleanups();
+    transientMasterKeySourceRef.current = null;
+    setMasterKey(null);
+    setIdentityKeys(null);
+    setVaultLockReason('unlock-secret-changed');
+    setVaultStateEpoch(current => current + 1);
+    setUser(current => current && identity?.version === 2 && identity.userId === current.id
+      ? {...current,crypto_identity:identity} : current);
   };
 
   const value = {
@@ -216,6 +238,7 @@ export const AuthProvider = ({ children }) => {
     lockVault,
     unlockVault,
     identityKeys,
+    completeIdentityUnlockChange,
     registerVaultLockCleanup,
     loading
   };

@@ -103,6 +103,16 @@ quebram responsivamente; nenhuma nova tabela ou seleção foi introduzida.
 
 ### Forms and overlays
 
+Meu Perfil e os formulários de membro da Equipe usam `FormDialog`: portal no
+body, camada 50 (filho 60; reauth existente 100), backdrop local 0 e painel
+posicionado 10, max-w-lg, corpo rolável e footer persistente. O registro de
+overlays restaura inert/overflow somente após fechar o último diálogo. Há trap
+de foco, Escape, retorno ao trigger e confirmação própria para alterações não
+salvas. Campos sensíveis do novo fluxo são DOM/uncontrolled, limpos no submit.
+Grupos usam disclosure inline de checkboxes; não um listbox incompleto nem um
+popup absoluto cortado pelo corpo. Select de nível permanece nativo, aceitando
+o popup do sistema operacional. Não há novo token global nem nova animação.
+
 ReauthDialog é o owner de confirmação sensível: portal, background inert,
 foco contido/restaurado, Escape quando o request não está pendente, noValidate.
 Senhas mascaradas por padrão; toggle acessível e MFA opcional conforme backend.

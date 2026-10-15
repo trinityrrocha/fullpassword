@@ -1,24 +1,15 @@
-import { useState, useEffect } from 'react';
-import { User, Lock, Loader2, AlertTriangle, ShieldCheck } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { Lock, KeyRound, ShieldCheck } from 'lucide-react';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
-import {
-  CRYPTO_KDF_PARAMS_INVALID_ERROR,
-  CRYPTO_SALT_REQUIRED_ERROR,
-  KDF_PARAMS,
-  deriveMasterKey,
-  isValidCryptoSalt,
-  resolveKdfParams,
-  unwrapMasterKeyForTransientUse,
-  wrapMasterKey
-} from '../services/cryptoService';
-import { safeLogError } from '../utils/safeLogger';
 import SecurePasswordInput from './SecurePasswordInput';
 import RecoveryCodesPanel from './RecoveryCodesPanel';
 import ActiveSessionsCard from './ActiveSessionsCard';
 import NavigationPreferences from './NavigationPreferences';
 import { normalizeNavigationPreferences } from '../utils/navigationPreferences';
 import useClearOnVaultLock from '../hooks/useClearOnVaultLock';
+import FormDialog from './FormDialog';
+import ProfileSecurityDialog from './ProfileSecurityDialog';
 
 export default function UserProfileModal(props) {
   const { user } = useAuth();
@@ -26,12 +17,13 @@ export default function UserProfileModal(props) {
 }
 
 function ProfileContent({ onClose, forcePasswordChange = false }) {
-  const { user, logout } = useAuth();
-  const [isSaving, setIsSaving] = useState(false);
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
-  const [emailConfirmation, setEmailConfirmation] = useState('');
-  const [emailChangePending, setEmailChangePending] = useState(false);
+  const { user } = useAuth();
+  const [isSaving, setIsSaving] = useState(false), [error, setError] = useState(''), [success, setSuccess] = useState('');
+  const [child, setChild] = useState(null);
+  const [profileSaved,setProfileSaved] = useState(false);
+  const [formData,setFormData] = useState({...normalizeNavigationPreferences(user),name:user?.name || ''});
+  const reloadTimer=useRef(null);
+  const profileSaving=useRef(false);
   const [mfaStatus, setMfaStatus] = useState(null);
   const [mfaSetup, setMfaSetup] = useState(null);
   const [mfaCode, setMfaCode] = useState('');
@@ -44,190 +36,34 @@ function ProfileContent({ onClose, forcePasswordChange = false }) {
     recoveryCode: ''
   });
   
-  const [formData, setFormData] = useState({
-    ...normalizeNavigationPreferences(user),
-    name: user?.name || '',
-    email: user?.email || '',
-    currentPassword: '',
-    newPassword: '',
-    confirmNewPassword: ''
-  });
-
-  useClearOnVaultLock(() => {
-    setFormData({
-      name: '',
-      email: '',
-      currentPassword: '',
-      newPassword: '',
-      confirmNewPassword: ''
-    });
-    setMfaStatus(null);
-    setMfaSetup(null);
-    setMfaCode('');
-    setRecoveryCodes([]);
-    setRecoveryCodesAcknowledged(true);
-    setMfaRecoveryOpen(false);
-    setMfaRecoveryError('');
-    setMfaRecoveryForm({ currentPassword: '', recoveryCode: '' });
-    setError('');
-    setSuccess('');
-    setIsSaving(false);
-  });
 
   useEffect(() => {
-    let active = true;
-    api.get('/users/profile/mfa')
-      .then(({ data }) => { if (active) setMfaStatus(data); })
-      .catch(() => { if (active) setMfaStatus(null); });
-    return () => { active = false; };
-  }, []);
-
-  const handleClose = () => {
-    if (recoveryCodes.length > 0 && !recoveryCodesAcknowledged) {
-      setError('Baixe, copie ou confirme que guardou os códigos de recuperação antes de fechar esta janela.');
-      return;
-    }
-    setFormData((current) => ({
-      ...current,
-      currentPassword: '',
-      newPassword: '',
-      confirmNewPassword: ''
-    }));
-    setMfaCode('');
-    setMfaSetup(null);
-    setRecoveryCodes([]);
-    setRecoveryCodesAcknowledged(true);
-    setMfaRecoveryOpen(false);
-    setMfaRecoveryError('');
-    setMfaRecoveryForm({ currentPassword: '', recoveryCode: '' });
-    setError('');
-    setSuccess('');
+    if(forcePasswordChange)return;
+    const abort=new AbortController();
+    api.get('/users/profile/mfa',{signal:abort.signal}).then(({data})=>{if(!abort.signal.aborted)setMfaStatus(data);}).catch(()=>{});
+    return()=>abort.abort();
+  },[forcePasswordChange]);
+  useEffect(()=>()=>clearTimeout(reloadTimer.current),[]);
+  useClearOnVaultLock(()=>{
+    setChild(null);setMfaSetup(null);setMfaCode('');setRecoveryCodes([]);setRecoveryCodesAcknowledged(true);
+    setMfaRecoveryOpen(false);setMfaRecoveryForm({currentPassword:'',recoveryCode:''});
+    setError('');setSuccess('');
+  });
+  const handleClose=()=>{
+    if(isSaving)return;
+    if(recoveryCodes.length > 0 && !recoveryCodesAcknowledged){setError('Baixe, copie ou confirme que guardou os códigos de recuperação antes de fechar esta janela.');return;}
     onClose();
   };
-
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
-  };
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setError('');
-    setSuccess('');
-    if (recoveryCodes.length > 0 && !recoveryCodesAcknowledged) {
-      setError('Baixe, copie ou confirme que guardou os códigos de recuperação antes de continuar.');
-      return;
-    }
-    setIsSaving(true);
-
+  const saveProfile=async event=>{
+    event.preventDefault();if(profileSaving.current || isSaving || profileSaved)return;setError('');setSuccess('');
+    if(!formData.name.trim()){setError('Informe seu nome.');return;}
+    profileSaving.current=true;setIsSaving(true);
     try {
-      let payload = {
-        name: formData.name,
-        email: formData.email,
-        current_password: formData.currentPassword
-      };
-      if (!forcePasswordChange) {
-        payload = { ...payload, ...normalizeNavigationPreferences(formData) };
-      }
-
-      if (forcePasswordChange && !formData.newPassword) {
-        throw new Error('A troca da senha temporária é obrigatória no primeiro acesso.');
-      }
-
-      if (formData.newPassword) {
-        if (!formData.currentPassword) {
-          throw new Error('A senha atual é obrigatória para alterar a senha.');
-        }
-        if (formData.newPassword !== formData.confirmNewPassword) {
-          throw new Error('As novas senhas não coincidem.');
-        }
-        if (formData.newPassword.length < 12) {
-          throw new Error('A nova senha deve ter pelo menos 12 caracteres.');
-        }
-
-        payload.new_password = formData.newPassword;
-        if (!user.crypto_identity && user.wrapped_key) {
-        const currentWrappedKey = user?.wrapped_key;
-        const currentSalt = user?.crypto_salt;
-
-        if (!currentWrappedKey || !isValidCryptoSalt(currentSalt)) {
-          const cryptoError = new Error('Não foi possível inicializar a chave criptográfica do usuário.');
-          cryptoError.code = CRYPTO_SALT_REQUIRED_ERROR;
-          throw cryptoError;
-        }
-
-        const currentKek = await deriveMasterKey(
-          formData.currentPassword,
-          currentSalt,
-          resolveKdfParams(user)
-        );
-
-        let transientMasterKey = null;
-        try {
-          /*
-           * A chave exportável existe somente durante o rewrap da troca de
-           * senha. Ela nunca é armazenada em state/context/ref.
-           */
-          transientMasterKey = await unwrapMasterKeyForTransientUse(
-            currentWrappedKey,
-            currentKek,
-            'rewrap'
-          );
-        } catch (err) {
-          throw new Error('Senha atual incorreta. Não foi possível acessar a chave mestra.', { cause: err });
-        }
-
-        try {
-          const newKek = await deriveMasterKey(formData.newPassword, currentSalt, KDF_PARAMS);
-          payload.new_password = formData.newPassword;
-          payload.wrapped_key = await wrapMasterKey(transientMasterKey, newKek);
-          payload.kdf_version = KDF_PARAMS.version;
-          payload.kdf_name = KDF_PARAMS.name;
-          payload.kdf_hash = KDF_PARAMS.hash;
-          payload.kdf_iterations = KDF_PARAMS.iterations;
-        } finally {
-          transientMasterKey = null;
-        }
-        }
-      }
-
-      const response = await api.put('/users/profile', payload);
-
-      setEmailChangePending(response.data?.email_change_pending === true);
-      setSuccess(
-        response.data?.email_change_pending ? 'Confirme o código enviado ao novo e-mail. O endereço atual ainda não mudou.' : response.data?.session_invalidated
-          ? 'Perfil atualizado. Faça login novamente com a nova senha.'
-          : 'Perfil atualizado com sucesso!'
-      );
-      
-      setFormData(prev => ({
-        ...prev,
-        currentPassword: '',
-        newPassword: '',
-        confirmNewPassword: ''
-      }));
-
-      setTimeout(async () => {
-        if (response.data?.session_invalidated) {
-          await logout();
-          window.location.href = '/login';
-          return;
-        }
-        if (!response.data?.email_change_pending) window.location.reload();
-      }, 1800);
-
-    } catch (err) {
-      safeLogError('Falha ao atualizar o perfil.', err);
-      setError(
-        [CRYPTO_SALT_REQUIRED_ERROR, CRYPTO_KDF_PARAMS_INVALID_ERROR].includes(err?.code)
-          ? 'Não foi possível inicializar a chave criptográfica do usuário. Entre em contato com o administrador.'
-          : err.message || err.response?.data?.error || 'Erro ao atualizar perfil.'
-      );
-    } finally {
-      setIsSaving(false);
-    }
+      await api.put('/users/profile',{name:formData.name,email:user.email,current_password:'',...normalizeNavigationPreferences(formData)});
+      setProfileSaved(true);setSuccess('Perfil atualizado com sucesso!');reloadTimer.current=setTimeout(()=>window.location.reload(),1800);
+    } catch(e){setError(e.response?.data?.error||'Não foi possível salvar seu perfil.');}
+    finally{profileSaving.current=false;setIsSaving(false);}
   };
-
   const startMfaSetup = async () => {
     setError('');
     setIsSaving(true);
@@ -333,138 +169,30 @@ function ProfileContent({ onClose, forcePasswordChange = false }) {
     }
   };
 
-  return (
-    <div className="fixed inset-0 z-50 overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
-      <div className="flex min-h-screen items-center justify-center p-4 text-center">
-        <div
-          className="fixed inset-0 bg-slate-900/75 transition-opacity"
-          aria-hidden="true"
-          onClick={() => {
-            if (!forcePasswordChange) handleClose();
-          }}
-        ></div>
 
-        <div data-profile-panel className="relative max-h-[calc(100dvh-2rem)] w-full max-w-lg overflow-y-auto rounded-lg bg-white text-left shadow-xl">
-          <div className="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
-            <div className="w-full">
-              <div className="mx-auto flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-indigo-100">
-                <User className="h-5 w-5 text-indigo-600" />
-              </div>
-              <div className="mt-2 w-full text-center">
-                <h3 className="text-lg leading-6 font-medium text-slate-900" id="modal-title">
-                  {forcePasswordChange ? 'Troca obrigatória de senha' : 'Meu Perfil'}
-                </h3>
-                <div className="mt-2 text-left">
-                  {forcePasswordChange && <p className="mb-4 text-center text-sm text-slate-500">Você está usando uma senha temporária gerada na instalação. Defina uma nova senha antes de continuar.</p>}
-
-                  {forcePasswordChange && (
-                    <div className="mb-4 bg-amber-50 border-l-4 border-amber-400 p-4">
-                      <div className="flex">
-                        <AlertTriangle className="h-5 w-5 text-amber-400 flex-shrink-0" />
-                        <p className="ml-3 text-sm text-amber-700">
-                          Acesso ao sistema bloqueado até a troca da senha temporária.
-                        </p>
-                      </div>
-                    </div>
-                  )}
-
-                  {user?.password_change_recommended && !forcePasswordChange && (
-                    <div className="mb-4 bg-amber-50 border-l-4 border-amber-400 p-4">
-                      <p className="text-sm text-amber-800">Sua senha está antiga. Recomendamos atualizá-la; o acesso não será bloqueado.</p>
-                    </div>
-                  )}
-
-                  {error && (
-                    <div className="mb-4 bg-red-50 border-l-4 border-red-400 p-4">
-                      <p className="text-sm text-red-700">{error}</p>
-                    </div>
-                  )}
-
-                  <div className="space-y-2">
-                    <label className="block text-sm">Confirmar alteração de e-mail (código recebido)
-                      <input value={emailConfirmation} onChange={event=>setEmailConfirmation(event.target.value)} autoComplete="off" className="w-full rounded border p-2" placeholder={emailChangePending ? 'Cole o código enviado ao novo e-mail' : 'Somente se você solicitou uma alteração'} />
-                    </label>
-                    <button type="button" disabled={!emailConfirmation || isSaving} onClick={async()=>{
-                      setIsSaving(true);
-                      try {await api.post('/auth/confirm-email',{token:emailConfirmation});setEmailConfirmation('');await logout();window.location.assign('/login');}
-                      catch {setError('Código de confirmação inválido, expirado ou e-mail indisponível.');}
-                      finally {setIsSaving(false);}
-                    }} className="rounded border px-3 py-1">Confirmar novo e-mail</button>
-                  </div>
-                  {success && (
-                    <div className="mb-4 bg-emerald-50 border-l-4 border-emerald-400 p-4">
-                      <p className="text-sm text-emerald-700">{success}</p>
-                    </div>
-                  )}
-
-                  <form id="profileForm" onSubmit={handleSubmit} className="space-y-4">
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700">Nome</label>
-                      <input
-                        type="text"
-                        name="name"
-                        value={formData.name}
-                        onChange={handleChange}
-                        required
-                        className="mt-1 block h-8 w-full rounded-md border border-slate-300 px-3 text-sm shadow-sm focus:border-indigo-500 focus:outline-hidden focus:ring-indigo-500"
-                      />
-                    </div>
-                    
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700">E-mail</label>
-                      <input
-                        type="email"
-                        name="email"
-                        value={formData.email}
-                        onChange={(event) => setFormData((previous) => ({ ...previous, email: event.target.value.toLowerCase() }))}
-                        required
-                        className="mt-1 block h-8 w-full rounded-md border border-slate-300 px-3 text-sm shadow-sm focus:border-indigo-500 focus:outline-hidden focus:ring-indigo-500"
-                      />
-                    </div>
-
-                    <div className="pt-4 border-t border-slate-200">
-                      <h4 className="text-sm font-medium text-slate-900 mb-4 flex items-center">
-                        <Lock className="w-4 h-4 mr-1" />
-                        {forcePasswordChange ? 'Alterar Senha (Obrigatório)' : 'Alterar Senha (Opcional)'}
-                      </h4>
-                      
-                      <div className="space-y-4">
-                        <SecurePasswordInput
-                          name="currentPassword"
-                          label="Senha Atual"
-                          value={formData.currentPassword}
-                          onChange={handleChange}
-                          placeholder={forcePasswordChange ? 'Senha temporária da instalação' : 'Necessária apenas se for alterar a senha'}
-                          enableGenerator={false}
-                          required={forcePasswordChange}
-                          className="[&_input]:h-8 [&_input]:py-1"
-                        />
-
-                        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                          <SecurePasswordInput
-                            name="newPassword"
-                            label="Nova Senha"
-                            value={formData.newPassword}
-                            onChange={handleChange}
-                            placeholder="Mínimo de 12 caracteres"
-                            required={forcePasswordChange}
-                            className="[&_input]:h-8 [&_input]:py-1"
-                          />
-                          <SecurePasswordInput
-                            name="confirmNewPassword"
-                            label="Confirmar"
-                            value={formData.confirmNewPassword}
-                            onChange={handleChange}
-                            placeholder="Repita a nova senha"
-                            enableGenerator={false}
-                            required={forcePasswordChange}
-                            className="[&_input]:h-8 [&_input]:py-1"
-                          />
-                        </div>
-                      </div>
-                    </div>
-
-                    {!forcePasswordChange && (
+  if(forcePasswordChange)return <ProfileSecurityDialog kind="password" forced onClose={()=>{}} onSessionEnd={onClose} />;
+  const actionClass='flex items-start gap-3 rounded-md border border-slate-200 p-3 text-left hover:border-indigo-400 hover:bg-indigo-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600 dark:border-slate-700 dark:hover:bg-slate-800';
+  return <>
+    <FormDialog title="Meu Perfil" onClose={handleClose} busy={isSaving || profileSaved} saved={profileSaved} panelAttribute={{'data-profile-panel':true}} footer={<div className="flex flex-wrap justify-end gap-2">
+      <button type="button" data-dialog-cancel onClick={handleClose} disabled={isSaving || profileSaved} className="rounded-md border border-slate-300 px-3 py-2 text-sm hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 dark:border-slate-600 dark:hover:bg-slate-700">Cancelar</button>
+      <button type="submit" form="profileForm" disabled={isSaving || profileSaved} className="rounded-md bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-700 focus-visible:outline focus-visible:outline-2 disabled:opacity-60">{isSaving?'Salvando…':'Salvar Alterações'}</button>
+    </div>}>
+      <form id="profileForm" onSubmit={saveProfile} noValidate className="space-y-4">
+        <fieldset disabled={isSaving || profileSaved} className="contents">
+        <label htmlFor="profile-name" className="block text-sm font-medium">Nome<input id="profile-name" name="name" value={formData.name} onChange={event=>setFormData(current=>({...current,name:event.target.value}))} className="mt-1 h-9 w-full rounded-md border border-slate-300 px-3 text-sm dark:border-slate-600" /></label>
+        <div><label htmlFor="profile-email" className="block text-sm font-medium">E-mail</label><div className="mt-1 flex items-center gap-2">
+          <input id="profile-email" name="email" type="email" readOnly value={user.email} className="h-9 min-w-0 flex-1 rounded-md border border-slate-300 bg-slate-50 px-3 text-sm dark:border-slate-600 dark:bg-slate-800"/>
+          <button type="button" onClick={()=>setChild('email')} className="h-9 rounded-md border border-slate-300 px-3 text-sm hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 dark:border-slate-600 dark:hover:bg-slate-700">Alterar</button>
+        </div></div>
+        <section className="space-y-2 border-t border-slate-200 pt-3 dark:border-slate-700">
+          <h3 className="text-sm font-medium">Senhas</h3>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <button type="button" className={actionClass} onClick={()=>setChild('password')}><Lock aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-indigo-500"/><span><span className="block text-sm font-medium">Senha do perfil</span><span className="block text-xs text-slate-500 dark:text-slate-400">Usada para entrar no FullPassword.</span></span></button>
+            <button type="button" className={actionClass} onClick={()=>setChild('vault')}><KeyRound aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-indigo-500"/><span><span className="block text-sm font-medium">Senha dos cofres</span><span className="block text-xs text-slate-500 dark:text-slate-400">Usada para desbloquear seus cofres.</span></span></button>
+          </div>
+        </section>
+        {error&&<p role="alert" className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+        {success&&<p role="status" className="text-sm text-green-700 dark:text-green-300">{success}</p>}
                       <div className="pt-4 border-t border-slate-200 space-y-3">
                         <h4 className="text-sm font-medium text-slate-900 flex items-center"><ShieldCheck className="w-4 h-4 mr-1" />Autenticação em dois fatores</h4>
                         <div className="flex flex-wrap items-center gap-3">
@@ -514,99 +242,23 @@ function ProfileContent({ onClose, forcePasswordChange = false }) {
                           onAcknowledged={() => setRecoveryCodesAcknowledged(true)}
                         />
                       </div>
-                    )}
-                    {!forcePasswordChange && (
-                      <NavigationPreferences value={normalizeNavigationPreferences(formData)} onChange={(field, value) => setFormData((current) => ({ ...current, [field]: value }))} />
-                    )}
-                    {!forcePasswordChange && (
-                      <div className="space-y-2 border-t border-slate-200 pt-3">
-                        <h4 className="text-sm font-medium text-slate-900">Sessões Ativas</h4>
-                        <ActiveSessionsCard compactProfile />
-                      </div>
-                    )}
-                  </form>
-                </div>
-              </div>
-            </div>
-          </div>
-          <div className="bg-slate-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
-            <button
-              type="submit"
-              form="profileForm"
-              disabled={isSaving}
-              className={`inline-flex h-8 w-full items-center justify-center rounded-md border border-transparent bg-indigo-600 px-3 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 sm:ml-3 sm:w-auto ${isSaving ? 'opacity-70 cursor-not-allowed' : ''}`}
-            >
-              {isSaving ? (
-                <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Salvando...</>
-              ) : 'Salvar Alterações'}
-            </button>
-            {!forcePasswordChange && (
-              <button
-                type="button"
-                onClick={handleClose}
-                disabled={isSaving}
-                className="mt-3 inline-flex h-8 w-full items-center justify-center rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 sm:ml-3 sm:mt-0 sm:w-auto"
-              >
-                Cancelar
-              </button>
-            )}
-          </div>
-          {mfaRecoveryOpen && (
-            <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/70 p-4" role="dialog" aria-modal="true" aria-labelledby="mfa-recovery-title">
-              <div className="w-full max-w-md rounded-lg bg-white p-5 text-left shadow-2xl">
-                <h4 id="mfa-recovery-title" className="text-lg font-semibold text-slate-900">Reconfigurar MFA</h4>
-                <p className="mt-2 text-sm text-slate-600">
-                  Use esta opção se você perdeu acesso ao aplicativo autenticador. Você poderá validar sua identidade usando um código de recuperação do PDF.
-                </p>
-                <p className="mt-2 text-sm text-slate-600">
-                  Depois disso, o MFA atual será desativado e você poderá configurar um novo aplicativo autenticador.
-                </p>
-                {mfaRecoveryError && (
-                  <p role="alert" className="mt-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{mfaRecoveryError}</p>
-                )}
-                <div className="mt-4 space-y-3">
-                  <div>
-                    <label htmlFor="mfa-recovery-password" className="block text-sm font-medium text-slate-700">Senha atual</label>
-                    <input
-                      id="mfa-recovery-password"
-                      type="password"
-                      autoComplete="current-password"
-                      maxLength={1024}
-                      value={mfaRecoveryForm.currentPassword}
-                      onChange={(event) => setMfaRecoveryForm((current) => ({ ...current, currentPassword: event.target.value }))}
-                      className="mt-1 h-9 w-full rounded-md border border-slate-300 px-3 text-sm"
-                    />
-                  </div>
-                  <div>
-                    <label htmlFor="mfa-recovery-code" className="block text-sm font-medium text-slate-700">Código de recuperação</label>
-                    <input
-                      id="mfa-recovery-code"
-                      type="text"
-                      autoComplete="one-time-code"
-                      maxLength={19}
-                      value={mfaRecoveryForm.recoveryCode}
-                      onChange={(event) => setMfaRecoveryForm((current) => ({ ...current, recoveryCode: event.target.value.toUpperCase() }))}
-                      placeholder="XXXX-XXXX-XXXX-XXXX"
-                      className="mt-1 h-9 w-full rounded-md border border-slate-300 px-3 font-mono text-sm"
-                    />
-                  </div>
-                  <p className="text-xs text-slate-600">
-                    Informe sua senha atual e um código de recuperação ainda não usado. O código será consumido após a desativação do MFA.
-                  </p>
-                </div>
-                <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-                  <button type="button" onClick={closeMfaRecovery} disabled={isSaving} className="h-9 rounded-md border border-slate-300 px-4 text-sm font-medium text-slate-700 disabled:opacity-50">
-                    Cancelar
-                  </button>
-                  <button type="button" onClick={disableMfaWithRecoveryCode} disabled={isSaving} className="h-9 rounded-md bg-red-600 px-4 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50">
-                    {isSaving ? 'Desativando...' : 'Desativar MFA usando código de recuperação'}
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
+
+        <NavigationPreferences value={normalizeNavigationPreferences(formData)} onChange={(field,value)=>setFormData(current=>({...current,[field]:value}))}/>
+        <section className="space-y-2 border-t border-slate-200 pt-3 dark:border-slate-700"><h3 className="text-sm font-medium">Sessões ativas</h3><ActiveSessionsCard compactProfile/></section>
+        </fieldset>
+      </form>
+    </FormDialog>
+    {child&&<ProfileSecurityDialog kind={child} onClose={()=>setChild(null)} onSessionEnd={onClose} mfaEnabled={mfaStatus?.mfa_enabled ?? user?.mfa_enabled===true}/>}
+    {mfaRecoveryOpen&&<FormDialog title="Reconfigurar MFA" child onClose={closeMfaRecovery} busy={isSaving} footer={<div className="flex flex-wrap justify-end gap-2">
+      <button type="button" data-dialog-cancel onClick={closeMfaRecovery} disabled={isSaving} className="rounded-md border px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-700">Cancelar</button>
+      <button type="button" onClick={disableMfaWithRecoveryCode} disabled={isSaving} className="rounded-md bg-red-600 px-3 py-2 text-sm text-white hover:bg-red-700">{isSaving?'Desativando…':'Desativar MFA usando código de recuperação'}</button>
+    </div>}>
+      <div className="space-y-3 text-sm"><p>Informe sua senha atual e um código de recuperação ainda não usado. O MFA atual será desativado para permitir uma nova configuração.</p>
+        {mfaRecoveryError&&<p role="alert" className="text-red-600">{mfaRecoveryError}</p>}
+        <SecurePasswordInput name="mfa-recovery-password" label="Senha atual" autoComplete="current-password" value={mfaRecoveryForm.currentPassword} onChange={event=>setMfaRecoveryForm(current=>({...current,currentPassword:event.target.value}))} enableGenerator={false} showCopyButton={false}/>
+        <label className="block">Código de recuperação<input type="text" autoComplete="one-time-code" maxLength={19} value={mfaRecoveryForm.recoveryCode} onChange={event=>setMfaRecoveryForm(current=>({...current,recoveryCode:event.target.value.toUpperCase()}))} placeholder="XXXX-XXXX-XXXX-XXXX" className="mt-1 h-9 w-full rounded-md border px-3 font-mono"/></label>
+        <p className="text-xs text-slate-500">O código será consumido após a desativação do MFA.</p>
       </div>
-    </div>
-  );
+    </FormDialog>}
+  </>;
 }
