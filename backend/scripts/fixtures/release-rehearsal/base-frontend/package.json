@@ -1,0 +1,42 @@
+{
+  "name": "frontend",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "test:profile-navigation:browser": "node scripts/test-profile-navigation-browser.js",
+    "test:update-notifications": "node scripts/test-update-notifications.js",
+    "dev": "vite",
+    "build": "vite build",
+    "lint": "eslint .",
+    "test:server-ports-users": "node scripts/test-server-ports-users.js",
+    "test:server-ports-users:browser": "node scripts/test-server-ports-users-browser.js",
+    "test": "node scripts/test-crypto-key-extractability.js && node scripts/test-vault-lock-cleanup.js && node scripts/test-csp-hardening.js && node scripts/test-user-crypto-identity.js && node scripts/test-smtp-settings.js && node scripts/test-password-reset.js && node scripts/test-mfa-recovery-codes.js && node scripts/test-security-notifications.js && node scripts/test-vault-sharing-selector.js && node scripts/test-google-drive-backup.js && node scripts/test-theme.js && node scripts/test-devices-pppoe.js && node scripts/test-devices-pabx.js && node scripts/test-devices-wifi-nas.js && node scripts/test-devices-access-unification.js && node scripts/test-device-networks-domain-expiration.js",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "axios": "^1.18.1",
+    "jspdf": "^4.2.1",
+    "lucide-react": "^1.23.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "react-router-dom": "^7.18.1"
+  },
+  "overrides": {
+    "brace-expansion@5.0.7": "5.0.8"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.3",
+    "autoprefixer": "^10.5.2",
+    "eslint": "^10.6.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.3",
+    "globals": "^17.7.0",
+    "postcss": "^8.5.16",
+    "tailwindcss": "^3.4.19",
+    "vite": "^8.1.1"
+  }
+}

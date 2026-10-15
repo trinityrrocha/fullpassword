@@ -72,7 +72,7 @@ const run = async () => {
   const initSql = read('database/init.sql');
   const cryptoService = read('frontend/src/services/cryptoService.js');
   const authContext = read('frontend/src/context/AuthContext.jsx');
-  const profileModal = read('frontend/src/components/UserProfileModal.jsx');
+  const profilePassword = read('frontend/src/services/profilePasswordService.js');
 
   assert.doesNotMatch(authController, /pbkdf2Sync\(/);
   assert.doesNotMatch(userController, /pbkdf2Sync\(/);
@@ -87,8 +87,9 @@ const run = async () => {
   assert.match(initSql, /kdf_iterations INTEGER NOT NULL DEFAULT 100000/);
   assert.match(initSql, /rsa_key_size INTEGER NOT NULL DEFAULT 2048/);
   assert.match(cryptoService, /modulusLength:\s*RSA_KEY_PARAMS\.modulusLength/);
-  assert.match(authContext, /unlockUserIdentity\(user,secret\)/);
-  assert.match(profileModal, /deriveMasterKey\(formData\.newPassword, currentSalt, KDF_PARAMS\)/);
+  assert.match(authContext, /unlockUserIdentity\(currentUser,secret\)/);
+  assert.match(profilePassword, /deriveMasterKey\(newPassword,user.crypto_salt,KDF_PARAMS\)/);
+  assert.match(profilePassword, /!user.crypto_identity && user.wrapped_key/);
 
   console.log('Crypto parameter versioning tests passed.');
 };

@@ -23,7 +23,7 @@ export default function DashboardLayout() {
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [screenProtectionEnabled, setScreenProtectionEnabled] = useState(true);
 
-  const { user, logout } = useAuth();
+  const { user, logout, vaultLockReason } = useAuth();
   const topNavigation = normalizeNavigationPreferences(user).menu_position === 'top';
   const canSeeUpdates = isUpdateSuperAdmin(user);
   const combinedNotifications = combineUpdateNotification(notifications, updateStatus, canSeeUpdates);
@@ -228,6 +228,7 @@ export default function DashboardLayout() {
           </button>
         )}
         <div className="flex-1 overflow-y-auto p-4 md:p-8">
+          {vaultLockReason === 'unlock-secret-changed' && <p role="status" className="mb-4 rounded-md border border-green-200 bg-green-50 p-3 text-sm text-green-800 dark:border-green-800 dark:bg-green-950 dark:text-green-200">Senha dos cofres alterada com sucesso. Desbloqueie seus cofres usando a nova senha.</p>}
           <Outlet />
         </div>
       </main>

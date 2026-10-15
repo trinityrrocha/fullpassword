@@ -4,6 +4,7 @@ const c=require('../controllers/vaultCryptoController');
 router.use(verifyToken);
 router.get('/identity',c.getIdentity);
 router.post('/identity',require('../services/reauthService').attemptLimit,c.saveIdentity);
+router.put('/identity/unlock-secret',require('../services/reauthService').attemptLimit,require('../controllers/identityUnlockController').updateUnlockSecret);
 router.get('/shared-items',c.listSharedItems);
 router.get('/shared-items/:itemId',c.readSharedItem);
 router.get('/vaults/:id',c.getState);

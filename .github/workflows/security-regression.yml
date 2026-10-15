@@ -71,6 +71,10 @@ jobs:
           node-version: 24.21.0
       - run: npm ci
         working-directory: backend
+      - name: Verify historical rehearsal diagnostics and immutable build fixtures
+        run: |
+          node backend/scripts/test-rehearsal-build-diagnostics.js
+          node backend/scripts/test-rehearsal-historical-snapshot.js
       - name: Resolve release Compose and verify bootstrap preflight has no effects
         run: |
           node backend/scripts/test-release-compose.js --docker

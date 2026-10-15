@@ -8,6 +8,8 @@ const {spawnSync,spawn}=require('node:child_process');
 const {Client}=require('pg');
 const {deploy,verifyDeployment}=require('../../scripts/deploy-approved-release');
 const {atomic}=require('../../scripts/release-agent');
+const {historicalBuild}=require('./rehearsal-historical-build');
+const {prepareHistoricalBuildFiles}=require('./rehearsal-historical-snapshot');
 const BASE='d9a7a3786143379df43ff1910263894df33449bf';
 const ROOT=path.resolve(__dirname,'../..');
 const run=(command,args,options={})=>{
@@ -58,17 +60,19 @@ async function main(){
  const dockerCompose=args=>run('docker',['compose','-p',project,'-f',compose,...args]);
  try {
   archive(BASE,old);archive(bootstrap,boot);
+  // Generated Dockerfiles/lock context only; archived old/ source stays byte-identical.
+  const historicalBuildFiles=prepareHistoricalBuildFiles(temporary);
   run('docker',['run','-d','--name',registry,'-p','127.0.0.1:5000:5000','registry:2']);
   console.log('Building old installation '+BASE+' and bootstrap application '+bootstrap);
-  run('docker',['build','--label','org.opencontainers.image.revision='+BASE,'--build-arg','BACKEND_APP_COMMIT='+BASE,'-t','fp-rehearsal-old-backend',path.join(old,'backend')]);
-  run('docker',['build','--build-arg','VITE_APP_COMMIT='+BASE,'-t','fp-rehearsal-old-frontend',path.join(old,'frontend')]);
+  historicalBuild({step:'historical-base-backend',revision:BASE,args:['build','--file',historicalBuildFiles.backend,'--build-context','rehearsal-locks='+historicalBuildFiles.backendLocks,'--label','org.opencontainers.image.revision='+BASE,'--build-arg','BACKEND_APP_COMMIT='+BASE,'-t','fp-rehearsal-old-backend',path.join(old,'backend')]},{cwd:ROOT});
+  historicalBuild({step:'historical-base-frontend',revision:BASE,args:['build','--file',historicalBuildFiles.frontend,'--build-context','rehearsal-locks='+historicalBuildFiles.frontendLocks,'--build-arg','VITE_APP_COMMIT='+BASE,'-t','fp-rehearsal-old-frontend',path.join(old,'frontend')]},{cwd:ROOT});
   const images={};
   for(const [revision,source] of [[bootstrap,boot],[target,ROOT]]) {
    images[revision]={};
    for(const service of ['backend','frontend']) {
     const tag='127.0.0.1:5000/trinityrrocha/fullpassword-'+service+':'+revision;
     if(revision===target)run('docker',['tag','fullpassword-audit-'+service,tag]);
-    else run('docker',['build','--build-arg',(service==='backend'?'BACKEND_APP_COMMIT=':'VITE_APP_COMMIT=')+revision,'-t',tag,path.join(source,service)]);
+    else historicalBuild({step:'bootstrap-'+service,revision,args:['build','--build-arg',(service==='backend'?'BACKEND_APP_COMMIT=':'VITE_APP_COMMIT=')+revision,'-t',tag,path.join(source,service)]},{cwd:ROOT});
     run('docker',['push',tag]);
     images[revision][service]=JSON.parse(run('docker',['image','inspect','--format','{{json .RepoDigests}}',tag])).find(value=>value.startsWith('127.0.0.1:5000/'));
     assert.match(images[revision][service],/@sha256:[a-f0-9]{64}$/);

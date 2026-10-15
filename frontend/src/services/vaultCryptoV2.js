@@ -68,6 +68,28 @@ export const unlockIndependentIdentity = async (identity, unlockSecret) => {
   } finally { rawMaster.fill(0); privateBytes?.fill(0); }
 };
 
+// JSONB property order is not a revision. Hash canonical values for compare-and-swap.
+const canonicalIdentity = value => Array.isArray(value) ? value.map(canonicalIdentity)
+  : value && typeof value === 'object' ? Object.fromEntries(Object.keys(value).sort().map(key => [key, canonicalIdentity(value[key])])) : value;
+export const independentIdentityHash = async identity => Array.from(new Uint8Array(
+  await crypto.subtle.digest('SHA-256', encoder.encode(JSON.stringify(canonicalIdentity(identity))))
+), byte => byte.toString(16).padStart(2, '0')).join('');
+
+export const rewrapIndependentIdentityUnlock = async (identity, currentSecret, newSecret) => {
+  if (identity?.version !== VAULT_CRYPTO_VERSION || identity.fingerprint !== await fingerprint(identity.publicKey)) throw new Error('Identidade criptográfica inválida.');
+  if (typeof newSecret !== 'string' || newSecret.length < 16 || newSecret.length > 1024) throw new Error('A nova senha dos cofres deve ter entre 16 e 1024 caracteres.');
+  if (newSecret === currentSecret) throw new Error('A nova senha dos cofres deve ser diferente da atual.');
+  const currentKek = await deriveUnlockKey(currentSecret, unb64(identity.salt), identity.kdf);
+  const rawMaster = new Uint8Array(await open(currentKek, identity.wrappedMasterKey, context('personal-master', identity.userId)));
+  try {
+    if (rawMaster.length !== 32) throw new Error('Chave pessoal inválida.');
+    const salt = crypto.getRandomValues(new Uint8Array(32));
+    const kek = await deriveUnlockKey(newSecret, salt);
+    return { ...identity, kdf: { ...UNLOCK_KDF }, salt: b64(salt),
+      wrappedMasterKey: await seal(kek, rawMaster, context('personal-master', identity.userId)) };
+  } finally { rawMaster.fill(0); }
+};
+
 export const sealLegacyArchive = (masterKey, userId, archive) =>
   seal(masterKey, encoder.encode(JSON.stringify(archive)), context('legacy-recovery', userId));
 export const openLegacyArchive = async (masterKey, identity) => identity.legacyArchive

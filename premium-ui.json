@@ -5,13 +5,14 @@
   "requiredCapabilities": ["Form", "Scrollbar", "CRUD"],
   "ownership": {"Select/Listbox": "native", "Date": "typed"},
   "commands": {
-    "lint": "cd frontend && npx eslint src/components/UpdateStatusPanel.jsx src/components/ReauthDialog.jsx src/components/SharedItemsPanel.jsx",
+    "lint": "cd frontend && npx eslint src/components/FormDialog.jsx src/components/ProfileSecurityDialog.jsx src/components/UserProfileModal.jsx src/pages/TeamList.jsx",
     "build": "cd frontend && npm run build",
-    "integration": "node backend/scripts/test-vault-integrated-postgres.js"
+    "integration": "node backend/scripts/test-vault-integrated-postgres.js",
+    "browser": "cd frontend && npm run test:profile-security:browser"
   },
   "requiredCommands": ["lint", "build", "integration"],
   "evidence": {
-    "crudFullFlow": "backend/scripts/test-vault-integrated-postgres.js",
-    "failurePaths": "backend/scripts/test-release-agent.js"
+    "crudFullFlow": "backend/scripts/test-identity-unlock-postgres.js",
+    "failurePaths": "frontend/scripts/test-profile-security-browser.js"
   }
 }

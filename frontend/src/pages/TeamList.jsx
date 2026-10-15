@@ -1,6 +1,7 @@
-import { useState, useEffect, useRef } from 'react';
-import { Users, Plus, Shield, Star, UserRound, X, Loader2, FolderKey, Trash2, ChevronDown } from 'lucide-react';
+import { useState, useEffect, useRef, useId } from 'react';
+import { Users, Plus, Shield, Star, UserRound, Loader2, FolderKey, Trash2, ChevronDown } from 'lucide-react';
 import SecurePasswordInput from '../components/SecurePasswordInput';
+import FormDialog from '../components/FormDialog';
 import GroupModal from '../components/GroupModal';
 import api from '../services/api';
 import { safeLogError } from '../utils/safeLogger';
@@ -46,6 +47,7 @@ const getPermissionSummary = (group = {}) => {
 function GroupMembershipSelector({ groups, selectedIds, onChange, disabled = false }) {
   const [isOpen, setIsOpen] = useState(false);
   const selectorRef = useRef(null);
+  const groupId = useId();
   const safeSelectedIds = Array.isArray(selectedIds) ? selectedIds : [];
   const selectedGroups = groups.filter((group) => safeSelectedIds.includes(group.id));
   const selectionLabel = selectedGroups.length === 0
@@ -61,15 +63,17 @@ function GroupMembershipSelector({ groups, selectedIds, onChange, disabled = fal
       if (!selectorRef.current?.contains(event.target)) setIsOpen(false);
     };
     const handleEscape = (event) => {
-      if (event.key === 'Escape') setIsOpen(false);
+      if (event.key === 'Escape') {event.preventDefault();event.stopImmediatePropagation();setIsOpen(false);selectorRef.current?.querySelector('button')?.focus();}
     };
 
-    document.addEventListener('mousedown', handleOutsideClick);
-    document.addEventListener('keydown', handleEscape);
+    // Collapse after the click, never between pointer-down and pointer-up:
+    // shrinking the dialog before click would move its persistent actions.
+    document.addEventListener('click', handleOutsideClick);
+    document.addEventListener('keydown', handleEscape, true);
 
     return () => {
-      document.removeEventListener('mousedown', handleOutsideClick);
-      document.removeEventListener('keydown', handleEscape);
+      document.removeEventListener('click', handleOutsideClick);
+      document.removeEventListener('keydown', handleEscape, true);
     };
   }, [isOpen]);
 
@@ -85,12 +89,12 @@ function GroupMembershipSelector({ groups, selectedIds, onChange, disabled = fal
 
   return (
     <div ref={selectorRef} className="relative">
-      <label className="mb-1 block text-sm font-medium text-slate-700">Grupos do usuário</label>
+      <span id={groupId+'-label'} className="mb-1 block text-sm font-medium text-slate-700">Grupos do usuário</span>
       <button
         type="button"
         disabled={disabled}
         aria-expanded={isOpen}
-        aria-haspopup="listbox"
+        aria-controls={groupId}
         aria-label="Selecionar grupos do usuário"
         onClick={() => setIsOpen((current) => !current)}
         className="flex h-8 w-full items-center justify-between gap-2 rounded-md border border-slate-300 bg-white px-2 text-left text-sm shadow-sm disabled:cursor-not-allowed disabled:opacity-60"
@@ -99,11 +103,11 @@ function GroupMembershipSelector({ groups, selectedIds, onChange, disabled = fal
         <ChevronDown className={`h-4 w-4 shrink-0 text-slate-500 transition-transform ${isOpen ? 'rotate-180' : ''}`} aria-hidden="true" />
       </button>
       {isOpen && (
-        <div role="listbox" aria-multiselectable="true" className="absolute z-30 mt-1 max-h-56 w-full overflow-y-auto rounded-md border border-slate-200 bg-white p-1 shadow-lg">
+        <div id={groupId} role="group" aria-labelledby={groupId+'-label'} className="relative mt-1 max-h-56 w-full overflow-y-auto rounded-md border border-slate-200 bg-white p-1 dark:border-slate-700 dark:bg-slate-900">
           {groups.length === 0 ? (
             <p className="px-2 py-2 text-center text-sm text-slate-500">Nenhum grupo cadastrado.</p>
           ) : groups.map((group) => (
-            <label role="option" aria-selected={safeSelectedIds.includes(group.id)} key={group.id} className={`flex items-start gap-2 rounded px-2 py-1.5 hover:bg-slate-50 ${disabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}>
+            <label key={group.id} className={`flex items-start gap-2 rounded px-2 py-1.5 hover:bg-slate-50 ${disabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}>
               <input
                 type="checkbox"
                 disabled={disabled}
@@ -129,6 +133,10 @@ export default function TeamList() {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const savingRef = useRef(false);
+  const [formError,setFormError] = useState('');
+  const [notice,setNotice] = useState('');
+  const [confirmation,setConfirmation] = useState(null);
   const [teamMembers, setTeamMembers] = useState([]);
   const [newUser, setNewUser] = useState(defaultNewUser);
   const [editUser, setEditUser] = useState(defaultEditUser);
@@ -140,6 +148,7 @@ export default function TeamList() {
   const [groupToEdit, setGroupToEdit] = useState(null);
 
   useClearOnVaultLock(() => {
+    setConfirmation(null);
     setIsModalOpen(false);
     setIsEditModalOpen(false);
     setNewUser(defaultNewUser);
@@ -157,7 +166,7 @@ export default function TeamList() {
       setTeamMembers(response.data || []);
     } catch (error) {
       safeLogError('Erro ao carregar usuários.', error);
-      alert('Não foi possível carregar a lista de usuários.');
+      setFormError('Não foi possível carregar a lista de usuários.');
     } finally {
       setIsLoading(false);
     }
@@ -170,7 +179,7 @@ export default function TeamList() {
       setGroups(response.data || []);
     } catch (error) {
       safeLogError('Erro ao carregar grupos.', error);
-      alert('Não foi possível carregar a lista de grupos.');
+      setFormError('Não foi possível carregar a lista de grupos.');
     } finally {
       setIsLoadingGroups(false);
     }
@@ -184,7 +193,7 @@ export default function TeamList() {
   }, []);
 
   const openCreateUserModal = () => {
-    setNewUser(defaultNewUser);
+    setFormError('');setNotice('');setNewUser(defaultNewUser);
     setIsModalOpen(true);
   };
 
@@ -195,25 +204,32 @@ export default function TeamList() {
 
   const handleCreateUser = async (e) => {
     e.preventDefault();
-    setIsSaving(true);
+    if(savingRef.current || isSaving)return;
+    setFormError('');
+    if(!e.currentTarget.checkValidity()){setFormError('Preencha nome e e-mail válidos e os campos obrigatórios.');e.currentTarget.querySelector(':invalid')?.focus();return;}
+    savingRef.current=true;setIsSaving(true);
     try {
       const payload = user?.is_super_admin ? newUser : { ...newUser, mfa_required: undefined };
       await api.post('/users', payload);
-      alert('Usuário criado com sucesso!');
+      setNotice('Usuário criado com sucesso!');
       setIsModalOpen(false);
       setNewUser(defaultNewUser);
       await loadUsers();
     } catch (error) {
       safeLogError('Erro ao criar usuário.', error);
-      alert(error.response?.data?.error || 'Erro ao criar usuário. Verifique se o e-mail já existe.');
+      setFormError(error.response?.data?.error || 'Erro ao criar usuário. Verifique se o e-mail já existe.');
     } finally {
+      savingRef.current=false;
       setIsSaving(false);
     }
   };
 
   const handleEditUser = async (e) => {
     e.preventDefault();
-    setIsSaving(true);
+    if(savingRef.current || isSaving)return;
+    setFormError('');
+    if(!e.currentTarget.checkValidity()){setFormError('Preencha nome e e-mail válidos e os campos obrigatórios.');e.currentTarget.querySelector(':invalid')?.focus();return;}
+    savingRef.current=true;setIsSaving(true);
     try {
       const payload = {
         name: editUser.name,
@@ -226,28 +242,30 @@ export default function TeamList() {
       if (user?.is_super_admin) payload.mfa_required = editUser.mfa_required;
 
       await api.put(`/users/${editUser.id}`, payload);
-      alert('Usuário atualizado com sucesso!');
+      setNotice('Usuário atualizado com sucesso!');
       setIsEditModalOpen(false);
       setEditUser(defaultEditUser);
       setDeleteUserConfirmation('');
       await loadUsers();
     } catch (error) {
       safeLogError('Erro ao atualizar usuário.', error);
-      alert(error.response?.data?.error || 'Erro ao atualizar usuário.');
+      setFormError(error.response?.data?.error || 'Erro ao atualizar usuário.');
     } finally {
+      savingRef.current=false;
       setIsSaving(false);
     }
   };
 
-  const handleToggleStatus = async (userId, currentStatus) => {
-    if (!window.confirm(`Deseja realmente ${currentStatus ? 'inativar' : 'ativar'} este usuário?`)) return;
+  const handleToggleStatus = async (userId, currentStatus, confirmed = false) => {
+    if (confirmed !== true) {setConfirmation({text:`Deseja realmente ${currentStatus ? 'inativar' : 'ativar'} este usuário?`,run:()=>handleToggleStatus(userId,currentStatus,true)});return;}
+    setConfirmation(null);
 
     try {
       await api.put(`/users/${userId}`, { is_active: !currentStatus });
       await loadUsers();
     } catch (error) {
       safeLogError('Erro ao alterar status.', error);
-      alert(error.response?.data?.error || 'Erro ao alterar status do usuário.');
+      setFormError(error.response?.data?.error || 'Erro ao alterar status do usuário.');
     }
   };
 
@@ -264,7 +282,7 @@ export default function TeamList() {
       setDeleteUserConfirmation('');
       await loadUsers();
     } catch (error) {
-      alert(error.response?.data?.error || 'Erro ao excluir usuário.');
+      setFormError(error.response?.data?.error || 'Erro ao excluir usuário.');
     } finally {
       setIsSaving(false);
     }
@@ -276,22 +294,24 @@ export default function TeamList() {
     setDeleteUserConfirmation('');
   };
 
-  const handleResetMfa = async () => {
-    if (!window.confirm('Resetar o MFA deste usuário e revogar todas as sessões atuais?')) return;
+  const handleResetMfa = async (confirmed = false) => {
+    if (confirmed !== true) {setConfirmation({text:'Resetar o MFA deste usuário e revogar todas as sessões atuais?',run:()=>handleResetMfa(true)});return;}
+    setConfirmation(null);
     setIsSaving(true);
     try {
       await api.post(`/users/${editUser.id}/mfa-reset`);
-      alert('MFA resetado. O usuário deverá configurá-lo novamente se a política continuar obrigatória.');
+      setNotice('MFA resetado. O usuário deverá configurá-lo novamente se a política continuar obrigatória.');
       setEditUser((current) => ({ ...current, mfa_enabled: false }));
       await loadUsers();
     } catch (error) {
-      alert(error.response?.data?.error || 'Erro ao resetar MFA.');
+      setFormError(error.response?.data?.error || 'Erro ao resetar MFA.');
     } finally {
       setIsSaving(false);
     }
   };
 
   const openEditModal = (member) => {
+    setFormError('');setNotice('');
     setEditUser({
       id: member.id,
       name: member.name,
@@ -318,8 +338,9 @@ export default function TeamList() {
     await loadUsers();
   };
 
-  const handleDeleteGroup = async (groupId, groupName) => {
-    if (!window.confirm(`Deseja realmente excluir o grupo "${groupName}"?`)) return;
+  const handleDeleteGroup = async (groupId, groupName, confirmed = false) => {
+    if (confirmed !== true) {setConfirmation({text:`Deseja realmente excluir o grupo "${groupName}"?`,run:()=>handleDeleteGroup(groupId,groupName,true)});return;}
+    setConfirmation(null);
 
     try {
       await api.delete(`/groups/${groupId}`);
@@ -327,12 +348,14 @@ export default function TeamList() {
       await loadUsers();
     } catch (error) {
       safeLogError('Erro ao excluir grupo.', error);
-      alert(error.response?.data?.error || 'Erro ao excluir grupo.');
+      setFormError(error.response?.data?.error || 'Erro ao excluir grupo.');
     }
   };
 
   return (
     <div className="space-y-6">
+      {formError && !isModalOpen && !isEditModalOpen && <p role="alert" className="text-sm text-red-600">{formError}</p>}
+      {notice && <p role="status" className="text-sm text-green-700 dark:text-green-300">{notice}</p>}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Gestão de Equipe</h1>
@@ -497,58 +520,9 @@ export default function TeamList() {
 
       <GroupModal isOpen={isGroupModalOpen} onClose={() => setIsGroupModalOpen(false)} groupToEdit={groupToEdit} onSaveSuccess={handleGroupSaveSuccess} />
 
+      {confirmation && <FormDialog title="Confirmar ação" description={confirmation.text} child guardChanges={false} onClose={()=>setConfirmation(null)} footer={<div className="flex justify-end gap-2"><button type="button" data-initial-focus data-dialog-cancel className="rounded border px-3 py-2 text-sm">Cancelar</button><button type="button" onClick={confirmation.run} className="rounded bg-red-600 px-3 py-2 text-sm text-white">Confirmar ação</button></div>}/>}
       {isEditModalOpen && (
-        <div className="fixed inset-0 z-50 overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
-          <div className="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
-            <div className="fixed inset-0 bg-slate-500/75 transition-opacity" aria-hidden="true" onClick={closeEditModal}></div>
-            <span className="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
-            <div className="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
-              <div className="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
-                <div className="flex justify-between items-center mb-5">
-                  <h3 className="text-lg leading-6 font-medium text-slate-900">Editar Usuário</h3>
-                  <button onClick={closeEditModal} className="text-slate-400 hover:text-slate-500"><X className="h-6 w-6" /></button>
-                </div>
-                <form id="editUserForm" onSubmit={handleEditUser} className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Nome Completo</label>
-                    <input type="text" required className="h-8 w-full rounded-md border border-slate-300 px-2 py-1 text-sm shadow-sm" value={editUser.name} onChange={e => setEditUser({...editUser, name: e.target.value})} />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">E-mail</label>
-                    <input type="email" required className="h-8 w-full rounded-md border border-slate-300 px-2 py-1 text-sm shadow-sm" value={editUser.email} onChange={e => setEditUser({...editUser, email: e.target.value.toLowerCase()})} />
-                  </div>
-                  <p className="rounded-md border border-indigo-200 bg-indigo-50 p-2 text-xs text-indigo-800">
-                    Para redefinir o acesso com segurança, o usuário deve usar “Esqueceu a senha?” na tela de login.
-                  </p>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Nível de Acesso</label>
-                    <select className="h-8 w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-sm shadow-sm" value={editUser.role} onChange={e => setEditUser({...editUser, role: e.target.value})}>
-                      <option value="user">Usuário Padrão</option>
-                      <option value="admin">Administrador</option>
-                    </select>
-                  </div>
-                  <GroupMembershipSelector groups={groups} selectedIds={editUser.groupIds} onChange={(groupIds) => setEditUser({ ...editUser, groupIds })} />
-                  {user?.is_super_admin && (
-                    <div className="p-3 bg-indigo-50 rounded-md space-y-2">
-                      <label className="flex items-start gap-3 cursor-pointer">
-                        <input type="checkbox" className="mt-1 h-4 w-4 text-indigo-600 rounded border-slate-300" checked={editUser.mfa_required} onChange={(e) => setEditUser({ ...editUser, mfa_required: e.target.checked })} />
-                        <span><span className="block text-sm font-medium text-slate-700">Exigir MFA/2FA no próximo login</span><span className="block text-xs text-slate-500">Recomendado para administradores.</span></span>
-                      </label>
-                      {editUser.mfa_enabled && <button type="button" onClick={handleResetMfa} className="text-sm font-medium text-red-600 hover:text-red-800">Resetar MFA e revogar sessões</button>}
-                    </div>
-                  )}
-                  <div className="flex items-center justify-between p-3 bg-slate-50 rounded-md">
-                    <div>
-                      <p className="text-sm font-medium text-slate-700">Status da Conta</p>
-                      <p className="text-xs text-slate-500">{editUser.is_active ? 'Conta ativa — usuário pode fazer login' : 'Conta inativa — login bloqueado'}</p>
-                    </div>
-                    <button type="button" onClick={() => setEditUser({...editUser, is_active: !editUser.is_active})} className={`relative inline-flex h-6 w-11 rounded-full border-2 border-transparent ${editUser.is_active ? 'bg-green-500' : 'bg-slate-300'}`}>
-                      <span className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ${editUser.is_active ? 'translate-x-5' : 'translate-x-0'}`} />
-                    </button>
-                  </div>
-                </form>
-              </div>
-              <ModalFooter
+        <FormDialog title="Editar Usuário" onClose={closeEditModal} busy={isSaving} footer={<ModalFooter
                 isSaving={isSaving}
                 formId="editUserForm"
                 submitLabel="Salvar Alterações"
@@ -557,56 +531,82 @@ export default function TeamList() {
                 deleteConfirmation={deleteUserConfirmation}
                 onDeleteConfirmationChange={(event) => setDeleteUserConfirmation(event.target.value)}
                 onDelete={handleDeleteUser}
-              />
-            </div>
-          </div>
-        </div>
+              />}>
+  <form id="editUserForm" onSubmit={handleEditUser} noValidate className="space-y-4">
+          {formError && <p role="alert" className="text-sm text-red-600 dark:text-red-400">{formError}</p>}
+    <div>
+      <label htmlFor="editUserForm-1" className="block text-sm font-medium text-slate-700 mb-1">Nome Completo</label>
+      <input id="editUserForm-1" type="text" required className="h-8 w-full rounded-md border border-slate-300 px-2 py-1 text-sm shadow-sm" value={editUser.name} onChange={e => setEditUser({...editUser, name: e.target.value})} />
+    </div>
+    <div>
+      <label htmlFor="editUserForm-2" className="block text-sm font-medium text-slate-700 mb-1">E-mail</label>
+      <input id="editUserForm-2" type="email" required className="h-8 w-full rounded-md border border-slate-300 px-2 py-1 text-sm shadow-sm" value={editUser.email} onChange={e => setEditUser({...editUser, email: e.target.value.toLowerCase()})} />
+    </div>
+    <p className="rounded-md border border-indigo-200 bg-indigo-50 p-2 text-xs text-indigo-800">
+      Para redefinir o acesso com segurança, o usuário deve usar “Esqueceu a senha?” na tela de login.
+    </p>
+    <div>
+      <label htmlFor="editUserForm-3" className="block text-sm font-medium text-slate-700 mb-1">Nível de Acesso</label>
+      <select id="editUserForm-3" className="h-8 w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-sm shadow-sm" value={editUser.role} onChange={e => setEditUser({...editUser, role: e.target.value})}>
+        <option value="user">Usuário Padrão</option>
+        <option value="admin">Administrador</option>
+      </select>
+    </div>
+    <GroupMembershipSelector groups={groups} selectedIds={editUser.groupIds} onChange={(groupIds) => setEditUser({ ...editUser, groupIds })} />
+    {user?.is_super_admin && (
+      <div className="p-3 bg-indigo-50 rounded-md space-y-2">
+        <label className="flex items-start gap-3 cursor-pointer">
+          <input type="checkbox" className="mt-1 h-4 w-4 text-indigo-600 rounded border-slate-300" checked={editUser.mfa_required} onChange={(e) => setEditUser({ ...editUser, mfa_required: e.target.checked })} />
+          <span><span className="block text-sm font-medium text-slate-700">Exigir MFA/2FA no próximo login</span><span className="block text-xs text-slate-500">Recomendado para administradores.</span></span>
+        </label>
+        {editUser.mfa_enabled && <button type="button" onClick={handleResetMfa} className="text-sm font-medium text-red-600 hover:text-red-800">Resetar MFA e revogar sessões</button>}
+      </div>
+    )}
+    <div className="flex items-center justify-between p-3 bg-slate-50 rounded-md">
+      <div>
+        <p className="text-sm font-medium text-slate-700">Status da Conta</p>
+        <p className="text-xs text-slate-500">{editUser.is_active ? 'Conta ativa — usuário pode fazer login' : 'Conta inativa — login bloqueado'}</p>
+      </div>
+      <button type="button" role="switch" aria-label="Status da Conta" aria-checked={editUser.is_active} onClick={() => setEditUser({...editUser, is_active: !editUser.is_active})} className={`relative inline-flex h-6 w-11 rounded-full border-2 border-transparent ${editUser.is_active ? 'bg-green-500' : 'bg-slate-300'}`}>
+        <span className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ${editUser.is_active ? 'translate-x-5' : 'translate-x-0'}`} />
+      </button>
+    </div>
+  </form>
+        </FormDialog>
       )}
 
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
-          <div className="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
-            <div className="fixed inset-0 bg-slate-500/75 transition-opacity" aria-hidden="true" onClick={closeCreateUserModal}></div>
-            <span className="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
-            <div className="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
-              <div className="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
-                <div className="flex justify-between items-center mb-5">
-                  <h3 className="text-lg leading-6 font-medium text-slate-900">Cadastrar Novo Membro</h3>
-                  <button onClick={closeCreateUserModal} className="text-slate-400 hover:text-slate-500"><X className="h-6 w-6" /></button>
-                </div>
-                <form id="newUserForm" onSubmit={handleCreateUser} className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Nome Completo</label>
-                    <input type="text" required className="h-8 w-full rounded-md border border-slate-300 px-2 py-1 text-sm shadow-sm" value={newUser.name} onChange={e => setNewUser({...newUser, name: e.target.value})} placeholder="Ex: João Silva" />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">E-mail</label>
-                    <input type="email" required className="h-8 w-full rounded-md border border-slate-300 px-2 py-1 text-sm shadow-sm" value={newUser.email} onChange={e => setNewUser({...newUser, email: e.target.value.toLowerCase()})} placeholder="joao@empresa.com.br" />
-                  </div>
-                  <div>
-                    <SecurePasswordInput className="[&_input]:h-8 [&_input]:py-1 [&_input]:pl-2" name="user_password" label="Senha de Acesso" value={newUser.password} onChange={e => setNewUser({...newUser, password: e.target.value})} required />
-                    <p className="mt-1 text-xs text-slate-500">Esta senha será usada para login e para derivar a chave de criptografia do usuário.</p>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Nível de Acesso</label>
-                    <select className="h-8 w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-sm shadow-sm" value={newUser.role} onChange={e => setNewUser({...newUser, role: e.target.value})}>
-                      <option value="user">Usuário Padrão</option>
-                      <option value="admin">Administrador</option>
-                    </select>
-                  </div>
-                  <GroupMembershipSelector groups={groups} selectedIds={newUser.groupIds} onChange={(groupIds) => setNewUser({ ...newUser, groupIds })} />
-                  {user?.is_super_admin && (
-                    <label className="flex items-start gap-3 p-3 bg-indigo-50 rounded-md cursor-pointer">
-                      <input type="checkbox" className="mt-1 h-4 w-4 text-indigo-600 rounded border-slate-300" checked={newUser.mfa_required} onChange={(e) => setNewUser({ ...newUser, mfa_required: e.target.checked })} />
-                      <span><span className="block text-sm font-medium text-slate-700">Exigir MFA/2FA no próximo login</span><span className="block text-xs text-slate-500">Recomendado para administradores.</span></span>
-                    </label>
-                  )}
-                </form>
-              </div>
-              <ModalFooter isSaving={isSaving} formId="newUserForm" submitLabel="Salvar Usuário" onCancel={closeCreateUserModal} />
-            </div>
-          </div>
-        </div>
+        <FormDialog title="Cadastrar Novo Membro" onClose={closeCreateUserModal} busy={isSaving} footer={<ModalFooter isSaving={isSaving} formId="newUserForm" submitLabel="Salvar Usuário" onCancel={closeCreateUserModal} />}>
+  <form id="newUserForm" onSubmit={handleCreateUser} noValidate className="space-y-4">
+          {formError && <p role="alert" className="text-sm text-red-600 dark:text-red-400">{formError}</p>}
+    <div>
+      <label htmlFor="newUserForm-1" className="block text-sm font-medium text-slate-700 mb-1">Nome Completo</label>
+      <input id="newUserForm-1" type="text" required className="h-8 w-full rounded-md border border-slate-300 px-2 py-1 text-sm shadow-sm" value={newUser.name} onChange={e => setNewUser({...newUser, name: e.target.value})} placeholder="Ex: João Silva" />
+    </div>
+    <div>
+      <label htmlFor="newUserForm-2" className="block text-sm font-medium text-slate-700 mb-1">E-mail</label>
+      <input id="newUserForm-2" type="email" required className="h-8 w-full rounded-md border border-slate-300 px-2 py-1 text-sm shadow-sm" value={newUser.email} onChange={e => setNewUser({...newUser, email: e.target.value.toLowerCase()})} placeholder="joao@empresa.com.br" />
+    </div>
+    <div>
+      <SecurePasswordInput className="[&_input]:h-8 [&_input]:py-1 [&_input]:pl-2" name="user_password" label="Senha de Acesso" value={newUser.password} onChange={e => setNewUser({...newUser, password: e.target.value})} required />
+      <p className="mt-1 text-xs text-slate-500">Senha inicial para acesso ao FullPassword. A senha dos cofres será criada separadamente pelo próprio usuário.</p>
+    </div>
+    <div>
+      <label htmlFor="newUserForm-3" className="block text-sm font-medium text-slate-700 mb-1">Nível de Acesso</label>
+      <select id="newUserForm-3" className="h-8 w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-sm shadow-sm" value={newUser.role} onChange={e => setNewUser({...newUser, role: e.target.value})}>
+        <option value="user">Usuário Padrão</option>
+        <option value="admin">Administrador</option>
+      </select>
+    </div>
+    <GroupMembershipSelector groups={groups} selectedIds={newUser.groupIds} onChange={(groupIds) => setNewUser({ ...newUser, groupIds })} />
+    {user?.is_super_admin && (
+      <label className="flex items-start gap-3 p-3 bg-indigo-50 rounded-md cursor-pointer">
+        <input type="checkbox" className="mt-1 h-4 w-4 text-indigo-600 rounded border-slate-300" checked={newUser.mfa_required} onChange={(e) => setNewUser({ ...newUser, mfa_required: e.target.checked })} />
+        <span><span className="block text-sm font-medium text-slate-700">Exigir MFA/2FA no próximo login</span><span className="block text-xs text-slate-500">Recomendado para administradores.</span></span>
+      </label>
+    )}
+  </form>
+        </FormDialog>
       )}
     </div>
   );
@@ -614,7 +614,7 @@ export default function TeamList() {
 
 function ModalFooter({ isSaving, formId, submitLabel, onCancel, showDelete = false, deleteConfirmation = '', onDeleteConfirmationChange, onDelete }) {
   return (
-    <div className="flex flex-wrap items-center justify-end gap-2 bg-slate-50 px-4 py-3 sm:px-6">
+    <div className="flex flex-wrap items-center justify-end gap-2">
       {showDelete && (
         <>
           <button type="button" title="Excluir usuário" aria-label="Excluir usuário" disabled={deleteConfirmation.trim() !== 'EXCLUIR' || isSaving} onClick={onDelete} className="action-icon-button action-icon-delete">
@@ -624,7 +624,7 @@ function ModalFooter({ isSaving, formId, submitLabel, onCancel, showDelete = fal
           <input id="deleteSystemUserConfirmation" value={deleteConfirmation} onChange={onDeleteConfirmationChange} placeholder="EXCLUIR" title="Digite EXCLUIR para confirmar a exclusão do usuário" autoComplete="off" className="h-9 w-28 rounded-md border border-red-300 bg-white px-2 text-sm" />
         </>
       )}
-      <button type="button" onClick={onCancel} className="inline-flex justify-center rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50">
+      <button type="button" data-dialog-cancel disabled={isSaving} onClick={onCancel} className="inline-flex justify-center rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50">
         Cancelar
       </button>
       <button type="submit" form={formId} disabled={isSaving} className={`inline-flex justify-center rounded-md border border-transparent bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 ${isSaving ? 'cursor-not-allowed opacity-70' : ''}`}>
