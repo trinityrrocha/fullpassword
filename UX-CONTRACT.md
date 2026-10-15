@@ -27,6 +27,7 @@ DESIGN.md espelha Tailwind/index.css; runtime é canônico. Não alterar tokens 
 | Groups | GroupMembershipSelector | frontend/src/pages/TeamList.jsx | disclosure inline, checkboxes nativos, Escape retorna ao trigger | browser create/edit |
 | CRUD | API/backend | releaseController.js, vaultCryptoController.js | pedido pessimista; leitura somente para item | HTTP + PostgreSQL |
 | Scrollbar | frontend/src/index.css | CSS runtime existente | fluxo natural; sem novo scroller de tabela | revisão estática |
+| Select/Listbox | select nativo | SecurityCard / PasswordPolicyCard; DESIGN.md | popup do SO aceito, h35, labels reais | browser 1280/390/320 claro/escuro e teclado |
 
 ## Flow ledger
 
@@ -93,6 +94,15 @@ sem permissão de escrita e sem envelope do cofre. Sensitive values em memória.
 Senha de reauth não é segredo de desbloqueio e não é escrita na fila.
 
 ## Migration status
+
+Política de senhas (2026-10-15): fonte de domínio `docs/password-security-policy.md`,
+passwordPolicyService e passwordPolicySchema. Settings usa somente Segurança →
+Política de Senhas. Edição pessimista dos quatro números, inline error/retry,
+draft preservado ao recolher o accordion e warning de unload enquanto editado.
+Login vencido reutiliza o diálogo obrigatório; cofre vencido mostra aviso e abre
+o reenvelopamento existente. AuthProvider impede unlock e limpa chaves; sucesso
+da troca continua bloqueado. Esta evolução exige schema-migrate em release futura;
+as declarações de ausência de migração abaixo referem-se à fatia anterior do PR #5.
 
 Fatia atual: update e leitura scoped. Não migrar globalmente componentes legados
 com alert/confirm nesta tarefa. Superfícies novas não podem introduzir esses bypasses.

@@ -4,9 +4,11 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "test:password-policy": "node scripts/test-password-policy.js",
+    "test:password-policy:browser": "node scripts/test-profile-security-browser.js && node scripts/test-password-expiry-browser.js",
     "test:system-update": "node scripts/test-system-update-panel.js",
     "test:system-update:browser": "node scripts/test-system-update-panel-browser.js",
-    "pretest": "node scripts/test-system-update-panel.js && node scripts/test-identity-unlock-change.js",
+    "pretest": "node scripts/test-system-update-panel.js && node scripts/test-identity-unlock-change.js && node scripts/test-password-policy.js",
     "test:profile-security:browser": "node scripts/test-profile-security-browser.js",
     "test:profile-navigation:browser": "node scripts/test-profile-navigation-browser.js",
     "test:update-notifications": "node scripts/test-update-notifications.js",

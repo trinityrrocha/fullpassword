@@ -7,12 +7,14 @@ import api from '../services/api';
 import { profilePasswordPayload } from '../services/profilePasswordService';
 import { changeIdentityUnlockSecret } from '../services/identityUnlockService';
 import useClearOnVaultLock from '../hooks/useClearOnVaultLock';
+import usePasswordPolicy from '../hooks/usePasswordPolicy';
 
 const field='block h-9 w-full rounded-md border border-slate-300 bg-white px-3 text-sm dark:border-slate-600 dark:bg-slate-950';
 const button='min-h-9 rounded-md border border-slate-300 px-3 py-2 text-sm font-medium hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:hover:bg-slate-700';
 const titles={email:'Alterar e-mail',password:'Alterar senha do perfil',vault:'Alterar senha dos cofres'};
 export default function ProfileSecurityDialog({kind,onClose,onSessionEnd,forced=false,mfaEnabled:activeMfa}) {
   const {user,logout,completeIdentityUnlockChange}=useAuth();
+  const {policy,error:policyError,reload:reloadPolicy}=usePasswordPolicy();
   const mfaEnabled=activeMfa ?? user?.mfa_enabled===true;
   const [busy,setBusy]=useState(false),[error,setError]=useState(''),[pendingEmail,setPendingEmail]=useState(false),[requestedEmail,setRequestedEmail]=useState(''),[identity,setIdentity]=useState(null);
   const [completed,setCompleted]=useState(false);
@@ -37,6 +39,7 @@ export default function ProfileSecurityDialog({kind,onClose,onSessionEnd,forced=
     if(kind!=='email')event.currentTarget.reset();
     else if(pendingEmail)event.currentTarget.elements.code.value='';
     try {
+      if(kind!=='email'&&!policy)throw new Error('Aguarde o carregamento da política de senhas.');
       if(kind==='email') {
         if(pendingEmail) {
           if(!values.get('code'))throw new Error('Informe o código de confirmação.');
@@ -50,25 +53,26 @@ export default function ProfileSecurityDialog({kind,onClose,onSessionEnd,forced=
           if(alive.current){setRequestedEmail(email);setPendingEmail(true);}
         }
       } else if(kind==='password') {
-        const payload=await profilePasswordPayload(user,String(values.get('current_password')||''),String(values.get('new_password')||''),String(values.get('confirmation')||''));
+        const payload=await profilePasswordPayload(user,String(values.get('current_password')||''),String(values.get('new_password')||''),String(values.get('confirmation')||''),policy);
         const {data:grant}=await api.post('/auth/reauth',{purpose:'profile_change',action:payload,current_password:payload.current_password,mfa_code:mfaEnabled?String(values.get('mfa_code')||''):undefined});
         await api.put('/users/profile',{...payload,_reauth_token:grant.token});await finishSession();
       } else {
         if(identity?.version!==2)throw new Error('Configure sua identidade independente antes de alterar a senha dos cofres.');
-        const changed=await changeIdentityUnlockSecret({api,identity,currentSecret:String(values.get('current_unlock')||''),newSecret:String(values.get('new_unlock')||''),confirmation:String(values.get('confirmation')||''),loginPassword:String(values.get('login_password')||''),mfaCode:mfaEnabled?String(values.get('mfa_code')||''):undefined});
+        const changed=await changeIdentityUnlockSecret({api,identity,policy,currentSecret:String(values.get('current_unlock')||''),newSecret:String(values.get('new_unlock')||''),confirmation:String(values.get('confirmation')||''),loginPassword:String(values.get('login_password')||''),mfaCode:mfaEnabled?String(values.get('mfa_code')||''):undefined});
         completeIdentityUnlockChange(changed);onClose();
       }
     } catch(e) {
       if(alive.current)setError(e.response?.data?.error || (e.name==='OperationError'?'Senha atual dos cofres incorreta.':e.message) || 'Não foi possível concluir a alteração.');
     } finally {pending.current=false;if(alive.current)setBusy(false);}
   };
-  const description=kind==='email'?'O endereço só será alterado após confirmar o código enviado ao novo e-mail.':kind==='vault'?'Esta senha protege sua identidade criptográfica e é usada para desbloquear seus cofres. Ela é independente da senha do perfil.':forced?'Defina uma nova senha para continuar. A troca da senha temporária é obrigatória.':'Usada para entrar no FullPassword. Após alterar, entre novamente.';
+  const description=kind==='email'?'O endereço só será alterado após confirmar o código enviado ao novo e-mail.':kind==='vault'?'Esta senha protege sua identidade criptográfica e é usada para desbloquear seus cofres. Ela é independente da senha do perfil.':forced?'Defina uma nova senha para continuar. A troca de senha é obrigatória.':'Usada para entrar no FullPassword. Após alterar, entre novamente.';
   return <FormDialog title={titles[kind]} description={description} onClose={onClose} busy={busy} saved={completed} forced={forced} child={!forced} footer={<div className="flex flex-wrap justify-end gap-2">
     {!forced&&<button type="button" data-dialog-cancel disabled={busy} onClick={onClose} className={button}>Cancelar</button>}
-    <button type="submit" form="profile-security-form" disabled={busy||(kind==='vault'&&!identity)} className={button+' border-transparent bg-indigo-600 text-white hover:bg-indigo-700 dark:hover:bg-indigo-700'}>{busy?'Confirmando…':kind==='email'?(pendingEmail?'Confirmar alteração':'Enviar código'):'Alterar senha'}</button>
+    <button type="submit" form="profile-security-form" disabled={busy||(kind!=='email'&&!policy)||(kind==='vault'&&!identity)} className={button+' border-transparent bg-indigo-600 text-white hover:bg-indigo-700 dark:hover:bg-indigo-700'}>{busy?'Confirmando…':kind==='email'?(pendingEmail?'Confirmar alteração':'Enviar código'):'Alterar senha'}</button>
   </div>}>
     <form ref={form} id="profile-security-form" onSubmit={submit} noValidate className="space-y-3">
       {error&&<p role="alert" className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+      {kind!=='email'&&policyError&&<p role="alert">{policyError} <button type="button" onClick={reloadPolicy} className={button}>Tentar novamente</button></p>}
       {kind==='email'?<>
         <label className="block text-sm">E-mail atual<input readOnly value={user.email} className={field}/></label>
         <label className="block text-sm">Novo e-mail{pendingEmail?<input key="pending" readOnly value={requestedEmail} className={field}/>:<input key="new" name="email" type="email" autoComplete="email" className={field}/>}</label>
@@ -76,12 +80,12 @@ export default function ProfileSecurityDialog({kind,onClose,onSessionEnd,forced=
         <label className="block text-sm">Código de confirmação<input name="code" autoComplete="one-time-code" disabled={!pendingEmail} className={field}/></label>
       </>:kind==='password'?<>
         {passwordInput('current_password','Senha atual','current-password')}
-        <p className="text-xs text-slate-500 dark:text-slate-400">A nova senha deve ter pelo menos 12 caracteres e seguir a política de senha atual.</p>
+        <p className="text-xs text-slate-500 dark:text-slate-400">{policy?`A nova senha deve ter pelo menos ${policy.login_min_length} caracteres e seguir a política de senha atual.`:'Carregando política de senhas…'}</p>
         {passwordInput('new_password','Nova senha')}{passwordInput('confirmation','Confirmar nova senha')}
         {mfaEnabled&&<label className="block text-sm">Código MFA atual<input name="mfa_code" inputMode="numeric" autoComplete="one-time-code" maxLength={6} className={field}/></label>}
       </>:<>
         {passwordInput('current_unlock','Senha atual dos cofres','current-password')}
-        <p className="text-xs text-slate-500 dark:text-slate-400">Use de 16 a 1024 caracteres, diferentes da senha atual dos cofres e da senha do perfil.</p>
+        <p className="text-xs text-slate-500 dark:text-slate-400">{policy?`Use de ${policy.vault_min_length} a 1024 caracteres, diferentes da senha atual dos cofres e da senha do perfil.`:'Carregando política de senhas…'}</p>
         {passwordInput('new_unlock','Nova senha dos cofres')}{passwordInput('confirmation','Confirmar nova senha')}
         <fieldset className="space-y-3 border-t border-slate-200 pt-3 dark:border-slate-700"><legend className="text-sm font-medium">Confirmar identidade</legend>
           {passwordInput('login_password','Senha atual do perfil','current-password')}

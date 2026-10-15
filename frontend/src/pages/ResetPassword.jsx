@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { AlertTriangle, KeyRound, ShieldAlert } from 'lucide-react';
 import SecurePasswordInput from '../components/SecurePasswordInput';
 import api from '../services/api';
+import usePasswordPolicy from '../hooks/usePasswordPolicy';
 
 let transientResetToken = '';
 
@@ -17,6 +18,7 @@ const clearTransientResetToken = () => {
 };
 
 export default function ResetPassword() {
+  const {policy,error:policyError,reload:reloadPolicy}=usePasswordPolicy();
   const [searchParams] = useSearchParams();
   const tokenRef = useRef(captureResetToken(searchParams));
   const [validation, setValidation] = useState({ loading: true, valid: false });
@@ -77,8 +79,8 @@ export default function ResetPassword() {
       setError('As senhas não coincidem.');
       return;
     }
-    if (newPassword.length < 12) {
-      setError('A nova senha deve ter ao menos 12 caracteres.');
+    if (!policy || newPassword.length < policy.login_min_length) {
+      setError(policy?`A nova senha deve ter ao menos ${policy.login_min_length} caracteres.`:'Aguarde o carregamento da política de senhas.');
       return;
     }
     if (confirmation !== 'RESETAR ACESSO') {
@@ -180,13 +182,15 @@ export default function ResetPassword() {
           </div>
         )}
 
-        <form className="mt-5 space-y-4" onSubmit={handleSubmit}>
+        <form noValidate className="mt-5 space-y-4" onSubmit={handleSubmit}>
+          {policyError&&<p role="alert">{policyError} <button type="button" onClick={reloadPolicy} className="text-indigo-600 underline">Tentar novamente</button></p>}
           <SecurePasswordInput
             name="new-password"
             label="Nova senha"
             value={newPassword}
             onChange={(event) => setNewPassword(event.target.value)}
-            placeholder="Mínimo de 12 caracteres"
+            placeholder={policy?`Mínimo de ${policy.login_min_length} caracteres`:'Carregando política…'}
+            minLength={policy?.login_min_length}
             required
             showCopyButton={false}
             autoComplete="new-password"
@@ -256,7 +260,7 @@ export default function ResetPassword() {
 
           <button
             type="submit"
-            disabled={isSubmitting || confirmation !== 'RESETAR ACESSO'}
+            disabled={isSubmitting || !policy || confirmation !== 'RESETAR ACESSO'}
             className="flex w-full items-center justify-center rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
             <AlertTriangle className="mr-2 h-4 w-4" aria-hidden="true" />

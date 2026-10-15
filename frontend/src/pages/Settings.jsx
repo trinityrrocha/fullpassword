@@ -7,7 +7,6 @@ import { useAuth } from '../context/AuthContext';
 import SecurityCard from '../components/SecurityCard';
 import SettingsAccordionCard, { SettingsAccordionGroup } from '../components/SettingsAccordionCard';
 import ActiveSessionsCard from '../components/ActiveSessionsCard';
-import PasswordPolicyCard from '../components/PasswordPolicyCard';
 import BackupRestoreCard from '../components/BackupRestoreCard';
 import ManualIpRulesCard from '../components/ManualIpRulesCard';
 import SmtpSettingsCard from '../components/SmtpSettingsCard';
@@ -472,11 +471,6 @@ export default function Settings() {
           </SettingsAccordionCard>
         )}
 
-        {canManageSystem && (
-          <SettingsAccordionCard title="Política Global de Senhas" icon={<ShieldCheck className="w-5 h-5 mr-2 text-indigo-500" />} description="Requisitos obrigatórios e aviso periódico de troca de senha.">
-            <PasswordPolicyCard />
-          </SettingsAccordionCard>
-        )}
 
         <SmtpSettingsCard isSuperAdmin={canManageSystem} />
 

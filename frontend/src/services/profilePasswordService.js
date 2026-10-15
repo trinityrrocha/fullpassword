@@ -1,9 +1,11 @@
 import {deriveMasterKey,resolveKdfParams,unwrapMasterKeyForTransientUse,wrapMasterKey,isValidCryptoSalt,KDF_PARAMS} from './cryptoService.js';
+import {passwordMinimum} from './passwordPolicy.js';
 
-export async function profilePasswordPayload(user, currentPassword, newPassword, confirmation) {
+export async function profilePasswordPayload(user, currentPassword, newPassword, confirmation, policy = {login_min_length:12}) {
   if (!currentPassword) throw new Error('A senha atual é obrigatória para alterar a senha.');
   if (newPassword !== confirmation) throw new Error('As novas senhas não coincidem.');
-  if (!newPassword || newPassword.length < 12) throw new Error('A nova senha deve ter pelo menos 12 caracteres.');
+  const minimum=passwordMinimum(policy,'login');
+  if (!newPassword || newPassword.length < minimum) throw new Error(`A nova senha deve ter pelo menos ${minimum} caracteres.`);
   const payload={name:user.name,email:user.email,current_password:currentPassword,new_password:newPassword};
   if (!user.crypto_identity && user.wrapped_key) {
     if (!isValidCryptoSalt(user.crypto_salt)) throw new Error('Não foi possível inicializar a chave criptográfica do usuário.');

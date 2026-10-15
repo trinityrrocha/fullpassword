@@ -28,7 +28,7 @@ const updateUnlockSecret = async (req, res) => {
     await reauth.consume(client, req, 'crypto_unlock_secret_change');
     // Preserve every other JSONB field on the server, including unknown future fields.
     const result = await client.query(`UPDATE users SET crypto_identity = jsonb_set(jsonb_set(jsonb_set(
-      crypto_identity,'{kdf}',$1::jsonb),'{salt}',$2::jsonb),'{wrappedMasterKey}',$3::jsonb), updated_at=CURRENT_TIMESTAMP
+      crypto_identity,'{kdf}',$1::jsonb),'{salt}',$2::jsonb),'{wrappedMasterKey}',$3::jsonb), vault_secret_changed_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP
       WHERE id=$4 AND crypto_identity=$5::jsonb RETURNING crypto_identity`,
     [JSON.stringify(kdf), JSON.stringify(salt), JSON.stringify(wrapped), req.user.id, JSON.stringify(identity)]);
     if (!result.rowCount) reject('CRYPTO_IDENTITY_CHANGED', 409);

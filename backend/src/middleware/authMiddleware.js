@@ -3,10 +3,11 @@ const db = require('../config/database');
 const { JWT_SECRET } = require('../config/security');
 const { validateUserSession } = require('../services/sessionService');
 const { safeLogError } = require('../utils/safeLogger');
+const { rotationStatus } = require('../services/passwordPolicyService');
 
 const isRequiredPasswordChangeRoute = (req) => {
   return (req.method === 'PUT' && req.baseUrl === '/api/users' && req.path === '/profile') ||
-    (req.baseUrl === '/api/auth' && ['/me', '/logout', '/reauth'].includes(req.path));
+    (req.baseUrl === '/api/auth' && ['/me', '/logout', '/reauth', '/csrf'].includes(req.path));
 };
 
 const verifyToken = async (req, res, next) => {
@@ -25,7 +26,8 @@ const verifyToken = async (req, res, next) => {
     if (!session) return res.status(401).json({ error: 'Sessão encerrada ou expirada. Faça login novamente.' });
 
     const userResult = await db.query(
-      `SELECT id, email, role, is_active, is_super_admin, must_change_password, token_version
+      `SELECT id, email, role, is_active, is_super_admin, must_change_password, token_version, password_changed_at,
+       (SELECT login_rotation_months FROM password_policy_settings WHERE id=1) AS login_rotation_months
        FROM users
        WHERE id = $1
        LIMIT 1`,
@@ -47,7 +49,7 @@ const verifyToken = async (req, res, next) => {
       email: user.email,
       role: user.role,
       is_super_admin: user.is_super_admin === true,
-      must_change_password: user.must_change_password === true,
+      must_change_password: rotationStatus(user).password_change_required,
       token_version: user.token_version,
       session_id: session.id,
       groups: groupsResult.rows.map((row) => row.group_id)

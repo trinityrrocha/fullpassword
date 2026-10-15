@@ -13,6 +13,7 @@ const {
 } = require('../middleware/writeRateLimiters');
 
 // Rota POST /api/auth/login
+router.get('/password-policy', (req,res,next) => Promise.resolve(require('../controllers/passwordPolicyController').getPublicPolicy(req,res)).catch(next));
 router.post('/login', authController.login);
 router.post('/mfa/verify-login', mfaController.verifyLogin);
 router.post('/mfa/setup/confirm', mfaController.confirmSetup);

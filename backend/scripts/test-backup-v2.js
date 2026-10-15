@@ -41,6 +41,8 @@ tables.users.push({
   email: 'admin@example.com',
   menu_position: 'top',
   menu_display: 'icons',
+  crypto_identity: {version:2},
+  vault_secret_changed_at: '2026-10-01T12:00:00.000Z',
   password_hash: 'argon2-test-hash',
   kdf_version: 2,
   kdf_name: 'PBKDF2',
@@ -50,6 +52,7 @@ tables.users.push({
   rsa_key_version: 2
 });
 tables.groups.push({ id: 1, name: 'Test group' });
+tables.password_policy_settings.push({id:1,min_length:12,login_min_length:16,login_rotation_months:18,vault_min_length:20,vault_rotation_months:6});
 tables.user_groups.push({ id: 1, user_id: 1, group_id: 1 });
 tables.clients.push({ id: 1, name: 'Large attachment client', encrypted_data: 'client-ciphertext' });
 for (let index = 1; index <= 60; index += 1) {
@@ -95,6 +98,10 @@ const makeClient = () => {
         return { rows: [] };
       }
       if (sql === 'SET CONSTRAINTS ALL DEFERRED') return { rows: [] };
+      if(sql==='UPDATE users SET vault_secret_changed_at=CURRENT_TIMESTAMP WHERE crypto_identity IS NOT NULL AND vault_secret_changed_at IS NULL'){
+        for(const user of tables.users)if(user.crypto_identity&&!user.vault_secret_changed_at)user.vault_secret_changed_at=new Date().toISOString();
+        return {rows:[]};
+      }
 
       const selectColumns = /FROM information_schema\.columns/.test(sql);
       if (selectColumns) {
@@ -232,6 +239,8 @@ const run = async () => {
     assert.equal(tables.users.length, originalTables.users.length);
     assert.equal(tables.users[0].menu_position, 'top');
     assert.equal(tables.users[0].menu_display, 'icons');
+    assert.equal(tables.users[0].vault_secret_changed_at,originalTables.users[0].vault_secret_changed_at);
+    assert.equal(tables.password_policy_settings[0].vault_min_length,20);
     assert.equal(tables.vault_items.length, 60);
     assert.equal(tables.vault_items[10].encrypted_attachment, originalTables.vault_items[10].encrypted_attachment);
     await cleanupBackupWorkspace(restoreInspection.workspace);

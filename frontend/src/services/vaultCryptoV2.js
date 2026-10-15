@@ -29,14 +29,16 @@ const open = async (key, envelope, aad) => {
   return crypto.subtle.decrypt({ name: 'AES-GCM', iv, additionalData: aad }, key, unb64(envelope.ciphertext));
 };
 const deriveUnlockKey = async (secret, salt, params = UNLOCK_KDF) => {
-  if (typeof secret !== 'string' || secret.length < 16) throw new Error('Use an independent unlock secret of at least 16 characters');
+  // Existing identities must remain unlockable when the policy minimum rises.
+  if (typeof secret !== 'string' || !secret.length || secret.length > 1024) throw new Error('Invalid unlock secret');
   if (params.name !== 'PBKDF2' || params.hash !== 'SHA-256' || params.iterations !== 600000 || salt.length !== 32) throw new Error('Invalid unlock KDF');
   const source = await crypto.subtle.importKey('raw', encoder.encode(secret), 'PBKDF2', false, ['deriveKey']);
   return crypto.subtle.deriveKey({ ...params, salt }, source, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
 };
 const fingerprint = async publicKey => b64(await crypto.subtle.digest('SHA-256', unb64(publicKey)));
 
-export const createIndependentIdentity = async (userId, unlockSecret) => {
+export const createIndependentIdentity = async (userId, unlockSecret, minimum = 16) => {
+  if (![8,12,16,20].includes(minimum) || typeof unlockSecret !== 'string' || unlockSecret.length < minimum || unlockSecret.length > 1024) throw new Error(`Use um segredo de desbloqueio com pelo menos ${minimum} caracteres.`);
   const salt = crypto.getRandomValues(new Uint8Array(32));
   const rawMaster = crypto.getRandomValues(new Uint8Array(32));
   let privateBytes;
@@ -75,9 +77,9 @@ export const independentIdentityHash = async identity => Array.from(new Uint8Arr
   await crypto.subtle.digest('SHA-256', encoder.encode(JSON.stringify(canonicalIdentity(identity))))
 ), byte => byte.toString(16).padStart(2, '0')).join('');
 
-export const rewrapIndependentIdentityUnlock = async (identity, currentSecret, newSecret) => {
+export const rewrapIndependentIdentityUnlock = async (identity, currentSecret, newSecret, minimum = 16) => {
   if (identity?.version !== VAULT_CRYPTO_VERSION || identity.fingerprint !== await fingerprint(identity.publicKey)) throw new Error('Identidade criptográfica inválida.');
-  if (typeof newSecret !== 'string' || newSecret.length < 16 || newSecret.length > 1024) throw new Error('A nova senha dos cofres deve ter entre 16 e 1024 caracteres.');
+  if (![8,12,16,20].includes(minimum) || typeof newSecret !== 'string' || newSecret.length < minimum || newSecret.length > 1024) throw new Error(`A nova senha dos cofres deve ter entre ${minimum} e 1024 caracteres.`);
   if (newSecret === currentSecret) throw new Error('A nova senha dos cofres deve ser diferente da atual.');
   const currentKek = await deriveUnlockKey(currentSecret, unb64(identity.salt), identity.kdf);
   const rawMaster = new Uint8Array(await open(currentKek, identity.wrappedMasterKey, context('personal-master', identity.userId)));

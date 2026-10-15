@@ -8,7 +8,7 @@ const { getTrustedCountry } = require('../services/securityMetadataService');
 const { issueCsrfCookie, clearCsrfCookie } = require('../services/csrfService');
 const { getMfaSettings, ensureMfaSetup, createChallengeToken } = require('../services/mfaService');
 const { ABSOLUTE_SESSION_MS, createUserSession, revokeTokenSession } = require('../services/sessionService');
-const { rejectWeakPassword } = require('../services/passwordPolicyService');
+const { rejectWeakPassword, getPasswordPolicy, publicPolicy, rotationStatus } = require('../services/passwordPolicyService');
 const { safeLogError } = require('../utils/safeLogger');
 const {
   CURRENT_KDF_PARAMS,
@@ -25,14 +25,6 @@ const LEGACY_ADMIN_EMAIL = SUPER_ADMIN_EMAIL;
 const LEGACY_ADMIN_HASH = '$argon2id$v=19$m=65536,t=3,p=4$PLACEHOLDER_HASH_FOR_@dmin123';
 
 const SESSION_COOKIE_NAME = 'fp_session';
-
-const isPasswordChangeRecommended = (user) => {
-  const months = Number(user.password_change_notice_months);
-  if (!months || !user.password_changed_at) return false;
-  const dueAt = new Date(user.password_changed_at);
-  dueAt.setMonth(dueAt.getMonth() + months);
-  return dueAt <= new Date();
-};
 
 const auditLoginFailure = async (req, emailAttempted, reason, user = null) => {
   await recordAuditEvent({
@@ -54,7 +46,7 @@ const sessionCookieOptions = () => ({
   maxAge: ABSOLUTE_SESSION_MS
 });
 
-const serializeUser = (user, groups = []) => ({
+const serializeUser = (user, groups = [], policy = {}) => ({
   ...normalizeNavigationPreferences(user),
   id: user.id,
   name: user.name,
@@ -62,10 +54,13 @@ const serializeUser = (user, groups = []) => ({
   role: user.role,
   is_active: user.is_active,
   is_super_admin: user.is_super_admin === true,
-  must_change_password: user.must_change_password === true,
+  must_change_password: rotationStatus(user, policy).password_change_required,
+  ...rotationStatus(user, policy),
+  password_policy: publicPolicy(policy),
+  vault_secret_changed_at: user.vault_secret_changed_at,
   mfa_required: user.mfa_required === true,
   mfa_enabled: user.mfa_enabled === true,
-  password_change_recommended: isPasswordChangeRecommended(user),
+  password_change_recommended: false,
   crypto_identity: user.crypto_identity || null,
   wrapped_key: user.wrapped_key,
   crypto_salt: user.crypto_salt,
@@ -246,7 +241,7 @@ const login = async (req, res) => {
               kdf_version, kdf_name, kdf_hash, kdf_iterations,
               is_active, is_super_admin, must_change_password, mfa_required,
               public_key, encrypted_private_key, rsa_key_size, rsa_key_version,
-              token_version, password_changed_at, menu_position, menu_display,
+              token_version, password_changed_at, vault_secret_changed_at, menu_position, menu_display,
               (SELECT password_change_notice_months FROM password_policy_settings WHERE id = 1) AS password_change_notice_months,
               EXISTS(SELECT 1 FROM user_mfa_settings m WHERE m.user_id = users.id AND m.enabled = TRUE) AS mfa_enabled
        FROM users WHERE LOWER(email) = $1`,
@@ -313,14 +308,14 @@ const me = async (req, res) => {
     const result = await db.query(
       `SELECT id, name, email, role, is_active, is_super_admin, must_change_password, mfa_required,
               crypto_identity, wrapped_key, crypto_salt, kdf_version, kdf_name, kdf_hash, kdf_iterations,
-              public_key, encrypted_private_key, rsa_key_size, rsa_key_version, password_changed_at, menu_position, menu_display,
+              public_key, encrypted_private_key, rsa_key_size, rsa_key_version, password_changed_at, vault_secret_changed_at, menu_position, menu_display,
               (SELECT password_change_notice_months FROM password_policy_settings WHERE id = 1) AS password_change_notice_months,
               EXISTS(SELECT 1 FROM user_mfa_settings m WHERE m.user_id = users.id AND m.enabled = TRUE) AS mfa_enabled
        FROM users WHERE id = $1 LIMIT 1`,
       [req.user.id]
     );
     if (result.rows.length === 0) return res.status(404).json({ error: 'Usuário não encontrado' });
-    return res.status(200).json({ user: serializeUser(result.rows[0], req.user.groups) });
+    return res.status(200).json({ user: serializeUser(result.rows[0], req.user.groups, await getPasswordPolicy()) });
   } catch (error) {
     safeLogError('Erro ao restaurar sessão.', error);
     return res.status(500).json({ error: 'Não foi possível restaurar a sessão' });
@@ -342,7 +337,7 @@ const completeLoginSession = async (req, res, user, extraResponse = {}) => {
     user, action: 'login_success', status: 'success', req,
     metadata: { email: user.email, method: 'password', country: getTrustedCountry(req) }
   });
-  return res.status(200).json({ message: 'Login realizado com sucesso', user: serializeUser(user, groups), ...extraResponse });
+  return res.status(200).json({ message: 'Login realizado com sucesso', user: serializeUser(user, groups, await getPasswordPolicy()), ...extraResponse });
 };
 
 const logout = async (req, res) => {

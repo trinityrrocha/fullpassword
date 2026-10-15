@@ -66,6 +66,8 @@ const main = async () => {
       throw new Error('Banco já possui usuários, mas nenhum Super Admin. Criação automática bloqueada.');
     }
 
+    const validation=await require('../src/services/passwordPolicyService').validatePassword(password,client);
+    if(!validation.valid)throw new Error(validation.errors.join(' '));
     const passwordHash = await argon2.hash(password, { type: argon2.argon2id });
     const inserted = await client.query(
       `INSERT INTO users (name, email, hash_senha_login, role, is_active, is_super_admin, must_change_password)

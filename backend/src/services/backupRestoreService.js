@@ -237,6 +237,7 @@ const restoreBackupRecords = async (records, expectedCounts = null) => {
         columnsByTable.set(table, allowedColumns);
       }
       context.stage = 'insert';
+      if (table === 'password_policy_settings') record.row = require('./passwordPolicyService').normalizePolicy(record.row);
       const columns = Object.keys(record.row).filter((column) => allowedColumns.has(column));
       if (columns.length === 0) continue;
       const values = columns.map((column) => ['json','jsonb'].includes(allowedColumns.get(column)) && record.row[column] !== null ? JSON.stringify(record.row[column]) : record.row[column]);
@@ -273,6 +274,7 @@ const restoreBackupRecords = async (records, expectedCounts = null) => {
     context.table = 'password_policy_settings';
     context.stage = 'defaults';
     await client.query('INSERT INTO password_policy_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING');
+    await client.query('UPDATE users SET vault_secret_changed_at=CURRENT_TIMESTAMP WHERE crypto_identity IS NOT NULL AND vault_secret_changed_at IS NULL');
     context.table = 'login_security_policy';
     await client.query('INSERT INTO login_security_policy (id) VALUES (1) ON CONFLICT (id) DO NOTHING');
     context.table = null;
