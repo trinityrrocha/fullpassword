@@ -9,6 +9,7 @@ const {Client}=require('pg');
 const {deploy,verifyDeployment}=require('../../scripts/deploy-approved-release');
 const {atomic}=require('../../scripts/release-agent');
 const {historicalBuild}=require('./rehearsal-historical-build');
+const {prepareHistoricalBuildFiles}=require('./rehearsal-historical-snapshot');
 const BASE='d9a7a3786143379df43ff1910263894df33449bf';
 const ROOT=path.resolve(__dirname,'../..');
 const run=(command,args,options={})=>{
@@ -59,10 +60,12 @@ async function main(){
  const dockerCompose=args=>run('docker',['compose','-p',project,'-f',compose,...args]);
  try {
   archive(BASE,old);archive(bootstrap,boot);
+  // Generated Dockerfiles/lock context only; archived old/ source stays byte-identical.
+  const historicalBuildFiles=prepareHistoricalBuildFiles(temporary);
   run('docker',['run','-d','--name',registry,'-p','127.0.0.1:5000:5000','registry:2']);
   console.log('Building old installation '+BASE+' and bootstrap application '+bootstrap);
-  historicalBuild({step:'historical-base-backend',revision:BASE,args:['build','--label','org.opencontainers.image.revision='+BASE,'--build-arg','BACKEND_APP_COMMIT='+BASE,'-t','fp-rehearsal-old-backend',path.join(old,'backend')]},{cwd:ROOT});
-  historicalBuild({step:'historical-base-frontend',revision:BASE,args:['build','--build-arg','VITE_APP_COMMIT='+BASE,'-t','fp-rehearsal-old-frontend',path.join(old,'frontend')]},{cwd:ROOT});
+  historicalBuild({step:'historical-base-backend',revision:BASE,args:['build','--file',historicalBuildFiles.backend,'--build-context','rehearsal-locks='+historicalBuildFiles.backendLocks,'--label','org.opencontainers.image.revision='+BASE,'--build-arg','BACKEND_APP_COMMIT='+BASE,'-t','fp-rehearsal-old-backend',path.join(old,'backend')]},{cwd:ROOT});
+  historicalBuild({step:'historical-base-frontend',revision:BASE,args:['build','--file',historicalBuildFiles.frontend,'--build-context','rehearsal-locks='+historicalBuildFiles.frontendLocks,'--build-arg','VITE_APP_COMMIT='+BASE,'-t','fp-rehearsal-old-frontend',path.join(old,'frontend')]},{cwd:ROOT});
   const images={};
   for(const [revision,source] of [[bootstrap,boot],[target,ROOT]]) {
    images[revision]={};
