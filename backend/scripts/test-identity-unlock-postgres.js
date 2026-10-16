@@ -32,6 +32,7 @@ async function run(){
     const ownerApi=browserClient();await ownerApi.post('/auth/login',{email:'synthetic-admin@example.invalid',password});
     await ownerApi.post('/crypto/identity',{identity:await v2.createIndependentIdentity(owner,'SYNTHETIC_ADMIN_UNLOCK_ONLY'),current_password:password});
     await require('./identity-unlock-change-fixture')({database,browserClient,ownerApi,password,v2,frontend});
+    await require('./password-policy-fixture')({database,browserClient,ownerApi,password,v2,frontend});
     console.log((await database.query('SELECT version()')).rows[0].version);console.log('PASS dedicated native PostgreSQL unlock-secret integration. Existing installations were not accessed.');
   }finally{
     if(server)await new Promise(resolve=>server.close(resolve));

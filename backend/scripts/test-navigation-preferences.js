@@ -52,7 +52,10 @@ async function run() {
   assert.equal(profile.body.session_invalidated, false);
   assert.equal(users.a.menu_display, 'icons');
   assert.equal(users.b.menu_display, 'labels');
-  db.query = async (sql, params) => { assert.match(sql, /menu_position, menu_display/); assert.match(sql, /WHERE id = \$1/); return { rows: [users[params[0]]] }; };
+  db.query = async (sql, params) => {
+    if(sql==='SELECT * FROM password_policy_settings WHERE id = 1')return {rows:[{min_length:12,login_min_length:12,login_rotation_months:12,vault_min_length:16,vault_rotation_months:12}]};
+    assert.match(sql, /menu_position, menu_display/); assert.match(sql, /WHERE id = \$1/); return { rows: [users[params[0]]] };
+  };
   for (const id of ['a', 'b']) {
     const res = response(); await me({ user: { id } }, res);
     assert.equal(res.code, 200);

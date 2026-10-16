@@ -16,10 +16,11 @@ const fixture=`
 import React,{useState} from 'react';import{createRoot}from'react-dom/client';
 import{AuthContext}from'/src/context/AuthContext.jsx';
 import UserProfileModal from'/src/components/UserProfileModal.jsx';import TeamList from'/src/pages/TeamList.jsx';import ReauthDialog from'/src/components/ReauthDialog.jsx';
+import SecurityCard from'/src/components/SecurityCard.jsx';
 import api from'/src/services/api.js';import'/src/index.css';api.defaults.baseURL='/api';
 function Fixture(){const[open,setOpen]=useState(false),[forced,setForced]=useState(false);const cleanups=new Set();
 const value={user:${JSON.stringify(user)},registerVaultLockCleanup:fn=>{cleanups.add(fn);return()=>cleanups.delete(fn);},logout:async()=>{window.__loggedOut=true;},completeIdentityUnlockChange:()=>{window.__locked=true;cleanups.forEach(fn=>fn());setOpen(false);}};
-return <AuthContext.Provider value={value}><main className="p-4"><button id="open-profile" onClick={()=>{setForced(false);setOpen(true);}}>Meu Perfil</button><button id="open-forced" onClick={()=>{setForced(true);setOpen(true);}}>Forçar troca</button><TeamList/><UserProfileModal isOpen={open} onClose={()=>setOpen(false)} forcePasswordChange={forced}/><ReauthDialog/></main></AuthContext.Provider>;}createRoot(document.getElementById('root')).render(<Fixture/>);
+return <AuthContext.Provider value={value}><main className="p-4"><button id="open-profile" onClick={()=>{setForced(false);setOpen(true);}}>Meu Perfil</button><button id="open-forced" onClick={()=>{setForced(true);setOpen(true);}}>Forçar troca</button><SecurityCard/><TeamList/><UserProfileModal isOpen={open} onClose={()=>setOpen(false)} forcePasswordChange={forced}/><ReauthDialog/></main></AuthContext.Provider>;}createRoot(document.getElementById('root')).render(<Fixture/>);
 `;
 const vite=await createServer({root,server:{host:'127.0.0.1',port:0},appType:'custom',plugins:[{
   name:'profile-security-isolated-fixture',enforce:'pre',
@@ -36,10 +37,14 @@ try{
   page.on('dialog',async dialog=>{errors.push('Unexpected native '+dialog.type());await dialog.dismiss();});
   await context.addCookies([{name:'fp_csrf',value:'SYNTHETIC_CSRF',url:origin}]);
   let failWrite=false,delay=0;
+  let passwordPolicy={login_min_length:12,login_rotation_months:12,vault_min_length:16,vault_rotation_months:12};
   await page.route('**/*',async route=>{
     const request=route.request(),url=new URL(request.url());assert.equal(url.origin,origin,'no real installation/external service may be accessed');
     if(!url.pathname.startsWith('/api/'))return route.continue();
     if(request.method()==='GET'){
+      if(url.pathname==='/api/auth/password-policy')return route.fulfill({json:passwordPolicy});
+      if(url.pathname==='/api/system/login-security-policy')return route.fulfill({json:{policy:{auto_block_enabled:true,failed_attempts_threshold:5,observation_window_minutes:15,block_duration_minutes:30,screen_protection_enabled:true}}});
+      if(url.pathname==='/api/system/login-failures')return route.fulfill({json:{items:[],pagination:{page:1,limit:10,total_pages:0}}});
       if(url.pathname==='/api/users')return route.fulfill({json:[{id:'00000000-0000-4000-8000-000000000002',name:'Membro fictício',email:'member@example.invalid',role:'user',is_active:true,groups:[],mfa_enabled:true}]});
       if(url.pathname==='/api/groups')return route.fulfill({json:Array.from({length:8},(_,i)=>({id:'g'+i,name:'Grupo fictício '+i,can_view:true}))});
       if(url.pathname==='/api/users/profile/mfa')return route.fulfill({json:{mfa_enabled:true,recovery_codes_remaining:6}});
@@ -50,6 +55,7 @@ try{
       const data=request.postDataJSON();writes.push({path:url.pathname,data});
       if(delay)await new Promise(resolve=>setTimeout(resolve,delay));
       if(failWrite)return route.fulfill({status:503,json:{error:'Falha fictícia. Tente novamente.'}});
+      if(url.pathname==='/api/system/password-policy'){assert.deepEqual(Object.keys(data).sort(),Object.keys(passwordPolicy).sort());passwordPolicy={...data};return route.fulfill({json:passwordPolicy});}
       if(url.pathname==='/api/auth/reauth')return route.fulfill({json:{token:'SYNTHETIC_GRANT'}});
       if(url.pathname==='/api/crypto/identity/unlock-secret'){identity={...identity,kdf:data.kdf,salt:data.salt,wrappedMasterKey:data.wrappedMasterKey};return route.fulfill({json:{identity}});}
       if(url.pathname==='/api/users/profile')return route.fulfill({json:data.email==='new@example.invalid'?{email_change_pending:true}:{session_invalidated:Boolean(data.new_password)}});
@@ -71,6 +77,42 @@ try{
       assert.equal(await control.evaluate(node=>{const r=node.getBoundingClientRect();return node.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2));}),true,'backdrop/another layer must not intercept control');
     }
   };
+  // Real SecurityCard and policy form, including native select keyboard behavior.
+  await reload();
+  const openSecurity=async()=>{await page.getByRole('button',{name:'Segurança',exact:true}).click();await page.getByRole('form',{name:'Política de Senhas'}).waitFor();};
+  await openSecurity();
+  let policyForm=page.getByRole('form',{name:'Política de Senhas'});
+  const field=(kind,label)=>policyForm.getByRole('combobox',{name:kind+' — '+label});
+  for(const kind of ['Senha de login','Senha dos cofres']){
+    assert.deepEqual(await field(kind,'Tamanho mínimo').locator('option').evaluateAll(options=>options.map(o=>o.value)),['8','12','16','20']);
+    assert.deepEqual(await field(kind,'Solicitar troca a cada').locator('option').evaluateAll(options=>options.map(o=>o.value)),['6','12','18']);
+  }
+  const first=field('Senha de login','Tamanho mínimo');await first.focus();await first.press('Home');await first.press('ArrowDown');await first.press('Escape');
+  await field('Senha de login','Tamanho mínimo').selectOption('20');await field('Senha dos cofres','Tamanho mínimo').selectOption('12');
+  await field('Senha de login','Solicitar troca a cada').selectOption('6');await field('Senha dos cofres','Solicitar troca a cada').selectOption('18');
+  // Collapsing the accordion must not discard the pending draft.
+  await page.getByRole('button',{name:'Segurança',exact:true}).click();await openSecurity();policyForm=page.getByRole('form',{name:'Política de Senhas'});
+  assert.equal(await field('Senha de login','Tamanho mínimo').inputValue(),'20');
+  failWrite=true;await policyForm.getByRole('button',{name:'Salvar política',exact:true}).click();await policyForm.getByText('Não foi possível salvar a política. Confira a conexão e tente novamente.').waitFor();
+  assert.equal(await field('Senha dos cofres','Tamanho mínimo').inputValue(),'12');failWrite=false;delay=100;
+  const count=writes.filter(w=>w.path==='/api/system/password-policy').length;
+  await policyForm.getByRole('button',{name:'Salvar política',exact:true}).evaluate(button=>{button.click();button.click();});
+  await policyForm.getByText('Política de senhas atualizada.').waitFor();delay=0;
+  assert.equal(writes.filter(w=>w.path==='/api/system/password-policy').length,count+1);
+  await reload();await openSecurity();policyForm=page.getByRole('form',{name:'Política de Senhas'});
+  assert.equal(await field('Senha de login','Tamanho mínimo').inputValue(),'20');assert.equal(await field('Senha dos cofres','Solicitar troca a cada').inputValue(),'18');
+  for(const width of [1280,390,320])for(const dark of [false,true]){
+    await page.setViewportSize({width,height:900});await page.evaluate(d=>document.documentElement.classList.toggle('dark',d),dark);
+    assert.equal(await policyForm.evaluate(node=>node.scrollWidth>node.clientWidth),false);
+    for(const select of await policyForm.getByRole('combobox').all()){
+      const rect=await select.boundingBox();assert.equal(Math.round(rect.height),35);assert(rect.x>=0&&rect.x+rect.width<=width+1);
+    }
+    await screenshot('security-policy-'+width+'-'+(dark?'dark':'light'));
+    if(output)await policyForm.locator('..').screenshot({path:path.join(output,'security-policy-fields-'+width+'-'+(dark?'dark':'light')+'.png')});
+  }
+  assert(!fs.readFileSync(path.join(root,'src/pages/Settings.jsx'),'utf8').includes('Política Global de Senhas'));
+  passwordPolicy={login_min_length:12,login_rotation_months:12,vault_min_length:16,vault_rotation_months:12};
+  await page.setViewportSize({width:1280,height:800});await page.evaluate(()=>document.documentElement.classList.remove('dark'));
   await reload();await openProfile();
   let profile=page.getByRole('dialog',{name:'Meu Perfil',exact:true});
   assert.deepEqual(await profile.locator('input').evaluateAll(inputs=>inputs.slice(0,2).map(i=>i.id)),['profile-name','profile-email']);

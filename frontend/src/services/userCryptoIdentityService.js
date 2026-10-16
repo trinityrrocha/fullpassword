@@ -1,14 +1,16 @@
 import { deriveMasterKey, resolveKdfParams, unwrapMasterKeyForTransientUse } from './cryptoService.js';
 import { createIndependentIdentity, unlockIndependentIdentity, sealLegacyArchive, openLegacyArchive } from './vaultCryptoV2.js';
+import {passwordMinimum} from './passwordPolicy.js';
 
 export const hasUserCryptoIdentity = user => user?.crypto_identity?.version === 2;
-export const ensureUserCryptoIdentity = async ({user,password,unlockSecret,saveIdentity,mfaCode}) => {
+export const ensureUserCryptoIdentity = async ({user,password,unlockSecret,saveIdentity,mfaCode,policy={vault_min_length:16}}) => {
   if (!user) throw new Error('Usuário não autenticado.');
   if (hasUserCryptoIdentity(user)) return {user,created:false};
-  if (!unlockSecret || unlockSecret.length < 16 || unlockSecret === password) {
-    throw new Error('Use um segredo de desbloqueio diferente da senha de login, com pelo menos 16 caracteres.');
+  const minimum=passwordMinimum(policy,'vault');
+  if (!unlockSecret || unlockSecret.length < minimum || unlockSecret === password) {
+    throw new Error(`Use um segredo de desbloqueio diferente da senha de login, com pelo menos ${minimum} caracteres.`);
   }
-  const identity = await createIndependentIdentity(user.id,unlockSecret);
+  const identity = await createIndependentIdentity(user.id,unlockSecret,minimum);
   const keys = await unlockIndependentIdentity(identity,unlockSecret);
   if (user.wrapped_key) {
     const kek = await deriveMasterKey(password,user.crypto_salt,resolveKdfParams(user));

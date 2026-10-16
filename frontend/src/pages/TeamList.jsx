@@ -7,6 +7,7 @@ import api from '../services/api';
 import { safeLogError } from '../utils/safeLogger';
 import { useAuth } from '../context/AuthContext';
 import useClearOnVaultLock from '../hooks/useClearOnVaultLock';
+import usePasswordPolicy from '../hooks/usePasswordPolicy';
 
 const defaultNewUser = {
   name: '',
@@ -128,6 +129,7 @@ function GroupMembershipSelector({ groups, selectedIds, onChange, disabled = fal
 }
 
 export default function TeamList() {
+  const {policy:passwordPolicy}=usePasswordPolicy();
   const { user } = useAuth();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -206,6 +208,7 @@ export default function TeamList() {
     e.preventDefault();
     if(savingRef.current || isSaving)return;
     setFormError('');
+    if(!passwordPolicy||newUser.password.length<passwordPolicy.login_min_length){setFormError(passwordPolicy?`A senha deve ter ao menos ${passwordPolicy.login_min_length} caracteres.`:'Aguarde o carregamento da política de senhas.');return;}
     if(!e.currentTarget.checkValidity()){setFormError('Preencha nome e e-mail válidos e os campos obrigatórios.');e.currentTarget.querySelector(':invalid')?.focus();return;}
     savingRef.current=true;setIsSaving(true);
     try {
@@ -588,7 +591,7 @@ export default function TeamList() {
       <input id="newUserForm-2" type="email" required className="h-8 w-full rounded-md border border-slate-300 px-2 py-1 text-sm shadow-sm" value={newUser.email} onChange={e => setNewUser({...newUser, email: e.target.value.toLowerCase()})} placeholder="joao@empresa.com.br" />
     </div>
     <div>
-      <SecurePasswordInput className="[&_input]:h-8 [&_input]:py-1 [&_input]:pl-2" name="user_password" label="Senha de Acesso" value={newUser.password} onChange={e => setNewUser({...newUser, password: e.target.value})} required />
+      <SecurePasswordInput className="[&_input]:h-8 [&_input]:py-1 [&_input]:pl-2" name="user_password" label="Senha de Acesso" minLength={passwordPolicy?.login_min_length} placeholder={passwordPolicy?`Mínimo de ${passwordPolicy.login_min_length} caracteres`:'Carregando política…'} value={newUser.password} onChange={e => setNewUser({...newUser, password: e.target.value})} required />
       <p className="mt-1 text-xs text-slate-500">Senha inicial para acesso ao FullPassword. A senha dos cofres será criada separadamente pelo próprio usuário.</p>
     </div>
     <div>

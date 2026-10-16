@@ -19,7 +19,7 @@ const loadChallengeUser = async (challengeToken, purpose) => {
     `SELECT crypto_identity, id, name, email, role, is_active, is_super_admin, must_change_password, menu_position, menu_display,
             mfa_required, wrapped_key, crypto_salt, kdf_version, kdf_name, kdf_hash, kdf_iterations,
             public_key, encrypted_private_key, rsa_key_size, rsa_key_version, token_version,
-            password_changed_at,
+            password_changed_at, vault_secret_changed_at,
             (SELECT password_change_notice_months FROM password_policy_settings WHERE id = 1) AS password_change_notice_months
      FROM users WHERE id = $1 AND token_version = $2 LIMIT 1`,
     [challenge.sub, challenge.token_version]

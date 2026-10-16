@@ -6,6 +6,7 @@ import {
   hasUserCryptoIdentity
 } from '../services/userCryptoIdentityService';
 import { safeLogError } from '../utils/safeLogger';
+import {PASSWORD_POLICY_CHANGED} from '../services/passwordPolicy';
 
 const AuthContext = createContext(null);
 const AUTO_LOCK_TIMEOUT_MS = 10 * 60 * 1000;
@@ -122,6 +123,23 @@ export const AuthProvider = ({ children }) => {
   }, [masterKey, notifyVaultLockCleanups]);
   const lockVault = clearSensitiveVaultState;
 
+  useEffect(()=>{
+    if(!user?.id)return;
+    let alive=true;
+    let requestId=0;
+    const refresh=()=>{
+      const request=++requestId,generation=vaultGenerationRef.current;
+      return api.get('/auth/me').then(({data})=>{
+      if(!alive||request!==requestId||generation!==vaultGenerationRef.current)return;
+      setUser(data.user);
+      if(data.user?.vault_secret_change_required||data.user?.must_change_password)clearSensitiveVaultState('password-policy');
+    }).catch(()=>{});
+    };
+    window.addEventListener('focus',refresh);window.addEventListener(PASSWORD_POLICY_CHANGED,refresh);
+    const timer=window.setInterval(refresh,60000);
+    return()=>{alive=false;window.clearInterval(timer);window.removeEventListener('focus',refresh);window.removeEventListener(PASSWORD_POLICY_CHANGED,refresh);};
+  },[user?.id,clearSensitiveVaultState]);
+
   useEffect(() => {
     if (!masterKey) return undefined;
 
@@ -178,6 +196,7 @@ export const AuthProvider = ({ children }) => {
     try {
       const identity = await ensureUserCryptoIdentity({
         user,
+        policy:(await api.get('/auth/password-policy')).data,
         password, unlockSecret, mfaCode,
         saveIdentity: async (payload) => (await api.post('/crypto/identity', payload)).data
       });
@@ -196,9 +215,16 @@ export const AuthProvider = ({ children }) => {
   const unlockVault = async (secret) => {
     const generation = vaultGenerationRef.current;
     try {
+      const fresh=(await api.get('/auth/me')).data.user;
+      if(generation!==vaultGenerationRef.current)return {success:false,error:'O desbloqueio foi cancelado.'};
+      setUser(fresh);
+      if(fresh?.vault_secret_change_required||fresh?.must_change_password){
+        clearSensitiveVaultState('password-policy');
+        return {success:false,error:'Altere a senha vencida antes de desbloquear os cofres.'};
+      }
       // Never unlock a stale wrapper retained by another tab after a secret change.
-      const currentUser = hasUserCryptoIdentity(user)
-        ? {...user,crypto_identity:(await api.get('/crypto/identity')).data.identity} : user;
+      const currentUser = hasUserCryptoIdentity(fresh)
+        ? {...fresh,crypto_identity:(await api.get('/crypto/identity')).data.identity} : fresh;
       const keys = await unlockUserIdentity(currentUser,secret);
       if (generation !== vaultGenerationRef.current) return {success:false,error:'O desbloqueio foi cancelado.'};
       setUser(currentUser);
@@ -220,7 +246,7 @@ export const AuthProvider = ({ children }) => {
     setVaultLockReason('unlock-secret-changed');
     setVaultStateEpoch(current => current + 1);
     setUser(current => current && identity?.version === 2 && identity.userId === current.id
-      ? {...current,crypto_identity:identity} : current);
+      ? {...current,crypto_identity:identity,vault_secret_change_required:false} : current);
   };
 
   const value = {

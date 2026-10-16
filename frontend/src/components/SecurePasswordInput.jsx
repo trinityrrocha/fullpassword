@@ -74,6 +74,7 @@ export default function SecurePasswordInput({
   showCopyButton = true,
   autoComplete,
   maxLength,
+  minLength,
 }) {
   const [showPassword, setShowPassword]     = useState(false);
   const [previousValue, setPreviousValue]   = useState(null);
@@ -188,6 +189,7 @@ export default function SecurePasswordInput({
           required={required}
           autoComplete={autoComplete}
           maxLength={maxLength}
+          minLength={minLength}
           className={`block w-full rounded-md border-slate-300 ${enableGenerator ? (showCopyButton ? 'pr-28' : 'pr-20') : (showCopyButton ? 'pr-20' : 'pr-12')} focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm border p-2.5 bg-white`}
         />
         <div className="absolute inset-y-0 right-0 flex items-center pr-2 gap-0.5">

@@ -4,6 +4,7 @@ import api from '../services/api';
 import { formatDateTimeShort } from '../utils/formatDateTimeShort';
 import { SCREEN_PROTECTION_CHANGED_EVENT } from '../utils/screenProtection';
 import SettingsAccordionCard from './SettingsAccordionCard';
+import PasswordPolicyCard from './PasswordPolicyCard';
 
 const selectClass = 'border border-slate-300 rounded-md px-[9px] py-[6px] text-sm bg-white';
 const defaultPolicy = {
@@ -20,6 +21,13 @@ const failureStatus = (status) => {
 };
 
 export default function SecurityCard() {
+  const [passwordDraft,setPasswordDraft]=useState({});
+  useEffect(()=>{
+    if(!Object.keys(passwordDraft).length)return;
+    const warn=event=>{event.preventDefault();event.returnValue='';};
+    window.addEventListener('beforeunload',warn);
+    return()=>window.removeEventListener('beforeunload',warn);
+  },[passwordDraft]);
   const [policy, setPolicy] = useState(defaultPolicy);
   const persistedPolicyRef = useRef(defaultPolicy);
   const [failures, setFailures] = useState([]);
@@ -202,6 +210,8 @@ export default function SecurityCard() {
           </div>
           <button type="button" onClick={savePolicy} disabled={isLoginPolicyBusy} className="px-4 py-2 bg-indigo-600 text-white rounded-md text-sm disabled:opacity-50">Salvar política</button>
         </section>
+
+        <PasswordPolicyCard draft={passwordDraft} setDraft={setPasswordDraft} />
 
         <section className="space-y-3">
           <h4 className="font-semibold text-slate-900">Tentativas de Login</h4>

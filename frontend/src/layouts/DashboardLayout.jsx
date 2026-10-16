@@ -3,6 +3,7 @@ import { Users, Settings, Shield, LogOut, Menu, X, Building2 } from 'lucide-reac
 import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import UserProfileModal from '../components/UserProfileModal';
+import ProfileSecurityDialog from '../components/ProfileSecurityDialog';
 import ScreenProtection from '../components/ScreenProtection';
 import api from '../services/api';
 import { SCREEN_PROTECTION_CHANGED_EVENT } from '../utils/screenProtection';
@@ -18,6 +19,7 @@ export default function DashboardLayout() {
   const navigate = useNavigate();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [isVaultPolicyDialogOpen,setIsVaultPolicyDialogOpen]=useState(false);
   const [notifications, setNotifications] = useState({ unread_count: 0, items: [] });
   const [updateStatus, setUpdateStatus] = useState(null);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
@@ -228,6 +230,10 @@ export default function DashboardLayout() {
           </button>
         )}
         <div className="flex-1 overflow-y-auto p-4 md:p-8">
+          {user?.vault_secret_change_required&&!mustChangePassword&&<div role="alert" className="mb-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+            <p>Sua senha dos cofres expirou. Altere-a para continuar usando os cofres.</p>
+            <button type="button" onClick={()=>setIsVaultPolicyDialogOpen(true)} className="mt-2 rounded-md border border-amber-400 px-3 py-2 font-medium hover:bg-amber-100 focus-visible:outline dark:hover:bg-amber-900">Alterar senha dos cofres</button>
+          </div>}
           {vaultLockReason === 'unlock-secret-changed' && <p role="status" className="mb-4 rounded-md border border-green-200 bg-green-50 p-3 text-sm text-green-800 dark:border-green-800 dark:bg-green-950 dark:text-green-200">Senha dos cofres alterada com sucesso. Desbloqueie seus cofres usando a nova senha.</p>}
           <Outlet />
         </div>
@@ -241,6 +247,7 @@ export default function DashboardLayout() {
         forcePasswordChange={mustChangePassword}
       />
       <UserCryptoIdentitySetup />
+      {isVaultPolicyDialogOpen&&!mustChangePassword&&<ProfileSecurityDialog kind="vault" onClose={()=>setIsVaultPolicyDialogOpen(false)} />}
       </div>
     </ScreenProtection>
   );

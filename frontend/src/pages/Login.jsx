@@ -5,8 +5,10 @@ import SecurePasswordInput from '../components/SecurePasswordInput';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 import RecoveryCodesPanel from '../components/RecoveryCodesPanel';
+import usePasswordPolicy from '../hooks/usePasswordPolicy';
 
 export default function Login() {
+  const {policy,error:policyError,reload:reloadPolicy}=usePasswordPolicy();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -40,7 +42,8 @@ export default function Login() {
     if (superAdminEmail && bootstrap.email.trim().toLowerCase() !== superAdminEmail.toLowerCase()) {
       return setError(`O primeiro administrador deve usar o e-mail do Super Admin: ${superAdminEmail}`);
     }
-    if (bootstrap.password.length < 12) return setError('A senha deve ter ao menos 12 caracteres.');
+    if (!policy) return setError('Aguarde o carregamento da política de senhas.');
+    if (bootstrap.password.length < policy.login_min_length) return setError(`A senha deve ter ao menos ${policy.login_min_length} caracteres.`);
     if (bootstrap.password !== bootstrap.confirm) return setError('As senhas não coincidem.');
     setIsLoading(true);
     try {
@@ -130,7 +133,8 @@ export default function Login() {
 
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
         <div className="bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10 border border-slate-200 dark:border-slate-800 dark:bg-slate-900">
-          <form className="space-y-6" onSubmit={mfaFlow ? handleMfa : bootstrapRequired ? handleBootstrap : handleLogin}>
+          <form noValidate className="space-y-6" onSubmit={mfaFlow ? handleMfa : bootstrapRequired ? handleBootstrap : handleLogin}>
+            {bootstrapRequired&&policyError&&<p role="alert">{policyError} <button type="button" onClick={reloadPolicy} className="text-indigo-600 underline">Tentar novamente</button></p>}
             {error && (
               <div className="bg-red-50 border-l-4 border-red-400 p-4">
                 <div className="flex">
@@ -278,7 +282,7 @@ export default function Login() {
               <button
                 type={recoveryCodes.length ? 'button' : 'submit'}
                 onClick={recoveryCodes.length ? finishRecoveryCodeReview : undefined}
-                disabled={isLoading}
+                disabled={isLoading||(bootstrapRequired&&!policy)}
                 className={`w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 ${isLoading ? 'opacity-70 cursor-not-allowed' : ''}`}
               >
                 {isLoading ? (

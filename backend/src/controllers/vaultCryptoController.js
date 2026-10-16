@@ -134,7 +134,7 @@ const saveIdentity = transaction(async(req,client)=>{
   // Only the authenticated holder can publish once. No admin directory replacement.
   const safeIdentity={version:2,userId:user.id,kdf:identity.kdf,salt:identity.salt,publicKey:identity.publicKey,fingerprint:identity.fingerprint,
     wrappedMasterKey:identity.wrappedMasterKey,encryptedPrivateKey:identity.encryptedPrivateKey,legacyArchive:identity.legacyArchive || null};
-  await client.query('UPDATE users SET crypto_identity=$1 WHERE id=$2',[safeIdentity,user.id]);
+  await client.query('UPDATE users SET crypto_identity=$1,vault_secret_changed_at=CURRENT_TIMESTAMP WHERE id=$2',[safeIdentity,user.id]);
   await audit(client,req,'crypto_identity_initialized',{version:2});
   return {identity:safeIdentity};
 });

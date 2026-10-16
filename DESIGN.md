@@ -103,6 +103,11 @@ quebram responsivamente; nenhuma nova tabela ou seleção foi introduzida.
 
 ### Forms and overlays
 
+Política de Senhas é seção inline de Segurança (não outro accordion). Reutiliza
+selects nativos h35 da Política de Login, aceitando popup do SO, grid sm de duas
+colunas e labels pt-BR. Feedback inline e salvamento pessimista, sem tokens novos.
+Expiração reutiliza FormDialog/ProfileSecurityDialog; não cria outro modal.
+
 Meu Perfil e os formulários de membro da Equipe usam `FormDialog`: portal no
 body, camada 50 (filho 60; reauth existente 100), backdrop local 0 e painel
 posicionado 10, max-w-lg, corpo rolável e footer persistente. O registro de

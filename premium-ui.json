@@ -8,7 +8,7 @@
     "lint": "cd frontend && npx eslint src/components/FormDialog.jsx src/components/ProfileSecurityDialog.jsx src/components/UserProfileModal.jsx src/pages/TeamList.jsx",
     "build": "cd frontend && npm run build",
     "integration": "node backend/scripts/test-vault-integrated-postgres.js",
-    "browser": "cd frontend && npm run test:profile-security:browser"
+    "browser": "cd frontend && npm run test:password-policy:browser"
   },
   "requiredCommands": ["lint", "build", "integration"],
   "evidence": {
