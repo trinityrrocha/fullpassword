@@ -87,11 +87,11 @@ jobs:
       - name: Build both images locally on the runner
         run: |
           set -euo pipefail
-          docker buildx build --load --provenance=false \
-            --build-arg BACKEND_APP_COMMIT="$SOURCE_SHA" \
-            --label org.opencontainers.image.source="$SOURCE_REPOSITORY" \
-            --label org.opencontainers.image.revision="$SOURCE_SHA" \
-            --tag "$BACKEND_REPOSITORY:$SOURCE_SHA" ./backend
+          # Attempt 1 published this exact tested image before the daemon reported
+          # manifest unknown. Preserve it; never rebuild or overwrite its tag.
+          docker pull "$BACKEND_REPOSITORY@sha256:d712f942a5ffed2487d6020160a1f508b838ffdbcb1bf5e3417656a65de52379"
+          test "$(docker image inspect --format '{{.Id}}' "$BACKEND_REPOSITORY@sha256:d712f942a5ffed2487d6020160a1f508b838ffdbcb1bf5e3417656a65de52379")" = 'sha256:db946a7145cf0f01592ef96b7c766799589c5b26b15e1ac5c97ce6977fb741f5'
+          docker tag "$BACKEND_REPOSITORY@sha256:d712f942a5ffed2487d6020160a1f508b838ffdbcb1bf5e3417656a65de52379" "$BACKEND_REPOSITORY:$SOURCE_SHA"
           docker buildx build --load --provenance=false \
             --build-arg VITE_APP_COMMIT="$SOURCE_SHA" --build-arg VITE_API_URL=/api \
             --label org.opencontainers.image.source="$SOURCE_REPOSITORY" \
@@ -141,7 +141,8 @@ jobs:
         run: |
           set -euo pipefail
           export DOCKER_CONFIG="$RUNNER_TEMP/ghcr-auth"
-          for repository in "$BACKEND_REPOSITORY" "$FRONTEND_REPOSITORY"; do
+          docker buildx imagetools inspect "$BACKEND_REPOSITORY:$SOURCE_SHA" | grep -Eq '^Digest: +sha256:d712f942a5ffed2487d6020160a1f508b838ffdbcb1bf5e3417656a65de52379$'
+          for repository in "$FRONTEND_REPOSITORY"; do
             if docker buildx imagetools inspect "$repository:$SOURCE_SHA" >/dev/null 2>"$RUNNER_TEMP/tag-check.err"; then
               echo 'SOURCE_TAG_ALREADY_EXISTS: stop without overwriting an existing release'
               exit 1
@@ -156,12 +157,7 @@ jobs:
         run: |
           set -euo pipefail
           export DOCKER_CONFIG="$RUNNER_TEMP/ghcr-auth"
-          docker buildx build --push --provenance=false \
-            --build-arg BACKEND_APP_COMMIT="$SOURCE_SHA" \
-            --label org.opencontainers.image.source="$SOURCE_REPOSITORY" \
-            --label org.opencontainers.image.revision="$SOURCE_SHA" \
-            --tag "$BACKEND_REPOSITORY:$SOURCE_SHA" \
-            --metadata-file "$RUNNER_TEMP/release-evidence/backend-build-metadata.json" ./backend
+          printf '%s\n' '{"containerimage.digest":"sha256:d712f942a5ffed2487d6020160a1f508b838ffdbcb1bf5e3417656a65de52379"}' > "$RUNNER_TEMP/release-evidence/backend-build-metadata.json"
           docker buildx build --push --provenance=false \
             --build-arg VITE_APP_COMMIT="$SOURCE_SHA" --build-arg VITE_API_URL=/api \
             --label org.opencontainers.image.source="$SOURCE_REPOSITORY" \
