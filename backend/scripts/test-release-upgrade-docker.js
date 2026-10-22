@@ -14,7 +14,14 @@ const BASE='d9a7a3786143379df43ff1910263894df33449bf';
 const ROOT=path.resolve(__dirname,'../..');
 const run=(command,args,options={})=>{
  const result=spawnSync(command,args,{cwd:ROOT,encoding:'utf8',windowsHide:true,timeout:1200000,maxBuffer:64*1024*1024,...options});
- if(result.status!==0) throw new Error('REHEARSAL_COMMAND_FAILED: '+command+' '+args.slice(0,2).join(' '));
+ if(result.status!==0) {
+  // Keep CI diagnostics useful without echoing argv, environment, credentials,
+  // resolved Compose JSON or full build output. This harness is synthetic-only.
+  const diagnostic=String(result.stderr || '').split('\n').filter(line=>!/password|secret|token|credential|authorization/i.test(line)).join('\n')
+   .replace(/[A-Za-z0-9+/_=-]{32,}/g,'[redacted-value]').slice(-3000);
+  if(diagnostic)console.error('REHEARSAL STDERR: '+diagnostic);
+  throw new Error('REHEARSAL_COMMAND_FAILED: '+command+' '+args.slice(0,2).join(' '));
+ }
  return result.stdout?.trim();
 };
 const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
@@ -240,6 +247,22 @@ async function main(){
   const recoveredLogin=await fetch('http://127.0.0.1:53001/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:'audit@example.invalid',password:loginPassword})});
   assert.equal(recoveredLogin.status,200);
   console.log(JSON.stringify({passed:true,base:BASE,bootstrap,target,agentRevision:target,agentBootstrapped:true,images,webRequest:true,minimumStabilityMs:60000,restoredRecovery:true,secondPostgresVolume:true,failureAndImageRollback:true,recoveredLogin:true,preservedOldData:true,replayBlocked:true,databaseDependencyChecks},null,2));
+ } catch(error) {
+  if(compose && fs.existsSync(compose)) {
+   try {
+    for(const service of ['db','backend','frontend']) {
+     const id=dockerCompose(['ps','--all','-q',service]);
+     if(!id)continue;
+     const state=run('docker',['inspect','--format','{"status":{{json .State.Status}},"exitCode":{{json .State.ExitCode}},"health":{{with index .State "Health"}}{{json .Status}}{{else}}null{{end}}}',id]);
+     console.error('REHEARSAL SERVICE STATE '+service+': '+state);
+     const captured=spawnSync('docker',['logs','--tail','30',id],{encoding:'utf8',timeout:10000,maxBuffer:65536});
+     const logs=String(captured.stdout||'')+String(captured.stderr||'');
+     const safe=logs.split('\n').filter(line=>!/password|secret|token|credential|authorization/i.test(line)).join('\n').replace(/[A-Za-z0-9+/_=-]{32,}/g,'[redacted-value]');
+     if(safe)console.error('REHEARSAL SERVICE LOG '+service+': '+safe);
+    }
+   }catch{console.error('REHEARSAL DIAGNOSTICS UNAVAILABLE');}
+  }
+  throw error;
  } finally {
   await databaseMonitor?.stop();
   await database?.end().catch(()=>{});
