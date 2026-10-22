@@ -1,6 +1,6 @@
 #!/bin/bash
 # FullPassword - Ubuntu 20.04/22.04/24.04 e Debian 11/12/13 (Trixie).
-# Modos: IP público ou Cloudflare Tunnel.
+# Modos: Direct, Cloudflare Proxy ou Cloudflare Tunnel.
 # Não use bash -x: o instalador manipula segredos em memória.
 set -eE
 RED='\033[0;31m'
@@ -141,16 +141,20 @@ Selecione o modo de instalação:
    - Requer domínio apontando para o IP público da VPS
    - Requer portas 80/443 abertas externamente
    - Usa Let's Encrypt/Certbot no servidor
-2) Instalação com Cloudflare Tunnel
+2) Cloudflare Proxy
+   - Requer IP público e DNS com proxy Cloudflare habilitado
+   - O Nginx só aceita peers dos ranges oficiais Cloudflare
+3) Instalação com Cloudflare Tunnel
    - Não requer IP público nem portas 80/443 abertas externamente
    - Requer domínio gerenciado na Cloudflare
    - Usa HTTPS na borda da Cloudflare
 MENU
-    read -r -p 'Opção (1/2): ' choice
+    read -r -p 'Opção (1/2/3): ' choice
     case "$choice" in
-        1) INSTALL_MODE=public_ip; NGINX_HTTP_BIND=80; NGINX_HTTPS_BIND=443 ;;
-        2) INSTALL_MODE=cloudflare_tunnel; NGINX_HTTP_BIND=127.0.0.1:80; NGINX_HTTPS_BIND=127.0.0.1:443 ;;
-        *) fail 'Opção inválida. Selecione somente 1 ou 2.' ;;
+        1) INSTALL_MODE=public_ip; CLIENT_IP_MODE=direct; NGINX_HTTP_BIND=80; NGINX_HTTPS_BIND=443 ;;
+        2) INSTALL_MODE=public_ip; CLIENT_IP_MODE=cloudflare_proxy; NGINX_HTTP_BIND=80; NGINX_HTTPS_BIND=443 ;;
+        3) INSTALL_MODE=cloudflare_tunnel; CLIENT_IP_MODE=cloudflare_tunnel; NGINX_HTTP_BIND=127.0.0.1:80; NGINX_HTTPS_BIND=127.0.0.1:443 ;;
+        *) fail 'Opção inválida. Selecione somente 1, 2 ou 3.' ;;
     esac
 }
 
@@ -186,7 +190,7 @@ collect_install_settings() {
 install_base_dependencies() {
     run_apt update
     run_apt upgrade -y
-    run_apt install -y curl git ufw fail2ban apt-transport-https ca-certificates netcat-openbsd dnsutils openssl jq
+    run_apt install -y curl git ufw fail2ban apt-transport-https ca-certificates netcat-openbsd dnsutils openssl jq python3
     if [ "$INSTALL_MODE" = public_ip ]; then
         run_apt install -y certbot python3-certbot-nginx
     fi
@@ -293,6 +297,8 @@ generate_env() (
     umask 077
 cat > "$APP_DIR/.env" << EOF
 INSTALL_MODE=$INSTALL_MODE
+CLIENT_IP_MODE=$CLIENT_IP_MODE
+TRUSTED_COUNTRY_HEADER_ENABLED=false
 NGINX_HTTP_BIND=$NGINX_HTTP_BIND
 NGINX_HTTPS_BIND=$NGINX_HTTPS_BIND
 # Configurações de Banco de Dados
@@ -375,12 +381,14 @@ generate_nginx_config() {
         cat > "$APP_DIR/docker/nginx.runtime.conf" << EOF
 server {
     listen 80;
+    listen [::]:80;
     server_name $DOMAIN;
     return 301 https://\$host\$request_uri;
 }
 
 server {
     listen 443 ssl;
+    listen [::]:443 ssl;
     server_name $DOMAIN;
 
     ssl_certificate /etc/letsencrypt/live/$DOMAIN/fullchain.pem;
@@ -395,6 +403,7 @@ EOF
         cat > "$APP_DIR/docker/nginx.runtime.conf" << EOF
 server {
     listen 80;
+    listen [::]:80;
     server_name $DOMAIN;
 EOF
     fi
@@ -447,6 +456,27 @@ EOF
     }
 }
 EOF
+}
+
+configure_trusted_client_ip() {
+    local args=() project network peer
+    if [ "$CLIENT_IP_MODE" = cloudflare_tunnel ]; then
+        # New installation only: create the edge container/network without
+        # starting dependencies; discover this network's actual NAT peer.
+        compose --project-directory "$APP_DIR" create --no-build --no-deps nginx
+        project=$(compose --project-directory "$APP_DIR" config --format json | jq -er .name)
+        network="${project}_fullpassword_network"
+        peer=$(docker network inspect "$network" --format '{{(index .IPAM.Config 0).Gateway}}')
+        [ -n "$peer" ] || fail 'Não foi possível identificar o peer local do tunnel.'
+        args=(--tunnel-peer "$peer" --origin-bind 127.0.0.1)
+    fi
+    python3 "$APP_DIR/scripts/configure-client-ip.py" --mode "$CLIENT_IP_MODE" \
+        --template "$APP_DIR/docker/nginx.runtime.conf" --output "$APP_DIR/docker/nginx.runtime.conf" "${args[@]}" \
+        || fail 'Falha ao gerar a cadeia de confiança do IP do cliente.'
+    chown root:root "$APP_DIR/docker/nginx.runtime.conf"
+    chmod 644 "$APP_DIR/docker/nginx.runtime.conf"
+    compose --project-directory "$APP_DIR" run --rm --no-deps nginx nginx -t \
+        || fail 'Configuração Nginx inválida. Nenhum serviço será iniciado.'
 }
 
 install_cloudflared() {
@@ -678,6 +708,7 @@ main() {
     fi
     INSTALL_STAGE=nginx
     generate_nginx_config
+    configure_trusted_client_ip
     if [ "$INSTALL_MODE" = cloudflare_tunnel ]; then
         install_cloudflared
         configure_cloudflare_tunnel

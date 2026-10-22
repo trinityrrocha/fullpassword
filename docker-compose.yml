@@ -51,6 +51,8 @@ services:
       - DB_NAME=${DB_NAME:-fullpassword_db}
       - DB_SCHEMA_MODE=${DB_SCHEMA_MODE:-migrate}
       - NODE_ENV=production
+      - CLIENT_IP_MODE=${CLIENT_IP_MODE:-direct}
+      - TRUSTED_COUNTRY_HEADER_ENABLED=${TRUSTED_COUNTRY_HEADER_ENABLED:-false}
       - JWT_SECRET=${JWT_SECRET:?JWT_SECRET obrigatória}
       - JWT_EXPIRES_IN=${JWT_EXPIRES_IN:-8h}
       - ADMIN_BOOTSTRAP_TOKEN=${ADMIN_BOOTSTRAP_TOKEN:?ADMIN_BOOTSTRAP_TOKEN obrigatório}
@@ -112,3 +114,4 @@ volumes:
 networks:
   fullpassword_network:
     driver: bridge
+    enable_ipv6: ${DOCKER_IPV6_ENABLED:-false}

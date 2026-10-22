@@ -4,6 +4,7 @@ const { UAParser } = require('ua-parser-js');
 const db = require('../config/database');
 const { JWT_SECRET } = require('../config/security');
 const { recordAuditEvent } = require('./auditService');
+const { getClientIp } = require('./clientIpService');
 
 const ABSOLUTE_SESSION_MS = 12 * 60 * 60 * 1000;
 const IDLE_SESSION_MS = 60 * 60 * 1000;
@@ -42,7 +43,7 @@ const createUserSession = async (req, user) => {
     `INSERT INTO user_sessions
        (id, user_id, token_version, session_hash, ip_address, user_agent, browser, os, device, expires_at, idle_expires_at)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-    [id, user.id, user.token_version, hashSessionToken(token), req.ip || null, userAgent || null,
+    [id, user.id, user.token_version, hashSessionToken(token), getClientIp(req), userAgent || null,
       client.browser, client.os, client.device, expiresAt, idleExpiresAt]
   );
   const metadata = { browser: client.browser, os: client.os, device: client.device };

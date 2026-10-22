@@ -2,6 +2,7 @@ const ipaddr = require('ipaddr.js');
 const db = require('../config/database');
 const { recordAuditEvent } = require('./auditService');
 const { safeLogError } = require('../utils/safeLogger');
+const { getClientIp } = require('./clientIpService');
 
 const normalizeIp = (value) => {
   try {
@@ -53,7 +54,7 @@ const hasActiveAllowRule = async (ipAddress) => {
 };
 
 const applyAutomaticBlockForLoginFailure = async (req) => {
-  const ipAddress = normalizeIp(req?.ip);
+  const ipAddress = getClientIp(req);
   if (!ipAddress) return;
 
   try {

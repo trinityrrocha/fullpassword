@@ -1,9 +1,10 @@
 const db = require('../config/database');
 const { recordAuditEvent } = require('../services/auditService');
-const { normalizeIp, ruleTargetMatchesIp } = require('../services/ipSecurityService');
+const { ruleTargetMatchesIp } = require('../services/ipSecurityService');
+const { getClientIp } = require('../services/clientIpService');
 
 const ipSecurityMiddleware = async (req, res, next) => {
-  const ipAddress = normalizeIp(req.ip);
+  const ipAddress = getClientIp(req);
   if (!ipAddress) return next();
 
   try {

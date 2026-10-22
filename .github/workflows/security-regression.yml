@@ -27,6 +27,9 @@ jobs:
         working-directory: backend
       - run: node scripts/test-audit-postgres.js
         working-directory: backend
+      - name: Trusted Client IP unit and real PostgreSQL isolation
+        run: node scripts/test-trusted-client-ip.js && node scripts/test-trusted-client-ip-postgres.js
+        working-directory: backend
       - run: node scripts/test-vault-integrated-postgres.js
         working-directory: backend
       - run: node scripts/test-approved-release.js
@@ -89,6 +92,8 @@ jobs:
           test "$(docker image inspect --format '{{.Config.User}}' fullpassword-audit-backend)" = node
           docker run --rm --entrypoint cat fullpassword-audit-frontend /usr/share/nginx/html/version.json | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{if(JSON.parse(s).revision!=='${{ github.event.pull_request.head.sha || github.sha }}')process.exit(1);console.log('Frontend exact revision verified')})"
           docker image inspect --format '{{.Id}}' fullpassword-audit-backend fullpassword-audit-frontend
+      - name: Verify real Nginx client IP trust, spoof rejection and isolated counters
+        run: python3 scripts/tests/client-ip-nginx.py
       - name: Start final non-root backend with isolated PostgreSQL
         run: |
           docker network create fp-audit

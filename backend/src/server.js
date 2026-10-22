@@ -28,6 +28,7 @@ const {
   systemUpdateLimiter
 } = require('./middleware/writeRateLimiters');
 const { safeLogError } = require('./utils/safeLogger');
+const { getClientIpMode, clientIpMiddleware, getClientIpRateLimitKey } = require('./services/clientIpService');
 
 // Importação das rotas (serão criadas nos próximos passos)
 const authRoutes = require('./routes/authRoutes');
@@ -50,12 +51,18 @@ const PORT = process.env.PORT || 3000;
 let schemaReady = false;
 
 app.set('trust proxy', 1);
+// Only Nginx may reach the private backend. Nginx REPLACES XFF with one address;
+// it never appends client-supplied chains. See docs/trusted-client-ip.md.
+getClientIpMode();
+if (!process.env.CLIENT_IP_MODE) console.warn('CLIENT_IP_MODE ausente: modo seguro direct; configure explicitamente a topologia antes de usar Cloudflare.');
+app.use(clientIpMiddleware);
 
 const authenticationLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   // Limite de contenção acima do maior limiar configurável (15). A política
   // persistida aplica os bloqueios temporários antes deste teto de emergência.
   limit: 100,
+  keyGenerator: getClientIpRateLimitKey,
   standardHeaders: 'draft-7',
   legacyHeaders: false,
   message: { error: 'Muitas tentativas. Aguarde 15 minutos e tente novamente.' }
@@ -64,6 +71,7 @@ const authenticationLimiter = rateLimit({
 const mfaLimiter = rateLimit({
   windowMs: 5 * 60 * 1000,
   limit: 10,
+  keyGenerator: getClientIpRateLimitKey,
   standardHeaders: 'draft-7',
   legacyHeaders: false,
   message: { error: 'Muitas tentativas. Aguarde alguns minutos e tente novamente.' }
