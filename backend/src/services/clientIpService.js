@@ -5,7 +5,7 @@ const MODES = new Set(['direct', 'cloudflare_proxy', 'cloudflare_tunnel']);
 const requestNetworks = new WeakMap();
 
 const getClientIpMode = () => {
-  const mode = process.env.CLIENT_IP_MODE || 'direct';
+  const mode = process.env.CLIENT_IP_MODE === undefined ? 'direct' : process.env.CLIENT_IP_MODE;
   if (!MODES.has(mode)) throw new Error('CLIENT_IP_MODE inválido: use direct, cloudflare_proxy ou cloudflare_tunnel.');
   return mode;
 };

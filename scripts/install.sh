@@ -14,6 +14,7 @@ BACKUP_CHUNK_SIZE_MB=50
 BACKUP_MAX_UPLOAD_MB=200
 BACKUP_TEMP_DIR=/tmp/fullpassword-backups
 BACKUP_RESTORE_TIMEOUT_MS=1800000
+DOCKER_IPV6_ENABLED=${DOCKER_IPV6_ENABLED:-false}
 INSTALL_STAGE=preflight
 OS_LABEL='não detectado'
 CLOUDFLARE_RESOURCES_MAY_EXIST=false
@@ -156,6 +157,7 @@ MENU
         3) INSTALL_MODE=cloudflare_tunnel; CLIENT_IP_MODE=cloudflare_tunnel; NGINX_HTTP_BIND=127.0.0.1:80; NGINX_HTTPS_BIND=127.0.0.1:443 ;;
         *) fail 'Opção inválida. Selecione somente 1, 2 ou 3.' ;;
     esac
+    case "$DOCKER_IPV6_ENABLED" in true|false) ;; *) fail 'DOCKER_IPV6_ENABLED deve ser true ou false.' ;; esac
 }
 
 collect_install_settings() {
@@ -298,6 +300,7 @@ generate_env() (
 cat > "$APP_DIR/.env" << EOF
 INSTALL_MODE=$INSTALL_MODE
 CLIENT_IP_MODE=$CLIENT_IP_MODE
+DOCKER_IPV6_ENABLED=$DOCKER_IPV6_ENABLED
 TRUSTED_COUNTRY_HEADER_ENABLED=false
 NGINX_HTTP_BIND=$NGINX_HTTP_BIND
 NGINX_HTTPS_BIND=$NGINX_HTTPS_BIND

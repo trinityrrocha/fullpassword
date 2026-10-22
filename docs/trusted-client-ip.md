@@ -34,7 +34,8 @@ backend/frontend/banco não são publicados.
 ## Configuração
 
 `CLIENT_IP_MODE`: `direct`, `cloudflare_proxy` ou `cloudflare_tunnel`. Qualquer
-outro valor impede startup. Ausência mantém `direct` seguro, com aviso no startup;
+outro valor (inclusive vazio explicitamente definido) impede startup. Ausência
+mantém `direct` seguro, com aviso no startup;
 não há detecção por header. Em direct, metadados CF são descartados.
 
 Os modos Cloudflare rejeitam peers não confiáveis no Nginx. A API recusa origem
@@ -53,6 +54,9 @@ O Nginx também escuta IPv6. Em **direct com IPv6 público**, a rede Docker prec
 ser dual-stack (`DOCKER_IPV6_ENABLED=true`, com suporte IPv6 no daemon/host e
 porta publicada preservando a origem). Não altere a rede de uma instalação
 existente automaticamente: prepare a mudança de infraestrutura separadamente.
+Para instalação IPv6 nova, o operador pode definir `DOCKER_IPV6_ENABLED=true`
+no ambiente antes de executar o instalador; o valor é validado e persistido na
+configuração gerada para não se perder em comandos Compose posteriores.
 O default false preserva a rede IPv4 já instalada. O proxy IPv6→IPv4 do Docker
 pode mascarar o peer como gateway; nenhum header público pode reconstruí-lo de
 forma segura. O teste Nginx exercita TCP IPv6 em rede dual-stack isolada. Nos

@@ -15,7 +15,9 @@ for (const input of ['', '1.2.3', '012.1.1.1', '999.1.1.1', 'abc', '1.1.1.1,2.2.
 assert.equal(normalizeClientIp('203.0.113.10'), '203.0.113.10');
 assert.equal(normalizeClientIp('::ffff:203.0.113.10'), '203.0.113.10');
 assert.equal(normalizeClientIp('2001:0DB8:0:0:0:0:0:1'), '2001:db8:0:0:0:0:0:1');
-process.env.CLIENT_IP_MODE = 'guess'; assert.throws(getClientIpMode, /CLIENT_IP_MODE/);
+for (const invalid of ['guess', '', ' ', 'DIRECT']) {
+  process.env.CLIENT_IP_MODE = invalid; assert.throws(getClientIpMode, /CLIENT_IP_MODE/);
+}
 delete process.env.CLIENT_IP_MODE; assert.equal(getClientIpMode(), 'direct');
 const direct = resolve('direct', { 'cf-connecting-ip': '8.8.8.8', 'x-real-ip': '9.9.9.9', 'cf-ray': 'a'.repeat(16) + '-GRU', 'cf-ipcountry': 'BR' });
 assert(direct.next); assert.equal(getClientIp(direct.req), '203.0.113.25');
