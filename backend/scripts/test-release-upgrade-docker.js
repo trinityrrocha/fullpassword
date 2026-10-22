@@ -20,6 +20,20 @@ const run=(command,args,options={})=>{
   const diagnostic=String(result.stderr || '').split('\n').filter(line=>!/password|secret|token|credential|authorization/i.test(line)).join('\n')
    .replace(/[A-Za-z0-9+/_=-]{32,}/g,'[redacted-value]').slice(-3000);
   if(diagnostic)console.error('REHEARSAL STDERR: '+diagnostic);
+  if(command==='docker' && args[0]==='compose' && args.includes('up')) {
+   const project=args[args.indexOf('-p')+1];
+   if(/^fp-rehearsal-[a-f0-9]{10}$/.test(project || '')) {
+    const list=spawnSync('docker',['ps','-aq','--filter','label=com.docker.compose.project='+project],{encoding:'utf8',timeout:10000});
+    for(const id of String(list.stdout||'').trim().split('\n').filter(value=>/^[a-f0-9]{12,64}$/.test(value))) {
+     const state=spawnSync('docker',['inspect','--format','{"status":{{json .State.Status}},"exitCode":{{json .State.ExitCode}},"health":{{with index .State "Health"}}{{json .Status}}{{else}}null{{end}}}',id],{encoding:'utf8',timeout:10000});
+     console.error('REHEARSAL SERVICE STATE: '+String(state.stdout||'').trim());
+     const captured=spawnSync('docker',['logs','--tail','30',id],{encoding:'utf8',timeout:10000,maxBuffer:65536});
+     const logs=String(captured.stdout||'')+String(captured.stderr||'');
+     const safe=logs.split('\n').filter(line=>!/password|secret|token|credential|authorization/i.test(line)).join('\n').replace(/[A-Za-z0-9+/_=-]{32,}/g,'[redacted-value]');
+     if(safe)console.error('REHEARSAL SERVICE LOG: '+safe.slice(-3000));
+    }
+   }
+  }
   throw new Error('REHEARSAL_COMMAND_FAILED: '+command+' '+args.slice(0,2).join(' '));
  }
  return result.stdout?.trim();
@@ -247,22 +261,6 @@ async function main(){
   const recoveredLogin=await fetch('http://127.0.0.1:53001/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:'audit@example.invalid',password:loginPassword})});
   assert.equal(recoveredLogin.status,200);
   console.log(JSON.stringify({passed:true,base:BASE,bootstrap,target,agentRevision:target,agentBootstrapped:true,images,webRequest:true,minimumStabilityMs:60000,restoredRecovery:true,secondPostgresVolume:true,failureAndImageRollback:true,recoveredLogin:true,preservedOldData:true,replayBlocked:true,databaseDependencyChecks},null,2));
- } catch(error) {
-  if(compose && fs.existsSync(compose)) {
-   try {
-    for(const service of ['db','backend','frontend']) {
-     const id=dockerCompose(['ps','--all','-q',service]);
-     if(!id)continue;
-     const state=run('docker',['inspect','--format','{"status":{{json .State.Status}},"exitCode":{{json .State.ExitCode}},"health":{{with index .State "Health"}}{{json .Status}}{{else}}null{{end}}}',id]);
-     console.error('REHEARSAL SERVICE STATE '+service+': '+state);
-     const captured=spawnSync('docker',['logs','--tail','30',id],{encoding:'utf8',timeout:10000,maxBuffer:65536});
-     const logs=String(captured.stdout||'')+String(captured.stderr||'');
-     const safe=logs.split('\n').filter(line=>!/password|secret|token|credential|authorization/i.test(line)).join('\n').replace(/[A-Za-z0-9+/_=-]{32,}/g,'[redacted-value]');
-     if(safe)console.error('REHEARSAL SERVICE LOG '+service+': '+safe);
-    }
-   }catch{console.error('REHEARSAL DIAGNOSTICS UNAVAILABLE');}
-  }
-  throw error;
  } finally {
   await databaseMonitor?.stop();
   await database?.end().catch(()=>{});
