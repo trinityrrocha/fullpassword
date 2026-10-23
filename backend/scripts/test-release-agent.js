@@ -16,7 +16,7 @@ async function run(){
   const file=path.join(directory,'request.json');
   fs.writeFileSync(file,JSON.stringify(request));
   assert.deepEqual(readRequest(file),request);
-  for(const extra of [{command:'rm -rf /'},{path:'../../evil'},{url:'https://evil.example.invalid'}]){
+  for(const extra of [{command:'rm -rf /'},{path:'../../evil'},{url:'https://evil.example.invalid'},{changes:[{type:'fix',title:'Untrusted browser text'}]}]){
    fs.writeFileSync(file,JSON.stringify({...request,...extra}));
    assert.throws(()=>readRequest(file),/INVALID_REQUEST/);
   }
@@ -39,11 +39,27 @@ async function run(){
   await processRequest(options);
   assert.equal(deployed,1);assert.equal(verified,1);assert.equal(waited,60000);
   assert.equal(JSON.parse(fs.readFileSync(path.join(directory,'status.json'))).state,'completed');
+  const signedChanges=[{type:'security',title:'Keep metadata signed'}];
+  const notesManifest=Buffer.from(JSON.stringify({...JSON.parse(manifest),changes:signedChanges}));
+  const notesRead=file=>({manifest:notesManifest,signature:crypto.sign('sha256',notesManifest,keys.privateKey),public:keys.publicKey}[file]);
+  const notesPolicy={...policy,approvalId:crypto.randomUUID()};
+  const notesRelease=approval(notesPolicy,notesRead);
+  assert.deepEqual(notesRelease.changes,signedChanges);
+  const notesRequest={...request,approvalId:notesPolicy.approvalId,manifestHash:notesRelease.manifestHash};
+  await processRequest({...options,policy:notesPolicy,request:notesRequest,read:notesRead,performDeploy:()=>{},verify:()=>{}});
+  const durable=JSON.parse(fs.readFileSync(path.join(directory,'installed-release.json')));
+  assert.equal(durable.approvalId,notesPolicy.approvalId);
+  assert.equal(durable.manifestHash,notesRelease.manifestHash);
+  assert.deepEqual(durable.changes,signedChanges);
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(directory,'status.json'))).changes,signedChanges);
+  assert.throws(()=>approval({...notesPolicy,expiresAt:'2000-01-01'},notesRead),/EXPIRED/);
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(directory,'installed-release.json'))),durable,'expiry never erases installed notes');
   await assert.rejects(processRequest(options),e=>e.code==='EEXIST');assert.equal(deployed,1);
   const second={...policy,approvalId:crypto.randomUUID()};
   await assert.rejects(processRequest({...options,policy:second,request:{...request,approvalId:second.approvalId},performDeploy:()=>{throw Error('secret log must not leak');}}),/DEPLOYMENT_FAILED/);
   const failed=JSON.parse(fs.readFileSync(path.join(directory,'status.json')));
   assert.equal(failed.state,'recovery_required');assert.equal(failed.errorCode,'DEPLOYMENT_FAILED');assert.ok(!JSON.stringify(failed).includes('secret'));
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(directory,'installed-release.json'))),durable,'later failed release preserves last installed notes');
   // Crash simulation: durable consumed approval exists with no completed status. Never redeploy it.
   await assert.rejects(processRequest({...options,policy:second,request:{...request,approvalId:second.approvalId}}),e=>e.code==='EEXIST');
   const third={...policy,approvalId:crypto.randomUUID()};

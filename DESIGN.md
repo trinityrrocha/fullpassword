@@ -93,9 +93,11 @@ primária. Consultar progresso não repete o POST. Pedidos bloqueados explicam o
 ### Navigation and data display
 
 WebUpdate usa resumo compacto com status, revisão curta e ação principal
-“Atualizar sistema”. SHA/digests completos e mensagens operacionais ficam em
-“Mais informações”, recolhido por padrão. O disclosure inline mantém o fluxo
-natural e não exige modal. Completed só anuncia versão confirmada quando os
+“Atualizar sistema”. “Novidades da versão” abre uma lista compacta de badges
+e títulos assinados, recolhida por padrão. SHA/digests completos e mensagens
+operacionais ficam no diálogo secundário “Detalhes técnicos”, usando FormDialog,
+foco contido/restaurado e corpo rolável limitado à viewport. Sem tokens novos.
+Completed só anuncia versão confirmada quando os
 dois runtimes correspondem ao pedido; aprovação consumida não parece botão travado.
 
 O painel de itens é read-only no contexto Clientes. Metadados e valores longos

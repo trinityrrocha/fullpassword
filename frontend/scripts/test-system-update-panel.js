@@ -47,11 +47,18 @@ try {
   const html=render({agent:{...agent,release}});
   assert.match(html,/Versão atual/); assert.match(html,/Nova versão/);
   assert.match(html,/aaaaaaaa/); assert.match(html,/bbbbbbbb/);
-  assert.match(html,/Atualizar sistema/); assert.match(html,/Mais informações/);
+  assert.match(html,/Atualizar sistema/); assert.match(html,/Novidades da versão/); assert.doesNotMatch(html,/Mais informações/);
   assert.match(html,/aria-expanded="false"/); assert.match(html,/hidden=""/);
-  const summary=html.slice(0,html.indexOf('Detalhes técnicos e segurança'));
+  const summary=html;
   for(const technical of [current,next,release.manifestHash,release.backend,release.frontend,'O atualizador antigo','A primeira instalação']) assert(!summary.includes(technical),technical+' leaked into compact summary');
-  for(const technical of [current,next,release.manifestHash,release.backend,release.frontend,release.approvalId]) assert(html.includes(technical),'full technical value preserved');
+  assert.doesNotMatch(html,/role="dialog"/,'technical details unmounted by default');
+  const changes=[{type:'fix',title:'Repair shared vault'},{type:'feat',title:'Show signed notes'},{type:'security',title:'Validate metadata'},{type:'perf',title:'Reduce wait'},{type:'release',title:'Approved release'},{type:'change',title:'Other change'}];
+  const withNotes=render({agent:{...agent,release:{...release,changes}}});
+  for(const change of changes) assert(withNotes.includes(change.title));
+  for(const label of ['Correção','Novo recurso','Segurança','Desempenho','Release','Alteração']) assert(withNotes.includes(label));
+  assert.match(html,/Não há notas detalhadas disponíveis/);
+  assert.match(render({...complete,agent:{...complete.agent,release:null,installedRelease:{...release,changes}}}),/Repair shared vault/,'durable notes survive catalog expiry');
+  assert.doesNotMatch(render({agent:{...agent,installedRelease:{...release,changes}}}),/Repair shared vault/,'notes for another installed revision are not shown');
   assert(!render(complete).includes('aria-label="Atualizar sistema"'));
   assert.match(render(complete),/Sistema atualizado/);
   for(const state of ['requested','deploying','stabilizing','completed','recovery_required']) {
@@ -62,7 +69,7 @@ try {
   assert.match(render({agent:{...agent,release},busy:true}),/disabled="" aria-busy="true"/);
   assert.match(render({agent:{...agent,release:{...release,version:'v2.0.0'}}}),/v2.0.0/);
   for(const markup of [html,render(complete),render({error:'Falha de consulta'})]) assert.doesNotMatch(markup,/A atualização exige senha|senha de login recente e MFA/);
-  assert.match(render({agent:{...agent,release:{...release,origin:'<script>unsafe</script>'}}}),/&lt;script&gt;unsafe&lt;\/script&gt;/);
+  assert.match(render({agent:{...agent,release:{...release,changes:[{type:'fix',title:'<script>unsafe</script>'}]}}}),/&lt;script&gt;unsafe&lt;\/script&gt;/);
 } finally { await vite.close(); }
 const panel=read('src/components/UpdateStatusPanel.jsx');
 assert.match(panel,/pending.current \|\| !release \|\| active/);

@@ -51,6 +51,16 @@ jobs:
           npm install --prefix "$RUNNER_TEMP/modal-browser-tools" --no-package-lock --ignore-scripts playwright@1.64.1
           node "$RUNNER_TEMP/modal-browser-tools/node_modules/playwright/cli.js" install --with-deps chromium
           PLAYWRIGHT_MODULE_PATH="$RUNNER_TEMP/modal-browser-tools/node_modules/playwright/index.mjs" MODAL_UI_EVIDENCE_DIR="$RUNNER_TEMP/modal-ui-evidence" npm run test:modal-interaction:browser
+      - name: WebUpdate release notes browser regression (synthetic localhost only)
+        working-directory: frontend
+        run: PLAYWRIGHT_MODULE_PATH="$RUNNER_TEMP/modal-browser-tools/node_modules/playwright/index.mjs" UPDATE_UI_EVIDENCE_DIR="$RUNNER_TEMP/update-ui-evidence" npm run test:system-update:browser
+      - name: Preserve synthetic WebUpdate UI evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: update-ui-evidence
+          path: ${{ runner.temp }}/update-ui-evidence/
+          if-no-files-found: ignore
       - name: Preserve synthetic modal UI evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

@@ -37,7 +37,8 @@ const approval = (policy, read = protectedRead, now = Date.now()) => {
   const bytes = read(policy.manifestFile);
   const manifest = validateManifest(bytes, read(policy.signatureFile), read(policy.publicKeyFile), policy);
   return { approvalId: policy.approvalId, revision: manifest.revision, manifestHash: sha(bytes),
-    backend: manifest.backend, frontend: manifest.frontend, origin: manifest.origin, expiresAt: policy.expiresAt };
+    backend: manifest.backend, frontend: manifest.frontend, origin: manifest.origin, expiresAt: policy.expiresAt,
+    ...(manifest.changes === undefined ? {} : { changes: manifest.changes }) };
 };
 // Injectable dependencies are for isolated tests. The CLI has no injection/configuration from the queue.
 const processRequest = async ({ policy, request, state, status, read = protectedRead,
@@ -48,7 +49,8 @@ const processRequest = async ({ policy, request, state, status, read = protected
   const fd = fs.openSync(consumed, 'wx', 0o600); // consume BEFORE effects; replay never resumes deployment
   try { fs.writeFileSync(fd, JSON.stringify(request)); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
   syncDirectory(state);
-  const base = { ...request, backend: release.backend, frontend: release.frontend, startedAt: new Date().toISOString() };
+  const base = { ...request, backend: release.backend, frontend: release.frontend,
+    ...(release.changes === undefined ? {} : { changes: release.changes }), startedAt: new Date().toISOString() };
   const publish = phase => atomic(path.join(status, 'status.json'), { ...base, ...phase }, 0o644);
   try {
     publish({ state: 'deploying' });
@@ -56,6 +58,9 @@ const processRequest = async ({ policy, request, state, status, read = protected
     publish({ state: 'stabilizing', healthyAt: new Date().toISOString() });
     await wait(60000); // no cosmetic countdown: recheck the real installation after the minimum window
     verify(policy, release);
+    // Durable last successful release, independent of expiring catalogs or later failed requests.
+    // Values come exclusively from the verified signed manifest, never the request body.
+    atomic(path.join(status, 'installed-release.json'), release, 0o644);
     publish({ state: 'completed', finishedAt: new Date().toISOString() });
   } catch {
     publish({ state: 'recovery_required', errorCode: 'DEPLOYMENT_FAILED', finishedAt: new Date().toISOString() });
