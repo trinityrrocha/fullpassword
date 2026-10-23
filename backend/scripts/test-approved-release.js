@@ -7,6 +7,15 @@ const manifest={repository:'trinityrrocha/fullpassword',revision:'a'.repeat(40),
 const policy={origin:manifest.origin,environment:'test',approvedRevision:manifest.revision};
 const verify=value=>{const bytes=Buffer.from(JSON.stringify(value));return validateManifest(bytes,crypto.sign('sha256',bytes,privateKey),publicKey,policy);};
 assert.equal(verify(manifest).revision,manifest.revision);
+const {changesFromSubjects,prepareManifest}=require('../../scripts/prepare-release-manifest');
+const changes=[{type:'fix',title:'Restore modal interaction'},{type:'feat',title:'Add release notes'}];
+assert.deepEqual(verify({...manifest,changes}).changes,changes);
+assert.deepEqual(verify({...manifest,changes:[]}).changes,[]);
+assert.deepEqual(changesFromSubjects(['fix(ui): Restore modal interaction','test: hidden','feat!: Add release notes','ci: hidden','chore: hidden','docs: hidden','refactor: hidden','Build signed-release inputs from exact merge abc','fix(ui): Restore modal interaction']),changes);
+assert.throws(()=>prepareManifest(manifest,'main','a'.repeat(40)),/EXACT_RELEASE_RANGE/);
+for(const invalid of [null,{},'text',Array(51).fill(changes[0]),[{type:'ci',title:'No'}],[{type:'fix',title:''}],[{type:'fix',title:' '}],[{type:'fix',title:'a'.repeat(201)}],[{type:'fix',title:'<b>HTML</b>'}],[{type:'fix',title:'run $(command)'}],[{type:'fix',title:'run /usr/bin/node'}],[{type:'fix',title:'line\nbreak'}],[{type:'fix',title:'a',command:'no'}]]) assert.throws(()=>verify({...manifest,changes:invalid}),/INVALID_RELEASE_CHANGES/);
+const changedBytes=Buffer.from(JSON.stringify({...manifest,changes}));
+assert.throws(()=>validateManifest(changedBytes,crypto.sign('sha256',Buffer.from(JSON.stringify(manifest)),privateKey),publicKey,policy),/SIGNATURE/);
 const approvedBytes=Buffer.from(JSON.stringify(manifest));
 const expected={approvalId:crypto.randomUUID(),revision:manifest.revision,manifestHash:crypto.createHash('sha256').update(approvedBytes).digest('hex')};
 assertExpectedRelease({...policy,approvalId:expected.approvalId},approvedBytes,expected);

@@ -128,6 +128,7 @@ async function run() {
     const releasePublic=path.join(directory,'release-public'),releaseQueue=path.join(directory,'release-queue');
     await fs.mkdir(releasePublic);await fs.mkdir(releaseQueue);
     const releaseFixture=require('../src/controllers/releaseController').createController(releasePublic,releaseQueue);
+    app.get('/api/release-test',require('../src/middleware/authMiddleware').verifyToken,releaseFixture.status);
     app.post('/api/release-test',require('../src/middleware/authMiddleware').verifyToken,(req,res,next)=>Promise.resolve(releaseFixture.request(req,res)).catch(next));
     httpServer=await new Promise(resolve=>{const server=app.listen(0,'127.0.0.1',()=>resolve(server));});
     const base='http://127.0.0.1:'+httpServer.address().port+'/api';
@@ -311,6 +312,19 @@ async function run() {
     // Approved release request: real session/CSRF/PostgreSQL; no reauth endpoint or grant.
     const releaseAction={approvalId:crypto.randomUUID(),revision:'a'.repeat(40),manifestHash:'b'.repeat(64)};
     await fs.writeFile(path.join(releasePublic,'catalog.json'),JSON.stringify({...releaseAction,expiresAt:new Date(Date.now()+3600000).toISOString()}));
+    assert.equal((await ownerApi.get('/release-test')).data.release.changes,undefined,'old catalogs without changes remain valid');
+    const releaseChanges=[{type:'fix',title:'Restore interface'},{type:'feat',title:'Show signed notes'}];
+    const catalogWithNotes={...releaseAction,changes:releaseChanges,expiresAt:new Date(Date.now()+3600000).toISOString()};
+    await fs.writeFile(path.join(releasePublic,'catalog.json'),JSON.stringify(catalogWithNotes));
+    assert.deepEqual((await ownerApi.get('/release-test')).data.release.changes,releaseChanges);
+    await fs.writeFile(path.join(releasePublic,'installed-release.json'),JSON.stringify(catalogWithNotes));
+    await fs.writeFile(path.join(releasePublic,'catalog.json'),JSON.stringify({...catalogWithNotes,expiresAt:'2000-01-01T00:00:00Z'}));
+    const expiredNotes=(await ownerApi.get('/release-test')).data;
+    assert.equal(expiredNotes.release,null);
+    assert.deepEqual(expiredNotes.installedRelease.changes,releaseChanges,'installed notes survive expired catalog');
+    assert.equal(expiredNotes.installedRelease.revision,releaseAction.revision);
+    await fs.writeFile(path.join(releasePublic,'catalog.json'),JSON.stringify(catalogWithNotes));
+    await assert.rejects(ownerApi.post('/release-test',{...releaseAction,changes:releaseChanges}),e=>e.response.status===400);
     await assert.rejects(directApi.post('/release-test',releaseAction),e=>e.response.status===403);
     await assert.rejects(ownerApi.post('/release-test',{...releaseAction,url:'https://evil.example.invalid'}),e=>e.response.status===400);
     const ordinaryAdmin=crypto.randomUUID(),ordinaryAdminApi=browserClient();

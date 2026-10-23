@@ -9,7 +9,7 @@ const createController = (publicDirectory='/var/lib/fullpassword-release-public'
 const readJson = name => {
   const file = path.join(publicDirectory, name);
   const stat = fs.lstatSync(file);
-  if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 8192) throw new Error('INVALID_AGENT_STATE');
+  if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 65536) throw new Error('INVALID_AGENT_STATE');
   return JSON.parse(fs.readFileSync(file, 'utf8'));
 };
 const catalog = () => {
@@ -18,17 +18,33 @@ const catalog = () => {
     !Number.isFinite(Date.parse(value.expiresAt)) || Date.parse(value.expiresAt) <= Date.now()) throw new Error('NO_APPROVED_RELEASE');
   return value;
 };
+// Defense in depth for the root-owned, read-only public projection. Never queue metadata.
+const presentationChanges = value => {
+  if (!Array.isArray(value) || value.length > 50) return undefined;
+  const allowed = ['fix','feat','security','perf','release','change'];
+  if (value.some(item => !item || !allowed.includes(item.type) || typeof item.title !== 'string' ||
+    !item.title.trim() || item.title.length > 200 || /[<>\x00-\x1f\x7f]/u.test(item.title))) return undefined;
+  return value.map(({type,title}) => ({type,title}));
+};
 const status = (req, res) => {
   if (!isSuperAdmin(req.user)) return res.status(403).json({ error: 'Acesso restrito ao Super Admin.' });
-  let release = null, progress = null;
+  let release = null, progress = null, installedRelease = null;
   try { release = catalog(); } catch { /* not provisioned or expired */ }
+  if (release) release = {...release, changes:presentationChanges(release.changes)};
+  try {
+    const value = readJson('installed-release.json');
+    if (uuid.test(value.approvalId) && /^[a-f0-9]{40}$/.test(value.revision) && /^[a-f0-9]{64}$/.test(value.manifestHash)) {
+      installedRelease = {approvalId:value.approvalId,revision:value.revision,manifestHash:value.manifestHash,changes:presentationChanges(value.changes)};
+    }
+  } catch { /* historical agent has no durable release notes */ }
   try {
     const value = readJson('status.json');
     progress = Object.fromEntries(['approvalId','requestId','revision','backend','frontend','state','startedAt','healthyAt','finishedAt','errorCode'].filter(key => value[key] !== undefined).map(key => [key,value[key]]));
+    progress.changes = presentationChanges(value.changes);
   } catch { /* no request yet */ }
   let requested = false;
   if (release) requested = fs.existsSync(path.join(queueDirectory, release.approvalId + '.json'));
-  res.json({ release, progress, requested });
+  res.json({ release, progress, requested, installedRelease });
 };
 const request = async (req, res) => {
   if (!isSuperAdmin(req.user)) return res.status(403).json({ error: 'Acesso restrito ao Super Admin.' });

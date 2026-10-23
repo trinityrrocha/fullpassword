@@ -1,5 +1,6 @@
 import { useId, useState } from 'react';
-import { ArrowUpCircle, CheckCircle2, ChevronDown, RefreshCw } from 'lucide-react';
+import { ArrowUpCircle, CheckCircle2, ChevronDown, Info, RefreshCw } from 'lucide-react';
+import FormDialog from './FormDialog';
 import { describeSystemUpdate, releasePhaseDescriptions, shortReleaseRevision } from '../utils/systemUpdatePresentation';
 
 const tones = {
@@ -11,13 +12,20 @@ const tones = {
 };
 const secondaryButton = 'inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-slate-300 px-3 py-2 text-sm font-medium hover:bg-slate-100 active:bg-slate-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 dark:border-slate-600 dark:hover:bg-slate-800 dark:active:bg-slate-700';
 const steps = [['requested', 'Solicitada'], ['deploying', 'Implantando'], ['stabilizing', 'Estabilizando'], ['completed', 'Concluída']];
+const changeLabels = {fix:'Correção',feat:'Novo recurso',security:'Segurança',perf:'Desempenho',release:'Release'};
 
 export default function SystemUpdateView({ versions, agent, error, busy, loading, onRequest, onRefresh }) {
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [technicalOpen, setTechnicalOpen] = useState(false);
   const detailsId = useId();
   const status = describeSystemUpdate({ versions, agent, error, loading });
   const release = agent.release;
   const progress = agent.progress;
+  // Available notes belong to the approved candidate; otherwise only show notes tied
+  // to the confirmed installed revision, never stale progress from another release.
+  const installed = agent.installedRelease?.revision === status.currentRevision ? agent.installedRelease : null;
+  const notesRelease = release || installed || (progress?.state === 'completed' && progress.revision === status.currentRevision ? progress : null);
+  const changes = Array.isArray(notesRelease?.changes) ? notesRelease.changes.slice(0,50).filter(change => typeof change?.title === 'string' && change.title.length <= 200) : [];
   const stepIndex = steps.findIndex(([phase]) => phase === status.phase);
   const details = [
     ['Revisão backend completa', versions.backend],
@@ -75,7 +83,7 @@ export default function SystemUpdateView({ versions, agent, error, busy, loading
             {busy && <span className="absolute inset-0 flex items-center justify-center">Solicitando…</span>}
           </button>}
           <button type="button" aria-expanded={detailsOpen} aria-controls={detailsId} onClick={() => setDetailsOpen(open => !open)} className={secondaryButton}>
-            Mais informações<ChevronDown aria-hidden="true" className={`h-4 w-4 ${detailsOpen ? 'rotate-180' : ''}`} />
+            Novidades da versão<ChevronDown aria-hidden="true" className={`h-4 w-4 ${detailsOpen ? 'rotate-180' : ''}`} />
           </button>
           {status.canRefresh && <button type="button" onClick={onRefresh} className={secondaryButton}>
             <RefreshCw aria-hidden="true" className="h-4 w-4" />Consultar progresso
@@ -84,7 +92,18 @@ export default function SystemUpdateView({ versions, agent, error, busy, loading
       </div>
       {error && <p role="alert" className="text-red-600 dark:text-red-400">{error}</p>}
       <div id={detailsId} hidden={!detailsOpen} className="space-y-4 border-t border-slate-200 pt-4 dark:border-slate-700">
-        <h3 className="font-semibold text-slate-900 dark:text-slate-100">Detalhes técnicos e segurança</h3>
+        <h3 className="font-semibold text-slate-900 dark:text-slate-100">Novidades desta versão</h3>
+        {changes.length ? <ul className="space-y-3">
+          {changes.map((change,index) => <li key={index} className="min-w-0 space-y-1">
+            <span className={`inline-flex rounded px-2 py-0.5 text-xs font-semibold ${tones[change.type === 'security' ? 'warning' : 'info']}`}>{Object.hasOwn(changeLabels, change.type) ? changeLabels[change.type] : 'Alteração'}</span>
+            <p className="break-words [overflow-wrap:anywhere]">{change.title}</p>
+          </li>)}
+        </ul> : <p>Não há notas detalhadas disponíveis para esta versão.</p>}
+      </div>
+      <button type="button" aria-haspopup="dialog" onClick={() => setTechnicalOpen(true)} className="inline-flex min-h-10 items-center gap-1.5 rounded px-2 text-xs text-slate-600 hover:bg-slate-100 active:bg-slate-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 dark:text-slate-300 dark:hover:bg-slate-800 dark:active:bg-slate-700">
+        <Info aria-hidden="true" className="h-4 w-4" />Detalhes técnicos
+      </button>
+      {technicalOpen && <FormDialog title="Detalhes técnicos e segurança" guardChanges={false} onClose={() => setTechnicalOpen(false)}>
         <dl className="grid min-w-0 gap-x-6 gap-y-3 sm:grid-cols-2">
           {details.map(([label, value]) => <div key={label} className="min-w-0">
             <dt className="text-xs text-slate-500 dark:text-slate-400">{label}</dt>
@@ -99,7 +118,7 @@ export default function SystemUpdateView({ versions, agent, error, busy, loading
           {!release && <p>Não há release aprovada disponível. O operador precisa provisionar o agente e uma aprovação válida; main não será instalada automaticamente.</p>}
           <p>O pedido não contém comandos ou caminhos. Após interrupção, somente o operador pode reconciliar a implantação e emitir nova aprovação.</p>
         </div>
-      </div>
+      </FormDialog>}
     </div>
   );
 }

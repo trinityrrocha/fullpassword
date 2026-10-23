@@ -36,6 +36,7 @@ try{
   const current='a'.repeat(40),next='b'.repeat(40);
   const release={approvalId:'00000000-0000-4000-8000-000000000001',revision:next,manifestHash:'c'.repeat(64),origin:'https://test.example.invalid',backend:`example.invalid/backend@sha256:${'d'.repeat(64)}`,frontend:`example.invalid/frontend@sha256:${'e'.repeat(64)}`,expiresAt:'2099-01-01T00:00:00Z'};
   let agent={release,progress:null,requested:false},running=current,failRead=false,postFailure=false,delay=0;
+  release.changes=[{type:'fix',title:'Restore modal interaction'},{type:'feat',title:'Show release notes'},{type:'security',title:'Validate signed metadata'}];
   const posts=[],errors=[];
   page.on('pageerror',error=>errors.push(error.message));
   const origin=`http://127.0.0.1:${vite.httpServer.address().port}`;
@@ -64,7 +65,7 @@ try{
   const open=async(state)=>{await page.goto(origin+'/__update_fixture');await page.locator(`[data-update-state="${state}"]`).waitFor();};
   const screenshot=async name=>{if(output)await page.screenshot({path:path.join(output,name+'.png'),fullPage:true});};
   await open('available');
-  const details=page.getByRole('button',{name:'Mais informações'});
+  const details=page.getByRole('button',{name:'Novidades da versão'});
   assert.equal(await details.getAttribute('aria-expanded'),'false');
   assert.equal(await page.getByRole('heading',{name:'Detalhes técnicos e segurança'}).isVisible(),false);
   const summary=await page.locator('[data-update-summary]').innerText();
@@ -73,8 +74,20 @@ try{
   await screenshot('available-desktop');
   await details.focus();await page.keyboard.press('Enter');
   assert.equal(await details.getAttribute('aria-expanded'),'true');
+  for(const change of release.changes) assert.equal(await page.getByText(change.title,{exact:true}).isVisible(),true);
+  const technical=page.getByRole('button',{name:'Detalhes técnicos',exact:true});
+  await technical.click();
+  const dialog=page.getByRole('dialog',{name:'Detalhes técnicos e segurança'});
+  await dialog.waitFor();
+  assert.equal(await dialog.evaluate(node=>node.contains(document.activeElement)),true);
+  assert.equal(await page.locator('#root').evaluate(node=>node.inert),true);
   assert.equal(await page.getByText(release.backend,{exact:true}).isVisible(),true);
   await screenshot('details-desktop');
+  await page.keyboard.press('Tab');await page.keyboard.press('Shift+Tab');
+  assert.equal(await dialog.evaluate(node=>node.contains(document.activeElement)),true);
+  await page.keyboard.press('Escape');
+  assert.equal(await technical.evaluate(node=>node===document.activeElement),true);
+  await details.focus();
   await page.keyboard.press('Space');
   assert.equal(await details.getAttribute('aria-expanded'),'false');
   await page.getByRole('button',{name:'Atualizar sistema',exact:true}).evaluate(button=>{button.click();button.click();});
@@ -94,6 +107,13 @@ try{
   }
   agent={release:null,progress:null,requested:false};running=current;
   await open('none');
+  await details.click();
+  assert.equal(await page.getByText('Não há notas detalhadas disponíveis para esta versão.',{exact:true}).isVisible(),true);
+  agent={release:null,installedRelease:release,progress:{revision:next,state:'completed'},requested:false};running=next;
+  await open('completed');await details.click();
+  assert.equal(await page.getByText(release.changes[0].title,{exact:true}).isVisible(),true,'installed notes remain after expiry');
+  agent={release:null,progress:null,requested:false};running=current;
+  await open('none');
   assert.equal(await page.getByRole('button',{name:'Atualizar sistema',exact:true}).count(),0);
   failRead=true;await open('unavailable');
   assert.equal(await page.getByRole('button',{name:'Consultar progresso'}).isVisible(),true);
@@ -108,19 +128,26 @@ try{
   await page.waitForResponse(r=>r.request().method()==='GET'&&r.url().endsWith('/api/system/update/status'));
   await page.locator('[data-update-state="available"]').waitFor();
   assert.equal(posts.length,2,'uncertain request never retries POST automatically');postFailure=false;
-  for(const width of [1280,390,320])for(const dark of [false,true]){
+  for(const width of [1280,768,390,320])for(const dark of [false,true]){
     await page.setViewportSize({width,height:850});
     await page.evaluate(value=>document.documentElement.classList.toggle('dark',value),dark);
     for(const expanded of [false,true]){
-      const toggle=page.getByRole('button',{name:'Mais informações'});
+      const toggle=page.getByRole('button',{name:'Novidades da versão'});
       if((await toggle.getAttribute('aria-expanded')==='true')!==expanded)await toggle.click();
       assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'no horizontal overflow');
       assert.equal(await page.getByRole('button',{name:'Atualizar sistema',exact:true}).isVisible(),true);
       const label=expanded?'details':'compact';
       if(width!==1280)await screenshot(`${label}-${width}-${dark?'dark':'light'}`);
     }
+    await technical.click();
+    const rect=await dialog.boundingBox();
+    assert(rect.x>=0&&rect.x+rect.width<=width&&rect.y>=0&&rect.y+rect.height<=850,'technical dialog bounded by viewport');
+    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+    assert.equal(await page.getByText(release.backend,{exact:true}).isVisible(),true);
+    await screenshot(`technical-${width}-${dark?'dark':'light'}`);
+    await page.getByRole('button',{name:'Fechar Detalhes técnicos e segurança'}).click();
   }
   assert.equal(await page.locator('body').innerText().then(t=>t.includes('A atualização exige senha')),false);
   assert.deepEqual(errors,[]);
-  console.log('PASS isolated browser: keyboard disclosure, request payload/CSRF/duplicate guard, all phases, refresh, failed GET/POST, loading, 320/390/1280 light/dark, long digests and reduced motion. No real system accessed.');
+  console.log('PASS isolated browser: signed notes/legacy empty/completed expiry, technical dialog focus/Escape/return, request payload/CSRF/duplicate guard, all phases, refresh, failed GET/POST, loading, 320/390/768/1280 light/dark, long digests and reduced motion. No real system accessed.');
 }finally{await browser?.close();await vite.close();}

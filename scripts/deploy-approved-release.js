@@ -4,6 +4,18 @@ const path=require('node:path');
 const crypto=require('node:crypto');
 const {spawnSync}=require('node:child_process');
 const REPOSITORY='trinityrrocha/fullpassword';
+// Presentation metadata only; never interpreted as commands, paths or deployment options.
+const validateChanges=changes=>{
+ if(changes===undefined) return undefined; // historical signed bytes remain valid
+ if(!Array.isArray(changes) || changes.length>50) throw new Error('INVALID_RELEASE_CHANGES');
+ const types=['fix','feat','security','perf','release','change'];
+ return changes.map(change=>{
+  if(!change || typeof change!=='object' || Array.isArray(change) || Object.keys(change).sort().join(',')!=='title,type' ||
+    !types.includes(change.type) || typeof change.title!=='string' || change.title.length<1 || change.title.length>200 ||
+    change.title!==change.title.trim() || /[<>\x00-\x1f\x7f`]|\$\(|&&|\|\||[;|]|(?:^|\s)(?:\.{0,2}\/|[A-Za-z]:\\)/u.test(change.title)) throw new Error('INVALID_RELEASE_CHANGES');
+  return {type:change.type,title:change.title};
+ });
+};
 const validateManifest=(bytes,signature,publicKey,policy)=>{
  if(!crypto.verify('sha256',bytes,publicKey,signature)) throw new Error('INVALID_RELEASE_SIGNATURE');
  const manifest=JSON.parse(bytes);
@@ -15,6 +27,7 @@ const validateManifest=(bytes,signature,publicKey,policy)=>{
   if(!new RegExp('^'+registry+'/trinityrrocha/fullpassword-'+service+'@sha256:[a-f0-9]{64}$').test(manifest[service])) throw new Error('UNPINNED_RELEASE_IMAGE');
  }
  if(policy.environment!=='test' || manifest.origin!==policy.origin || !/^https:\/\//.test(policy.origin)) throw new Error('TEST_ENVIRONMENT_REQUIRED');
+ validateChanges(manifest.changes);
  return manifest;
 };
 const protectedRead=file=>{
@@ -150,4 +163,4 @@ if(require.main===module){
  try{if(process.argv.length!==4)throw new Error('Usage: node deploy-approved-release.js manifest.json manifest.sig');deploy(process.argv[2],process.argv[3]);}
  catch(error){console.error(error.message);process.exitCode=1;}
 }
-module.exports={validateManifest,verifyInstalledRevision,protectedRead,deploy,verifyDeployment,assertExpectedRelease,validateReleaseCompose};
+module.exports={validateChanges,validateManifest,verifyInstalledRevision,protectedRead,deploy,verifyDeployment,assertExpectedRelease,validateReleaseCompose};

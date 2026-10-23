@@ -41,9 +41,13 @@ DESIGN.md espelha Tailwind/index.css; runtime é canônico. Não alterar tokens 
 
 ## Navigation and responsive behavior
 
-WebUpdate: status e versões curtas no resumo; detalhes técnicos em disclosure
-inline “Mais informações”, fechado inicialmente, operável por teclado e com
-aria-expanded/aria-controls. Atualizar sistema conserva o POST existente;
+WebUpdate: status e versões curtas no resumo; “Novidades da versão” em disclosure
+inline fechado inicialmente, operável por teclado e com aria-expanded/aria-controls.
+Notas opcionais vêm do manifesto assinado (docs/webupdate-release-notes.md), sem
+consulta GitHub em runtime. “Detalhes técnicos” abre FormDialog informativo sem
+guard de edição, com foco/Escape/retorno e dados longos quebráveis. A última release
+instalada é preservada pelo agente e exibida somente se sua revisão for confirmada
+pelos dois runtimes. Atualizar sistema conserva o POST existente;
 Consultar progresso é somente leitura. Completed confirmado oculta a ação de
 novo pedido, mesmo com request one-shot preservado. Falha de consulta não é
 falha de implantação; progresso antigo não representa uma aprovação nova.
