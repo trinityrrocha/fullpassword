@@ -14,7 +14,28 @@ const BASE='d9a7a3786143379df43ff1910263894df33449bf';
 const ROOT=path.resolve(__dirname,'../..');
 const run=(command,args,options={})=>{
  const result=spawnSync(command,args,{cwd:ROOT,encoding:'utf8',windowsHide:true,timeout:1200000,maxBuffer:64*1024*1024,...options});
- if(result.status!==0) throw new Error('REHEARSAL_COMMAND_FAILED: '+command+' '+args.slice(0,2).join(' '));
+ if(result.status!==0) {
+  // Keep CI diagnostics useful without echoing argv, environment, credentials,
+  // resolved Compose JSON or full build output. This harness is synthetic-only.
+  const diagnostic=String(result.stderr || '').split('\n').filter(line=>!/password|secret|token|credential|authorization/i.test(line)).join('\n')
+   .replace(/[A-Za-z0-9+/_=-]{32,}/g,'[redacted-value]').slice(-3000);
+  if(diagnostic)console.error('REHEARSAL STDERR: '+diagnostic);
+  if(command==='docker' && args[0]==='compose' && args.includes('up')) {
+   const project=args[args.indexOf('-p')+1];
+   if(/^fp-rehearsal-[a-f0-9]{10}$/.test(project || '')) {
+    const list=spawnSync('docker',['ps','-aq','--filter','label=com.docker.compose.project='+project],{encoding:'utf8',timeout:10000});
+    for(const id of String(list.stdout||'').trim().split('\n').filter(value=>/^[a-f0-9]{12,64}$/.test(value))) {
+     const state=spawnSync('docker',['inspect','--format','{"status":{{json .State.Status}},"exitCode":{{json .State.ExitCode}},"health":{{with index .State "Health"}}{{json .Status}}{{else}}null{{end}}}',id],{encoding:'utf8',timeout:10000});
+     console.error('REHEARSAL SERVICE STATE: '+String(state.stdout||'').trim());
+     const captured=spawnSync('docker',['logs','--tail','30',id],{encoding:'utf8',timeout:10000,maxBuffer:65536});
+     const logs=String(captured.stdout||'')+String(captured.stderr||'');
+     const safe=logs.split('\n').filter(line=>!/password|secret|token|credential|authorization/i.test(line)).join('\n').replace(/[A-Za-z0-9+/_=-]{32,}/g,'[redacted-value]');
+     if(safe)console.error('REHEARSAL SERVICE LOG: '+safe.slice(-3000));
+    }
+   }
+  }
+  throw new Error('REHEARSAL_COMMAND_FAILED: '+command+' '+args.slice(0,2).join(' '));
+ }
  return result.stdout?.trim();
 };
 const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));

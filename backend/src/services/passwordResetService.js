@@ -1,4 +1,5 @@
 const argon2 = require('argon2');
+const { getClientIp } = require('./clientIpService');
 const crypto = require('crypto');
 const db = require('../config/database');
 const { normalizeEmail } = require('../config/security');
@@ -108,7 +109,7 @@ const requestPasswordReset = async (req, emailInput) => {
       `INSERT INTO password_reset_tokens
          (user_id, token_hash, expires_at, requested_ip, requested_user_agent)
        VALUES ($1, $2, $3, $4, $5)`,
-      [user.id, tokenHash, expiresAt, req.ip || null, userAgent]
+      [user.id, tokenHash, expiresAt, getClientIp(req), userAgent]
     );
     await db.query(
       `DELETE FROM password_reset_tokens
@@ -365,7 +366,7 @@ const completePasswordReset = async (req, payload, passwordValidation) => {
       [
         reset.user_id,
         reset.reset_token_id,
-        req.ip || null,
+        getClientIp(req),
         String(req.get?.('user-agent') || '').slice(0, 1000) || null
       ]
     );

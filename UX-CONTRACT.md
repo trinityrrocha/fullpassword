@@ -110,6 +110,12 @@ Retenção de ciphertexts e grants antigos é intencional, sem destruição para
 
 ## Verification
 
+Trusted Client IP (2026-10-21): Segurança contém ClientIpStatus, somente leitura
+Super Admin, GET cancelável/timeout, erro inline com retry. Origem administrativa
+vem de docs/trusted-client-ip.md; nenhuma preferência de banco altera topologia.
+Loading/status/error preservam região, IPv6 longo quebra linha e dark/light usam
+tokens existentes. Nenhum formulário, select, modal ou CRUD novo nesta fatia.
+
 Perfil/Equipe são exercitados em fixture localhost isolada usando componentes,
 CSS e criptografia reais, APIs fictícias e bloqueio de acesso externo. Isso não
 é teste da instalação nem autorização para VM. PostgreSQL integrado é nativo,

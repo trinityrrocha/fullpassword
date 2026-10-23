@@ -13,6 +13,7 @@ const smtpController = require('../controllers/smtpController');
 const multer = require('multer');
 const { verifyToken } = require('../middleware/authMiddleware');
 const requireSuperAdmin = require('../middleware/requireSuperAdmin');
+const { getClientNetworkMetadata } = require('../services/clientIpService');
 const { restoreUploadGuard, withRestoreLease } = require('../middleware/restoreUploadGuard');
 const { isEncryptedBackupFilename } = require('../services/backupRestoreService');
 const { isBackupPackageV2Filename } = require('../services/backupPackageV2Service');
@@ -96,6 +97,10 @@ const receiveRestoreFile = (req, res, next) => {
 
 // Rotas de sistema requerem autenticação
 router.use(verifyToken);
+router.get('/client-ip-status', requireSuperAdmin, (req, res) => {
+  const { mode, client_ip, cloudflare, cf_ray_present } = getClientNetworkMetadata(req);
+  res.json({ mode, client_ip, cloudflare, cf_ray_present, defined_in_deployment: true });
+});
 
 router.get('/permissions', systemController.getSystemPermissions);
 router.get('/sessions', sessionController.listAllSessions);

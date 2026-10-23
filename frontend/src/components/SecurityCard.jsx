@@ -5,6 +5,7 @@ import { formatDateTimeShort } from '../utils/formatDateTimeShort';
 import { SCREEN_PROTECTION_CHANGED_EVENT } from '../utils/screenProtection';
 import SettingsAccordionCard from './SettingsAccordionCard';
 import PasswordPolicyCard from './PasswordPolicyCard';
+import ClientIpStatus from './ClientIpStatus';
 
 const selectClass = 'border border-slate-300 rounded-md px-[9px] py-[6px] text-sm bg-white';
 const defaultPolicy = {
@@ -211,6 +212,7 @@ export default function SecurityCard() {
           <button type="button" onClick={savePolicy} disabled={isLoginPolicyBusy} className="px-4 py-2 bg-indigo-600 text-white rounded-md text-sm disabled:opacity-50">Salvar política</button>
         </section>
 
+        <ClientIpStatus />
         <PasswordPolicyCard draft={passwordDraft} setDraft={setPasswordDraft} />
 
         <section className="space-y-3">

@@ -1,4 +1,5 @@
 const db = require('../config/database');
+const { getClientIp } = require('../services/clientIpService');
 const { isSuperAdmin } = require('../config/security');
 const { recordAuditEvent } = require('../services/auditService');
 const { normalizeIp, isCidr, ruleTargetMatchesIp, getLoginSecurityPolicy, hasActiveAllowRule } = require('../services/ipSecurityService');
@@ -223,7 +224,7 @@ const getLoginFailures = async (req, res) => {
 };
 
 const createRuleRecord = async ({ req, ipAddress, ruleType, reason, durationMinutes }) => {
-  if (ruleType !== 'allow' && ruleTargetMatchesIp(ipAddress, req.ip)) throw Object.assign(new Error('O IP atual do Super Admin não pode ser bloqueado por esta regra.'), { status: 400 });
+  if (ruleType !== 'allow' && ruleTargetMatchesIp(ipAddress, getClientIp(req))) throw Object.assign(new Error('O IP atual do Super Admin não pode ser bloqueado por esta regra.'), { status: 400 });
   if (ruleType !== 'allow' && await hasActiveAllowRule(ipAddress)) throw Object.assign(new Error('Whitelist ativa prevalece; remova-a antes de bloquear.'), { status: 409 });
   if (ruleType === 'temporary_block' && !DURATIONS.has(durationMinutes)) throw Object.assign(new Error('Duração inválida.'), { status: 400 });
   const expiresAt = ruleType === 'temporary_block' ? new Date(Date.now() + durationMinutes * 60000) : null;

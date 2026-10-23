@@ -1,5 +1,6 @@
 const db = require('../config/database');
 const { safeLogError } = require('../utils/safeLogger');
+const { getClientIp, getClientNetworkMetadata } = require('./clientIpService');
 
 const recordAuditEvent = async ({
   user,
@@ -21,9 +22,9 @@ const recordAuditEvent = async ({
         user?.email || userEmail || null,
         action,
         status,
-        req?.ip || null,
+        getClientIp(req),
         String(req?.get?.('user-agent') || '').slice(0, 1000) || null,
-        metadata
+        { ...metadata, ...(getClientNetworkMetadata(req).cloudflare_ray_id ? { cloudflare_ray_id: getClientNetworkMetadata(req).cloudflare_ray_id } : {}) }
       ]
     );
   } catch (error) {
