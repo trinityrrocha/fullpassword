@@ -45,6 +45,19 @@ jobs:
         working-directory: backend
       - run: npm test && node scripts/test-vault-crypto-v2.js && npm run build
         working-directory: frontend
+      - name: Client and group modal browser regression (synthetic localhost only)
+        working-directory: frontend
+        run: |
+          npm install --prefix "$RUNNER_TEMP/modal-browser-tools" --no-package-lock --ignore-scripts playwright@1.64.1
+          node "$RUNNER_TEMP/modal-browser-tools/node_modules/playwright/cli.js" install --with-deps chromium
+          PLAYWRIGHT_MODULE_PATH="$RUNNER_TEMP/modal-browser-tools/node_modules/playwright/index.mjs" MODAL_UI_EVIDENCE_DIR="$RUNNER_TEMP/modal-ui-evidence" npm run test:modal-interaction:browser
+      - name: Preserve synthetic modal UI evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: modal-ui-evidence
+          path: ${{ runner.temp }}/modal-ui-evidence/
+          if-no-files-found: ignore
       - run: node scripts/test-update-notifications.js
         working-directory: frontend
       - run: npm audit --omit=dev

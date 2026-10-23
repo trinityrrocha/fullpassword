@@ -43,6 +43,7 @@ try{
     if(!url.pathname.startsWith('/api/'))return route.continue();
     if(request.method()==='GET'){
       if(url.pathname==='/api/auth/password-policy')return route.fulfill({json:passwordPolicy});
+      if(url.pathname==='/api/system/client-ip-status')return route.fulfill({json:{mode:'direct',client_ip:'192.0.2.10',cloudflare:false,defined_in_deployment:true}});
       if(url.pathname==='/api/system/login-security-policy')return route.fulfill({json:{policy:{auto_block_enabled:true,failed_attempts_threshold:5,observation_window_minutes:15,block_duration_minutes:30,screen_protection_enabled:true}}});
       if(url.pathname==='/api/system/login-failures')return route.fulfill({json:{items:[],pagination:{page:1,limit:10,total_pages:0}}});
       if(url.pathname==='/api/users')return route.fulfill({json:[{id:'00000000-0000-4000-8000-000000000002',name:'Membro fictício',email:'member@example.invalid',role:'user',is_active:true,groups:[],mfa_enabled:true}]});

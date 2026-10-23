@@ -4,6 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "test:modal-interaction:browser": "node scripts/test-modal-interaction-browser.js",
     "test:password-policy": "node scripts/test-password-policy.js",
     "test:password-policy:browser": "node scripts/test-profile-security-browser.js && node scripts/test-password-expiry-browser.js",
     "test:system-update": "node scripts/test-system-update-panel.js",
