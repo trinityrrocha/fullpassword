@@ -7,6 +7,7 @@ import useClearOnVaultLock from '../hooks/useClearOnVaultLock';
 import { safeLogError } from '../utils/safeLogger';
 import { VaultSession } from '../services/vaultSessionService';
 import SharedItemsPanel from '../components/SharedItemsPanel';
+import FormDialog from '../components/FormDialog';
 
 const formatDate = (value) => {
   if (!value) return 'Não informado';
@@ -59,6 +60,10 @@ export default function ClientsList() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const creatingRef = useRef(false);
+  const [createError, setCreateError] = useState('');
+  const [invalidFields, setInvalidFields] = useState([]);
+  const [createNotice, setCreateNotice] = useState('');
   const [clients, setClients] = useState([]);
   const [viewClient, setViewClient] = useState(null);
   const [viewSummary, setViewSummary] = useState({ loading: false, lines: [], error: '' });
@@ -120,17 +125,28 @@ export default function ClientsList() {
 
   const handleCreateClient = async (e) => {
     e.preventDefault();
+    if (creatingRef.current) return;
+    setCreateError('');
+    const invalid = [...e.currentTarget.elements].filter(field => field.validity && !field.validity.valid);
+    setInvalidFields(invalid.map(field => field.id));
+    if (invalid.length) {
+      setCreateError('Preencha o nome da empresa e um e-mail válido, se informado.');
+      invalid[0].focus();
+      return;
+    }
+    creatingRef.current = true;
     setIsSaving(true);
     try {
       await api.post('/clients', newClient);
-      alert('Cliente criado com sucesso!');
+      setCreateNotice('Cliente criado com sucesso!');
       setIsModalOpen(false);
       setNewClient({ name: '', address: '', phone: '', email: '' });
       loadClients(); // Recarrega a lista
     } catch (error) {
       safeLogError('Erro ao criar cliente.', error);
-      alert(error.response?.data?.error || 'Erro ao criar cliente.');
+      setCreateError(error.response?.data?.error || 'Não foi possível criar o cliente. Tente novamente.');
     } finally {
+      creatingRef.current = false;
       setIsSaving(false);
     }
   };
@@ -399,31 +415,24 @@ export default function ClientsList() {
       )}
 
       {/* Modal Novo Cliente */}
+      {createNotice && <p role="status" className="text-sm text-green-700 dark:text-green-300">{createNotice}</p>}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
-          <div className="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
-            
-            {/* Background overlay */}
-            <div className="fixed inset-0 bg-slate-500/75 transition-opacity" aria-hidden="true" onClick={() => setIsModalOpen(false)}></div>
-
-            <span className="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
-
-            {/* Modal panel */}
-            <div className="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
-              <div className="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
-                <div className="flex justify-between items-center mb-5">
-                  <h3 className="text-lg leading-6 font-medium text-slate-900" id="modal-title">
-                    Cadastrar Novo Cliente
-                  </h3>
-                  <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-500">
-                    <X className="h-6 w-6" />
-                  </button>
-                </div>
-                
-                <form id="newClientForm" onSubmit={handleCreateClient} className="space-y-4">
+        <FormDialog title="Cadastrar Novo Cliente" busy={isSaving} onClose={() => {setIsModalOpen(false);setNewClient({name:'',address:'',phone:'',email:''});setCreateError('');setInvalidFields([]);}} footer={
+          <div className="flex flex-wrap justify-end gap-2">
+            <button type="button" data-dialog-cancel disabled={isSaving} className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 disabled:cursor-not-allowed">Cancelar</button>
+            <button type="submit" form="newClientForm" disabled={isSaving} className="inline-flex min-w-32 items-center justify-center rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 focus-visible:outline focus-visible:outline-2 disabled:cursor-not-allowed disabled:opacity-70">
+              {isSaving ? <><Loader2 aria-hidden="true" className="mr-2 h-4 w-4 animate-spin" />Salvando...</> : 'Salvar Cliente'}
+            </button>
+          </div>
+        }>
+                <form id="newClientForm" noValidate onSubmit={handleCreateClient} className="space-y-4">
+                  {createError && <p id="new-client-error" role="alert" className="text-sm text-red-600 dark:text-red-300">{createError}</p>}
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Nome da Empresa</label>
+                    <label htmlFor="new-client-name" className="block text-sm font-medium text-slate-700 mb-1">Nome da Empresa</label>
                     <input 
+                      id="new-client-name"
+                      aria-invalid={invalidFields.includes('new-client-name') || undefined}
+                      aria-describedby={createError ? 'new-client-error' : undefined}
                       type="text" 
                       required
                       className="w-full border-slate-300 rounded-md shadow-sm p-2 border focus:ring-indigo-500 focus:border-indigo-500" 
@@ -434,8 +443,9 @@ export default function ClientsList() {
                   </div>
                   
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Endereço Completo</label>
+                    <label htmlFor="new-client-address" className="block text-sm font-medium text-slate-700 mb-1">Endereço Completo</label>
                     <input 
+                      id="new-client-address"
                       type="text" 
                       className="w-full border-slate-300 rounded-md shadow-sm p-2 border focus:ring-indigo-500 focus:border-indigo-500" 
                       value={newClient.address}
@@ -446,8 +456,9 @@ export default function ClientsList() {
 
                   <div className="grid grid-cols-1 gap-y-4 gap-x-4 sm:grid-cols-2">
                     <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Telefone</label>
+                      <label htmlFor="new-client-phone" className="block text-sm font-medium text-slate-700 mb-1">Telefone</label>
                       <input 
+                        id="new-client-phone"
                         type="text" 
                         className="w-full border-slate-300 rounded-md shadow-sm p-2 border focus:ring-indigo-500 focus:border-indigo-500" 
                         value={newClient.phone}
@@ -456,8 +467,11 @@ export default function ClientsList() {
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">E-mail de Contato</label>
+                      <label htmlFor="new-client-email" className="block text-sm font-medium text-slate-700 mb-1">E-mail de Contato</label>
                       <input 
+                        id="new-client-email"
+                        aria-invalid={invalidFields.includes('new-client-email') || undefined}
+                        aria-describedby={createError ? 'new-client-error' : undefined}
                         type="email" 
                         className="w-full border-slate-300 rounded-md shadow-sm p-2 border focus:ring-indigo-500 focus:border-indigo-500" 
                         value={newClient.email}
@@ -467,29 +481,7 @@ export default function ClientsList() {
                     </div>
                   </div>
                 </form>
-              </div>
-              <div className="bg-slate-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
-                <button 
-                  type="submit" 
-                  form="newClientForm"
-                  disabled={isSaving}
-                  className={`w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-indigo-600 text-base font-medium text-white hover:bg-indigo-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:ml-3 sm:w-auto sm:text-sm ${isSaving ? 'opacity-70 cursor-not-allowed' : ''}`}
-                >
-                  {isSaving ? (
-                    <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Salvando...</>
-                  ) : 'Salvar Cliente'}
-                </button>
-                <button 
-                  type="button" 
-                  onClick={() => setIsModalOpen(false)}
-                  className="mt-3 w-full inline-flex justify-center rounded-md border border-slate-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-slate-700 hover:bg-slate-50 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
-                >
-                  Cancelar
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+        </FormDialog>
       )}
     </div>
   );

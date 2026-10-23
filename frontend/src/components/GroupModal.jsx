@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react';
-import { X, Loader2 } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { Loader2 } from 'lucide-react';
+import FormDialog from './FormDialog';
 import api from '../services/api';
 import { safeLogError } from '../utils/safeLogger';
 
@@ -21,6 +22,8 @@ export default function GroupModal({ isOpen, onClose, groupToEdit, onSaveSuccess
   const [isSaving, setIsSaving] = useState(false);
   const [isLoadingUsers, setIsLoadingUsers] = useState(false);
   const [users, setUsers] = useState([]);
+  const [formError, setFormError] = useState('');
+  const savingRef = useRef(false);
   
   const [formData, setFormData] = useState({
     name: '',
@@ -37,6 +40,7 @@ export default function GroupModal({ isOpen, onClose, groupToEdit, onSaveSuccess
       // Initialise after the effect subscribes; stale/closed loads never commit.
       await Promise.resolve();
       if (!current) return;
+      setFormError('');
       if (groupToEdit) {
         setFormData({
           name: groupToEdit.name || '',
@@ -98,6 +102,14 @@ export default function GroupModal({ isOpen, onClose, groupToEdit, onSaveSuccess
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (savingRef.current) return;
+    setFormError('');
+    if (!e.currentTarget.checkValidity()) {
+      setFormError('Preencha o nome do grupo.');
+      e.currentTarget.querySelector(':invalid')?.focus();
+      return;
+    }
+    savingRef.current = true;
     setIsSaving(true);
     try {
       if (groupToEdit) {
@@ -108,8 +120,9 @@ export default function GroupModal({ isOpen, onClose, groupToEdit, onSaveSuccess
       onSaveSuccess();
     } catch (error) {
       safeLogError('Erro ao salvar grupo.', error);
-      alert(error.response?.data?.error || 'Erro ao salvar grupo.');
+      setFormError(error.response?.data?.error || 'Não foi possível salvar o grupo. Tente novamente.');
     } finally {
+      savingRef.current = false;
       setIsSaving(false);
     }
   };
@@ -119,26 +132,22 @@ export default function GroupModal({ isOpen, onClose, groupToEdit, onSaveSuccess
   const isSystemGroup = groupToEdit?.name === 'Administradores';
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
-      <div className="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
-        <div className="fixed inset-0 bg-slate-500/75 transition-opacity" aria-hidden="true" onClick={onClose}></div>
-        <span className="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
-        
-        <div className="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-xl sm:w-full">
-          <div className="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
-            <div className="flex justify-between items-center mb-5">
-              <h3 className="text-lg leading-6 font-medium text-slate-900" id="modal-title">
-                {groupToEdit ? 'Editar Grupo' : 'Novo Grupo'}
-              </h3>
-              <button onClick={onClose} className="text-slate-400 hover:text-slate-500">
-                <X className="h-6 w-6" />
-              </button>
-            </div>
-            
-            <form id="groupForm" onSubmit={handleSubmit} className="space-y-4">
+    <FormDialog title={groupToEdit ? 'Editar Grupo' : 'Novo Grupo'} onClose={onClose} busy={isSaving} footer={
+      <div className="flex flex-wrap justify-end gap-2">
+        <button type="button" data-dialog-cancel disabled={isSaving} className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 disabled:cursor-not-allowed">Cancelar</button>
+        <button type="submit" form="groupForm" disabled={isSaving} className="inline-flex min-w-32 items-center justify-center rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 focus-visible:outline focus-visible:outline-2 disabled:cursor-not-allowed disabled:opacity-70">
+          {isSaving ? <><Loader2 aria-hidden="true" className="mr-2 h-4 w-4 animate-spin" />Salvando...</> : 'Salvar Grupo'}
+        </button>
+      </div>
+    }>
+            <form id="groupForm" noValidate onSubmit={handleSubmit} className="space-y-4">
+              {formError && <p id="group-form-error" role="alert" className="text-sm text-red-600 dark:text-red-300">{formError}</p>}
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Nome do Grupo</label>
+                <label htmlFor="group-name" className="block text-sm font-medium text-slate-700 mb-1">Nome do Grupo</label>
                 <input 
+                  id="group-name"
+                  aria-invalid={formError && !formData.name ? true : undefined}
+                  aria-describedby={formError ? 'group-form-error' : undefined}
                   type="text" 
                   required
                   disabled={isSystemGroup}
@@ -153,8 +162,9 @@ export default function GroupModal({ isOpen, onClose, groupToEdit, onSaveSuccess
               </div>
               
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Descrição (Opcional)</label>
+                <label htmlFor="group-description" className="block text-sm font-medium text-slate-700 mb-1">Descrição (Opcional)</label>
                 <input 
+                  id="group-description"
                   type="text" 
                   className="w-full border-slate-300 rounded-md shadow-sm p-2 border focus:ring-indigo-500 focus:border-indigo-500" 
                   value={formData.description}
@@ -209,28 +219,6 @@ export default function GroupModal({ isOpen, onClose, groupToEdit, onSaveSuccess
                 </div>
               </div>
             </form>
-          </div>
-          <div className="bg-slate-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
-            <button 
-              type="submit" 
-              form="groupForm"
-              disabled={isSaving}
-              className={`w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-indigo-600 text-base font-medium text-white hover:bg-indigo-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:ml-3 sm:w-auto sm:text-sm ${isSaving ? 'opacity-70 cursor-not-allowed' : ''}`}
-            >
-              {isSaving ? (
-                <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Salvando...</>
-              ) : 'Salvar Grupo'}
-            </button>
-            <button 
-              type="button" 
-              onClick={onClose}
-              className="mt-3 w-full inline-flex justify-center rounded-md border border-slate-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-slate-700 hover:bg-slate-50 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
-            >
-              Cancelar
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
+    </FormDialog>
   );
 }

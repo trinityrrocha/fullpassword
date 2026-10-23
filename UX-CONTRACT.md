@@ -23,7 +23,7 @@ DESIGN.md espelha Tailwind/index.css; runtime é canônico. Não alterar tokens 
 | Capability | Canonical owner | Source of truth | Allowed variants | Verification |
 |---|---|---|---|---|
 | Form | FormDialog / ReauthDialog | frontend/src/components/FormDialog.jsx / ReauthDialog.jsx | perfil/equipe; confirmação sensível, sem valores persistidos | ESLint/build; browser isolado |
-| Form/Dialog | FormDialog | frontend/src/components/FormDialog.jsx | perfil, membro; filho, obrigatório, descarte | browser isolado: hit test, foco, scroll, 320/390/1280 light/dark |
+| Form/Dialog | FormDialog | frontend/src/components/FormDialog.jsx | perfil, membro, cliente, grupo; filho, obrigatório, descarte | browser isolado: hit test, foco, scroll, 320/390/768/1280 light/dark |
 | Groups | GroupMembershipSelector | frontend/src/pages/TeamList.jsx | disclosure inline, checkboxes nativos, Escape retorna ao trigger | browser create/edit |
 | CRUD | API/backend | releaseController.js, vaultCryptoController.js | pedido pessimista; leitura somente para item | HTTP + PostgreSQL |
 | Scrollbar | frontend/src/index.css | CSS runtime existente | fluxo natural; sem novo scroller de tabela | revisão estática |
@@ -53,6 +53,17 @@ shell. SHA quebra linha. Itens diretos não navegam para um cofre não autorizad
 Negação de cofre responde 404 deliberadamente para não divulgar sua existência.
 
 ## Overlays and feedback
+
+Clientes → Cadastrar Novo Cliente e Equipe → Novo/Editar Grupo usam FormDialog
+(2026-10-23). O painel posicionado fica acima do backdrop no portal, com foco
+contido/restaurado, Escape, corpo rolável, ações persistentes e descarte protegido.
+Campos e payloads existentes são preservados; nome obrigatório e e-mail opcional
+válido continuam usando a validade dos controles, com erro inline em vez de bolha
+nativa. Falha de save conserva o formulário; um ref bloqueia submit duplicado.
+O grupo Administradores mantém nome/permissões bloqueados. Fonte: ClientsList,
+GroupModal e contratos existentes de /clients e /groups. Evidência reproduzível:
+frontend/scripts/test-modal-interaction-browser.js (1280/768/390, claro/escuro,
+clique/digitação reais, hit-test, membros/permissões, save/retry/cancel e teclado).
 
 ReauthDialog é portal no body e torna root inert. Trap de Tab, Escape condicionado
 ao request, foco devolvido ao trigger ou painel quando trigger estiver disabled.
