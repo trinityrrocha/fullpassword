@@ -27,6 +27,7 @@ async function run() {
     onLog: () => {}, onError: () => {}
   });
   let database; let httpServer;
+  const connectionEnds = [];
   try {
     await postgres.initialise();
     await postgres.start();
@@ -39,6 +40,11 @@ async function run() {
       BACKUP_TEMP_DIR: path.join(directory, 'uploads')
     });
     database = require('../src/config/database');
+    // pg-pool removes clients before their socket 'end' is necessarily delivered.
+    // Wait for actual connection closure before stopping the disposable server.
+    database.pool.on('connect', client => {
+      connectionEnds.push(new Promise(resolve => client.once('end', resolve)));
+    });
     await database.query(await fs.readFile(path.join(__dirname, '../../database/init.sql'), 'utf8'));
     await require('../src/config/securitySchema').ensureSecuritySchema();
     const stagingSql = await fs.readFile(path.join(__dirname, '../../database/migrations/21_stage_isolated_vault_crypto.sql'), 'utf8');
@@ -183,6 +189,7 @@ async function run() {
   } finally {
     if(httpServer) await new Promise(resolve=>httpServer.close(resolve));
     if(database) await database.pool.end();
+    await Promise.all(connectionEnds);
     await postgres.stop().catch(()=>{});
     // Only the random directory created above may be removed.
     assert.ok(path.resolve(directory).startsWith(path.resolve(os.tmpdir())+path.sep+'fullpassword-audit-test-'));
