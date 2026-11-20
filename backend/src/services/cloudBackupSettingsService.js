@@ -335,8 +335,15 @@ const saveProviderConfiguration = async (provider, input, userId, queryable = db
     );
   }
   const current = await getProviderRow(normalized, queryable);
-  const currentCredentials = decryptProviderCredentials(current);
-  const validated = S3_PROVIDERS.has(normalized)
+  const isS3 = S3_PROVIDERS.has(normalized);
+  const stored = current.public_config || {};
+  // Stored secrets may only follow the destination they were saved for; a new host gets new credentials.
+  const sameDestination = isS3
+    ? Boolean(stored.endpoint) && String(input.endpoint || '').trim().replace(/\/+$/, '') === stored.endpoint
+    : Boolean(stored.host) && String(input.host || '').trim() === stored.host && Number(input.port || 21) === Number(stored.port);
+  const reusesStoredSecret = isS3 ? !input.access_key || !input.secret_key : !input.username || !input.password;
+  const currentCredentials = sameDestination && reusesStoredSecret ? decryptProviderCredentials(current) : null;
+  const validated = isS3
     ? validateS3Config(normalized, input, currentCredentials)
     : validateFtpConfig(input, currentCredentials);
   const encryptedCredentials = encryptConfigSecret(JSON.stringify(validated.credentials));
@@ -407,7 +414,24 @@ const selectProvider = async (provider, userId, queryable = db) => {
   return getStatus(queryable);
 };
 
-const updateSettings = async (input, userId, queryable = db) => {
+// Provider switch and validation must commit together: a later 400 must not leave backups disabled.
+const updateSettings = async (input, userId, queryable) => {
+  if (queryable) return applySettingsUpdate(input, userId, queryable);
+  const client = await db.pool.connect();
+  try {
+    await client.query('BEGIN');
+    const result = await applySettingsUpdate(input, userId, client);
+    await client.query('COMMIT');
+    return result;
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+};
+
+const applySettingsUpdate = async (input, userId, queryable) => {
   let current = await getRawSettings(queryable);
   const enabled = input.enabled === true;
   const scheduleEnabled = input.schedule_enabled === true;

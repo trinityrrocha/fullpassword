@@ -39,6 +39,7 @@ let tables = makeEmptyTables();
 tables.users.push({
   id: 1,
   email: 'admin@example.com',
+  is_super_admin: true,
   menu_position: 'top',
   menu_display: 'icons',
   crypto_identity: {version:2},
@@ -95,7 +96,7 @@ const makeClient = () => {
       if (sql === 'ROLLBACK') {
         if (transactionSnapshot) tables = transactionSnapshot;
         transactionSnapshot = null;
-        return { rows: [] };
+        return Promise.resolve({ rows: [] }); // callers use client.query('ROLLBACK').catch()
       }
       if (sql === 'SET CONSTRAINTS ALL DEFERRED') return { rows: [] };
       if(sql==='UPDATE users SET vault_secret_changed_at=CURRENT_TIMESTAMP WHERE crypto_identity IS NOT NULL AND vault_secret_changed_at IS NULL'){
@@ -110,6 +111,9 @@ const makeClient = () => {
       }
       if (sql.startsWith('SELECT pg_get_serial_sequence')) return { rows: [{ name: null }] };
 
+      if (sql === 'SELECT COUNT(*)::int AS total FROM users WHERE is_super_admin = TRUE') {
+        return { rows: [{ total: tables.users.filter((user) => user.is_super_admin === true || user.is_super_admin === 'true').length }] };
+      }
       const deleteMatch = /^DELETE FROM ([a-z0-9_]+)$/i.exec(sql);
       if (deleteMatch) {
         tables[deleteMatch[1]] = [];
@@ -125,11 +129,13 @@ const makeClient = () => {
           error.constraint = `${table}_test_constraint`;
           throw error;
         }
-        if (/ON CONFLICT/i.test(sql)) {
+        if (/VALUES (1) ON CONFLICT/i.test(sql)) {
           if (!tables[table].some((row) => row.id === 1)) tables[table].push({ id: 1 });
           return { rows: [] };
         }
         const columns = insertMatch[2].split(',').map((column) => column.trim());
+        const idIndex = columns.indexOf('id');
+        if (/ON CONFLICT DO NOTHING$/.test(sql) && idIndex >= 0 && tables[table].some((row) => row.id === params[idIndex])) return { rows: [] };
         tables[table].push(Object.fromEntries(columns.map((column, index) => [column, params[index]])));
         return { rows: [] };
       }
@@ -267,6 +273,18 @@ const run = async () => {
     const oldEnvelope={...v1Envelope,kdf:{name:'scrypt',salt:oldSalt.toString('base64'),params:{N:32768,r:8,p:1,keyLength:32}},cipher:{name:'aes-256-gcm',iv:oldIv.toString('base64'),tag:oldCipher.getAuthTag().toString('base64')},ciphertext:oldCiphertext.toString('base64')};
     assert.deepEqual((await parseAndDecryptBackup(Buffer.from(JSON.stringify(oldEnvelope)),passphrase)).payload,v1Payload);
     const parsedV1 = await parseAndDecryptBackup(Buffer.from(JSON.stringify(v1Envelope)), passphrase);
+    // Whoever restores picks the passphrase: the audit trail stays append-only and exactly one Super Admin is required.
+    tables = makeEmptyTables();
+    tables.system_audit_events.push({ id: 987654, action: 'pre_restore_event' });
+    await restoreBackupPayload(parsedV1.payload);
+    assert.ok(tables.system_audit_events.some((event) => event.id === 987654));
+    const withoutSuperAdmin = cloneTables(originalTables);
+    withoutSuperAdmin.users = withoutSuperAdmin.users.map((user) => ({ ...user, is_super_admin: false }));
+    tables = makeEmptyTables();
+    await assert.rejects(
+      () => restoreBackupPayload({ ...v1Payload, data: withoutSuperAdmin }),
+      (error) => error?.code === 'BACKUP_RESTORE_DATABASE_ERROR' && error.restoreStage === 'verify'
+    );
     tables = makeEmptyTables();
     await restoreBackupPayload(parsedV1.payload);
     assert.equal(tables.users.length, originalTables.users.length);

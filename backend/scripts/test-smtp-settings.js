@@ -166,6 +166,11 @@ const run = async () => {
     () => normalizeSmtpSettings({ enabled: false, port: 70000 }),
     /porta SMTP/
   );
+  // A stored password is never reused for a different server.
+  const savedSmtp = { enabled: false, host: 'smtp.example.com', port: 465, security: 'ssl_tls', username: 'mailer', encrypted_password: 'v1:stored', timeout_seconds: 10 };
+  assert.throws(() => normalizeSmtpSettings({ host: 'attacker.example.com', password: '' }, savedSmtp), /senha SMTP/);
+  assert.throws(() => normalizeSmtpSettings({ port: 2525 }, savedSmtp), /senha SMTP/);
+  assert.equal(normalizeSmtpSettings({ from_name: 'FullPassword' }, savedSmtp).encrypted_password, 'v1:stored');
 
   const limiterApp = express();
   limiterApp.post('/smtp-test', smtpTestLimiter, (_req, res) => res.json({ ok: true }));
