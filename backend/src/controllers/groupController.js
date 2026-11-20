@@ -1,6 +1,7 @@
 const db = require('../config/database');
 const { normalizePermissionSet } = require('../services/accessControlService');
 const { safeLogError } = require('../utils/safeLogger');
+const { recordAuditEvent } = require('../services/auditService');
 
 const normalizeGroupPayload = (body = {}, forceAdmin = false) => {
   if (forceAdmin) {
@@ -19,21 +20,8 @@ const normalizeGroupPayload = (body = {}, forceAdmin = false) => {
 const getGroupOptions = async (req, res) => {
   try {
 
-    const result = await db.query(`
-      SELECT
-        g.id,
-        g.name,
-        g.description,
-        g.can_view,
-        g.can_edit,
-        g.can_add,
-        g.can_delete,
-        COUNT(ug.user_id)::int AS members_count
-      FROM groups g
-      LEFT JOIN user_groups ug ON ug.group_id = g.id
-      GROUP BY g.id
-      ORDER BY g.name ASC
-    `);
+    // Any authenticated vault owner picks share targets here; expose only what the selector shows.
+    const result = await db.query('SELECT id, name FROM groups ORDER BY name ASC');
 
     res.status(200).json(result.rows);
   } catch (error) {
@@ -68,6 +56,9 @@ const getGroups = async (req, res) => {
   }
 };
 
+// A second "Administradores" group would be picked by ensureAdminGroupMembership's name lookup.
+const isReservedAdminName = (name) => String(name).trim().toLowerCase() === 'administradores';
+
 // POST /api/groups - Cria um novo grupo
 const createGroup = async (req, res) => {
   const client = await db.pool.connect();
@@ -78,6 +69,9 @@ const createGroup = async (req, res) => {
 
     if (!name) {
       return res.status(400).json({ error: 'O nome do grupo é obrigatório' });
+    }
+    if (isReservedAdminName(name)) {
+      return res.status(409).json({ error: 'O nome Administradores é reservado ao grupo padrão' });
     }
 
     const permissions = normalizeGroupPayload(req.body);
@@ -104,6 +98,7 @@ const createGroup = async (req, res) => {
     }
 
     await client.query('COMMIT');
+    await recordAuditEvent({ user: req.user, action: 'group_created', status: 'success', req, metadata: { group_id: groupId, members: Array.isArray(userIds) ? userIds.length : 0 } });
 
     res.status(201).json({
       message: 'Grupo criado com sucesso',
@@ -140,6 +135,9 @@ const updateGroup = async (req, res) => {
     if (isAdminGroup && name !== 'Administradores') {
       return res.status(403).json({ error: 'Não é possível renomear o grupo padrão de Administradores' });
     }
+    if (!isAdminGroup && isReservedAdminName(name)) {
+      return res.status(409).json({ error: 'O nome Administradores é reservado ao grupo padrão' });
+    }
 
     const permissions = normalizeGroupPayload(req.body, isAdminGroup);
 
@@ -174,6 +172,7 @@ const updateGroup = async (req, res) => {
     }
 
     await client.query('COMMIT');
+    await recordAuditEvent({ user: req.user, action: 'group_updated', status: 'success', req, metadata: { group_id: id, members: Array.isArray(userIds) ? userIds.length : null } });
 
     res.status(200).json({
       message: 'Grupo atualizado com sucesso',

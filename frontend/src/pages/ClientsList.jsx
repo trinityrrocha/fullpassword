@@ -400,7 +400,7 @@ export default function ClientsList() {
               </div>
             </form>
             <div className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-200 bg-slate-50 px-6 py-3">
-              {(editClient.is_owner || editClient.is_admin || editClient.can_delete) && (
+              {(editClient.is_owner || editClient.is_admin) && (
                 <>
                   <button type="button" title="Excluir empresa" aria-label="Excluir empresa" disabled={deleteConfirmation.trim() !== 'EXCLUIR' || isSaving} onClick={deleteClient} className="action-icon-button action-icon-delete"><Trash2 className="h-4 w-4" /></button>
                   <label htmlFor="deleteClientConfirmation" className="sr-only">Digite EXCLUIR para confirmar a exclusão da empresa</label>

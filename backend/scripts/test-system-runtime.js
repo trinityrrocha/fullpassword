@@ -49,6 +49,11 @@ const run = async () => {
   assert.equal(response.payload.super_admin_email, 'initial.admin@example.test');
   assert.equal(response.payload.is_super_admin, true);
 
+  // Regular users must not learn the Super Admin e-mail (reconnaissance for phishing).
+  response = createResponse();
+  await getSystemPermissions({ user: { role: 'user', is_super_admin: false, email: 'user@example.test' } }, response);
+  assert.equal(response.payload.super_admin_email, null);
+
   delete process.env.SUPER_ADMIN_EMAIL;
   assert.equal(getConfiguredSuperAdminEmail(), null);
   response = createResponse();

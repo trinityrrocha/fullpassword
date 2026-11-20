@@ -255,7 +255,8 @@ const updateClient = async (req, res) => {
 
 const deleteClient = async (req, res) => {
   try {
-    await requireClientPermission(req.params.clientId, req.user, 'delete');
+    // can_delete covers records; removing the whole vault is a structural, owner-level action.
+    await requireClientPermission(req.params.clientId, req.user, 'manage_share');
     if (req.body?.confirmation !== 'EXCLUIR') {
       return res.status(400).json({ error: 'Confirmação de exclusão inválida' });
     }

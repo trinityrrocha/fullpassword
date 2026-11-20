@@ -46,10 +46,13 @@ api.interceptors.response.use(
   },
   async (error) => {
     if (error.response?.data?.code === 'REAUTH_REQUIRED' && error.response.data.purpose && !error.config?._reauthRetried) {
-      const action = (typeof error.config.data === 'string' ? JSON.parse(error.config.data) : error.config.data) || {};
+      // Uploads are checked before the server parses the body, so they carry the grant in a header.
+      const isUpload = error.config.data instanceof FormData;
+      const action = isUpload ? {} : (typeof error.config.data === 'string' ? JSON.parse(error.config.data) : error.config.data) || {};
       const token = await new Promise(resolve => window.dispatchEvent(new CustomEvent('fullpassword:reauth', {
         detail:{purpose:error.response.data.purpose,action,resolve}
       })));
+      if (token && isUpload) return api.request({...error.config,_reauthRetried:true,headers:{...error.config.headers,'x-reauth-token':token}});
       if (token) return api.request({...error.config,_reauthRetried:true,data:{...action,_reauth_token:token}});
     }
     if (error.response?.status === 429) {

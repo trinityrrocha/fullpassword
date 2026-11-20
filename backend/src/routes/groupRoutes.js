@@ -20,8 +20,10 @@ router.get('/options', groupController.getGroupOptions);
 // Rotas CRUD restritas a administradores
 router.use(requireAdmin);
 router.get('/', groupController.getGroups);
-router.post('/', groupController.createGroup);
-router.put('/:id', groupController.updateGroup);
-router.delete('/:id', groupController.deleteGroup);
+// Membership grants vault access, so changes need the same reauth as editing a user's groups.
+const { guard, guardFixed } = require('../services/reauthService');
+router.post('/', guardFixed('group_create'), groupController.createGroup);
+router.put('/:id', guard('group_change'), groupController.updateGroup);
+router.delete('/:id', guard('group_delete'), groupController.deleteGroup);
 
 module.exports = router;

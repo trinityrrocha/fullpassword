@@ -109,7 +109,7 @@ router.get('/password-policy', asyncRoute(passwordPolicyController.getPolicy));
 router.put('/password-policy', asyncRoute(passwordPolicyController.updatePolicy));
 router.get('/audit-events', systemController.getAuditEvents);
 router.get('/smtp', asyncRoute(smtpController.getSettings));
-router.put('/smtp', asyncRoute(smtpController.saveSettings));
+router.put('/smtp', require('../services/reauthService').guardFixed('smtp_settings'), asyncRoute(smtpController.saveSettings));
 router.post('/smtp/test', smtpTestLimiter, asyncRoute(smtpController.testSettings));
 router.get('/screen-protection', asyncRoute(securityController.getScreenProtection));
 router.put('/screen-protection', asyncRoute(securityController.updateScreenProtection));
@@ -128,7 +128,7 @@ router.get('/update/status', requireSuperAdmin, require('../controllers/releaseC
 router.post('/update/check', asyncRoute(updateStatusController.requestCheck));
 router.post('/update/mark-seen', asyncRoute(updateStatusController.markSeen));
 router.get('/backup', systemController.rejectLegacyBackupDownload);
-router.post('/backup', systemController.downloadBackup);
+router.post('/backup', require('../services/reauthService').guardFixed('backup_export'), systemController.downloadBackup);
 router.post(
   '/backup/restore/dry-run',
   requireSuperAdmin,
@@ -140,6 +140,7 @@ router.post(
 router.post(
   '/backup/restore',
   requireSuperAdmin,
+  require('../services/reauthService').guardFixed('backup_restore'),
   enforceContentLength(BACKUP_MAX_UPLOAD_BYTES + MEBIBYTE),
   restoreUploadGuard,
   receiveRestoreFile,

@@ -244,7 +244,8 @@ const mutateRecords = transaction(async(req,client)=>{
   if(vault.rotation_required) fail('VAULT_ROTATION_REQUIRED');
   if(req.body.epoch!==vault.crypto_epoch || String(req.body.revision)!==String(vault.crypto_revision)) fail('VAULT_VERSION_CONFLICT');
   const mutations=req.body.mutations;
-  if(!Array.isArray(mutations) || mutations.length>1000) fail('INVALID_MUTATIONS',400);
+  // Permissions are checked per mutation; an empty batch would let a read-only member bump the revision.
+  if(!Array.isArray(mutations) || mutations.length===0 || mutations.length>1000) fail('INVALID_MUTATIONS',400);
   const seen=new Set();
   for(const mutation of mutations) {
     if(!uuid.test(mutation.id)) fail('INVALID_RECORD_ID',400);

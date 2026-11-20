@@ -103,9 +103,10 @@ const getBootstrapState = async (client = db) => {
 const bootstrapStatus = async (_req, res) => {
   try {
     const state = await getBootstrapState();
+    // Public endpoint: the configured e-mail is only needed while the first account is being created.
     return res.status(200).json({
       required: state.required,
-      super_admin_email: SUPER_ADMIN_EMAIL
+      super_admin_email: state.required ? SUPER_ADMIN_EMAIL : null
     });
   } catch (error) {
     safeLogError('Erro ao consultar bootstrap.', error);
