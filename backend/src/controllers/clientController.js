@@ -2,6 +2,7 @@ const db = require('../config/database');
 const { getClientPermissions, requireClientPermission, logVaultAccess } = require('../services/accessControlService');
 const { isSuperAdmin } = require('../config/security');
 const { safeLogError } = require('../utils/safeLogger');
+const { UUID } = require('../middleware/uuidParam');
 const { syncDomainExpirationNotifications } = require('../services/domainExpirationService');
 
 // GET /api/clients - Lista apenas cofres próprios ou compartilhados com grupos que podem visualizar
@@ -36,8 +37,13 @@ const createClient = async (req, res) => {
 
     const { name, address, phone, email, group_ids } = req.body;
 
-    if (!name) {
+    if (typeof name !== 'string' || !name.trim()) {
       return res.status(400).json({ error: 'Nome do cliente é obrigatório' });
+    }
+    // Arrays/objects would otherwise be stored as PostgreSQL literals such as {"a","b"}.
+    if ([address, phone, email].some((value) => value != null && typeof value !== 'string')
+      || (group_ids != null && (!Array.isArray(group_ids) || group_ids.some((id) => !UUID.test(String(id)))))) {
+      return res.status(400).json({ error: 'Dados do cliente inválidos' });
     }
 
     await transaction.query('BEGIN');

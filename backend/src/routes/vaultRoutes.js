@@ -1,5 +1,8 @@
 const express = require('express');
 const router = express.Router();
+const { requireUuidParam } = require('../middleware/uuidParam');
+router.param('clientId', requireUuidParam);
+router.param('id', requireUuidParam);
 const vaultController = require('../controllers/vaultController');
 const clientKeyController = require('../controllers/clientKeyController');
 const { verifyToken } = require('../middleware/authMiddleware');

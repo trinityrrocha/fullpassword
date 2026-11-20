@@ -1,5 +1,7 @@
 const express = require('express');
 const router = express.Router();
+const { requireUuidParam } = require('../middleware/uuidParam');
+router.param('id', requireUuidParam);
 const groupController = require('../controllers/groupController');
 const { verifyToken } = require('../middleware/authMiddleware');
 

@@ -2,6 +2,8 @@ const router=require('express').Router();
 const {verifyToken}=require('../middleware/authMiddleware');
 const c=require('../controllers/vaultCryptoController');
 router.use(verifyToken);
+const {requireUuidParam}=require('../middleware/uuidParam');
+for(const param of ['id','stageId']) router.param(param,requireUuidParam);
 router.get('/identity',c.getIdentity);
 router.post('/identity',require('../services/reauthService').attemptLimit,c.saveIdentity);
 router.put('/identity/unlock-secret',require('../services/reauthService').attemptLimit,require('../controllers/identityUnlockController').updateUnlockSecret);

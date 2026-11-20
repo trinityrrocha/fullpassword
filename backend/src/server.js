@@ -152,11 +152,14 @@ app.use('/api/system', systemRoutes);
 app.use('/api/groups', groupRoutes);
 app.use('/api/integrations', integrationRoutes);
 app.use('/api/cloud-backup', cloudBackupRoutes);
+// JSON 404 instead of Express's HTML page, which names the framework.
+app.use('/api', (_req, res) => res.status(404).json({ error: 'Rota não encontrada' }));
 
 app.use(payloadTooLargeErrorHandler);
 
 // Middleware para tratamento de erros não capturados
 app.use((err, req, res, next) => {
+  if (err?.type === 'entity.parse.failed') return res.status(400).json({ error: 'JSON inválido.' });
   safeLogError('Erro não tratado na API.', err);
   res.status(500).json({ 
     error: 'Erro interno do servidor',

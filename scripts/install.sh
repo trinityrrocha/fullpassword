@@ -383,6 +383,7 @@ generate_nginx_config() {
         proxy_proto='$scheme'
         cat > "$APP_DIR/docker/nginx.runtime.conf" << EOF
 server {
+    server_tokens off;
     listen 80;
     listen [::]:80;
     server_name $DOMAIN;
@@ -390,6 +391,7 @@ server {
 }
 
 server {
+    server_tokens off;
     listen 443 ssl;
     listen [::]:443 ssl;
     server_name $DOMAIN;
@@ -405,6 +407,7 @@ EOF
     else
         cat > "$APP_DIR/docker/nginx.runtime.conf" << EOF
 server {
+    server_tokens off;
     listen 80;
     listen [::]:80;
     server_name $DOMAIN;

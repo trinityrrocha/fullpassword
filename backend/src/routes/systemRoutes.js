@@ -104,7 +104,8 @@ router.get('/client-ip-status', requireSuperAdmin, (req, res) => {
 
 router.get('/permissions', systemController.getSystemPermissions);
 router.get('/sessions', sessionController.listAllSessions);
-router.delete('/sessions/:id', sessionController.revokeSessionByAdmin);
+// ip-rules/:id is a BIGSERIAL, so only the UUID session route gets the check.
+router.delete('/sessions/:id', (req, res, next) => require('../middleware/uuidParam').requireUuidParam(req, res, next, req.params.id), sessionController.revokeSessionByAdmin);
 router.get('/password-policy', asyncRoute(passwordPolicyController.getPolicy));
 router.put('/password-policy', asyncRoute(passwordPolicyController.updatePolicy));
 router.get('/audit-events', systemController.getAuditEvents);
