@@ -38,7 +38,7 @@ const sanitizeIpv4MaskInput = (value = '') => {
 
 const makeId = () => {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
-  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return `${Date.now()}-${Array.from(crypto.getRandomValues(new Uint32Array(2)), (n) => n.toString(36)).join('')}`;
 };
 
 const emptyProxmoxApi = () => ({
