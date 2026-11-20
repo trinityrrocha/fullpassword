@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { Building2, Search, Plus, Pencil, Eye, Trash2, X, Loader2 } from 'lucide-react';
+import { Building2, Search, Plus, Pencil, Eye, Trash2, Loader2 } from 'lucide-react';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import useClearOnVaultLock from '../hooks/useClearOnVaultLock';
@@ -59,6 +59,7 @@ export default function ClientsList() {
   const [searchTerm, setSearchTerm] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const creatingRef = useRef(false);
   const [createError, setCreateError] = useState('');
@@ -92,12 +93,13 @@ export default function ClientsList() {
 
   const loadClients = async () => {
     setIsLoading(true);
+    setLoadError('');
     try {
       const response = await api.get('/clients');
       setClients(response.data || []);
     } catch (error) {
       safeLogError('Erro ao carregar clientes.', error);
-      alert('Não foi possível carregar a lista de clientes.');
+      setLoadError('Não foi possível carregar a lista de clientes.');
     } finally {
       setIsLoading(false);
     }
@@ -111,7 +113,7 @@ export default function ClientsList() {
       })
       .catch((error) => {
         safeLogError('Erro ao carregar clientes.', error);
-        if (!cancelled) alert('Não foi possível carregar a lista de clientes.');
+        if (!cancelled) setLoadError('Não foi possível carregar a lista de clientes.');
       })
       .finally(() => {
         if (!cancelled) setIsLoading(false);
@@ -287,7 +289,8 @@ export default function ClientsList() {
               <Search className="h-4 w-4 text-slate-400" />
             </div>
             <input
-              type="text"
+              type="search"
+              aria-label="Buscar cliente por nome"
               className="focus:ring-indigo-500 focus:border-indigo-500 block w-full pl-10 sm:text-sm border-slate-300 rounded-md p-2 border"
               placeholder="Buscar cliente por nome..."
               value={searchTerm}
@@ -301,6 +304,12 @@ export default function ClientsList() {
             <li className="px-4 py-8 text-center text-slate-500">
               <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-indigo-600" />
               Carregando clientes...
+            </li>
+          ) : loadError ? (
+            // A failed load must not look like an empty account.
+            <li role="alert" className="px-4 py-8 text-center text-red-700 dark:text-red-300">
+              {loadError}{' '}
+              <button type="button" onClick={loadClients} className="font-medium text-indigo-600 underline focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-indigo-500">Tentar novamente</button>
             </li>
           ) : filteredClients.length === 0 ? (
             <li className="px-4 py-8 text-center text-slate-500">
@@ -333,38 +342,27 @@ export default function ClientsList() {
       </div>
 
       {unlockClient && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4" role="dialog" aria-modal="true" aria-labelledby="unlock-client-title" onClick={closeUnlockModal}>
-          <div className="w-full max-w-md overflow-hidden rounded-lg bg-white shadow-xl" onClick={(event) => event.stopPropagation()}>
-            <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
-              <h2 id="unlock-client-title" className="text-lg font-semibold text-slate-900">Desbloquear cofre</h2>
-              <button type="button" title="Fechar" aria-label="Fechar" onClick={closeUnlockModal} className="text-slate-400 hover:text-slate-600"><X className="h-5 w-5" /></button>
-            </div>
-            <form onSubmit={unlockClientPreview}>
-              <div className="space-y-4 p-6">
-                <p className="text-sm text-slate-600">Informe seu segredo independente de desbloqueio para visualizar o resumo desta empresa.</p>
+        <FormDialog title="Desbloquear cofre" description={"Informe seu segredo independente de desbloqueio para visualizar o resumo desta empresa."} busy={isUnlocking} guardChanges={false} onClose={closeUnlockModal} footer={
+          <div className="flex items-center justify-end gap-2">
+            <button type="button" onClick={closeUnlockModal} disabled={isUnlocking} className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50">Cancelar</button>
+                <button type="submit" form="unlockClientForm" disabled={isUnlocking} className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50">{isUnlocking ? 'Validando...' : 'Visualizar'}</button>
+          </div>
+        }>
+          <form id="unlockClientForm" onSubmit={unlockClientPreview} className="space-y-4">
                 <div>
                   <label htmlFor="clientPreviewPassword" className="mb-1 block text-sm font-medium text-slate-700">Segredo de desbloqueio</label>
                   <input id="clientPreviewPassword" type="password" required autoFocus autoComplete="current-password" value={unlockPassword} onChange={(event) => setUnlockPassword(event.target.value)} className="w-full rounded-md border border-slate-300 p-2 text-sm focus:border-indigo-500 focus:outline-hidden focus:ring-1 focus:ring-indigo-500" />
                 </div>
-                {unlockError && <p role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{unlockError}</p>}
-              </div>
-              <div className="flex items-center justify-end gap-2 border-t border-slate-200 bg-slate-50 px-6 py-3">
-                <button type="button" onClick={closeUnlockModal} disabled={isUnlocking} className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50">Cancelar</button>
-                <button type="submit" disabled={isUnlocking} className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50">{isUnlocking ? 'Validando...' : 'Visualizar'}</button>
-              </div>
-            </form>
-          </div>
-        </div>
+            {unlockError && <p role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{unlockError}</p>}
+          </form>
+        </FormDialog>
       )}
 
       {viewClient && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4" role="dialog" aria-modal="true" aria-labelledby="view-client-title" onClick={closeViewClient}>
-          <div className="w-full max-w-2xl overflow-hidden rounded-lg bg-white shadow-xl" onClick={(event) => event.stopPropagation()}>
-            <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
-              <h2 id="view-client-title" className="text-lg font-semibold text-slate-900">Visualizar cliente</h2>
-              <button type="button" title="Fechar" aria-label="Fechar" onClick={closeViewClient} className="text-slate-400 hover:text-slate-600"><X className="h-5 w-5" /></button>
-            </div>
-            <div className="max-h-[75vh] space-y-6 overflow-y-auto p-6">
+        <FormDialog title="Visualizar cliente" guardChanges={false} onClose={closeViewClient} footer={
+          <div className="flex justify-end"><button type="button" onClick={closeViewClient} className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Fechar</button></div>
+        }>
+          <div className="space-y-6">
               <dl className="grid gap-4 sm:grid-cols-2">
                 <div><dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Nome da empresa</dt><dd className="mt-1 text-sm text-slate-900">{viewClient.name || 'Não informado'}</dd></div>
                 <div><dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Endereço</dt><dd className="mt-1 text-sm text-slate-900">{viewClient.address || 'Não informado'}</dd></div>
@@ -378,28 +376,13 @@ export default function ClientsList() {
                   <ul className="mt-3 space-y-2">{viewSummary.lines.map((line) => <li key={line} className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">{line}</li>)}</ul>
                 )}
               </section>
-            </div>
-            <div className="flex justify-end border-t border-slate-200 bg-slate-50 px-6 py-3"><button type="button" onClick={closeViewClient} className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Fechar</button></div>
           </div>
-        </div>
+        </FormDialog>
       )}
 
       {editClient && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4" role="dialog" aria-modal="true" aria-labelledby="edit-client-title" onClick={() => setEditClient(null)}>
-          <div className="w-full max-w-2xl overflow-hidden rounded-lg bg-white shadow-xl" onClick={(event) => event.stopPropagation()}>
-            <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
-              <h2 id="edit-client-title" className="text-lg font-semibold text-slate-900">Alterar cliente</h2>
-              <button type="button" title="Fechar" aria-label="Fechar" onClick={() => setEditClient(null)} className="text-slate-400 hover:text-slate-600"><X className="h-5 w-5" /></button>
-            </div>
-            <form id="editClientForm" onSubmit={saveClient} className="max-h-[75vh] space-y-4 overflow-y-auto p-6">
-              <div><label className="mb-1 block text-sm font-medium text-slate-700">Nome da empresa</label><input required value={editClient.name} onChange={(event) => setEditClient({ ...editClient, name: event.target.value })} className="w-full rounded-md border border-slate-300 p-2" /></div>
-              <div><label className="mb-1 block text-sm font-medium text-slate-700">Endereço</label><input value={editClient.address} onChange={(event) => setEditClient({ ...editClient, address: event.target.value })} className="w-full rounded-md border border-slate-300 p-2" /></div>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div><label className="mb-1 block text-sm font-medium text-slate-700">Telefone</label><input value={editClient.phone} onChange={(event) => setEditClient({ ...editClient, phone: event.target.value })} className="w-full rounded-md border border-slate-300 p-2" /></div>
-                <div><label className="mb-1 block text-sm font-medium text-slate-700">E-mail de contato</label><input type="email" value={editClient.email} onChange={(event) => setEditClient({ ...editClient, email: event.target.value })} className="w-full rounded-md border border-slate-300 p-2" /></div>
-              </div>
-            </form>
-            <div className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-200 bg-slate-50 px-6 py-3">
+        <FormDialog title="Alterar cliente" busy={isSaving} onClose={() => setEditClient(null)} footer={
+          <div className="flex flex-wrap items-center justify-end gap-2">
               {(editClient.is_owner || editClient.is_admin) && (
                 <>
                   <button type="button" title="Excluir empresa" aria-label="Excluir empresa" disabled={deleteConfirmation.trim() !== 'EXCLUIR' || isSaving} onClick={deleteClient} className="action-icon-button action-icon-delete"><Trash2 className="h-4 w-4" /></button>
@@ -409,10 +392,19 @@ export default function ClientsList() {
               )}
               <button type="button" onClick={() => setEditClient(null)} className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Cancelar</button>
               <button type="submit" form="editClientForm" disabled={isSaving} className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50">{isSaving ? 'Salvando...' : 'Salvar'}</button>
-            </div>
           </div>
-        </div>
+        }>
+            <form id="editClientForm" onSubmit={saveClient} className="space-y-4">
+              <div><label htmlFor="edit-client-name" className="mb-1 block text-sm font-medium text-slate-700">Nome da empresa</label><input id="edit-client-name" required value={editClient.name} onChange={(event) => setEditClient({ ...editClient, name: event.target.value })} className="w-full rounded-md border border-slate-300 p-2" /></div>
+              <div><label htmlFor="edit-client-address" className="mb-1 block text-sm font-medium text-slate-700">Endereço</label><input id="edit-client-address" value={editClient.address} onChange={(event) => setEditClient({ ...editClient, address: event.target.value })} className="w-full rounded-md border border-slate-300 p-2" /></div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div><label htmlFor="edit-client-phone" className="mb-1 block text-sm font-medium text-slate-700">Telefone</label><input id="edit-client-phone" value={editClient.phone} onChange={(event) => setEditClient({ ...editClient, phone: event.target.value })} className="w-full rounded-md border border-slate-300 p-2" /></div>
+                <div><label htmlFor="edit-client-email" className="mb-1 block text-sm font-medium text-slate-700">E-mail de contato</label><input id="edit-client-email" type="email" value={editClient.email} onChange={(event) => setEditClient({ ...editClient, email: event.target.value })} className="w-full rounded-md border border-slate-300 p-2" /></div>
+              </div>
+            </form>
+        </FormDialog>
       )}
+
 
       {/* Modal Novo Cliente */}
       {createNotice && <p role="status" className="text-sm text-green-700 dark:text-green-300">{createNotice}</p>}

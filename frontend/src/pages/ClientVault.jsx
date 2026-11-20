@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Server, Globe, Shield, HardDrive, Plus, Save, Share, KeyRound, LockKeyhole, Edit2, X } from 'lucide-react';
+import { ArrowLeft, Server, Globe, Shield, HardDrive, Plus, Save, Share, KeyRound, LockKeyhole, Edit2 } from 'lucide-react';
 import SecurePasswordInput from '../components/SecurePasswordInput';
 import DeleteConfirmationControl from '../components/DeleteConfirmationControl';
 import VaultSharingManager from '../components/VaultSharingManager';
 import VaultReadOnlyGuard from '../components/VaultReadOnlyGuard';
+import FormDialog from '../components/FormDialog';
 import { useAuth } from '../context/AuthContext';
 import useClearOnVaultLock from '../hooks/useClearOnVaultLock';
 import { safeLogError } from '../utils/safeLogger';
@@ -50,7 +51,7 @@ const normalizeEnabledModules = (modules) => Array.isArray(modules)
 
 const makeId = () => {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
-  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return `${Date.now()}-${Array.from(crypto.getRandomValues(new Uint32Array(2)), (n) => n.toString(36)).join('')}`;
 };
 
 const emptyServer = () => ({
@@ -132,6 +133,7 @@ export default function ClientVault() {
   const [activeModuleId, setActiveModuleId] = useState(null);
   const [enabledModules, setEnabledModules] = useState([]);
   const [modulesLoaded, setModulesLoaded] = useState(false);
+  const [itemsLoadError, setItemsLoadError] = useState('');
   const [isAddModuleOpen, setIsAddModuleOpen] = useState(false);
   const addModuleMenuRef = useRef(null);
   const [isSavingModules, setIsSavingModules] = useState(false);
@@ -160,8 +162,21 @@ export default function ClientVault() {
     };
   }, [isAddModuleOpen]);
 
-  // Mock do cliente atual
-  const client = { id, name: 'Acme Corp', address: 'Av. Paulista, 1000 - SP' };
+  // Nome real do cofre aberto (antes era um mock fixo "Acme Corp" para qualquer cliente).
+  const [clientName, setClientName] = useState('Carregando cliente...');
+  useEffect(() => {
+    let cancelled = false;
+    api.get('/clients')
+      .then((response) => {
+        const current = (response.data || []).find((item) => item.id === id);
+        if (!cancelled) setClientName(current?.name || 'Cliente não encontrado');
+      })
+      .catch((error) => {
+        safeLogError('Erro ao carregar o nome do cofre.', error);
+        if (!cancelled) setClientName('Cliente não encontrado');
+      });
+    return () => { cancelled = true; };
+  }, [id]);
 
   const tabs = COMPANY_MODULES.filter((module) => enabledModules.includes(module.id));
   const availableModules = COMPANY_MODULES.filter((module) => !enabledModules.includes(module.id));
@@ -272,6 +287,7 @@ export default function ClientVault() {
 
     setIsLoading(true);
     setModulesLoaded(false);
+    setItemsLoadError('');
     try {
       const [itemsResponse, modulesResponse] = await Promise.all([
         Promise.resolve({data:vaultSessionRef.current.categories()}),
@@ -325,6 +341,7 @@ export default function ClientVault() {
       setActiveModuleId(COMPANY_MODULES.find((module) => resolvedModules.includes(module.id))?.id || null);
     } catch (error) {
       safeLogError('Erro ao carregar itens do cofre.', error);
+      setItemsLoadError('Não foi possível carregar as abas e os itens deste cofre.');
     } finally {
       setIsLoading(false);
       setModulesLoaded(true);
@@ -364,7 +381,7 @@ export default function ClientVault() {
       } catch (error) {
         safeLogError('Erro ao carregar acesso criptográfico do cofre.', error);
         if (!cancelled) {
-          setVaultKeyError(error.response?.data?.error || error.message || 'Não foi possível carregar a chave deste cofre.');
+          setVaultKeyError(error.response?.data?.error || 'Não foi possível carregar a chave deste cofre.');
         }
       }
     };
@@ -774,13 +791,13 @@ export default function ClientVault() {
 
   if (vaultKeyError) {
     return (
-      <div className="max-w-2xl mx-auto mt-10 rounded-lg border border-amber-200 bg-amber-50 p-6 text-amber-900">
+      <div role="alert" className="max-w-2xl mx-auto mt-10 rounded-lg border border-amber-200 bg-amber-50 p-6 text-amber-900">
         <h2 className="text-lg font-semibold">Acesso criptográfico pendente</h2>
         <p className="mt-2 text-sm">{vaultKeyError}</p>
         {effectiveVaultPermissions?.is_owner && <button type="button" className="mt-3 rounded border px-3 py-2 text-sm" onClick={async()=>{
           const session=new VaultSession({api,vaultId:id,user,keys:identityKeys});
           try {await session.abortMigration();await session.load();vaultSessionRef.current=session;setVaultDataKey(session.key);setVaultKeyError('');}
-          catch(error){setVaultKeyError(error.response?.data?.code || error.message);}
+          catch(error){setVaultKeyError(error.response?.data?.error || 'Não foi possível descartar o staging. Tente novamente.');}
         }}>Descartar somente o staging e repetir a migração</button>}
         <Link to="/" className="inline-flex mt-4 text-sm font-medium text-indigo-600 hover:text-indigo-800">Voltar aos cofres</Link>
       </div>
@@ -796,11 +813,11 @@ export default function ClientVault() {
       <VaultReadOnlyGuard enabled permissions={effectiveVaultPermissions} />
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div className="flex items-center gap-4">
-          <Link to="/" className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-full transition-colors">
-            <ArrowLeft className="w-5 h-5" />
+          <Link to="/" aria-label="Voltar aos cofres" title="Voltar aos cofres" className="p-2 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-full transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-400">
+            <ArrowLeft className="w-5 h-5" aria-hidden="true" />
           </Link>
           <div>
-            <h1 className="text-2xl font-bold text-slate-900">{client.name}</h1>
+            <h1 className="text-2xl font-bold text-slate-900">{clientName}</h1>
             <p className="text-sm text-slate-500">Cofre de Senhas e Credenciais</p>
           </div>
         </div>
@@ -809,13 +826,13 @@ export default function ClientVault() {
             <LockKeyhole className="mr-2 h-4 w-4" /> Bloquear cofre
           </button>
           <div ref={addModuleMenuRef} className="relative">
-            <button type="button" disabled={!canManageModules || isSavingModules} aria-expanded={isAddModuleOpen} aria-haspopup="menu" onClick={() => setIsAddModuleOpen((open) => !open)} className="inline-flex items-center justify-center rounded-md border border-indigo-200 bg-white px-4 py-2 text-sm font-medium text-indigo-700 shadow-sm hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-50">
+            <button type="button" disabled={!canManageModules || isSavingModules} aria-expanded={isAddModuleOpen} aria-controls="add-module-list" onClick={() => setIsAddModuleOpen((open) => !open)} className="inline-flex items-center justify-center rounded-md border border-indigo-200 bg-white px-4 py-2 text-sm font-medium text-indigo-700 shadow-sm hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-50">
               <Plus className="mr-2 h-4 w-4" /> Adicionar
             </button>
             {isAddModuleOpen && canManageModules && (
-              <div role="menu" className="absolute right-0 top-full z-30 mt-2 w-64 rounded-md border border-slate-200 bg-white p-2 shadow-lg">
+              <div id="add-module-list" className="absolute right-0 top-full z-30 mt-2 w-64 rounded-md border border-slate-200 bg-white p-2 shadow-lg">
                 {availableModules.length === 0 ? <p className="px-3 py-2 text-sm text-slate-500">Todas as abas já foram adicionadas.</p> : availableModules.map((module) => (
-                  <button role="menuitem" key={module.id} type="button" disabled={isSavingModules} onClick={() => addModule(module.id)} className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50">
+                  <button key={module.id} type="button" disabled={isSavingModules} onClick={() => addModule(module.id)} className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50">
                     <module.icon className="h-4 w-4 text-slate-500" /> {module.name}
                   </button>
                 ))}
@@ -850,6 +867,12 @@ export default function ClientVault() {
 
       {!modulesLoaded ? (
         <div className="rounded-lg border border-slate-200 bg-white p-6 text-sm text-slate-500 shadow">Carregando abas da empresa...</div>
+      ) : itemsLoadError ? (
+        // Without this a failed load rendered the "Nenhuma aba adicionada" empty state.
+        <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-6 text-sm text-red-700">
+          {itemsLoadError}{' '}
+          <button type="button" onClick={loadVaultItems} className="font-medium text-indigo-600 underline focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-indigo-500">Tentar novamente</button>
+        </div>
       ) : tabs.length === 0 ? (
         <div className="rounded-lg border border-dashed border-slate-300 bg-white p-8 text-center shadow-sm">
           <h2 className="font-medium text-slate-800">Nenhuma aba adicionada.</h2>
@@ -858,10 +881,12 @@ export default function ClientVault() {
       ) : (
       <div className="bg-white shadow rounded-lg border border-slate-200 overflow-hidden">
         <div className="border-b border-slate-200">
-          <nav className="flex -mb-px overflow-x-auto" aria-label="Tabs">
+          <nav className="flex -mb-px overflow-x-auto" aria-label="Abas do cofre">
             {tabs.map((tab) => (
               <button
                 key={tab.id}
+                type="button"
+                aria-current={activeModuleId === tab.id ? 'true' : undefined}
                 onClick={() => setActiveModuleId(tab.id)}
                 className={`flex-1 min-w-0 py-4 px-4 text-center text-sm font-medium border-b-2 whitespace-nowrap flex items-center justify-center gap-2 ${activeModuleId === tab.id ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'}`}
               >
@@ -1175,14 +1200,7 @@ export default function ClientVault() {
       )}
 
       {modulePendingDeletion && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4" role="dialog" aria-modal="true" aria-labelledby="delete-module-title">
-          <div className="w-full max-w-lg rounded-lg bg-white shadow-xl">
-            <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
-              <h2 id="delete-module-title" className="text-lg font-semibold text-slate-900">Excluir servidor</h2>
-              <button type="button" disabled={isDeletingModule} onClick={closeDeleteModuleModal} className="text-slate-400 hover:text-slate-600 disabled:opacity-50" aria-label="Fechar confirmação de exclusão">
-                <X className="h-5 w-5" />
-              </button>
-            </div>
+        <FormDialog title="Excluir servidor" onClose={closeDeleteModuleModal} busy={isDeletingModule} guardChanges={false}>
             <div className="space-y-4 p-6">
               <p className="text-sm text-slate-700">
                 Esta ação excluirá todas as informações cadastradas em <strong>{modulePendingDeletion.name}</strong> e removerá a aba da empresa. Para confirmar, digite EXCLUIR.
@@ -1207,35 +1225,19 @@ export default function ClientVault() {
                 </button>
               </div>
             </div>
-          </div>
-        </div>
+        </FormDialog>
       )}
 
       {isSharingModalOpen && hasEnabledModules && (effectiveVaultPermissions.is_owner || effectiveVaultPermissions.is_admin) && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
-              <h2 className="text-lg font-semibold text-slate-900">Compartilhamento do Cofre</h2>
-              <button type="button" onClick={() => setIsSharingModalOpen(false)} className="text-slate-400 hover:text-slate-600" aria-label="Fechar compartilhamento">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
+        <FormDialog title="Compartilhamento do Cofre" onClose={() => setIsSharingModalOpen(false)} guardChanges={false}>
             <div className="p-6">
               <VaultSharingManager clientId={id} saveCryptoShares={saveCryptoShares} compact />
             </div>
-          </div>
-        </div>
+        </FormDialog>
       )}
 
       {editingUser && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
-              <h3 className="text-lg font-semibold text-slate-900">Editar usuário</h3>
-              <button type="button" onClick={() => setEditingUser(null)} className="text-slate-400 hover:text-slate-600">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
+        <FormDialog title="Editar usuário" onClose={() => setEditingUser(null)}>
             <div className="p-6 space-y-4">
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="sm:col-span-2">
@@ -1327,19 +1329,11 @@ export default function ClientVault() {
                 </button>
               </div>
             </div>
-          </div>
-        </div>
+        </FormDialog>
       )}
 
       {editingServer && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
-              <h3 className="text-lg font-semibold text-slate-900">Editar servidor</h3>
-              <button type="button" onClick={() => setEditingServer(null)} className="text-slate-400 hover:text-slate-600">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
+        <FormDialog title="Editar servidor" onClose={() => setEditingServer(null)}>
             <div className="p-6 space-y-4">
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
@@ -1372,8 +1366,7 @@ export default function ClientVault() {
                 <button type="button" onClick={saveEditedServer} className="px-4 py-2 border border-transparent rounded-md text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700">Salvar alterações</button>
               </div>
             </div>
-          </div>
-        </div>
+        </FormDialog>
       )}
     </div>
   );

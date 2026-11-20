@@ -197,7 +197,7 @@ export default function SecurePasswordInput({
             <button
               type="button"
               onClick={handleGenerate}
-              className="p-1 text-slate-400 hover:text-indigo-600 focus:outline-hidden transition-colors"
+              className="rounded p-1 text-slate-500 hover:text-indigo-600 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-indigo-500 transition-colors dark:text-slate-400"
               aria-label="Gerar senha segura"
               title="Gerar senha segura"
             >
@@ -206,13 +206,13 @@ export default function SecurePasswordInput({
           )}
 
           {/* Copiar senha */}
-          {showCopyButton && <CopyButton value={value} label="Copiar senha" className="inline-flex items-center justify-center p-1 text-slate-400 transition-colors hover:text-indigo-600 focus:outline-hidden" iconClassName="h-4 w-4" />}
+          {showCopyButton && <CopyButton value={value} label="Copiar senha" className="inline-flex items-center justify-center rounded p-1 text-slate-500 transition-colors hover:text-indigo-600 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-400" iconClassName="h-4 w-4" />}
 
           {/* Mostrar / ocultar senha */}
           <button
             type="button"
             onClick={handlePasswordVisibility}
-            className="p-1 text-slate-400 hover:text-indigo-600 focus:outline-hidden transition-colors"
+            className="rounded p-1 text-slate-500 hover:text-indigo-600 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-indigo-500 transition-colors dark:text-slate-400"
             title={showPassword ? 'Ocultar senha' : 'Mostrar senha'}
             aria-label={showPassword ? 'Ocultar senha' : 'Mostrar senha'}
           >
@@ -228,7 +228,7 @@ export default function SecurePasswordInput({
           <button
             type="button"
             onClick={handleUndo}
-            className="font-semibold underline hover:text-amber-900 focus:outline-hidden"
+            className="rounded font-semibold underline hover:text-amber-900 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-amber-600"
           >
             Desfazer
           </button>
