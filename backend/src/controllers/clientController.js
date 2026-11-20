@@ -222,7 +222,11 @@ const deleteClientModule = async (req, res) => {
 
     if (error.statusCode) {
       return res.status(error.statusCode).json({
-        error: error.statusCode === 404 ? 'Cofre não encontrado' : 'Você não tem permissão para excluir este módulo'
+        // 409 is a stale revision/rotation conflict: tell the client to reload instead of claiming no access.
+        error: error.statusCode === 404 ? 'Cofre não encontrado'
+          : error.statusCode === 409 ? 'O cofre foi alterado em outra sessão. Recarregue e tente novamente.'
+          : 'Você não tem permissão para excluir este módulo',
+        ...(error.statusCode === 409 ? { code: 'VAULT_VERSION_CONFLICT' } : {})
       });
     }
 
