@@ -3,6 +3,7 @@ const { isIP } = require('node:net');
 
 const MODES = new Set(['direct', 'cloudflare_proxy', 'cloudflare_tunnel']);
 const requestNetworks = new WeakMap();
+const PROXY_RANGES = new Set(['private', 'loopback', 'uniqueLocal']);
 
 const getClientIpMode = () => {
   const mode = process.env.CLIENT_IP_MODE === undefined ? 'direct' : process.env.CLIENT_IP_MODE;
@@ -32,8 +33,12 @@ const singleHeader = (req, name) => {
 const clientIpMiddleware = (req, res, next) => {
   const mode = getClientIpMode();
   const forwarded = singleHeader(req, 'x-forwarded-for');
-  const hasForwarded = req.headers?.['x-forwarded-for'] !== undefined;
-  const ip = normalizeClientIp(hasForwarded ? forwarded : req.socket?.remoteAddress);
+  const peer = normalizeClientIp(req.socket?.remoteAddress);
+  // Only the proxy on a private/loopback network may assert the client IP; a public peer reached
+  // the backend directly, so its own X-Forwarded-For would bypass IP blocks and rate limits.
+  const peerIsProxy = Boolean(peer) && PROXY_RANGES.has(ipaddr.process(peer).range());
+  const hasForwarded = req.headers?.['x-forwarded-for'] !== undefined && peerIsProxy;
+  const ip = hasForwarded ? normalizeClientIp(forwarded) : peer;
   if (!ip) return res.status(400).json({ code: 'CLIENT_IP_INVALID', error: 'Endereço de origem inválido.' });
   let cloudflare = false;
   let ray = null;

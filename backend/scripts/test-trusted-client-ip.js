@@ -1,7 +1,8 @@
 const assert = require('node:assert/strict');
 const { normalizeClientIp, getClientIpMode, clientIpMiddleware, getClientIp, getClientNetworkMetadata, getClientIpRateLimitKey } = require('../src/services/clientIpService');
 
-const resolve = (mode, headers = {}, socket = '203.0.113.25', rawHeaders = []) => {
+// Default peer is the Nginx container on the private Docker network (the documented topology).
+const resolve = (mode, headers = {}, socket = '172.19.0.2', rawHeaders = []) => {
   process.env.CLIENT_IP_MODE = mode;
   const req = { headers, rawHeaders, socket: { remoteAddress: socket }, path: '/api/test' };
   const res = { code: 200, status(code) { this.code = code; return this; }, json(body) { this.body = body; return this; } };
@@ -19,12 +20,18 @@ for (const invalid of ['guess', '', ' ', 'DIRECT']) {
   process.env.CLIENT_IP_MODE = invalid; assert.throws(getClientIpMode, /CLIENT_IP_MODE/);
 }
 delete process.env.CLIENT_IP_MODE; assert.equal(getClientIpMode(), 'direct');
-const direct = resolve('direct', { 'cf-connecting-ip': '8.8.8.8', 'x-real-ip': '9.9.9.9', 'cf-ray': 'a'.repeat(16) + '-GRU', 'cf-ipcountry': 'BR' });
+const direct = resolve('direct', { 'cf-connecting-ip': '8.8.8.8', 'x-real-ip': '9.9.9.9', 'cf-ray': 'a'.repeat(16) + '-GRU', 'cf-ipcountry': 'BR' }, '203.0.113.25');
 assert(direct.next); assert.equal(getClientIp(direct.req), '203.0.113.25');
 assert.equal(getClientNetworkMetadata(direct.req).cloudflare, false);
 assert.equal(getClientNetworkMetadata(direct.req).cloudflare_ray_id, null);
 assert.equal(getClientNetworkMetadata(direct.req).country, null);
 assert.equal(Object.getOwnPropertyDescriptor(direct.req, 'clientIp').writable, false);
+// A public peer reached the backend without the proxy: its own X-Forwarded-For must not choose the client IP.
+for (const peer of ['8.8.8.8', '203.0.113.25', '2001:4860::1']) {
+  const bypass = resolve('direct', { 'x-forwarded-for': '198.51.100.77' }, peer);
+  assert(bypass.next); assert.equal(getClientIp(bypass.req), normalizeClientIp(peer));
+}
+assert.equal(getClientIp(resolve('direct', { 'x-forwarded-for': '198.51.100.77' }, '::1').req), '198.51.100.77');
 for (const mode of ['cloudflare_proxy', 'cloudflare_tunnel']) {
   process.env.TRUSTED_COUNTRY_HEADER_ENABLED = 'true';
   const good = resolve(mode, forwarded(mode, '203.0.113.10', { 'cf-ray': 'a'.repeat(16) + '-GRU', 'cf-ipcountry': 'BR' }));

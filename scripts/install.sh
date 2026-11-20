@@ -639,18 +639,21 @@ fi
 
 create_initial_super_admin() {
 INSTALL_STAGE=docker
+# Name-only -e: docker reads the value from this environment, so the password never appears in argv/ps.
+export INITIAL_SUPER_ADMIN_PASSWORD
 compose exec -T \
     -e INITIAL_SUPER_ADMIN_EMAIL="$SUPER_ADMIN_EMAIL" \
-    -e INITIAL_SUPER_ADMIN_PASSWORD="$INITIAL_SUPER_ADMIN_PASSWORD" \
+    -e INITIAL_SUPER_ADMIN_PASSWORD \
     -e INITIAL_SUPER_ADMIN_NAME="Super Admin" \
     backend node scripts/create-super-admin.js || fail 'Falha ao criar o Super Admin.'
+export -n INITIAL_SUPER_ADMIN_PASSWORD
 }
 
 record_installed_commit() {
     local installed_commit
     installed_commit="$(git -C "$APP_DIR" rev-parse HEAD)" || fail 'Não foi possível identificar o commit instalado.'
-    # Escrita controlada no volume compartilhado, sem acessar diretórios internos do Docker.
-    compose exec -T updater node /opt/fullpassword/scripts/check-update-status.js record-installed "$installed_commit" \
+    # The updater service was removed; the backend mounts the same status volume and ships the store code.
+    compose exec -T backend node -e "require('./src/services/updateStatusStore').writeInstalledCommit(process.argv[1])" "$installed_commit" \
         || fail 'Não foi possível registrar o commit da instalação saudável.'
 }
 
