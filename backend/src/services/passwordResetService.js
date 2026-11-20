@@ -105,6 +105,12 @@ const requestPasswordReset = async (req, emailInput) => {
     const expiresAt = new Date(Date.now() + PASSWORD_RESET_TTL_MS);
     const userAgent = String(req.get?.('user-agent') || '').slice(0, 1000) || null;
 
+    // A new request supersedes older links, so an attacker cannot hold several live tokens at once.
+    await db.query(
+      `UPDATE password_reset_tokens SET used_at = CURRENT_TIMESTAMP
+       WHERE user_id = $1 AND used_at IS NULL`,
+      [user.id]
+    );
     await db.query(
       `INSERT INTO password_reset_tokens
          (user_id, token_hash, expires_at, requested_ip, requested_user_agent)
@@ -304,6 +310,16 @@ const completePasswordReset = async (req, payload, passwordValidation) => {
          FOR UPDATE`,
         [reset.user_id]
       )).rows[0];
+      const mfaInvalid = () => new PasswordResetError(
+        'Código MFA ou código de recuperação inválido.',
+        'PASSWORD_RESET_MFA_INVALID',
+        403
+      );
+      // Same per-account budget as the login challenge (10 failures / 5 min), shared across IPs and tokens.
+      if (settings && settings.failed_attempts >= 10
+        && Date.now() - new Date(settings.attempt_window_started_at).getTime() < 300000) {
+        throw mfaInvalid();
+      }
       let mfaValid = false;
       const mfaCode = typeof payload.mfa_code === 'string'
         ? payload.mfa_code.replace(/\s/g, '')
@@ -329,15 +345,18 @@ const completePasswordReset = async (req, payload, passwordValidation) => {
         if (mfaValid) mfaMethod = 'recovery_code';
       }
       if (!mfaValid) {
-        throw new PasswordResetError(
-          'Código MFA ou código de recuperação inválido.',
-          'PASSWORD_RESET_MFA_INVALID',
-          403
-        );
+        if (settings) {
+          await client.query(`UPDATE user_mfa_settings SET
+            failed_attempts=CASE WHEN attempt_window_started_at > CURRENT_TIMESTAMP-INTERVAL '5 minutes' THEN failed_attempts+1 ELSE 1 END,
+            attempt_window_started_at=CASE WHEN attempt_window_started_at > CURRENT_TIMESTAMP-INTERVAL '5 minutes' THEN attempt_window_started_at ELSE CURRENT_TIMESTAMP END
+            WHERE user_id=$1`, [reset.user_id]);
+          await client.query('COMMIT'); // Persist the failure; nothing else was written yet in this transaction.
+        }
+        throw mfaInvalid();
       }
       await client.query(
         `UPDATE user_mfa_settings
-         SET last_used_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+         SET last_used_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP, failed_attempts = 0
          WHERE user_id = $1`,
         [reset.user_id]
       );
