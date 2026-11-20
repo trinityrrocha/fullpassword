@@ -87,4 +87,6 @@ async function run() {
     await fs.rm(directory,{recursive:true,force:true});
   }
 }
-run().catch(e=>{console.error(e);process.exitCode=1;});
+// Fail closed: embedded-postgres's exit hook calls process.exit(0) on beforeExit when a start/stop promise never settles.
+let completed=false;process.on('beforeExit',()=>{if(!completed){console.error('PostgreSQL test did not complete: embedded PostgreSQL failed to start or cleanup hung.');process.exit(1);}});
+run().then(()=>{completed=true;process.exitCode=0;}).catch(e=>{console.error(e);process.exitCode=1;});
