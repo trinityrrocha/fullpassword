@@ -317,7 +317,8 @@ const tick = async (ctx, { adopt = false } = {}) => {
       request = readRequest(requestFile);
       fs.rmSync(requestFile, { force: true }); // one click = one attempt; a retry needs a new click
       if (request.approvalId !== catalog.approvalId || request.revision !== catalog.revision || request.manifestHash !== catalog.manifestHash) return { rejected: true };
-    } else if (adopt) {
+    } else if (adopt || (!isAdopted(readReleaseEnv(ctx)) && fs.existsSync(path.join(config.stateDirectory, 'adopt.consent')))) {
+      // First adoption was consented to by running setup: it proceeds on the first eligible stable release.
       request = { approvalId: catalog.approvalId, revision: catalog.revision, manifestHash: catalog.manifestHash, requestId: crypto.randomUUID() };
     }
     if (!request) return { available: catalog.revision };

@@ -31,6 +31,25 @@ validate_host_node() {
   done
 }
 
+# Host Node is only used by the root agent. If the system one is unsuitable, install the pinned official build.
+install_pinned_node() {
+  local arch sum dir=/usr/local/lib/fullpassword-node tmp
+  case $(uname -m) in
+    x86_64) arch=x64; sum=fd8e59d5a511510f6a298afb548f18c7d2b1be404d8b4a27d94fbe49f56cb2d6 ;;
+    aarch64|arm64) arch=arm64; sum=6ad1325edbdb5649c379b75a237147a666c95d4f9ae8d340fef2d1575d289ad2 ;;
+    *) die "Arquitetura sem Node pinado: $(uname -m). Instale Node 24.x em caminho do root." ;;
+  esac
+  tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
+  echo "Instalando Node 24.21.0 ($arch) em $dir..."
+  curl -fsSL "https://nodejs.org/dist/v24.21.0/node-v24.21.0-linux-$arch.tar.xz" -o "$tmp/node.tar.xz" || die 'Falha ao baixar o Node.'
+  [[ $(sha256sum "$tmp/node.tar.xz" | cut -d' ' -f1) == "$sum" ]] || die 'Checksum do Node não confere; abortado.'
+  rm -rf "$dir"; install -d -o root -g root -m 0755 "$dir"
+  tar -xJf "$tmp/node.tar.xz" -C "$dir" --strip-components=1 --no-same-owner
+  chown -R root:root "$dir"; chmod -R go-w "$dir"
+  export PATH="$dir/bin:$PATH"
+}
+ensure_node() { (validate_host_node && validate_host_node_owner) 2>/dev/null || install_pinned_node; validate_host_node; validate_host_node_owner; }
+
 compose_base() { docker compose --project-directory "$PROJECT" --env-file "$AUTO/app.env" -f "$AUTO/docker-compose.yml" "$@"; }
 
 main() {
@@ -55,7 +74,7 @@ main() {
   command -v docker >/dev/null && docker compose version >/dev/null 2>&1 || die 'Docker Compose v2 é necessário.'
   [[ ! -e $ETC/release-policy.json ]] || die 'Existe uma política do agente antigo (/etc/fullpassword/release-policy.json). Remova o agente antigo antes (docs/release-agent-bootstrap-vm.md) — os dois não coexistem.'
   if systemctl is-enabled fullpassword-release-agent.timer >/dev/null 2>&1; then die 'O timer do agente antigo está habilitado (fullpassword-release-agent.timer). Desabilite-o antes.'; fi
-  validate_host_node
+  ensure_node
 
   local ORIGIN; ORIGIN=$(sed -n 's/^APP_ORIGIN=//p' "$PROJECT/.env" | tail -n1 | tr -d "\"'")
   [[ $ORIGIN =~ ^https://[A-Za-z0-9.-]+(:[0-9]+)?$ ]] || die 'APP_ORIGIN no .env precisa ser https://dominio (sem barra final).'
@@ -111,6 +130,7 @@ SQL
   (( SYSTEMD )) && systemctl daemon-reload
   echo 'Agente instalado. Adotando a release estável atual (backup, migração, verificação e rollback automáticos)...'
   if (( ADOPT )); then
+    : > "$STATE/adopt.consent"   # also covers installs ahead of the stable channel: adopt on the first eligible release
     "$NODE" "$LIB/auto-update-agent.js" --adopt || die 'A adoção falhou e foi revertida; veja o painel/estado e rode de novo.'
   fi
   if (( SYSTEMD )); then systemctl enable --now fullpassword-auto-update.timer

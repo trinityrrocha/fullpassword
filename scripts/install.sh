@@ -657,6 +657,16 @@ record_installed_commit() {
         || fail 'Não foi possível registrar o commit da instalação saudável.'
 }
 
+# Click-to-update from the panel (docs/auto-update.md). On by default; failure never breaks a finished install.
+enable_auto_update() {
+    if [ "${FULLPASSWORD_AUTO_UPDATE:-1}" = 0 ]; then
+        echo 'Atualização automática não ativada (FULLPASSWORD_AUTO_UPDATE=0). Ative depois: sudo bash scripts/setup-auto-update.sh'
+        return 0
+    fi
+    bash "$APP_DIR/scripts/setup-auto-update.sh" --project-dir "$APP_DIR" \
+        || echo 'AVISO: atualização automática não ativada. Rode depois: sudo bash scripts/setup-auto-update.sh'
+}
+
 show_install_summary() (
 umask 077
 cat > /root/fullpassword-install-info.txt << EOF
@@ -728,6 +738,10 @@ main() {
     fi
     create_initial_super_admin
     record_installed_commit
+    INSTALL_STAGE=auto_update
+    trap - ERR
+    enable_auto_update
+    trap 'fail "Comando da instalação falhou; instalação incompleta."' ERR
     INSTALL_STAGE=summary
     show_install_summary
 }
