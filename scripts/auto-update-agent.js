@@ -149,7 +149,7 @@ const takeBackup = (ctx, mode) => {
     // The archive must be readable by pg_restore, otherwise it is not a backup.
     const listing = dc(ctx, mode, ['exec', '-T', 'db', 'pg_restore', '--list'], 'backup_verify', { input: fs.readFileSync(file) });
     if (!/\bTABLE\b/.test(listing)) throw new Error('BACKUP_UNREADABLE');
-  } catch (error) { fs.rmSync(file, { force: true }); throw new Error('BACKUP_FAILED'); }
+  } catch (error) { try { fs.rmSync(file, { force: true }); } catch { /* nothing to clean */ } throw new Error('BACKUP_FAILED'); }
   const all = fs.readdirSync(backupDirectory).filter((entry) => BACKUP_NAME.test(entry)).sort();
   for (const old of all.slice(0, Math.max(0, all.length - backupKeep))) fs.rmSync(path.join(backupDirectory, old), { force: true });
   return path.basename(file);
