@@ -140,6 +140,68 @@ INSERT INTO smtp_settings (id)
 VALUES (1)
 ON CONFLICT (id) DO NOTHING;
 
+-- Módulos opcionais do sistema (ex.: SPFBL). O estado liga/desliga é validado no servidor.
+CREATE TABLE IF NOT EXISTS system_modules (
+    module_key VARCHAR(32) PRIMARY KEY CHECK (module_key ~ '^[a-z][a-z0-9_]{1,31}$'),
+    enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    updated_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+INSERT INTO system_modules (module_key)
+VALUES ('spfbl')
+ON CONFLICT (module_key) DO NOTHING;
+
+-- Configuração do módulo SPFBL: credenciais Matrix e token WHM, sempre cifrados com CONFIG_ENCRYPTION_KEY.
+CREATE TABLE IF NOT EXISTS spfbl_settings (
+    id INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+    matrix_user VARCHAR(254) NOT NULL DEFAULT '',
+    encrypted_matrix_password TEXT,
+    whm_host VARCHAR(253) NOT NULL DEFAULT '',
+    whm_user VARCHAR(32) NOT NULL DEFAULT '',
+    encrypted_whm_token TEXT,
+    updated_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+INSERT INTO spfbl_settings (id)
+VALUES (1)
+ON CONFLICT (id) DO NOTHING;
+
+-- Domínios do módulo SPFBL e estado da última sincronização com o WHM.
+ALTER TABLE spfbl_settings ADD COLUMN IF NOT EXISTS domain_sync_at TIMESTAMP WITH TIME ZONE;
+ALTER TABLE spfbl_settings ADD COLUMN IF NOT EXISTS domain_sync_status VARCHAR(48);
+
+-- Catálogo de domínios: digitados ou importados do WHM. "active" = visto no WHM em conta não suspensa.
+CREATE TABLE IF NOT EXISTS spfbl_domains (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name VARCHAR(253) NOT NULL UNIQUE CHECK (name = lower(name) AND length(name) >= 4),
+    source VARCHAR(16) NOT NULL DEFAULT 'manual' CHECK (source IN ('manual', 'whm')),
+    cpanel_user VARCHAR(32),
+    suspended BOOLEAN NOT NULL DEFAULT FALSE,
+    active BOOLEAN NOT NULL DEFAULT TRUE,
+    last_seen_at TIMESTAMP WITH TIME ZONE,
+    created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Acesso de contas do FullPassword ao módulo SPFBL: domínios permitidos e modo de tratamento dos bloqueios.
+CREATE TABLE IF NOT EXISTS spfbl_user_access (
+    user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    unlock_mode VARCHAR(16) NOT NULL DEFAULT 'review' CHECK (unlock_mode IN ('review', 'direct')),
+    granted_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS spfbl_user_domains (
+    user_id UUID NOT NULL REFERENCES spfbl_user_access(user_id) ON DELETE CASCADE,
+    domain_id UUID NOT NULL REFERENCES spfbl_domains(id) ON DELETE CASCADE,
+    PRIMARY KEY (user_id, domain_id)
+);
+
 -- Tokens temporários de recuperação de acesso. O token puro existe apenas no
 -- e-mail/navegador; o banco persiste exclusivamente seu hash SHA-256.
 CREATE TABLE IF NOT EXISTS password_reset_tokens (

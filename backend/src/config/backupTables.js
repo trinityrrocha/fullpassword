@@ -24,7 +24,23 @@ const BACKUP_TABLES = Object.freeze([
   'system_audit_events',
   'smtp_settings',
   'cloud_backup_settings',
-  'cloud_backup_providers'
+  'cloud_backup_providers',
+  'system_modules',
+  'spfbl_settings',
+  'spfbl_domains',
+  'spfbl_user_access',
+  'spfbl_user_domains'
 ]);
 
-module.exports = { BACKUP_TABLES };
+// Tables added after the first backup format shipped. A backup made before them has no entry for them: restoring it
+// must neither fail nor wipe what is configured here, so they are treated as "not in the backup" and left untouched.
+// (A backup that does list them, even with zero rows, replaces them like every other table.)
+const OPTIONAL_BACKUP_TABLES = Object.freeze(new Set([
+  'system_modules',
+  'spfbl_settings',
+  'spfbl_domains',
+  'spfbl_user_access',
+  'spfbl_user_domains'
+]));
+
+module.exports = { BACKUP_TABLES, OPTIONAL_BACKUP_TABLES };

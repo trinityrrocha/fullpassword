@@ -56,6 +56,9 @@ jobs:
       - name: WebUpdate release notes browser regression (synthetic localhost only)
         working-directory: frontend
         run: PLAYWRIGHT_MODULE_PATH="$RUNNER_TEMP/modal-browser-tools/node_modules/playwright/index.mjs" UPDATE_UI_EVIDENCE_DIR="$RUNNER_TEMP/update-ui-evidence" npm run test:system-update:browser
+      - name: SPFBL module browser regression (synthetic localhost only)
+        working-directory: frontend
+        run: PLAYWRIGHT_MODULE_PATH="$RUNNER_TEMP/modal-browser-tools/node_modules/playwright/index.mjs" SPFBL_UI_EVIDENCE_DIR="$RUNNER_TEMP/spfbl-ui-evidence" npm run test:spfbl:browser
       - name: Reauth MFA and vault unlock browser regression (synthetic localhost only)
         working-directory: frontend
         run: PLAYWRIGHT_MODULE_PATH="$RUNNER_TEMP/modal-browser-tools/node_modules/playwright/index.mjs" npm run test:reauth-unlock:browser

@@ -115,6 +115,10 @@ async function run() {
       await leastPrivilege.query('SELECT crypto_identity FROM users LIMIT 0');
       const verifyRuntimeSchema=require('../src/config/verifyRuntimeSchema').verifyRuntimeSchema;
       await verifyRuntimeSchema(leastPrivilege);
+      for(const table of ['system_modules','spfbl_settings','spfbl_domains','spfbl_user_access','spfbl_user_domains']) {
+        assert.equal((await leastPrivilege.query("SELECT has_table_privilege(current_user,$1,'SELECT,INSERT,UPDATE,DELETE') AS ok",[table])).rows[0].ok,true,'runtime role must read and write '+table);
+        await leastPrivilege.query(`SELECT * FROM ${table} LIMIT 0`);
+      }
       await leastPrivilege.query('RESET ROLE');
       await database.query('GRANT CREATE ON SCHEMA public TO audit_runtime');
       await leastPrivilege.query('SET ROLE audit_runtime');
@@ -154,7 +158,7 @@ async function run() {
         if(!response.ok) throw Object.assign(new Error(body.code || body.error),{response:{status:response.status,data:body}});
         return {data:body,status:response.status};
       };
-      return {get:url=>call('GET',url),post:(url,data)=>call('POST',url,data),postWithoutCsrf:(url,data)=>call('POST',url,data,0,true),put:(url,data)=>call('PUT',url,data),delete:url=>call('DELETE',url),payloads};
+      return {get:url=>call('GET',url),post:(url,data)=>call('POST',url,data),postWithoutCsrf:(url,data)=>call('POST',url,data,0,true),put:(url,data)=>call('PUT',url,data),delete:(url,data)=>call('DELETE',url,data),payloads};
     }
     const ownerApi=browserClient();
     let ownerUser=(await ownerApi.post('/auth/login',{email:'owner@example.invalid',password})).data.user;
@@ -343,6 +347,128 @@ async function run() {
     await database.query("INSERT INTO users(id,name,email,hash_senha_login,role,is_super_admin) VALUES($1,'SYNTHETIC_ADMIN','normal-admin@example.invalid',$2,'admin',false)",[ordinaryAdmin,await argon2.hash(password)]);
     await ordinaryAdminApi.post('/auth/login',{email:'normal-admin@example.invalid',password});
     await assert.rejects(ordinaryAdminApi.post('/release-test',releaseAction),e=>e.response.status===403);
+    // ---- SPFBL module through the REAL router: session, CSRF, module gate, Super Admin, reauthentication bound to the target ----
+    // Reauthentication is limited to 5 per 15 minutes per account, so the work is split between two Super Admins.
+    const makeSuperAdmin=async label=>{
+      const id=crypto.randomUUID(),api=browserClient(),email=`sa-${label}@example.invalid`;
+      await database.query("INSERT INTO users(id,name,email,hash_senha_login,role,is_super_admin) VALUES($1,$2,$3,$4,'admin',true)",[id,'SYNTHETIC_SA_'+label,email,await argon2.hash(password)]);
+      await api.post('/auth/login',{email,password});
+      return {id,api};
+    };
+    const sa1=await makeSuperAdmin('one'),sa2=await makeSuperAdmin('two');
+    {
+      const denies=(promise,status,code,purpose)=>assert.rejects(promise,e=>e.response.status===status&&(!code||e.response.data.code===code)&&(!purpose||e.response.data.purpose===purpose));
+      const reauthToken=async(api,purpose,action)=>(await api.post('/auth/reauth',{purpose,action,current_password:password})).data.token;
+      const leaked=value=>JSON.stringify(value).includes('SENTINEL');
+      const anonymous=browserClient();
+      await denies(anonymous.get('/spfbl/overview'),401);
+      // Module off: nobody gets in, not even the Super Admin; the toggle itself is Super Admin only.
+      await denies(sa1.api.get('/spfbl/settings'),404,'MODULE_DISABLED');
+      await denies(directApi.get('/spfbl/overview'),404,'MODULE_DISABLED');
+      assert.deepEqual((await sa1.api.get('/system/modules/menu')).data,{modules:{spfbl:false}});
+      assert.deepEqual((await sa1.api.get('/system/modules')).data.modules.map(m=>[m.key,m.enabled]),[['spfbl',false]]);
+      await denies(ordinaryAdminApi.get('/system/modules'),403,'SUPER_ADMIN_REQUIRED');
+      await denies(directApi.get('/system/modules'),403);
+      await denies(ordinaryAdminApi.put('/system/modules/spfbl',{enabled:true}),403,'SUPER_ADMIN_REQUIRED');
+      await denies(sa1.api.put('/system/modules/spfbl',{enabled:true}),403,'REAUTH_REQUIRED',undefined);
+      const toggleDenied=await sa1.api.put('/system/modules/spfbl',{enabled:true}).catch(e=>e);
+      assert.equal(toggleDenied.response.data.purpose,'modules_settings:spfbl','the grant is bound to the module in the URL');
+      // A grant is for one exact action: another state or another module is refused, and it is single-use.
+      const onToken=await reauthToken(sa1.api,'modules_settings:spfbl',{enabled:true});
+      await denies(sa1.api.put('/system/modules/spfbl',{enabled:false,_reauth_token:onToken}),403,'REAUTH_REQUIRED');
+      await denies(sa1.api.put('/system/modules/nope',{enabled:true,_reauth_token:onToken}),403,'REAUTH_REQUIRED');
+      assert.equal((await sa1.api.put('/system/modules/spfbl',{enabled:true,_reauth_token:onToken})).data.module.enabled,true);
+      await denies(sa1.api.put('/system/modules/spfbl',{enabled:true,_reauth_token:onToken}),403,'REAUTH_REQUIRED');
+      assert.deepEqual((await sa1.api.get('/system/modules/menu')).data,{modules:{spfbl:true}});
+      assert.deepEqual((await ordinaryAdminApi.get('/system/modules/menu')).data,{modules:{spfbl:false}},'an admin who is not Super Admin has no implicit access');
+      assert.deepEqual((await directApi.get('/system/modules/menu')).data,{modules:{spfbl:false}});
+
+      // Configuration: Super Admin only, secrets encrypted and never returned.
+      await denies(ordinaryAdminApi.get('/spfbl/settings'),403,'SUPER_ADMIN_REQUIRED');
+      await denies(directApi.get('/spfbl/settings'),403,'SUPER_ADMIN_REQUIRED');
+      assert.equal((await sa1.api.get('/spfbl/settings')).data.has_matrix_password,false);
+      await denies(sa1.api.post('/spfbl/matrix/test',{}),422,'MATRIX_NOT_CONFIGURED');
+      await denies(sa1.api.post('/spfbl/whm/test',{}),422,'WHM_NOT_CONFIGURED');
+      const settingsBody={matrix_user:'ops@example.com',matrix_password:'MATRIX_SENTINEL_pw',whm_host:'srv.example.com',whm_user:'root',whm_token:'WHMTOKENSENTINEL0123456789ABCDEF'};
+      const settingsDenied=await sa1.api.put('/spfbl/settings',settingsBody).catch(e=>e);
+      assert.equal(settingsDenied.response.data.code,'REAUTH_REQUIRED'); assert.equal(settingsDenied.response.data.purpose,'spfbl_settings');
+      await denies(ordinaryAdminApi.put('/spfbl/settings',settingsBody),403,'SUPER_ADMIN_REQUIRED');
+      const settingsToken=await reauthToken(sa1.api,'spfbl_settings',settingsBody);
+      await denies(sa1.api.put('/spfbl/settings',{...settingsBody,matrix_user:'attacker@example.net',_reauth_token:settingsToken}),403,'REAUTH_REQUIRED');
+      const saved=(await sa1.api.put('/spfbl/settings',{...settingsBody,_reauth_token:settingsToken})).data;
+      assert.deepEqual([saved.matrix_user,saved.has_matrix_password,saved.whm_host,saved.has_whm_token],['ops@example.com',true,'srv.example.com',true]);
+      assert.equal(leaked(saved),false); assert.equal(leaked((await sa1.api.get('/spfbl/settings')).data),false);
+      const row=(await database.query('SELECT * FROM spfbl_settings WHERE id=1')).rows[0];
+      assert.equal(leaked(row),false,'secrets are stored encrypted'); assert.match(row.encrypted_whm_token,/^[^:]+:[^:]+:[^:]+:[^:]+$/);
+      await denies(sa1.api.put('/spfbl/settings',{whm_host:'other.example.com',_reauth_token:await reauthToken(sa1.api,'spfbl_settings',{whm_host:'other.example.com'})}),400,'SPFBL_SECRET_REENTRY_REQUIRED');
+
+      // Domain catalogue: Super Admin only.
+      await denies(ordinaryAdminApi.post('/spfbl/domains',{name:'x.example.com'}),403,'SUPER_ADMIN_REQUIRED');
+      await denies(directApi.get('/spfbl/domains'),403);
+      await denies(sa1.api.post('/spfbl/domains',{name:'bad domain'}),400,'SPFBL_DOMAIN_INVALID');
+      const domainOne=(await sa1.api.post('/spfbl/domains',{name:'one.example.com'})).data.domain, domainTwo=(await sa1.api.post('/spfbl/domains',{name:'two.example.com'})).data.domain;
+      await denies(sa1.api.post('/spfbl/domains',{name:'ONE.example.com'}),409,'SPFBL_DOMAIN_EXISTS');
+      assert.deepEqual((await sa1.api.get('/spfbl/domains')).data.domains.map(d=>d.name),['one.example.com','two.example.com']);
+      await denies(sa1.api.delete('/spfbl/domains/not-a-uuid'),404);
+
+      // Access grants: reauthentication is bound to the TARGET account, single-use, Super Admin only.
+      const grant={unlock_mode:'review',domain_ids:[domainOne.id]};
+      const grantDenied=await sa2.api.put('/spfbl/access/'+directUser.id,grant).catch(e=>e);
+      assert.equal(grantDenied.response.data.code,'REAUTH_REQUIRED'); assert.equal(grantDenied.response.data.purpose,'spfbl_access:'+directUser.id);
+      await denies(ordinaryAdminApi.put('/spfbl/access/'+directUser.id,grant),403,'SUPER_ADMIN_REQUIRED');
+      const grantToken=await reauthToken(sa2.api,'spfbl_access:'+directUser.id,grant);
+      await denies(sa2.api.put('/spfbl/access/'+ordinaryAdmin,{...grant,_reauth_token:grantToken}),403,'REAUTH_REQUIRED');
+      await denies(sa2.api.put('/spfbl/access/'+directUser.id,{...grant,domain_ids:[domainOne.id,domainTwo.id],_reauth_token:grantToken}),403,'REAUTH_REQUIRED');
+      const granted=(await sa2.api.put('/spfbl/access/'+directUser.id,{...grant,_reauth_token:grantToken})).data.access;
+      assert.deepEqual([granted.unlock_mode,granted.domains.map(d=>d.name)],['review',['one.example.com']]);
+      await denies(sa2.api.put('/spfbl/access/'+directUser.id,{...grant,_reauth_token:grantToken}),403,'REAUTH_REQUIRED');
+      const selfGrant={unlock_mode:'review',domain_ids:[domainOne.id]};
+      await denies(sa2.api.put('/spfbl/access/'+sa1.id,{...selfGrant,_reauth_token:await reauthToken(sa2.api,'spfbl_access:'+sa1.id,selfGrant)}),409,'SPFBL_ACCESS_SUPER_ADMIN');
+
+      // The granted account: its own scope only, never configuration, domains or other grants.
+      assert.deepEqual((await directApi.get('/system/modules/menu')).data,{modules:{spfbl:true}});
+      const own=(await directApi.get('/spfbl/overview')).data;
+      assert.deepEqual([own.role,own.unlock_mode,own.domains.map(d=>d.name)],['user','review',['one.example.com']]);
+      assert.equal(JSON.stringify(own).includes('two.example.com'),false);
+      for(const url of ['/spfbl/settings','/spfbl/domains','/spfbl/access']) await denies(directApi.get(url),403,'SUPER_ADMIN_REQUIRED');
+      await denies(directApi.post('/spfbl/domains',{name:'mine.example.com'}),403,'SUPER_ADMIN_REQUIRED');
+      await denies(directApi.put('/spfbl/settings',{matrix_user:'x'}),403,'SUPER_ADMIN_REQUIRED');
+      await denies(directApi.put('/system/modules/spfbl',{enabled:false}),403,'SUPER_ADMIN_REQUIRED');
+      await denies(ordinaryAdminApi.get('/spfbl/overview'),403,'SPFBL_ACCESS_DENIED');
+      const adminView=(await sa2.api.get('/spfbl/overview')).data;
+      assert.deepEqual([adminView.role,adminView.matrix_configured,adminView.whm_configured,adminView.domains,adminView.users_with_access],['super_admin',true,true,{total:2,active:2},1]);
+      assert.equal(leaked(adminView),false);
+
+      // Revoking takes effect at once; the DELETE token is bound to the target as well.
+      await denies(sa2.api.delete('/spfbl/access/'+directUser.id),403,'REAUTH_REQUIRED');
+      const revokeToken=await reauthToken(sa2.api,'spfbl_access:'+directUser.id,{});
+      await denies(sa2.api.delete('/spfbl/access/'+ordinaryAdmin,{_reauth_token:revokeToken}),403,'REAUTH_REQUIRED');
+      assert.equal((await sa2.api.delete('/spfbl/access/'+directUser.id,{_reauth_token:revokeToken})).data.revoked,true);
+      await denies(directApi.get('/spfbl/overview'),403,'SPFBL_ACCESS_DENIED');
+      assert.deepEqual((await directApi.get('/system/modules/menu')).data,{modules:{spfbl:false}});
+      // A grant never outlives the module: switch it off and even the granted routes disappear.
+      const regrant=await reauthToken(sa2.api,'spfbl_access:'+directUser.id,grant);
+      await sa2.api.put('/spfbl/access/'+directUser.id,{...grant,_reauth_token:regrant});
+      assert.equal((await directApi.get('/spfbl/overview')).status,200);
+      const offToken=await reauthToken(sa1.api,'modules_settings:spfbl',{enabled:false});
+      assert.equal((await sa1.api.put('/system/modules/spfbl',{enabled:false,_reauth_token:offToken})).data.module.enabled,false);
+      await denies(directApi.get('/spfbl/overview'),404,'MODULE_DISABLED');
+      await denies(sa1.api.get('/spfbl/settings'),404,'MODULE_DISABLED');
+      assert.deepEqual((await directApi.get('/system/modules/menu')).data,{modules:{spfbl:false}});
+      // Audit trail: what happened, never secrets.
+      const audit=(await database.query("SELECT action,status,metadata FROM system_audit_events WHERE action LIKE 'spfbl_%' OR action='system_module_toggled' ORDER BY created_at,id")).rows;
+      assert.ok(audit.some(e=>e.action==='system_module_toggled'&&e.status==='success'&&e.metadata.enabled===true));
+      assert.ok(audit.some(e=>e.action==='spfbl_settings_updated'&&e.status==='success'&&e.metadata.whm_token_changed===true));
+      assert.ok(audit.some(e=>e.action==='spfbl_access_revoked'&&e.status==='success'));
+      assert.equal(leaked(audit),false,'no secrets in the audit trail');
+      assert.equal(audit.some(e=>JSON.stringify(e.metadata).includes('srv.example.com')),false,'no WHM host in the audit trail');
+      // The backup invariant is exactly one Super Admin: remove the two helper accounts (the protection trigger is
+      // bypassed for this cleanup only). Their grants and sessions go with them; the SPFBL rows stay in the backup scope.
+      await database.query('ALTER TABLE users DISABLE TRIGGER trg_protect_super_admin_user');
+      try { await database.query('DELETE FROM users WHERE id = ANY($1::uuid[])',[[sa1.id,sa2.id]]); } finally { await database.query('ALTER TABLE users ENABLE TRIGGER trg_protect_super_admin_user'); }
+      assert.equal((await database.query('SELECT count(*)::int AS n FROM users WHERE is_super_admin=TRUE')).rows[0].n,1);
+      console.log('PASS spfbl module through the real router: module gate, Super Admin only, reauthentication bound to action and target (single-use), scoped grants, immediate revocation, no secrets stored or returned, audited.');
+    }
     // Real group creation: account enrollment, not a UI flag, decides whether MFA is required.
     const groupAction={name:'SYNTHETIC_GROUP_NO_MFA',description:'Disposable regression',userIds:[],can_view:true,can_edit:false,can_add:false,can_delete:false};
     assert.equal((await ordinaryAdminApi.get('/auth/me')).data.user.mfa_enabled,false);
