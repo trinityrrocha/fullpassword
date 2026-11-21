@@ -44,6 +44,11 @@ identidades/envelopes e segredos operacionais cifrados, com custódia fora do ho
 
 ## Autoridade de release
 
+Desde 2026-11-21, a **descoberta** também usa um canal público assinado e comum
+a todas as instalações, sem origin/approval individual. Esse anúncio não é
+autoridade de deployment e não substitui os controles abaixo. Ver
+[canal público e adoção em instalações antigas](public-release-channel.md).
+
 - Backend não tem Docker socket nem poder de montar/manipular containers. A API
   aceita somente IDs/SHA/hash de uma release já aprovada pelo operador, com
   Super Admin autenticado e CSRF válido, sem reauth/MFA adicional no WebUpdate.

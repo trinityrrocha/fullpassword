@@ -112,6 +112,26 @@ try{
   agent={release:null,installedRelease:release,progress:{revision:next,state:'completed'},requested:false};running=next;
   await open('completed');await details.click();
   assert.equal(await page.getByText(release.changes[0].title,{exact:true}).isVisible(),true,'installed notes remain after expiry');
+  const publicRelease={state:'available',release:{...release,approvalId:undefined,changes:[{type:'security',title:'Correção pública para todas as instalações'}]},checkedAt:'2026-11-21T12:00:00Z',stale:false};
+  running=current;
+  agent={release:null,requested:false,publicRelease,progress:{revision:current,state:'completed'}};
+  const postsBeforeDiscovery=posts.length;
+  for(const width of [1280,390,320])for(const dark of [false,true]){
+    await page.setViewportSize({width,height:850});
+    await open('public_available');
+    await page.evaluate(value=>document.documentElement.classList.toggle('dark',value),dark);
+    assert.equal(await page.getByRole('button',{name:'Atualizar sistema',exact:true}).count(),0,'discovery cannot create authority');
+    await details.focus();await page.keyboard.press('Enter');
+    assert.equal(await page.getByText(publicRelease.release.changes[0].title,{exact:true}).isVisible(),true);
+    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+    await screenshot(`public-${width}-${dark?'dark':'light'}`);
+  }
+  agent={...agent,publicRelease:{...publicRelease,state:'unavailable',stale:true}};
+  await open('public_unavailable');
+  assert.equal(await page.getByText('Sistema atualizado',{exact:true}).count(),0);
+  agent={...agent,publicRelease:{...publicRelease,state:'unrecognized'}};
+  await open('public_unrecognized');
+  assert.equal(posts.length,postsBeforeDiscovery,'public checks never POST');
   agent={release:null,progress:null,requested:false};running=current;
   await open('none');
   assert.equal(await page.getByRole('button',{name:'Atualizar sistema',exact:true}).count(),0);

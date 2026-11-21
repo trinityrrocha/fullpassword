@@ -37,6 +37,15 @@ const newer=show({agent:{release,progress:{...progress('completed'),approvalId:'
 assert.equal(newer.state,'available'); assert.equal(newer.phase,undefined,'old timeline cannot masquerade as current');
 assert.equal(show({agent:{release,progress:progress('unknown'),requested:false}}).state,'unknown');
 assert.equal(show({agent:{...agent,release},error:'network'}).canRequest,false);
+const publicRelease={state:'available',release:{revision:next,changes:[{type:'security',title:'Correção global'}]},checkedAt:'2026-11-21T12:00:00Z',stale:false};
+assert.equal(show({agent:{...agent,publicRelease}}).state,'public_available');
+assert.equal(show({agent:{...agent,publicRelease}}).canRequest,false,'public discovery does not mint approval');
+assert.equal(show({agent:{...agent,publicRelease,release}}).state,'available');
+assert.equal(show({agent:{...agent,publicRelease,requested:true,release:{...release,revision:current},progress:{approvalId:release.approvalId,revision:current,state:'completed'}}}).state,'public_available','old success cannot hide new public release');
+assert.equal(show({agent:{...agent,publicRelease:{...publicRelease,state:'unavailable',stale:true}}}).state,'public_unavailable');
+assert.equal(show({agent:{...agent,publicRelease:{...publicRelease,state:'unrecognized'}}}).state,'public_unrecognized');
+assert.equal(show({agent:{...agent,publicRelease:{state:'current',release:{revision:current}}}}).state,'current');
+assert.equal(show({agent:{...agent,publicRelease,release,requested:true,progress:progress('deploying')}}).state,'deploying');
 
 const frontendRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = file => fs.readFileSync(path.join(frontendRoot,file),'utf8');
@@ -52,6 +61,13 @@ try {
   const summary=html;
   for(const technical of [current,next,release.manifestHash,release.backend,release.frontend,'O atualizador antigo','A primeira instalação']) assert(!summary.includes(technical),technical+' leaked into compact summary');
   assert.doesNotMatch(html,/role="dialog"/,'technical details unmounted by default');
+  const publicHtml=render({agent:{...agent,publicRelease}});
+  assert.match(publicHtml,/Atualização pública disponível/);
+  assert.match(publicHtml,/bbbbbbbb/);
+  assert.match(publicHtml,/Correção global/);
+  assert.doesNotMatch(publicHtml,/aria-label="Atualizar sistema"/);
+  assert.match(render({agent:{...agent,publicRelease:{...publicRelease,state:'current',release:{...publicRelease.release,revision:current}}}}),/Correção global/,'signed notes also available on current installation without local agent history');
+  assert.match(render({agent:{...agent,publicRelease:{...publicRelease,state:'unavailable',stale:true}}}),/Dados anteriores/);
   const changes=[{type:'fix',title:'Repair shared vault'},{type:'feat',title:'Show signed notes'},{type:'security',title:'Validate metadata'},{type:'perf',title:'Reduce wait'},{type:'release',title:'Approved release'},{type:'change',title:'Other change'}];
   const withNotes=render({agent:{...agent,release:{...release,changes}}});
   for(const change of changes) assert(withNotes.includes(change.title));

@@ -24,7 +24,8 @@ export default function SystemUpdateView({ versions, agent, error, busy, loading
   // Available notes belong to the approved candidate; otherwise only show notes tied
   // to the confirmed installed revision, never stale progress from another release.
   const installed = agent.installedRelease?.revision === status.currentRevision ? agent.installedRelease : null;
-  const notesRelease = release || installed || (progress?.state === 'completed' && progress.revision === status.currentRevision ? progress : null);
+  const publicNotes = agent.publicRelease?.release;
+  const notesRelease = (status.state.startsWith('public_') ? publicNotes : release) || (publicNotes?.revision === status.currentRevision ? publicNotes : null) || installed || (progress?.state === 'completed' && progress.revision === status.currentRevision ? progress : null);
   const changes = Array.isArray(notesRelease?.changes) ? notesRelease.changes.slice(0,50).filter(change => typeof change?.title === 'string' && change.title.length <= 200) : [];
   const stepIndex = steps.findIndex(([phase]) => phase === status.phase);
   const details = [
@@ -46,7 +47,9 @@ export default function SystemUpdateView({ versions, agent, error, busy, loading
     ['Backend image ref / digest aprovado', release?.backend],
     ['Frontend image ref / digest aprovado', release?.frontend],
     ['Backend image ref / digest do pedido', progress?.backend],
-    ['Frontend image ref / digest do pedido', progress?.frontend]
+    ['Frontend image ref / digest do pedido', progress?.frontend],
+    ['Revisão do catálogo público', agent.publicRelease?.release?.revision],
+    ['Consulta pública verificada (UTC)', agent.publicRelease?.checkedAt]
   ];
   return (
     <div tabIndex={-1} data-focus-return data-update-state={status.state} className="min-w-0 space-y-4 text-sm text-slate-700 dark:text-slate-200">
@@ -66,7 +69,7 @@ export default function SystemUpdateView({ versions, agent, error, busy, loading
           <div className="min-w-0">
             <dt className="text-xs text-slate-500 dark:text-slate-400">Nova versão</dt>
             <dd className="mt-1 break-words font-semibold text-slate-900 dark:text-slate-100">
-              {status.state === 'completed' || status.state === 'current' ? 'Nenhuma atualização pendente' : status.availableRevision ? (release.version || shortReleaseRevision(status.availableRevision)) : 'Nenhuma versão aprovada'}
+              {status.state === 'completed' || status.state === 'current' ? 'Nenhuma atualização pendente' : status.availableRevision ? (release?.revision === status.availableRevision && release.version || shortReleaseRevision(status.availableRevision)) : 'Não disponível'}
             </dd>
           </div>
         </dl>
@@ -91,6 +94,7 @@ export default function SystemUpdateView({ versions, agent, error, busy, loading
         </div>
       </div>
       {error && <p role="alert" className="text-red-600 dark:text-red-400">{error}</p>}
+      {agent.publicRelease?.stale && <p role="status" className="text-amber-700 dark:text-amber-300">A consulta pública falhou. Dados anteriores, quando exibidos, não confirmam a versão mais recente.</p>}
       <div id={detailsId} hidden={!detailsOpen} className="space-y-4 border-t border-slate-200 pt-4 dark:border-slate-700">
         <h3 className="font-semibold text-slate-900 dark:text-slate-100">Novidades desta versão</h3>
         {changes.length ? <ul className="space-y-3">
@@ -114,6 +118,7 @@ export default function SystemUpdateView({ versions, agent, error, busy, loading
           <p>{releasePhaseDescriptions[progress?.state] || 'Nenhuma implantação solicitada.'}</p>
           <p>Pedido registrado para a aprovação atual: {agent.requested ? 'Sim' : 'Não'}. Uma aprovação já solicitada não pode ser reutilizada.</p>
           <p>Somente o Super Admin pode solicitar uma release previamente aprovada. O agente verifica assinatura, revisão, imagens e recuperação antes da implantação.</p>
+          <p>O catálogo público assinado é comum a todas as instalações. Descobrir uma versão não cria aprovação nem inicia uma implantação neste ambiente.</p>
           <p>Atualizações exigem uma release assinada, revisão explícita e recuperação verificada. O atualizador antigo de main está desativado. A primeira instalação segura exige um operador autorizado.</p>
           {!release && <p>Não há release aprovada disponível. O operador precisa provisionar o agente e uma aprovação válida; main não será instalada automaticamente.</p>}
           <p>O pedido não contém comandos ou caminhos. Após interrupção, somente o operador pode reconciliar a implantação e emitir nova aprovação.</p>

@@ -5,6 +5,7 @@ node_modules
 !.env.example
 *.log
 *.pem
+!src/config/release-public.pem
 *.key
 *.pfx
 *.fullpassword-backup*
