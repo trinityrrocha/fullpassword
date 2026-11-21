@@ -61,7 +61,6 @@ const monitorDatabase=(project,connection,directory)=>{
   await new Promise(resolve=>{const timer=setTimeout(()=>{child.kill('SIGKILL');resolve();},5000);child.once('exit',()=>{clearTimeout(timer);resolve();});child.kill('SIGTERM');});
  }fs.closeSync(eventFd);fs.closeSync(probeFd);}};
 };
-let trustedNodeDir=null;
 async function main(){
  assert.equal(process.platform,'linux');assert.equal(process.getuid(),0);
  assert.equal(process.env.GITHUB_ACTIONS,'true');assert.equal(process.env.RUNNER_ENVIRONMENT,'github-hosted');
@@ -184,11 +183,7 @@ async function main(){
   };
   // Initial operator bootstrap from old installation; no old web-main button is used.
   approve(bootstrap);
-  // The unit runs node as root (R-18): the bootstrap refuses a binary whose path is not root-owned, and the hosted
-  // runner's setup-node copy lives in a runner-owned directory. Rehearse with a root-owned copy of the same binary.
-  trustedNodeDir=fs.mkdtempSync('/usr/local/lib/fp-test-node-');
-  fs.copyFileSync(process.execPath,path.join(trustedNodeDir,'node'));fs.chmodSync(path.join(trustedNodeDir,'node'),0o755);
-  run('bash',[path.join(ROOT,'scripts/bootstrap-release-agent.sh'),ROOT,'1000'],{env:{...process.env,PATH:trustedNodeDir+':'+process.env.PATH}});
+  run('bash',[path.join(ROOT,'scripts/bootstrap-release-agent.sh'),ROOT,'1000'],{env:{...process.env,PATH:path.dirname(process.execPath)+':'+process.env.PATH}});
   const agentPath='/usr/local/lib/fullpassword-release/release-agent.js';
   assert.equal(fs.readFileSync(agentPath,'utf8'),fs.readFileSync(path.join(ROOT,'scripts/release-agent.js'),'utf8'));
   deploy(policy.manifestFile,policy.signatureFile);
@@ -279,7 +274,6 @@ async function main(){
   }
   try {run('docker',['rm','-f',registry]);}catch{}
   fs.rmSync(temporary,{recursive:true,force:true});
-  if(trustedNodeDir)fs.rmSync(trustedNodeDir,{recursive:true,force:true});
  }
 }
 main().catch(error=>{console.error(error.message);process.exitCode=1;});
