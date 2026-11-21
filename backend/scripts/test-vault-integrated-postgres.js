@@ -130,6 +130,10 @@ async function run() {
     const releaseFixture=require('../src/controllers/releaseController').createController(releasePublic,releaseQueue);
     app.get('/api/release-test',require('../src/middleware/authMiddleware').verifyToken,releaseFixture.status);
     app.post('/api/release-test',require('../src/middleware/authMiddleware').verifyToken,(req,res,next)=>Promise.resolve(releaseFixture.request(req,res)).catch(next));
+    // server.js ends /api with a JSON 404; fixture routes added after load must sit before it.
+    const stack=app._router.stack,notFound=stack.findIndex(layer=>layer.name==='apiNotFound');
+    assert.notEqual(notFound,-1,'apiNotFound layer missing');
+    stack.push(...stack.splice(notFound,1));
     httpServer=await new Promise(resolve=>{const server=app.listen(0,'127.0.0.1',()=>resolve(server));});
     const base='http://127.0.0.1:'+httpServer.address().port+'/api';
     function browserClient() {

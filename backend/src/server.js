@@ -153,7 +153,7 @@ app.use('/api/groups', groupRoutes);
 app.use('/api/integrations', integrationRoutes);
 app.use('/api/cloud-backup', cloudBackupRoutes);
 // JSON 404 instead of Express's HTML page, which names the framework.
-app.use('/api', (_req, res) => res.status(404).json({ error: 'Rota não encontrada' }));
+app.use('/api', function apiNotFound(_req, res) { res.status(404).json({ error: 'Rota não encontrada' }); });
 
 app.use(payloadTooLargeErrorHandler);
 
