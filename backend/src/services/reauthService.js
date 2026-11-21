@@ -37,7 +37,7 @@ const issue=async(req,res)=>{
  try {
   await client.query('BEGIN');
   const purpose=req.body.purpose;
-  if(!/^profile_change$|^crypto_unlock_secret_change$|^system_release$|^admin_(?:user_change|mfa_policy|mfa_reset|user_delete):[0-9a-f-]{36}$/.test(purpose || '')) throw denied(purpose);
+  if(!/^profile_change$|^crypto_unlock_secret_change$|^system_release$|^backup_(?:export|restore|settings)$|^smtp_settings$|^group_create$|^(?:admin_(?:user_change|mfa_policy|mfa_reset|user_delete)|client_delete|group_(?:change|delete)):[0-9a-f-]{36}$/.test(purpose || '')) throw denied(purpose);
   if(purpose==='system_release' && !require('../config/security').isSuperAdmin(req.user)) throw denied(purpose);
   const user=(await client.query('SELECT hash_senha_login,token_version FROM users WHERE id=$1 FOR UPDATE',[req.user.id])).rows[0];
   if(typeof req.body.current_password!=='string' || !(await argon2.verify(user.hash_senha_login,req.body.current_password))) throw denied(purpose);
@@ -57,7 +57,8 @@ const consume=async(client,req,purpose)=>{
  const result=await client.query(`UPDATE sensitive_auth_grants SET used_at=CURRENT_TIMESTAMP WHERE
  token_hash=$1 AND user_id=$2 AND session_id=$3 AND token_version=$4 AND purpose=$5 AND action_hash=$6
  AND used_at IS NULL AND expires_at>CURRENT_TIMESTAMP RETURNING token_hash`,
- [hash(req.body._reauth_token || ''),req.user.id,req.user.session_id,req.user.token_version,purpose,actionHash(req.body)]);
+ // Multipart uploads are guarded before the body is parsed, so their token travels in a header.
+ [hash(req.body?._reauth_token || req.get?.('x-reauth-token') || ''),req.user.id,req.user.session_id,req.user.token_version,purpose,actionHash(req.body)]);
  if(!result.rowCount) throw denied(purpose);
 };
 const requestEmailChange=async(client,userId,oldEmail,newEmail)=>{
@@ -88,13 +89,15 @@ const confirmEmail=async(req,res)=>{
  } catch(error) {await client.query('ROLLBACK').catch(()=>{});res.status(error.statusCode || 500).json({error:'Não foi possível confirmar o novo e-mail.'});}
  finally{client.release();}
 };
-const guard=kind=>async(req,res,next)=>{
+const guardPurpose=purposeOf=>async(req,res,next)=>{
  const client=await db.pool.connect();
  try {
-  await client.query('BEGIN');await consume(client,req,kind+':'+req.params.id);await client.query('COMMIT');next();
+  await client.query('BEGIN');await consume(client,req,purposeOf(req));await client.query('COMMIT');next();
  } catch(error) {
   await client.query('ROLLBACK').catch(()=>{});
   res.status(error.statusCode || 500).json({error:error.message,code:error.code,purpose:error.purpose});
  } finally {client.release();}
 };
-module.exports={guard,attemptLimit,SCHEMA_SQL,ensureSchema,issue,consume,requestEmailChange,confirmEmail};
+const guard=(kind,param='id')=>guardPurpose(req=>kind+':'+req.params[param]);
+const guardFixed=purpose=>guardPurpose(()=>purpose);
+module.exports={guard,guardFixed,attemptLimit,SCHEMA_SQL,ensureSchema,issue,consume,requestEmailChange,confirmEmail};

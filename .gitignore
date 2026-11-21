@@ -82,3 +82,7 @@ coverage/
 
 # Variáveis de Ambiente do Docker Compose
 .env.docker
+
+# Python bytecode
+__pycache__/
+*.pyc

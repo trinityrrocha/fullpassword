@@ -38,6 +38,15 @@ outro valor (inclusive vazio explicitamente definido) impede startup. Ausência
 mantém `direct` seguro, com aviso no startup;
 não há detecção por header. Em direct, metadados CF são descartados.
 
+`TRUSTED_PROXY_CIDRS` (opcional): o backend só aceita `X-Forwarded-For` quando o
+peer TCP é o proxy. São confiáveis por padrão as faixas privadas (RFC 1918),
+loopback e ULA IPv6. Se a rede entre Nginx e backend estiver fora delas (sub-rede
+Docker em `100.64.0.0/10`, IPv6 com prefixo global), todos os usuários passariam a
+ter o IP do Nginx e compartilhariam bloqueios e rate limits; liste a rede aqui,
+por exemplo `TRUSTED_PROXY_CIDRS=100.64.0.0/10,2001:db8:77::/48`, de preferência
+com o `/32` do Nginx. Vazio mantém o padrão. As entradas somam-se ao padrão; um
+valor inválido (ou mais largo que IPv4 /8 e IPv6 /32) impede o startup.
+
 Os modos Cloudflare rejeitam peers não confiáveis no Nginx. A API recusa origem
 não validada ou CF-Connecting-IP diferente do endereço canônico (403); endereços
 inválidos/listas/duplicatas são recusados (400/403). Não existe fallback para

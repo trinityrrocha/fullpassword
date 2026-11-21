@@ -7,6 +7,7 @@ const scryptAsync = promisify(crypto.scrypt);
 const MAX_BACKUP_BYTES = 50 * 1024 * 1024;
 const REQUIRED_CORE_TABLES = ['users', 'groups', 'user_groups', 'clients', 'vault_items'];
 const restoreOrder = [...BACKUP_TABLES];
+const APPEND_ONLY_TABLES = new Set(['system_audit_events']);
 const isEncryptedBackupFilename = (filename) => (
   typeof filename === 'string' && filename.toLowerCase().endsWith('.enc.json')
 );
@@ -209,6 +210,8 @@ const restoreBackupRecords = async (records, expectedCounts = null) => {
     context.stage = 'delete';
     for (const table of [...restoreOrder].reverse()) {
       context.table = table;
+      // Audit history is append-only: whoever restores chooses the passphrase and could forge an empty trail.
+      if (APPEND_ONLY_TABLES.has(table)) continue;
       await client.query(`DELETE FROM ${table}`);
     }
 
@@ -242,11 +245,19 @@ const restoreBackupRecords = async (records, expectedCounts = null) => {
       if (columns.length === 0) continue;
       const values = columns.map((column) => ['json','jsonb'].includes(allowedColumns.get(column)) && record.row[column] !== null ? JSON.stringify(record.row[column]) : record.row[column]);
       const placeholders = columns.map((_, placeholderIndex) => `$${placeholderIndex + 1}`);
-      await client.query(`INSERT INTO ${table} (${columns.join(', ')}) VALUES (${placeholders.join(', ')})`, values);
+      const keepExisting = APPEND_ONLY_TABLES.has(table) ? ' ON CONFLICT DO NOTHING' : '';
+      await client.query(`INSERT INTO ${table} (${columns.join(', ')}) VALUES (${placeholders.join(', ')})${keepExisting}`, values);
     }
 
     context.row = null;
     context.stage = 'verify';
+    // The protect_super_admin_user trigger only covers UPDATE; a restored package must keep exactly one.
+    const superAdmins = Number((await client.query('SELECT COUNT(*)::int AS total FROM users WHERE is_super_admin = TRUE')).rows[0]?.total);
+    if (superAdmins !== 1) {
+      const invariantError = new Error('O backup precisa conter exatamente um Super Admin.');
+      invariantError.code = 'BACKUP_SUPER_ADMIN_INVARIANT';
+      throw invariantError;
+    }
     if (expectedCounts) {
       for (const table of restoreOrder) {
         if (

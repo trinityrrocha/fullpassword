@@ -8,9 +8,9 @@ const {
   notifyCloudBackupRecovery
 } = require('./cloudBackupNotificationService');
 
-// Mantém o mesmo lock do scheduler legado para impedir duplicidade durante
-// rolling updates onde uma instância antiga ainda possa estar ativa.
-const SCHEDULER_LOCK_ID = 8142027;
+// Lock próprio: 8142027 serializa ACL/grupos/usuários, e segurá-lo durante um
+// backup inteiro bloqueava essas transações (ou fazia o agendamento ser pulado).
+const SCHEDULER_LOCK_ID = 8142032;
 const CHECK_INTERVAL_MS = 30 * 1000;
 const WEEKDAY_NUMBER = Object.freeze({
   Sun: 0,

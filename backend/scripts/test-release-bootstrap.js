@@ -23,6 +23,13 @@ try {
   fs.writeFileSync(node,'#!/bin/sh\nprintf "%s\\n" "'+version+'"\n');
   result=invoke();assert.equal(result.status,0,result.stderr);assert.match(result.stdout,/GATE_PASS/);
  }
+ if(process.platform==='linux') {
+  // A Node binary under a user-writable/non-root tree must never become the root unit's ExecStart.
+  result=spawnSync(bash,['-c','source "$1"; NODE="$2"; validate_host_node_owner','owner',script,node],{encoding:'utf8',timeout:15000});
+  if(process.getuid()!==0) {assert.notEqual(result.status,0);assert.match(result.stderr,/NODE_HOST_UNTRUSTED_PATH/);}
+  else assert.match(result.stderr,/NODE_HOST_UNTRUSTED_PATH/); // os.tmpdir() is sticky/world-writable even for root
+  console.log('PASS host Node ownership gate rejects a binary in a non-root/writable tree.');
+ }
  if(process.platform==='linux' && process.getuid()===0) {
   // Exercise the executable root entry point, before any install/systemd/state effects.
   fs.writeFileSync(node,'#!/bin/sh\nprintf "v18.20.0\\n"\n');

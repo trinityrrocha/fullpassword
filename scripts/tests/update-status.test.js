@@ -137,7 +137,9 @@ async function main() {
   assert.ok(updateScript.indexOf('[ "$ready" = 1 ]') < updateScript.indexOf('record-installed "$(git rev-parse HEAD)"'));
   const installScript = fs.readFileSync(path.join(__dirname, '../install.sh'), 'utf8');
   assert.match(installScript, /create_initial_super_admin\s+record_installed_commit/);
-  assert.match(installScript, /compose exec -T updater node \/opt\/fullpassword\/scripts\/check-update-status.js record-installed/);
+  // The updater service no longer exists in docker-compose.yml; the backend writes the same status volume.
+  assert.match(installScript, /compose exec -T backend node -e "require\('\.\/src\/services\/updateStatusStore'\)\.writeInstalledCommit\(process\.argv\[1\]\)" "\$installed_commit"/);
+  assert.doesNotMatch(installScript, /compose exec -T updater/);
   const daemonSource = fs.readFileSync(path.join(__dirname, '../updater-daemon.sh'), 'utf8');
   assert.match(daemonSource, /UPDATER_CHECK_INTERVAL_SECONDS:-86400/);
   assert.match(daemonSource, /now - last_check/);

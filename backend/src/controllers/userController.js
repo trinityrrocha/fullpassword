@@ -71,6 +71,10 @@ const loadUserGroups = async (userIds = []) => {
 // GET /api/users - Lista todos os usuários com seus grupos
 const getUsers = async (req, res) => {
   try {
+    // The directory exposes roles and MFA state; only team managers need it.
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Apenas administradores podem listar usuários' });
+    }
 
     const result = await db.query(
       `SELECT id, name, email, role, is_active, is_super_admin, must_change_password, mfa_required,

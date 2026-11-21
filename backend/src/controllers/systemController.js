@@ -37,7 +37,7 @@ const getSystemPermissions = async (req, res) => {
     can_manage_system: isSuper,
     is_admin: isAdmin,
     is_super_admin: isSuper,
-    super_admin_email: getConfiguredSuperAdminEmail(),
+    super_admin_email: isAdmin || isSuper ? getConfiguredSuperAdminEmail() : null,
     role: req.user?.role || null,
     email: req.user?.email || null
   });

@@ -1,4 +1,4 @@
-import { Outlet, Link, useNavigate } from 'react-router-dom';
+import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import { Users, Settings, Shield, LogOut, Menu, X, Building2 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
@@ -18,6 +18,13 @@ import { combineUpdateNotification, isUpdateSuperAdmin, UPDATE_STATUS_CHANGED } 
 export default function DashboardLayout() {
   const navigate = useNavigate();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const { pathname } = useLocation();
+  useEffect(() => {
+    if (!isMobileMenuOpen) return undefined;
+    const closeOnEscape = (event) => { if (event.key === 'Escape') setIsMobileMenuOpen(false); };
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [isMobileMenuOpen]);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [isVaultPolicyDialogOpen,setIsVaultPolicyDialogOpen]=useState(false);
   const [notifications, setNotifications] = useState({ unread_count: 0, items: [] });
@@ -173,7 +180,7 @@ export default function DashboardLayout() {
         </div>
         <div className="flex items-center gap-2">
           <ThemeToggle />
-          <button type="button" aria-label={isMobileMenuOpen ? 'Fechar menu' : 'Abrir menu'} onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}>
+          <button type="button" aria-label={isMobileMenuOpen ? 'Fechar menu' : 'Abrir menu'} aria-expanded={isMobileMenuOpen} aria-controls="mobile-menu" onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} className="rounded focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-indigo-400">
             {isMobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
           </button>
         </div>
@@ -181,12 +188,13 @@ export default function DashboardLayout() {
 
       {/* Mobile Menu Overlay */}
       {isMobileMenuOpen && (
-        <div className="md:hidden fixed inset-0 top-16 bg-slate-900 z-40 flex flex-col">
-          <nav className="flex-1 px-4 py-6 space-y-2">
+        <div id="mobile-menu" className="md:hidden fixed inset-0 top-16 bg-slate-900 z-40 flex flex-col">
+          <nav aria-label="Navegação principal" className="flex-1 px-4 py-6 space-y-2">
             {navigation.map((item) => (
               <Link
                 key={item.name}
                 to={item.href}
+                aria-current={pathname === item.href || (item.href !== '/' && pathname.startsWith(item.href)) ? 'page' : undefined}
                 onClick={() => setIsMobileMenuOpen(false)}
                 className="flex items-center px-4 py-3 text-base font-medium rounded-md text-slate-300 hover:bg-slate-800 hover:text-white"
               >

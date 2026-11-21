@@ -44,4 +44,6 @@ async function run(){
 }
 // All HTTP/PG/filesystem cleanup above has completed before setting final status.
 // embedded-postgres's async beforeExit hook must not turn a failed assertion into 0.
-run().then(()=>process.exit(0)).catch(error=>{console.error(error);process.exit(1);});
+// Fail closed: embedded-postgres's exit hook calls process.exit(0) on beforeExit when a start/stop promise never settles.
+let completed=false;process.on('beforeExit',()=>{if(!completed){console.error('PostgreSQL test did not complete: embedded PostgreSQL failed to start or cleanup hung.');process.exit(1);}});
+run().then(()=>{completed=true;process.exit(0);}).catch(error=>{console.error(error);process.exit(1);});

@@ -1,5 +1,7 @@
 const express = require('express');
 const router = express.Router();
+const { requireUuidParam } = require('../middleware/uuidParam');
+router.param('clientId', requireUuidParam);
 const clientController = require('../controllers/clientController');
 const { verifyToken } = require('../middleware/authMiddleware');
 
@@ -12,7 +14,8 @@ router.get('/', clientController.getClients);
 // POST /api/clients
 router.post('/', clientController.createClient);
 router.put('/:clientId', clientController.updateClient);
-router.delete('/:clientId', clientController.deleteClient);
+// Deleting a client cascades every record, history and envelope: owner or Super Admin, after reauth.
+router.delete('/:clientId', require('../services/reauthService').guard('client_delete', 'clientId'), clientController.deleteClient);
 router.get('/:clientId/modules', clientController.getClientModules);
 router.put('/:clientId/modules', clientController.updateClientModules);
 router.put('/:clientId/domain-expiration-notifications', clientController.updateDomainExpirationNotifications);

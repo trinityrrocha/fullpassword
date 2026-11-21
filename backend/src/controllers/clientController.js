@@ -2,6 +2,7 @@ const db = require('../config/database');
 const { getClientPermissions, requireClientPermission, logVaultAccess } = require('../services/accessControlService');
 const { isSuperAdmin } = require('../config/security');
 const { safeLogError } = require('../utils/safeLogger');
+const { UUID } = require('../middleware/uuidParam');
 const { syncDomainExpirationNotifications } = require('../services/domainExpirationService');
 
 // GET /api/clients - Lista apenas cofres próprios ou compartilhados com grupos que podem visualizar
@@ -36,8 +37,13 @@ const createClient = async (req, res) => {
 
     const { name, address, phone, email, group_ids } = req.body;
 
-    if (!name) {
+    if (typeof name !== 'string' || !name.trim()) {
       return res.status(400).json({ error: 'Nome do cliente é obrigatório' });
+    }
+    // Arrays/objects would otherwise be stored as PostgreSQL literals such as {"a","b"}.
+    if ([address, phone, email].some((value) => value != null && typeof value !== 'string')
+      || (group_ids != null && (!Array.isArray(group_ids) || group_ids.some((id) => !UUID.test(String(id)))))) {
+      return res.status(400).json({ error: 'Dados do cliente inválidos' });
     }
 
     await transaction.query('BEGIN');
@@ -216,7 +222,11 @@ const deleteClientModule = async (req, res) => {
 
     if (error.statusCode) {
       return res.status(error.statusCode).json({
-        error: error.statusCode === 404 ? 'Cofre não encontrado' : 'Você não tem permissão para excluir este módulo'
+        // 409 is a stale revision/rotation conflict: tell the client to reload instead of claiming no access.
+        error: error.statusCode === 404 ? 'Cofre não encontrado'
+          : error.statusCode === 409 ? 'O cofre foi alterado em outra sessão. Recarregue e tente novamente.'
+          : 'Você não tem permissão para excluir este módulo',
+        ...(error.statusCode === 409 ? { code: 'VAULT_VERSION_CONFLICT' } : {})
       });
     }
 
@@ -255,7 +265,8 @@ const updateClient = async (req, res) => {
 
 const deleteClient = async (req, res) => {
   try {
-    await requireClientPermission(req.params.clientId, req.user, 'delete');
+    // can_delete covers records; removing the whole vault is a structural, owner-level action.
+    await requireClientPermission(req.params.clientId, req.user, 'manage_share');
     if (req.body?.confirmation !== 'EXCLUIR') {
       return res.status(400).json({ error: 'Confirmação de exclusão inválida' });
     }

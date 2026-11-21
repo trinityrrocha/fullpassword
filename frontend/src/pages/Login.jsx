@@ -103,6 +103,8 @@ export default function Login() {
       } else {
         navigate('/');
       }
+    } catch {
+      setError('Erro ao conectar com o servidor.');
     } finally {
       setIsLoading(false);
     }
@@ -136,7 +138,7 @@ export default function Login() {
           <form noValidate className="space-y-6" onSubmit={mfaFlow ? handleMfa : bootstrapRequired ? handleBootstrap : handleLogin}>
             {bootstrapRequired&&policyError&&<p role="alert">{policyError} <button type="button" onClick={reloadPolicy} className="text-indigo-600 underline">Tentar novamente</button></p>}
             {error && (
-              <div className="bg-red-50 border-l-4 border-red-400 p-4">
+              <div id="login-error" role="alert" className="bg-red-50 border-l-4 border-red-400 p-4">
                 <div className="flex">
                   <div className="ml-3">
                     <p className="text-sm text-red-700">{error}</p>
@@ -189,7 +191,7 @@ export default function Login() {
                 <p className="text-sm text-amber-700">
                   Configuração inicial: o primeiro administrador será o Super Admin do sistema.
                 </p>
-                <p className="text-xs text-amber-600 mt-1">
+                <p className="text-xs text-amber-700 mt-1">
                   E-mail obrigatório do Super Admin: {superAdminEmail}
                 </p>
               </div>
@@ -219,7 +221,9 @@ export default function Login() {
                   onChange={(e) => bootstrapRequired
                     ? setBootstrap((value) => ({ ...value, email: e.target.value.toLowerCase() }))
                     : setEmail(e.target.value.toLowerCase())}
-                  className="appearance-none block w-full px-3 py-2 border border-slate-300 rounded-md shadow-sm placeholder-slate-400 focus:outline-hidden focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                  className="appearance-none block w-full px-3 py-2 border border-slate-300 rounded-md shadow-sm placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                  aria-invalid={error ? true : undefined}
+                  aria-describedby={error ? 'login-error' : undefined}
                   placeholder={bootstrapRequired ? superAdminEmail : 'mail@exemplo.com'}
                 />
               </div>
@@ -254,19 +258,8 @@ export default function Login() {
               </div>
             </>}
 
-            {!mfaFlow && !bootstrapRequired && <div className="flex items-center justify-between">
-              <div className="flex items-center">
-                <input
-                  id="remember-me"
-                  name="remember-me"
-                  type="checkbox"
-                  className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-slate-300 rounded"
-                />
-                <label htmlFor="remember-me" className="ml-2 block text-sm text-slate-900">
-                  Lembrar-me
-                </label>
-              </div>
-
+            {/* "Lembrar-me" removido: não era ligado a nada e sugeria um estado que não existe. */}
+            {!mfaFlow && !bootstrapRequired && <div className="flex items-center justify-end">
               <div className="text-sm">
                 <button
                   type="button"

@@ -351,7 +351,7 @@ export default function Settings() {
         </div>
         <div className="ml-3">
           <p className="text-sm text-amber-700">{message}</p>
-          <p className="text-xs text-amber-600 mt-1">
+          <p className="text-xs text-amber-700 mt-1">
             Usuário autenticado: {currentUserEmail}. Super Admin exigido: {superAdminEmail}.
           </p>
         </div>
@@ -401,7 +401,7 @@ export default function Settings() {
                 <select value={auditFilters.action} onChange={(e) => setAuditFilters({ ...auditFilters, action: e.target.value })} aria-label="Ação" className="border border-slate-300 rounded-md px-3 py-2 text-sm bg-white">
                   {AUDIT_ACTION_OPTIONS.map(([value, label]) => <option key={value || 'all'} value={value}>{label}</option>)}
                 </select>
-                <select value={auditFilters.status} onChange={(e) => setAuditFilters({ ...auditFilters, status: e.target.value })} className="border border-slate-300 rounded-md px-3 py-2 text-sm bg-white">
+                <select value={auditFilters.status} onChange={(e) => setAuditFilters({ ...auditFilters, status: e.target.value })} aria-label="Status" className="border border-slate-300 rounded-md px-3 py-2 text-sm bg-white">
                   <option value="">Todos os status</option>
                   <option value="attempt">Tentativa</option>
                   <option value="accepted">Aceito</option>
@@ -409,7 +409,7 @@ export default function Settings() {
                   <option value="denied">Negado</option>
                   <option value="failed">Falha</option>
                 </select>
-                <input type="email" value={auditFilters.user_email} onChange={(e) => setAuditFilters({ ...auditFilters, user_email: e.target.value })} placeholder="E-mail do usuário" className="border border-slate-300 rounded-md px-3 py-2 text-sm" />
+                <input type="email" value={auditFilters.user_email} onChange={(e) => setAuditFilters({ ...auditFilters, user_email: e.target.value })} placeholder="E-mail do usuário" aria-label="E-mail do usuário" className="border border-slate-300 rounded-md px-3 py-2 text-sm" />
                 <input type="date" value={auditFilters.date_from} onChange={(e) => setAuditFilters({ ...auditFilters, date_from: e.target.value })} aria-label="Data inicial" className="border border-slate-300 rounded-md px-3 py-2 text-sm" />
                 <input type="date" value={auditFilters.date_to} onChange={(e) => setAuditFilters({ ...auditFilters, date_to: e.target.value })} aria-label="Data final" className="border border-slate-300 rounded-md px-3 py-2 text-sm" />
               </div>
@@ -418,7 +418,7 @@ export default function Settings() {
                 <RefreshCw className={`w-4 h-4 mr-2 ${isLoadingAudit ? 'animate-spin' : ''}`} /> Atualizar Auditoria
               </button>
 
-              {auditError && <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">{auditError}</div>}
+              {auditError && <div role="alert" className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">{auditError}</div>}
 
               <div className="overflow-x-auto border border-slate-200 rounded-lg">
                 <table className="min-w-full divide-y divide-slate-200 text-sm">
@@ -542,8 +542,9 @@ export default function Settings() {
                 </fieldset>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Confirmação</label>
+                    <label htmlFor="backup-confirmation" className="block text-sm font-medium text-slate-700 mb-1">Confirmação: digite EXPORTAR BACKUP</label>
                     <input
+                      id="backup-confirmation"
                       type="text"
                       value={backupConfirmation}
                       onChange={(e) => setBackupConfirmation(e.target.value)}
@@ -553,8 +554,9 @@ export default function Settings() {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Frase de criptografia</label>
+                    <label htmlFor="backup-passphrase" className="block text-sm font-medium text-slate-700 mb-1">Frase de criptografia</label>
                     <input
+                      id="backup-passphrase"
                       type="password"
                       value={backupPassphrase}
                       onChange={(e) => setBackupPassphrase(e.target.value)}
@@ -617,19 +619,19 @@ export default function Settings() {
             <dl className="grid grid-cols-1 gap-x-4 gap-y-6 sm:grid-cols-2">
               <div className="sm:col-span-1">
                 <dt className="text-sm font-medium text-slate-500">Criptografia Client-Side</dt>
-                <dd className="mt-1 text-sm text-slate-900 font-semibold text-emerald-600">Ativa (AES-256-GCM)</dd>
+                <dd className="mt-1 text-sm font-semibold text-emerald-700 dark:text-emerald-400">Ativa (AES-256-GCM)</dd>
               </div>
               <div className="sm:col-span-1">
                 <dt className="text-sm font-medium text-slate-500">Derivação de Chave</dt>
-                <dd className="mt-1 text-sm text-slate-900 font-semibold text-emerald-600">Ativa (PBKDF2)</dd>
+                <dd className="mt-1 text-sm font-semibold text-emerald-700 dark:text-emerald-400">Ativa (PBKDF2)</dd>
               </div>
               <div className="sm:col-span-1">
                 <dt className="text-sm font-medium text-slate-500">Arquitetura Zero-Knowledge</dt>
-                <dd className="mt-1 text-sm text-slate-900 font-semibold text-emerald-600">Em conformidade</dd>
+                <dd className="mt-1 text-sm font-semibold text-emerald-700 dark:text-emerald-400">Em conformidade</dd>
               </div>
               <div className="sm:col-span-1">
                 <dt className="text-sm font-medium text-slate-500">Isolamento de Memória</dt>
-                <dd className="mt-1 text-sm text-slate-900 font-semibold text-emerald-600">Context API Volátil</dd>
+                <dd className="mt-1 text-sm font-semibold text-emerald-700 dark:text-emerald-400">Context API Volátil</dd>
               </div>
             </dl>
           </div>

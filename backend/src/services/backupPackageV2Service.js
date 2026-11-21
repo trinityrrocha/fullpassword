@@ -623,7 +623,8 @@ const validateManifest = async ({ extractDirectory, extractedEntries }, passphra
 
 async function* iterateDecryptedBytes(packageContext, passphrase, deadline) {
   const salt = Buffer.from(packageContext.manifest.kdf.salt, 'base64');
-  const key = await deriveKey(passphrase, salt);
+  // Same KDF parameters the manifest was authenticated with (legacy N=32768 packages included).
+  const key = await deriveKey(passphrase, salt, packageContext.manifest.kdf.params);
   try {
     for (const part of packageContext.databaseParts) {
       ensureDeadline(deadline);

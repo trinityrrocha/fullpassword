@@ -35,7 +35,15 @@ const auditLoginFailure = async (req, emailAttempted, reason, user = null) => {
     req,
     metadata: { email_attempted: emailAttempted || null, reason, country: getTrustedCountry(req) }
   });
-  await applyAutomaticBlockForLoginFailure(req);
+  // Malformed requests carry no credential guess; counting them lets anyone lock out a shared IP.
+  if (reason !== 'missing_credentials') await applyAutomaticBlockForLoginFailure(req);
+};
+
+// Unknown accounts still pay one Argon2 verification so latency does not reveal which e-mails exist.
+let timingEqualizerHash;
+const verifyAgainstTimingEqualizer = async (password) => {
+  timingEqualizerHash ||= argon2.hash(crypto.randomBytes(32).toString('hex'), { type: argon2.argon2id });
+  try { await argon2.verify(await timingEqualizerHash, String(password)); } catch { /* always a failure */ }
 };
 
 const sessionCookieOptions = () => ({
@@ -95,9 +103,10 @@ const getBootstrapState = async (client = db) => {
 const bootstrapStatus = async (_req, res) => {
   try {
     const state = await getBootstrapState();
+    // Public endpoint: the configured e-mail is only needed while the first account is being created.
     return res.status(200).json({
       required: state.required,
-      super_admin_email: SUPER_ADMIN_EMAIL
+      super_admin_email: state.required ? SUPER_ADMIN_EMAIL : null
     });
   } catch (error) {
     safeLogError('Erro ao consultar bootstrap.', error);
@@ -249,12 +258,9 @@ const login = async (req, res) => {
     );
     const user = result.rows[0];
     if (!user || user.hash_senha_login === LEGACY_ADMIN_HASH) {
+      await verifyAgainstTimingEqualizer(password);
       await auditLoginFailure(req, email, user ? 'legacy_admin_blocked' : 'invalid_credentials');
       return res.status(401).json({ error: 'Credenciais inválidas' });
-    }
-    if (user.is_active === false) {
-      await auditLoginFailure(req, email, 'inactive_account', user);
-      return res.status(403).json({ error: 'Conta inativa. Contate o administrador.' });
     }
 
     let isPasswordValid = false;
@@ -266,6 +272,11 @@ const login = async (req, res) => {
     if (!isPasswordValid) {
       await auditLoginFailure(req, email, 'invalid_credentials', user);
       return res.status(401).json({ error: 'Credenciais inválidas' });
+    }
+    // Only reveal the inactive state to someone who already proved the password.
+    if (user.is_active === false) {
+      await auditLoginFailure(req, email, 'inactive_account', user);
+      return res.status(403).json({ error: 'Conta inativa. Contate o administrador.' });
     }
 
     // Authentication never creates or opens an encryption identity.

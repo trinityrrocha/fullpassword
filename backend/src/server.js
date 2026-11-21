@@ -28,7 +28,7 @@ const {
   systemUpdateLimiter
 } = require('./middleware/writeRateLimiters');
 const { safeLogError } = require('./utils/safeLogger');
-const { getClientIpMode, clientIpMiddleware, getClientIpRateLimitKey } = require('./services/clientIpService');
+const { getClientIpMode, validateTrustedProxyCidrs, clientIpMiddleware, getClientIpRateLimitKey } = require('./services/clientIpService');
 
 // Importação das rotas (serão criadas nos próximos passos)
 const authRoutes = require('./routes/authRoutes');
@@ -54,6 +54,7 @@ app.set('trust proxy', 1);
 // Only Nginx may reach the private backend. Nginx REPLACES XFF with one address;
 // it never appends client-supplied chains. See docs/trusted-client-ip.md.
 getClientIpMode();
+validateTrustedProxyCidrs();
 if (!process.env.CLIENT_IP_MODE) console.warn('CLIENT_IP_MODE ausente: modo seguro direct; configure explicitamente a topologia antes de usar Cloudflare.');
 app.use(clientIpMiddleware);
 
@@ -152,11 +153,14 @@ app.use('/api/system', systemRoutes);
 app.use('/api/groups', groupRoutes);
 app.use('/api/integrations', integrationRoutes);
 app.use('/api/cloud-backup', cloudBackupRoutes);
+// JSON 404 instead of Express's HTML page, which names the framework.
+app.use('/api', function apiNotFound(_req, res) { res.status(404).json({ error: 'Rota não encontrada' }); });
 
 app.use(payloadTooLargeErrorHandler);
 
 // Middleware para tratamento de erros não capturados
 app.use((err, req, res, next) => {
+  if (err?.type === 'entity.parse.failed') return res.status(400).json({ error: 'JSON inválido.' });
   safeLogError('Erro não tratado na API.', err);
   res.status(500).json({ 
     error: 'Erro interno do servidor',

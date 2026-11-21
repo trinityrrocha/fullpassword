@@ -11,6 +11,17 @@ validate_host_node() {
     return 1
   }
 }
+# The unit runs $NODE as root: the binary and every parent must be root-owned and not group/other-writable.
+validate_host_node_owner() {
+  local entry
+  entry=$(readlink -f "$NODE") || { echo "NODE_HOST_UNTRUSTED_PATH: $NODE" >&2; return 1; }
+  NODE=$entry
+  while :; do
+    [[ $(stat -c %u "$entry") == 0 && $(( 0$(stat -c %a "$entry") & 022 )) == 0 ]] || { echo "NODE_HOST_UNTRUSTED_PATH: $entry" >&2; return 1; }
+    [[ $entry == / ]] && break
+    entry=$(dirname "$entry")
+  done
+}
 
 main() {
 # No guessed application directory; caller supplies the reviewed checkout and queue GID.
@@ -22,6 +33,7 @@ SOURCE=$(realpath -- "$1")
 GID=$2
 [[ $GID =~ ^[0-9]+$ ]] || { echo 'GID inválido' >&2; exit 1; }
 validate_host_node
+validate_host_node_owner
 [[ -f /etc/fullpassword/release-policy.json ]] || { echo 'Política protegida ainda não provisionada' >&2; exit 1; }
 # Stop before replacing executable files; preserve any stale locks for reconciliation.
 systemctl stop fullpassword-release-agent.timer 2>/dev/null || true

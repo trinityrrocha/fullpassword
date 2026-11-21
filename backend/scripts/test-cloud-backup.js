@@ -252,6 +252,19 @@ const run = async () => {
   assert.match(store.providers.ftp.encrypted_credentials, /^v1:/);
   assert.doesNotMatch(store.providers.ftp.encrypted_credentials, /plain-ftp-password/);
   assert.equal((await getResolvedProviderConfig('ftp', store)).password, 'plain-ftp-password');
+  // Blank secrets keep the stored ones only for the same destination; a new host must not receive them.
+  const ftpKeep = { host: 'ftp.example.test', port: 21, username: '', password: '', remote_path: '/fullpassword/backups', secure: true };
+  await saveProviderConfiguration('ftp', ftpKeep, '00000000-0000-0000-0000-000000000001', store);
+  assert.equal((await getResolvedProviderConfig('ftp', store)).password, 'plain-ftp-password');
+  await assert.rejects(
+    saveProviderConfiguration('ftp', { ...ftpKeep, host: 'attacker.example.test' }, '00000000-0000-0000-0000-000000000001', store),
+    (error) => error.code === 'CLOUD_BACKUP_CREDENTIALS_REQUIRED'
+  );
+  await assert.rejects(
+    saveProviderConfiguration('backblaze_b2', { endpoint: 'https://attacker.example.test', region: 'us-test-1', bucket: 'private-bucket', access_key: '', secret_key: '' }, '00000000-0000-0000-0000-000000000001', store),
+    (error) => error.code === 'CLOUD_BACKUP_CREDENTIALS_REQUIRED'
+  );
+  assert.equal((await getResolvedProviderConfig('ftp', store)).host, 'ftp.example.test');
 
   let status = await selectProvider('backblaze_b2', 'user-id', store);
   assert.equal(status.active_provider, 'backblaze_b2');

@@ -2,6 +2,8 @@ const express = require('express');
 const { verifyToken } = require('../middleware/authMiddleware');
 const googleDriveBackupController = require('../controllers/googleDriveBackupController');
 
+const { guardFixed } = require('../services/reauthService');
+
 const router = express.Router();
 const asyncRoute = (handler) => (req, res, next) => Promise.resolve(handler(req, res, next)).catch(next);
 
@@ -12,11 +14,11 @@ router.get('/google-drive/oauth/callback', asyncRoute(googleDriveBackupControlle
 router.use(verifyToken);
 router.get('/google-drive/status', asyncRoute(googleDriveBackupController.getStatus));
 router.get('/google-drive/oauth-config', asyncRoute(googleDriveBackupController.getOAuthConfig));
-router.put('/google-drive/oauth-config', asyncRoute(googleDriveBackupController.updateOAuthConfig));
-router.delete('/google-drive/oauth-config', asyncRoute(googleDriveBackupController.deleteOAuthConfig));
+router.put('/google-drive/oauth-config', guardFixed('backup_settings'), asyncRoute(googleDriveBackupController.updateOAuthConfig));
+router.delete('/google-drive/oauth-config', guardFixed('backup_settings'), asyncRoute(googleDriveBackupController.deleteOAuthConfig));
 router.get('/google-drive/oauth/start', asyncRoute(googleDriveBackupController.startOAuth));
-router.put('/google-drive/settings', asyncRoute(googleDriveBackupController.saveSettings));
-router.post('/google-drive/disconnect', asyncRoute(googleDriveBackupController.disconnect));
+router.put('/google-drive/settings', guardFixed('backup_settings'), asyncRoute(googleDriveBackupController.saveSettings));
+router.post('/google-drive/disconnect', guardFixed('backup_settings'), asyncRoute(googleDriveBackupController.disconnect));
 router.post('/google-drive/test', asyncRoute(googleDriveBackupController.test));
 router.post('/google-drive/backup-now', asyncRoute(googleDriveBackupController.backupNow));
 

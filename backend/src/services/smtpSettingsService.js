@@ -126,6 +126,11 @@ const normalizeSmtpSettings = (input, current = DEFAULT_SMTP_SETTINGS) => {
   if (settings.host && (/\s/.test(settings.host) || settings.host.includes('://'))) {
     throw new SmtpSettingsError('O host SMTP é inválido.');
   }
+  // The stored password must not follow the account to a different server.
+  const keptStoredPassword = encryptedPassword && encryptedPassword === current.encrypted_password;
+  if (keptStoredPassword && (settings.host !== current.host || settings.port !== Number(current.port))) {
+    throw new SmtpSettingsError('Informe novamente a senha SMTP ao alterar o host ou a porta.');
+  }
   if (settings.enabled) validateDeliveryRequirements(settings);
   return settings;
 };

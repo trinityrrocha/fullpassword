@@ -65,6 +65,7 @@ const applyAutomaticBlockForLoginFailure = async (req) => {
       `SELECT COUNT(*)::integer AS total
        FROM system_audit_events
        WHERE action = 'login_failed' AND ip_address = $1
+         AND COALESCE(metadata->>'reason', '') <> 'missing_credentials'
          AND created_at >= CURRENT_TIMESTAMP - ($2::integer * INTERVAL '1 minute')`,
       [ipAddress, policy.observation_window_minutes]
     );
