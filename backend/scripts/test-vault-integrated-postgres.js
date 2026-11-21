@@ -343,6 +343,34 @@ async function run() {
     await database.query("INSERT INTO users(id,name,email,hash_senha_login,role,is_super_admin) VALUES($1,'SYNTHETIC_ADMIN','normal-admin@example.invalid',$2,'admin',false)",[ordinaryAdmin,await argon2.hash(password)]);
     await ordinaryAdminApi.post('/auth/login',{email:'normal-admin@example.invalid',password});
     await assert.rejects(ordinaryAdminApi.post('/release-test',releaseAction),e=>e.response.status===403);
+    // Real group creation: account enrollment, not a UI flag, decides whether MFA is required.
+    const groupAction={name:'SYNTHETIC_GROUP_NO_MFA',description:'Disposable regression',userIds:[],can_view:true,can_edit:false,can_add:false,can_delete:false};
+    assert.equal((await ordinaryAdminApi.get('/auth/me')).data.user.mfa_enabled,false);
+    await assert.rejects(ordinaryAdminApi.post('/groups',groupAction),e=>e.response.status===403&&e.response.data.code==='REAUTH_REQUIRED');
+    const noMfaGrant=(await ordinaryAdminApi.post('/auth/reauth',{purpose:'group_create',action:groupAction,current_password:password})).data.token;
+    const noMfaGroup=await ordinaryAdminApi.post('/groups',{...groupAction,_reauth_token:noMfaGrant});
+    assert.equal(noMfaGroup.status,201);
+    await assert.rejects(ordinaryAdminApi.post('/groups',{...groupAction,_reauth_token:noMfaGrant}),e=>e.response.status===403);
+    const groupMfa=require('../src/services/mfaService'),groupAuthenticator=require('otplib').authenticator;
+    const groupTotp=groupAuthenticator.generateSecret();
+    await database.query('INSERT INTO user_mfa_settings(user_id,totp_secret_encrypted,enabled) VALUES($1,$2,false)',[ordinaryAdmin,groupMfa.encryptSecret(groupTotp)]);
+    assert.equal((await ordinaryAdminApi.get('/auth/me')).data.user.mfa_enabled,false);
+    const disabledAction={...groupAction,name:'SYNTHETIC_GROUP_DISABLED_MFA'};
+    const disabledGrant=(await ordinaryAdminApi.post('/auth/reauth',{purpose:'group_create',action:disabledAction,current_password:password})).data.token;
+    const disabledGroup=await ordinaryAdminApi.post('/groups',{...disabledAction,_reauth_token:disabledGrant});
+    assert.equal(disabledGroup.status,201);
+    await database.query('UPDATE user_mfa_settings SET enabled=true WHERE user_id=$1',[ordinaryAdmin]);
+    assert.equal((await ordinaryAdminApi.get('/auth/me')).data.user.mfa_enabled,true);
+    const activeAction={...groupAction,name:'SYNTHETIC_GROUP_ACTIVE_MFA'};
+    await assert.rejects(ordinaryAdminApi.post('/auth/reauth',{purpose:'group_create',action:activeAction,current_password:password}),e=>e.response.status===403&&e.response.data.code==='FRESH_MFA_REQUIRED');
+    const groupCode=groupAuthenticator.generate(groupTotp);
+    const activeGrant=(await ordinaryAdminApi.post('/auth/reauth',{purpose:'group_create',action:activeAction,current_password:password,mfa_code:groupCode})).data.token;
+    const activeGroup=await ordinaryAdminApi.post('/groups',{...activeAction,_reauth_token:activeGrant});
+    assert.equal(activeGroup.status,201);
+    await assert.rejects(ordinaryAdminApi.post('/auth/reauth',{purpose:'group_create',action:activeAction,current_password:password,mfa_code:groupCode}),e=>e.response.status===403&&e.response.data.code==='FRESH_MFA_REQUIRED');
+    await database.query('DELETE FROM groups WHERE id=ANY($1::uuid[])',[[noMfaGroup.data.group.id,disabledGroup.data.group.id,activeGroup.data.group.id]]);
+    await database.query('DELETE FROM user_mfa_settings WHERE user_id=$1',[ordinaryAdmin]);
+    console.log('PASS group creation HTTP/PostgreSQL: no enrollment and disabled MFA need only login password; active MFA needs fresh TOTP; grant and TOTP replay denied.');
     await assert.rejects(ownerApi.postWithoutCsrf('/release-test',releaseAction),e=>e.response.status===403);
     for(const key of ['approvalId','revision','manifestHash']) {
       const tampered={...releaseAction,[key]:key==='approvalId'?crypto.randomUUID():key==='revision'?'c'.repeat(40):'c'.repeat(64)};
