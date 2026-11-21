@@ -48,7 +48,8 @@ install_pinned_node() {
   chown -R root:root "$dir"; chmod -R go-w "$dir"
   export PATH="$dir/bin:$PATH"
 }
-ensure_node() { (validate_host_node && validate_host_node_owner) 2>/dev/null || install_pinned_node; validate_host_node; validate_host_node_owner; }
+# validate_host_node also checks that node and every parent are root-owned and not group/other-writable.
+ensure_node() { (validate_host_node) >/dev/null 2>&1 || install_pinned_node; validate_host_node; }
 
 compose_base() { docker compose --project-directory "$PROJECT" --env-file "$AUTO/app.env" -f "$AUTO/docker-compose.yml" "$@"; }
 

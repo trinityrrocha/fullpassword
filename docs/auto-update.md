@@ -29,7 +29,7 @@ cd /caminho/da/instalacao
 sudo bash scripts/setup-auto-update.sh          # instala o agente, cria o role de banco restrito e adota a release estável
 ```
 
-O `install.sh` chama isso por padrão em instalações novas. A adoção é a primeira atualização: faz backup, migra para o modo
+O `install.sh` chama isso por padrão em instalações novas. A ativação padrão executa `--adopt`: **não é só ligar um timer**, é a primeira atualização (pode migrar o banco) faz backup, migra para o modo
 `verify` com role sem DDL, monta a fila e valida; se algo falhar, volta ao estado anterior.
 
 - **Desligar / ligar**: `sudo bash scripts/setup-auto-update.sh --disable` / `--enable` (arquivo `/etc/fullpassword/auto-update.disabled`).
@@ -37,9 +37,18 @@ O `install.sh` chama isso por padrão em instalações novas. A adoção é a pr
 - Os `docker-compose.yml` e `.env` usados pelo agente são **cópias de propriedade do root** em `/etc/fullpassword/auto-update/`.
   Depois de editar o `.env`, rode `setup-auto-update.sh` de novo para atualizar a cópia.
 
+## Instalações com o agente antigo (policy + timer por instalação)
+
+`setup-auto-update.sh` **recusa** se existir `/etc/fullpassword/release-policy.json` ou o timer `fullpassword-release-agent.timer`:
+os dois agentes nunca rodam juntos. A transição exige um inventário somente leitura antes (qual compose e quais credenciais de runtime
+o agente antigo usa, versão instalada, histórico em `/var/lib/fullpassword-release-*`) e um procedimento explícito que **preserve** a
+policy e o estado antigos (arquivados, não apagados). Não há transição automática nesta versão.
+
 ## Backups
 
 `/var/backups/fullpassword/fullpassword-pre-update-<UTC>.dump` (formato custom do `pg_dump`, modo 0600), os **3 mais recentes**.
+O agente confere que o arquivo é **legível** (`pg_restore --list` lista as tabelas); isso **não** comprova uma restauração completa, que nunca é feita
+automaticamente (restaurar o banco diante de qualquer falha poderia sobrescrever dados sem necessidade): é decisão humana.
 É **local**: não protege contra perda do disco. Restaurar: `docker compose exec -T db pg_restore -U <owner> -d <db> --clean --if-exists < arquivo.dump`.
 O rollback automático reverte **imagens**, não o banco; as migrações são aditivas, e o backup cobre o pior caso.
 
