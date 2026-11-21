@@ -3,7 +3,7 @@ const router = express.Router();
 const { verifyToken } = require('../middleware/authMiddleware');
 const requireSuperAdmin = require('../middleware/requireSuperAdmin');
 const { requireModuleEnabled } = require('../services/modulesService');
-const { guardFixed } = require('../services/reauthService');
+const { guard, guardFixed } = require('../services/reauthService');
 const { spfblTestLimiter } = require('../middleware/writeRateLimiters');
 const controller = require('../controllers/spfblController');
 
@@ -28,7 +28,7 @@ router.delete('/domains/:id', requireSuperAdmin, (req, res, next) => require('..
 
 const uuidParam = (name) => (req, res, next) => require('../middleware/uuidParam').requireUuidParam(req, res, next, req.params[name]);
 router.get('/access', requireSuperAdmin, asyncRoute(controller.listAccess));
-router.put('/access/:userId', requireSuperAdmin, uuidParam('userId'), guardFixed('spfbl_access'), asyncRoute(controller.saveAccess));
-router.delete('/access/:userId', requireSuperAdmin, uuidParam('userId'), guardFixed('spfbl_access'), asyncRoute(controller.revokeAccess));
+router.put('/access/:userId', requireSuperAdmin, uuidParam('userId'), guard('spfbl_access', 'userId'), asyncRoute(controller.saveAccess));
+router.delete('/access/:userId', requireSuperAdmin, uuidParam('userId'), guard('spfbl_access', 'userId'), asyncRoute(controller.revokeAccess));
 
 module.exports = router;

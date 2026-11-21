@@ -117,8 +117,8 @@ async function run() {
   const routes = read('backend/src/routes/systemRoutes.js');
   assert.match(routes, /router\.get\('\/modules\/menu', asyncRoute\(modulesController\.menu\)\)/);
   assert.match(routes, /router\.get\('\/modules', requireSuperAdmin,/);
-  assert.match(routes, /router\.put\('\/modules\/:key', requireSuperAdmin, require\('\.\.\/services\/reauthService'\)\.guardFixed\('modules_settings'\)/);
-  assert.match(read('backend/src/services/reauthService.js'), /\^modules_settings\$/);
+  assert.match(routes, /router\.put\('\/modules\/:key', requireSuperAdmin, require\('\.\.\/services\/reauthService'\)\.guard\('modules_settings', 'key'\)/);
+  assert.match(read('backend/src/services/reauthService.js'), /\^modules_settings:\[a-z\]\[a-z0-9_\]\{1,31\}\$/, 'bound to the module in the URL');
   assert.match(read('backend/src/config/securitySchema.js'), /ensureModulesSchema\(client\)/);
   console.log('PASS modules: schema/migration idempotent, server-side toggle, menu booleans only, no implicit admin access, audit, backup registry.');
 }

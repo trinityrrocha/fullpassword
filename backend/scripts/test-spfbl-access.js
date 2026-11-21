@@ -142,7 +142,7 @@ async function run() {
   // ---- Wiring ----
   const routes = read('backend/src/routes/spfblRoutes.js');
   assert.match(routes, /router\.get\('\/overview', asyncRoute\(controller\.overview\)\)/);
-  for (const line of ["router.get('/access', requireSuperAdmin,", "router.put('/access/:userId', requireSuperAdmin, uuidParam('userId'), guardFixed('spfbl_access'),", "router.delete('/access/:userId', requireSuperAdmin, uuidParam('userId'), guardFixed('spfbl_access'),"]) {
+  for (const line of ["router.get('/access', requireSuperAdmin,", "router.put('/access/:userId', requireSuperAdmin, uuidParam('userId'), guard('spfbl_access', 'userId'),", "router.delete('/access/:userId', requireSuperAdmin, uuidParam('userId'), guard('spfbl_access', 'userId'),"]) {
     assert.ok(routes.includes(line), line);
   }
   const routeLines = routes.split('\n').filter((line) => /^router\.(get|put|post|delete|patch)\(/.test(line));
@@ -150,7 +150,7 @@ async function run() {
   const open = routeLines.filter((line) => !line.includes('requireSuperAdmin'));
   assert.equal(open.length, 1, 'only the overview is open to granted users');
   assert.ok(open[0].startsWith("router.get('/overview',"));
-  assert.match(read('backend/src/services/reauthService.js'), /\^spfbl_access\$/);
+  assert.match(read('backend/src/services/reauthService.js'), /\|spfbl_access\):\[0-9a-f-\]\{36\}\$/, 'access reauth is bound to the target account');
   assert.match(read('backend/src/controllers/modulesController.js'), /require\('\.\.\/services\/spfblAccessService'\)/);
   console.log('PASS spfbl access: FK-ordered schema, validated grants (1-100 domains, no Super Admin/inactive), live menu check, scoped overview, cascades, audit without e-mails.');
 }
