@@ -52,6 +52,7 @@ logs/
 
 # Certificados SSL (Locais)
 *.pem
+!backend/src/config/release-public.pem
 *.key
 *.crt
 *.cert

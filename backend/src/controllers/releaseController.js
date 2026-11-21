@@ -4,8 +4,9 @@ const crypto = require('node:crypto');
 const db = require('../config/database');
 const { isSuperAdmin } = require('../config/security');
 const { recordAuditEvent } = require('../services/auditService');
+const { getPublicRelease } = require('../services/publicReleaseService');
 const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
-const createController = (publicDirectory='/var/lib/fullpassword-release-public', queueDirectory='/var/lib/fullpassword-release-queue') => {
+const createController = (publicDirectory='/var/lib/fullpassword-release-public', queueDirectory='/var/lib/fullpassword-release-queue', discovery=getPublicRelease) => {
 const readJson = name => {
   const file = path.join(publicDirectory, name);
   const stat = fs.lstatSync(file);
@@ -26,7 +27,7 @@ const presentationChanges = value => {
     !item.title.trim() || item.title.length > 200 || /[<>\x00-\x1f\x7f]/u.test(item.title))) return undefined;
   return value.map(({type,title}) => ({type,title}));
 };
-const status = (req, res) => {
+const status = async (req, res) => {
   if (!isSuperAdmin(req.user)) return res.status(403).json({ error: 'Acesso restrito ao Super Admin.' });
   let release = null, progress = null, installedRelease = null;
   try { release = catalog(); } catch { /* not provisioned or expired */ }
@@ -44,7 +45,9 @@ const status = (req, res) => {
   } catch { /* no request yet */ }
   let requested = false;
   if (release) requested = fs.existsSync(path.join(queueDirectory, release.approvalId + '.json'));
-  res.json({ release, progress, requested, installedRelease });
+  const publicRelease = await discovery(process.env.BACKEND_APP_COMMIT);
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({ release, progress, requested, installedRelease, publicRelease });
 };
 const request = async (req, res) => {
   if (!isSuperAdmin(req.user)) return res.status(403).json({ error: 'Acesso restrito ao Super Admin.' });

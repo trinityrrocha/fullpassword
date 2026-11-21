@@ -39,6 +39,8 @@ jobs:
         working-directory: backend
       - run: node scripts/test-release-agent.js
         working-directory: backend
+      - name: Public signed release discovery (no network or deployment)
+        run: node backend/scripts/test-public-release.js
       - run: node scripts/test-release-compose.js && node scripts/test-runtime-role-postgres.js && node scripts/test-release-bootstrap.js
         working-directory: backend
       - run: node scripts/test-audit-tls.js

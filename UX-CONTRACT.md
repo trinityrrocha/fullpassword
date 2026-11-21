@@ -43,8 +43,12 @@ DESIGN.md espelha Tailwind/index.css; runtime é canônico. Não alterar tokens 
 
 WebUpdate: status e versões curtas no resumo; “Novidades da versão” em disclosure
 inline fechado inicialmente, operável por teclado e com aria-expanded/aria-controls.
-Notas opcionais vêm do manifesto assinado (docs/webupdate-release-notes.md), sem
-consulta GitHub em runtime. “Detalhes técnicos” abre FormDialog informativo sem
+Notas opcionais vêm de metadados assinados (docs/webupdate-release-notes.md).
+Desde 2026-11-21, o backend também consulta o canal público assinado, anônimo e
+igual para todas as instalações (docs/public-release-channel.md). Descoberta
+não autoriza implantação: versão pública sem approval local aparece com orientação,
+sem POST ou botão para outra revisão. Falha/expiração não significa atualizado;
+histórico completed não esconde versão pública nova. “Detalhes técnicos” abre FormDialog informativo sem
 guard de edição, com foco/Escape/retorno e dados longos quebráveis. A última release
 instalada é preservada pelo agente e exibida somente se sua revisão for confirmada
 pelos dois runtimes. Atualizar sistema conserva o POST existente;

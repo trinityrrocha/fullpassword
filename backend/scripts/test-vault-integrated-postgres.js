@@ -127,7 +127,8 @@ async function run() {
     const {app}=require('../src/server');
     const releasePublic=path.join(directory,'release-public'),releaseQueue=path.join(directory,'release-queue');
     await fs.mkdir(releasePublic);await fs.mkdir(releaseQueue);
-    const releaseFixture=require('../src/controllers/releaseController').createController(releasePublic,releaseQueue);
+    const publicDiscovery={state:'available',release:{revision:'e'.repeat(40),changes:[{type:'security',title:'SYNTHETIC_PUBLIC_RELEASE'}]},stale:false};
+    const releaseFixture=require('../src/controllers/releaseController').createController(releasePublic,releaseQueue,async()=>publicDiscovery);
     app.get('/api/release-test',require('../src/middleware/authMiddleware').verifyToken,releaseFixture.status);
     app.post('/api/release-test',require('../src/middleware/authMiddleware').verifyToken,(req,res,next)=>Promise.resolve(releaseFixture.request(req,res)).catch(next));
     // server.js ends /api with a JSON 404; fixture routes added after load must sit before it.
@@ -315,6 +316,12 @@ async function run() {
     console.log('PASS missing recipient identity is blocked; legacy history and attachment decrypt identically, original ciphertexts preserved.');
     // Approved release request: real session/CSRF/PostgreSQL; no reauth endpoint or grant.
     const releaseAction={approvalId:crypto.randomUUID(),revision:'a'.repeat(40),manifestHash:'b'.repeat(64)};
+    const publicOnly=(await ownerApi.get('/release-test')).data;
+    assert.equal(publicOnly.release,null);
+    assert.deepEqual(publicOnly.publicRelease,publicDiscovery,'public release visible without local approval');
+    await assert.rejects(directApi.get('/release-test'),e=>e.response.status===403);
+    await assert.rejects(ownerApi.post('/release-test',{...releaseAction,revision:publicDiscovery.release.revision}),e=>e.response.status===503);
+    assert.deepEqual(await fs.readdir(releaseQueue),[],'public discovery must not create an approval/request');
     await fs.writeFile(path.join(releasePublic,'catalog.json'),JSON.stringify({...releaseAction,expiresAt:new Date(Date.now()+3600000).toISOString()}));
     assert.equal((await ownerApi.get('/release-test')).data.release.changes,undefined,'old catalogs without changes remain valid');
     const releaseChanges=[{type:'fix',title:'Restore interface'},{type:'feat',title:'Show signed notes'}];
@@ -325,6 +332,7 @@ async function run() {
     await fs.writeFile(path.join(releasePublic,'catalog.json'),JSON.stringify({...catalogWithNotes,expiresAt:'2000-01-01T00:00:00Z'}));
     const expiredNotes=(await ownerApi.get('/release-test')).data;
     assert.equal(expiredNotes.release,null);
+    assert.deepEqual(expiredNotes.publicRelease,publicDiscovery,'local expiry does not hide public release');
     assert.deepEqual(expiredNotes.installedRelease.changes,releaseChanges,'installed notes survive expired catalog');
     assert.equal(expiredNotes.installedRelease.revision,releaseAction.revision);
     await fs.writeFile(path.join(releasePublic,'catalog.json'),JSON.stringify(catalogWithNotes));
