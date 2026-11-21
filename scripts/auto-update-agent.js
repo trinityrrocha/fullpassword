@@ -135,7 +135,6 @@ const serviceImageIds = (ctx, mode) => Object.fromEntries(['backend', 'frontend'
 const BACKUP_NAME = /^fullpassword-pre-update-\d{8}T\d{6}Z\.dump$/;
 const takeBackup = (ctx, mode) => {
   const { backupDirectory, backupKeep = 3 } = ctx.config;
-  fs.mkdirSync(backupDirectory, { recursive: true, mode: 0o700 });
   const resolved = JSON.parse(dc(ctx, mode, ['config', '--format', 'json'], 'compose_config'));
   const db = resolved.services?.db?.environment || {};
   const user = db.POSTGRES_USER || 'postgres';
@@ -143,6 +142,7 @@ const takeBackup = (ctx, mode) => {
   const stamp = new Date(ctx.now()).toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z');
   const file = path.join(backupDirectory, `fullpassword-pre-update-${stamp}.dump`);
   try {
+    fs.mkdirSync(backupDirectory, { recursive: true, mode: 0o700 });
     dc(ctx, mode, ['exec', '-T', 'db', 'pg_dump', '-U', user, '-d', name, '-Fc'], 'backup', { stdoutFile: file });
     const size = fs.statSync(file).size;
     if (size < 1024) throw new Error('BACKUP_EMPTY');
