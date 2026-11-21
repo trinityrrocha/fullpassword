@@ -23,11 +23,12 @@ const run = (command, args, options = {}) => {
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const PATHS = ['/etc/fullpassword', '/usr/local/lib/fullpassword-release', '/var/lib/fullpassword-release-agent', '/var/lib/fullpassword-release-public',
   '/var/lib/fullpassword-release-queue', '/var/backups/fullpassword'];
+const units = ['service', 'timer'].map((type) => `/etc/systemd/system/fullpassword-auto-update.${type}`);
 
 async function main() {
   assert.equal(process.platform, 'linux'); assert.equal(process.getuid(), 0, 'run as root');
   assert.match(process.version, /^v24\./, 'Node 24.x required');
-  for (const entry of PATHS) assert.equal(fs.existsSync(entry), false, `never touch an existing ${entry}`);
+  for (const entry of [...PATHS, ...units]) assert.equal(fs.existsSync(entry), false, `never touch an existing ${entry}`);
 
   const id = hex(4);
   const base = `/var/lib/fp-au-test-${id}`;
@@ -41,16 +42,17 @@ async function main() {
   const cleanup = () => {
     run('docker', ['compose', '-p', projectName, '--project-directory', project, '-f', `${project}/docker-compose.yml`, '--env-file', `${project}/.env`, 'down', '-v', '--remove-orphans'], { allowFailure: true });
     if (created.registry) run('docker', ['rm', '-f', registryName], { allowFailure: true });
-    for (const entry of ['/etc/systemd/system/fullpassword-auto-update.service', '/etc/systemd/system/fullpassword-auto-update.timer', ...PATHS, base, nodeDir]) fs.rmSync(entry, { recursive: true, force: true });
+    for (const entry of [...units, ...PATHS, base, nodeDir]) fs.rmSync(entry, { recursive: true, force: true });
     const tags = run('docker', ['image', 'ls', '--format', '{{.Repository}}:{{.Tag}}', '--filter', 'reference=fullpassword-rollback-*'], { allowFailure: true }).stdout || '';
     for (const tag of tags.split('\n').filter(Boolean)) run('docker', ['image', 'rm', '-f', tag], { allowFailure: true });
-    created.server?.close();
   };
-  process.on('exit', cleanup);
+  try {
 
   // ---- a clean, root-owned source install ----
   fs.mkdirSync(base, { mode: 0o755 }); fs.mkdirSync(project, { mode: 0o755 });
-  const listing = spawnSync('git', ['ls-files', '-co', '--exclude-standard', '-z'], { cwd: ROOT, maxBuffer: 64 * 1024 * 1024 }).stdout;
+  const tracked = spawnSync('git', ['-c', `safe.directory=${ROOT}`, 'ls-files', '-z'], { cwd: ROOT, maxBuffer: 64 * 1024 * 1024 });
+  assert.equal(tracked.status, 0, 'could not list tracked fixture inputs');
+  const listing = tracked.stdout;
   assert.ok(listing.length > 0);
   run('tar', ['--null', '-T', '-', '-cf', path.join(base, 'src.tar')], { input: listing });
   run('tar', ['-xf', path.join(base, 'src.tar'), '-C', project]);
@@ -125,6 +127,8 @@ async function main() {
 
   // ---- setup (one command), then point the root-owned config at the rehearsal channel ----
   fs.mkdirSync(nodeDir, { mode: 0o755 }); fs.copyFileSync(process.execPath, path.join(nodeDir, 'node')); fs.chmodSync(path.join(nodeDir, 'node'), 0o755);
+  // The fixture drives every agent tick itself. Never schedule a competing host timer.
+  fs.writeFileSync(path.join(nodeDir, 'systemctl'), '#!/bin/sh\ncase "$*" in\n  "is-enabled fullpassword-release-agent.timer") exit 1 ;;\n  "daemon-reload"|"enable --now fullpassword-auto-update.timer") exit 0 ;;\nesac\nexit 2\n', { mode: 0o755 });
   const env = { ...process.env, PATH: `${nodeDir}:${process.env.PATH}` };
   log('setup-auto-update.sh --no-adopt');
   run('bash', [path.join(project, 'scripts/setup-auto-update.sh'), '--project-dir', project, '--no-adopt'], { env });
@@ -211,5 +215,9 @@ async function main() {
   // and the retention keeps only the last three backups
   assert.ok(backups().length <= 3);
   console.log('PASS auto-update e2e: adoption, failed update rolled back, backup failure refused, crash reconciled, off switch, retention.');
+  } finally {
+    created.server?.close();
+    cleanup();
+  }
 }
 main().catch((error) => { console.error(error); process.exitCode = 1; });
