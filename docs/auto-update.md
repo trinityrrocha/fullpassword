@@ -29,7 +29,7 @@ cd /caminho/da/instalacao
 sudo bash scripts/setup-auto-update.sh          # instala o agente, cria o role de banco restrito e adota a release estável
 ```
 
-O `install.sh` chama isso por padrão em instalações novas. A ativação padrão executa `--adopt`: **não é só ligar um timer**, é a primeira atualização (pode migrar o banco) faz backup, migra para o modo
+O `install.sh` chama isso por padrão em instalações novas. A ativação padrão executa `--adopt`: **não é só ligar um timer**, é a primeira atualização (pode migrar o banco): faz backup, migra para o modo
 `verify` com role sem DDL, monta a fila e valida; se algo falhar, volta ao estado anterior.
 
 - **Desligar / ligar**: `sudo bash scripts/setup-auto-update.sh --disable` / `--enable` (arquivo `/etc/fullpassword/auto-update.disabled`).
