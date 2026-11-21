@@ -54,9 +54,16 @@ O rollback automático reverte **imagens**, não o banco; as migrações são ad
 
 ## Publicar uma release (mantenedor)
 
-1. `main` verde → Actions → **Release candidate** → *Run workflow* (baixa o artefato `release-candidate.json`).
+1. `main` verde → Actions → **Release candidate** → *Run workflow*. Informe o SHA completo revisado em `expected_revision`. Baixe `release-candidate.json` somente após build, pull anônimo e revisão interna de ambas as imagens passarem.
 2. Offline: `node scripts/release-candidate.js sign release-candidate.json /caminho/FORA/do/checkout/release-private.pem`
 3. PR com `releases/stable.json`. Só então as instalações enxergam a versão.
+
+### Checklist para Claude Code e outros agentes
+
+- Abra PR para as alterações e aguarde a CI. Se houver migrações, documente o caminho de upgrade e prove em PostgreSQL isolado a preservação dos dados, a restauração e a compatibilidade com rollback de imagens.
+- Depois do merge, não confunda push, tag ou imagens publicadas com anúncio concluído. Gere o candidato do SHA revisado, entregue o artefato e as notas ao mantenedor para assinatura offline e abra o PR do canal com o envelope assinado. Nunca copie a chave privada para o checkout, GitHub Actions ou VPS.
+- Depois do merge do anúncio, confirme acesso anônimo, assinatura e revisão no canal público. Registre SHA, digests, links da CI/PR e o resultado da descoberta no WebUpdate. Não anuncie deploy concluído antes de verificar o runtime instalado.
+- Não faça SSH nem crie aprovações locais a cada release em instalações já migradas. Para provar a adoção, publique uma segunda release e verifique descoberta e instalação pelo painel sem alteração no host.
 
 ## Limites conhecidos
 
