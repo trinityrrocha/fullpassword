@@ -28,7 +28,7 @@ const {
   systemUpdateLimiter
 } = require('./middleware/writeRateLimiters');
 const { safeLogError } = require('./utils/safeLogger');
-const { getClientIpMode, clientIpMiddleware, getClientIpRateLimitKey } = require('./services/clientIpService');
+const { getClientIpMode, validateTrustedProxyCidrs, clientIpMiddleware, getClientIpRateLimitKey } = require('./services/clientIpService');
 
 // Importação das rotas (serão criadas nos próximos passos)
 const authRoutes = require('./routes/authRoutes');
@@ -54,6 +54,7 @@ app.set('trust proxy', 1);
 // Only Nginx may reach the private backend. Nginx REPLACES XFF with one address;
 // it never appends client-supplied chains. See docs/trusted-client-ip.md.
 getClientIpMode();
+validateTrustedProxyCidrs();
 if (!process.env.CLIENT_IP_MODE) console.warn('CLIENT_IP_MODE ausente: modo seguro direct; configure explicitamente a topologia antes de usar Cloudflare.');
 app.use(clientIpMiddleware);
 

@@ -71,6 +71,8 @@ def main():
                 run(['docker','run','-d','--name',backend,'--network',prefix,'--ip',backend_ip,
                     '--read-only','--cap-drop','ALL','--security-opt','no-new-privileges:true',
                     '-e','CLIENT_IP_MODE='+mode,'-e','TRUSTED_COUNTRY_HEADER_ENABLED=true',
+                    # Only the Nginx container is a trusted proxy: the test subnet (198.19/16) is not a default proxy range.
+                    '-e','TRUSTED_PROXY_CIDRS='+nginx_ip+'/32',
                     '-v',source+':/usr/src/app/src/services/clientIpService.js:ro',
                     '-v',fixture+':/usr/src/app/scripts/client-ip-http-fixture.js:ro',
                     '--entrypoint','node',image,'scripts/client-ip-http-fixture.js'])
@@ -85,8 +87,8 @@ def main():
                 official.write_text(config.generate('cloudflare_proxy',template,(ROOT/'docker/cloudflare-ranges.txt').read_text()))
                 run(['docker','run','--rm','--network',prefix,'-v',str(official)+':/etc/nginx/conf.d/default.conf:ro','nginx:alpine','nginx','-t'])
                 base='http://'+nginx+':80'
-                def client(ip,headers=None,url='/api/probe',ipv6=False):
-                    target=('http://['+v6nginx+']:80' if ipv6 else base)+url
+                def client(ip,headers=None,url='/api/probe',ipv6=False,origin=None):
+                    target=(origin or ('http://['+v6nginx+']:80' if ipv6 else base))+url
                     js="fetch("+json.dumps(target)+",{headers:"+json.dumps(headers or {})+"}).then(async r=>console.log(JSON.stringify({status:r.status,body:await r.text()}))).catch(()=>process.exit(1))"
                     value=run(['docker','run','--rm','--network',prefix,'--ip',ip,*(['--ip6',v6client] if ipv6 else []),'--entrypoint','node',image,'-e',js])
                     r=json.loads(value)
@@ -103,6 +105,9 @@ def main():
                     r=client(untrusted_ip,spoof)
                     assert r['status']==200 and r['body']['client_ip']==untrusted_ip,r
                     assert not r['body']['cloudflare'] and r['body']['country'] is None,r
+                    # Reaching the backend without Nginx: it is not a trusted proxy, so its own source IP wins over forged headers.
+                    r=client(untrusted_ip,spoof,origin='http://'+backend_ip+':3000')
+                    assert r['status']==200 and r['body']['client_ip']==untrusted_ip,r
                     # Assign a stable v6 address to Nginx for the actual TCP test.
                     nginx_data=json.loads(run(['docker','inspect',nginx]))[0]['NetworkSettings']['Networks'][prefix]
                     v6nginx=nginx_data['GlobalIPv6Address']

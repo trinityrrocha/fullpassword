@@ -1,5 +1,5 @@
 const assert = require('node:assert/strict');
-const { normalizeClientIp, getClientIpMode, clientIpMiddleware, getClientIp, getClientNetworkMetadata, getClientIpRateLimitKey } = require('../src/services/clientIpService');
+const { normalizeClientIp, getClientIpMode, validateTrustedProxyCidrs, clientIpMiddleware, getClientIp, getClientNetworkMetadata, getClientIpRateLimitKey } = require('../src/services/clientIpService');
 
 // Default peer is the Nginx container on the private Docker network (the documented topology).
 const resolve = (mode, headers = {}, socket = '172.19.0.2', rawHeaders = []) => {
@@ -32,6 +32,32 @@ for (const peer of ['8.8.8.8', '203.0.113.25', '2001:4860::1']) {
   assert(bypass.next); assert.equal(getClientIp(bypass.req), normalizeClientIp(peer));
 }
 assert.equal(getClientIp(resolve('direct', { 'x-forwarded-for': '198.51.100.77' }, '::1').req), '198.51.100.77');
+// TRUSTED_PROXY_CIDRS adds proxy networks; unset behaves exactly as before (198.19/16 is "reserved", not private).
+const viaProxy = (peer) => getClientIp(resolve('direct', { 'x-forwarded-for': '198.51.100.77' }, peer).req);
+delete process.env.TRUSTED_PROXY_CIDRS;
+assert.doesNotThrow(validateTrustedProxyCidrs);
+assert.equal(viaProxy('198.19.205.3'), '198.19.205.3');
+assert.equal(viaProxy('172.19.0.2'), '198.51.100.77');
+process.env.TRUSTED_PROXY_CIDRS = '   ';
+assert.doesNotThrow(validateTrustedProxyCidrs);
+assert.equal(viaProxy('198.19.205.3'), '198.19.205.3');
+process.env.TRUSTED_PROXY_CIDRS = '198.19.205.3/32, 100.64.0.0/10 ,2001:db8:77::/48,203.0.113.9';
+assert.doesNotThrow(validateTrustedProxyCidrs);
+assert.equal(viaProxy('198.19.205.3'), '198.51.100.77');
+assert.equal(viaProxy('198.19.205.4'), '198.19.205.4', 'a neighbour of the listed proxy stays untrusted');
+assert.equal(viaProxy('100.64.1.1'), '198.51.100.77');
+assert.equal(viaProxy('::ffff:100.64.1.1'), '198.51.100.77', 'IPv4-mapped peers match IPv4 entries');
+assert.equal(viaProxy('203.0.113.9'), '198.51.100.77');
+assert.equal(viaProxy('203.0.113.10'), '203.0.113.10');
+assert.equal(viaProxy('2001:db8:77::5'), '198.51.100.77');
+assert.equal(viaProxy('2001:db8:78::5'), normalizeClientIp('2001:db8:78::5'));
+assert.equal(viaProxy('8.8.8.8'), '8.8.8.8', 'public peers stay untrusted');
+assert.equal(viaProxy('172.19.0.2'), '198.51.100.77', 'default private trust is kept');
+for (const invalid of ['0.0.0.0/0', '::/0', '10.0.0.0/7', '2001:db8::/31', '1.2.3.4/33', '2001:db8::/129', 'abc', '198.19.205.3/', '198.19.205.3/x', '198.19.205.3/-1', 'a,,b', ',', '198.19.205.0/24/1', '012.1.1.1', '::ffff:10.0.0.1/128', '1.1.1.1;2.2.2.2', '198.19.205.3/032']) {
+  process.env.TRUSTED_PROXY_CIDRS = invalid;
+  assert.throws(validateTrustedProxyCidrs, /TRUSTED_PROXY_CIDRS/, invalid);
+}
+delete process.env.TRUSTED_PROXY_CIDRS;
 for (const mode of ['cloudflare_proxy', 'cloudflare_tunnel']) {
   process.env.TRUSTED_COUNTRY_HEADER_ENABLED = 'true';
   const good = resolve(mode, forwarded(mode, '203.0.113.10', { 'cf-ray': 'a'.repeat(16) + '-GRU', 'cf-ipcountry': 'BR' }));
