@@ -99,6 +99,9 @@ operacionais ficam no diálogo secundário “Detalhes técnicos”, usando Form
 foco contido/restaurado e corpo rolável limitado à viewport. Sem tokens novos.
 Completed só anuncia versão confirmada quando os
 dois runtimes correspondem ao pedido; aprovação consumida não parece botão travado.
+O mesmo resumo distingue descoberta pública de prontidão local: nova versão
+sem approval usa tom informativo, falha de consulta usa warning, sem falso sucesso.
+Reutiliza disclosure de notas e detalhes técnicos; não há tokens/layout novos.
 
 O painel de itens é read-only no contexto Clientes. Metadados e valores longos
 quebram responsivamente; nenhuma nova tabela ou seleção foi introduzida.

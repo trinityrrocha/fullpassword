@@ -17,6 +17,9 @@ const states = {
   none: { label: 'Sem atualização disponível', message: 'Nenhuma nova versão aprovada está disponível.', tone: 'neutral' },
   current: { label: 'Sistema atualizado', message: 'Seu sistema já está na versão mais recente aprovada.', tone: 'success' },
   available: { label: 'Atualização disponível', message: 'Uma nova versão aprovada está pronta para instalação.', tone: 'info' },
+  public_available: { label: 'Atualização pública disponível', message: 'Uma nova versão foi publicada para todas as instalações. Este ambiente ainda precisa da preparação local para instalá-la com segurança.', tone: 'info' },
+  public_unavailable: { label: 'Catálogo público indisponível', message: 'Não foi possível confirmar a versão pública mais recente. A consulta será repetida; isso não significa que o sistema esteja atualizado.', tone: 'warning' },
+  public_unrecognized: { label: 'Versão pública identificada', message: 'A revisão instalada não pertence ao histórico desta release. Confira a compatibilidade antes de atualizar uma versão de desenvolvimento ou fork.', tone: 'warning' },
   requested: { label: 'Atualização solicitada', message: 'Solicitação recebida. Aguardando o agente iniciar a atualização.', tone: 'info' },
   deploying: { label: 'Implantando atualização', message: 'A atualização está sendo implantada e verificada pelo agente.', tone: 'info' },
   stabilizing: { label: 'Verificando estabilidade', message: 'A nova versão está em verificação de estabilidade. Aguarde a conclusão.', tone: 'info' },
@@ -29,6 +32,8 @@ const states = {
 // Presentation only: the controller/agent remain the authority for approval and replay.
 export function describeSystemUpdate({ versions, agent, loading = false, error = '' }) {
   const release = agent.release;
+  const discovery = agent.publicRelease;
+  const publicCandidate = discovery?.release;
   const progress = agent.progress;
   const identified = isReleaseRevision(versions.backend) && isReleaseRevision(versions.frontend);
   const consistent = identified && versions.backend === versions.frontend;
@@ -44,16 +49,23 @@ export function describeSystemUpdate({ versions, agent, loading = false, error =
   else if (identified && !consistent) state = 'mismatch';
   else if (phase && !Object.hasOwn(releasePhaseDescriptions, phase)) state = 'unknown';
   else if (!identified) state = 'unidentified';
-  else if (phase === 'completed' && matchingProgress) state = versions.backend === progress.revision ? 'completed' : 'verifying';
+  else if (phase === 'completed' && matchingProgress && versions.backend !== progress.revision) state = 'verifying';
+  else if (discovery?.state === 'available' && isReleaseRevision(publicCandidate?.revision)) {
+    state = release?.revision === publicCandidate.revision && !agent.requested ? 'available' : 'public_available';
+    phase = undefined; // historical completed progress must not hide a newer public release
+  }
+  else if (discovery?.state === 'unrecognized') { state = 'public_unrecognized'; phase = undefined; }
+  else if (discovery?.state === 'unavailable' && !release) state = 'public_unavailable';
+  else if (phase === 'completed' && matchingProgress) state = 'completed';
   else if (agent.requested) { state = 'requested'; phase = 'requested'; }
   else if (release && !isReleaseRevision(release.revision)) state = 'unknown';
   else if (release) state = versions.backend === release.revision ? 'current' : 'available';
-  else state = 'none';
+  else state = discovery?.state === 'current' ? 'current' : 'none';
   return {
     ...states[state], state, phase,
     canRequest: state === 'available',
-    canRefresh: !loading && (Boolean(error || progress || agent.requested) || ['unidentified', 'mismatch', 'unknown'].includes(state)),
+    canRefresh: !loading && (Boolean(discovery || error || progress || agent.requested) || ['unidentified', 'mismatch', 'unknown'].includes(state)),
     currentRevision: consistent ? versions.backend : null,
-    availableRevision: release?.revision || null
+    availableRevision: state.startsWith('public_') ? publicCandidate?.revision || null : release?.revision || publicCandidate?.revision || null
   };
 }
