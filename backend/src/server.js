@@ -130,6 +130,7 @@ app.use('/api', csrfProtection);
 app.use('/api/system/backup', sensitiveOperationLimiter);
 app.use('/api/system/update', systemUpdateLimiter);
 app.use('/api/integrations/google-drive', sensitiveOperationLimiter);
+app.use('/api/spfbl', sensitiveOperationLimiter);
 app.use(['/api/clients', '/api/users', '/api/system', '/api/groups'], generalWriteLimiter);
 
 // O vault transporta anexos já criptografados no navegador e precisa de uma
@@ -153,6 +154,7 @@ app.use('/api/system', systemRoutes);
 app.use('/api/groups', groupRoutes);
 app.use('/api/integrations', integrationRoutes);
 app.use('/api/cloud-backup', cloudBackupRoutes);
+app.use('/api/spfbl', require('./routes/spfblRoutes'));
 // JSON 404 instead of Express's HTML page, which names the framework.
 app.use('/api', function apiNotFound(_req, res) { res.status(404).json({ error: 'Rota não encontrada' }); });
 

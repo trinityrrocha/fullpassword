@@ -25,7 +25,8 @@ const BACKUP_TABLES = Object.freeze([
   'smtp_settings',
   'cloud_backup_settings',
   'cloud_backup_providers',
-  'system_modules'
+  'system_modules',
+  'spfbl_settings'
 ]);
 
 module.exports = { BACKUP_TABLES };

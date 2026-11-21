@@ -99,6 +99,13 @@ const systemUpdateLimiter = createWriteRateLimiter({
   keyPrefix: 'system-update'
 });
 
+const spfblTestLimiter = createWriteRateLimiter({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  code: 'SPFBL_TEST_RATE_LIMITED',
+  message: 'Limite de testes do SPFBL atingido. Aguarde alguns minutos antes de tentar novamente.'
+});
+
 const smtpTestLimiter = createWriteRateLimiter({
   windowMs: 15 * 60 * 1000,
   limit: 5,
@@ -143,6 +150,7 @@ module.exports = {
   cloudBackupOperationLimiter,
   systemUpdateLimiter,
   smtpTestLimiter,
+  spfblTestLimiter,
   passwordResetRequestIpLimiter,
   passwordResetRequestLimiter,
   passwordResetValidateLimiter,
