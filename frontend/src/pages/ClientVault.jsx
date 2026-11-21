@@ -780,7 +780,7 @@ export default function ClientVault() {
         </div>
 
         <form onSubmit={handleUnlock} className="space-y-4">
-          <SecurePasswordInput name="unlock_password" label="Segredo de desbloqueio" value={unlockPassword} onChange={(e) => setUnlockPassword(e.target.value)} required />
+          <SecurePasswordInput name="unlock_password" label="Segredo de desbloqueio" value={unlockPassword} onChange={(e) => setUnlockPassword(e.target.value)} enableGenerator={false} autoComplete="current-password" required />
           <button type="submit" className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700">
             Desbloquear Cofre
           </button>

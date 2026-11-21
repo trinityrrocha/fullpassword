@@ -73,6 +73,16 @@ ReauthDialog é portal no body e torna root inert. Trap de Tab, Escape condicion
 ao request, foco devolvido ao trigger ou painel quando trigger estiver disabled.
 Erros inline persistentes; não há toast contendo conteúdo do cofre.
 
+Reauth (2026-11-21): cada abertura consulta `/auth/me`; o campo MFA só aparece
+e é enviado quando `mfa_enabled=true`, não por política global ou contexto em cache.
+Consulta indisponível/inválida mantém Confirmar bloqueado e oferece retry/cancelar.
+Senha incorreta limpa o segredo, devolve foco ao campo e não abre outro diálogo.
+O backend mantém a autoridade sobre os fatores exigidos. O desbloqueio de cofre
+aceita apenas segredo existente: sem gerador, com mostrar/ocultar preservado.
+Regressão: `frontend/scripts/test-reauth-unlock-browser.js` (grupo real em fixture
+isolada, MFA habilitado/desabilitado, falhas, teclado, 390/1280, claro/escuro) e
+`backend/scripts/test-vault-integrated-postgres.js` (HTTP/PostgreSQL temporário).
+
 ## Async and resilience
 
 Perfil: nome/e-mail/senhas/MFA/preferências/sessões nessa ordem. E-mail readonly

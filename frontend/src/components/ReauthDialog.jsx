@@ -5,15 +5,28 @@ import api from '../services/api';
 export default function ReauthDialog() {
   const pending=useRef(null),form=useRef(null),busyRef=useRef(false);
   const [open,setOpen]=useState(false),[error,setError]=useState(''),[busy,setBusy]=useState(false),[showPassword,setShowPassword]=useState(false);
+  const [mfaEnabled,setMfaEnabled]=useState(null),[factorError,setFactorError]=useState(false),[factorCheck,setFactorCheck]=useState(0);
   const finish=useCallback(token=>{pending.current?.resolve(token);pending.current=null;setOpen(false);setShowPassword(false);},[]);
   useEffect(()=>{
     const receive=event=>{
       if(pending.current) {event.detail.resolve(null);return;}
-      pending.current=event.detail;setError('');setOpen(true);
+      pending.current=event.detail;setError('');setMfaEnabled(null);setFactorError(false);setOpen(true);
     };
     window.addEventListener('fullpassword:reauth',receive);
     return ()=>{window.removeEventListener('fullpassword:reauth',receive);pending.current?.resolve(null);pending.current=null;};
   },[]);
+  useEffect(()=>{
+    if(!open)return;
+    const abort=new AbortController();
+    // Refresh per dialog: policy-required MFA is not the same as an enrolled factor,
+    // and a cached auth context can be stale after setup/disable in another tab.
+    api.get('/auth/me',{signal:abort.signal,timeout:5000}).then(({data})=>{
+      if(abort.signal.aborted)return;
+      if(typeof data.user?.mfa_enabled!=='boolean')throw new Error('MFA_STATE_UNAVAILABLE');
+      setMfaEnabled(data.user.mfa_enabled);
+    }).catch(()=>{if(!abort.signal.aborted)setFactorError(true);});
+    return ()=>abort.abort();
+  },[open,factorCheck]);
   useEffect(()=>{
     if(!open) return;
     const previous=document.activeElement,root=document.getElementById('root'),wasInert=root?.inert,overflow=document.body.style.overflow;
@@ -43,25 +56,34 @@ export default function ReauthDialog() {
   if(!open) return null;
   const submit=async event=>{
     event.preventDefault();
-    if(busyRef.current)return;
+    if(busyRef.current || mfaEnabled===null)return;
     busyRef.current=true;setBusy(true);setError('');
     const values=new FormData(event.currentTarget);event.currentTarget.reset();
     try {
-      const {data}=await api.post('/auth/reauth',{purpose:pending.current.purpose,action:pending.current.action,current_password:values.get('password'),mfa_code:values.get('code')});
+      const {data}=await api.post('/auth/reauth',{purpose:pending.current.purpose,action:pending.current.action,current_password:values.get('password'),...(mfaEnabled?{mfa_code:values.get('code')}:{})},{_reauthRetried:true});
       finish(data.token);
-    } catch {setError('Não foi possível confirmar. Confira sua senha de login e use um código MFA novo, se habilitado.');}
+    } catch {
+      setError('Não foi possível confirmar sua identidade. Confira os dados e tente novamente.');
+      setMfaEnabled(null);setFactorError(false);setFactorCheck(value=>value+1);
+      form.current?.querySelector('input[name="password"]')?.focus();
+    }
     finally{busyRef.current=false;setBusy(false);}
   };
   return createPortal(<div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4" role="dialog" aria-modal="true" aria-labelledby="reauth-title">
-    <form ref={form} onSubmit={submit} noValidate aria-busy={busy} className="max-h-[calc(100dvh-2rem)] w-full max-w-md space-y-4 overflow-y-auto rounded bg-white p-6 dark:bg-slate-900">
+    <form ref={form} onSubmit={submit} noValidate aria-busy={busy} className="max-h-[calc(100dvh-2rem)] w-full max-w-md space-y-4 overflow-y-auto rounded bg-white p-6 text-slate-900 dark:bg-slate-900 dark:text-slate-100">
       <h2 id="reauth-title" className="font-semibold">Confirmar alteração sensível</h2>
       <p className="text-sm">Use a senha de login, nunca o segredo de desbloqueio dos cofres.</p>
       <label className="block">Senha de login<input name="password" type={showPassword?'text':'password'} autoComplete="current-password" className="w-full rounded border p-2" /></label>
       <button type="button" aria-pressed={showPassword} onClick={()=>setShowPassword(value=>!value)} className="cursor-pointer rounded border px-2 py-1 focus-visible:outline focus-visible:outline-2">{showPassword?'Ocultar senha de login':'Mostrar senha de login'}</button>
-      <label className="block">MFA, se habilitado<input name="code" inputMode="numeric" autoComplete="one-time-code" maxLength={6} className="w-full rounded border p-2" /></label>
+      {mfaEnabled===true && <label className="block">Código MFA<input name="code" inputMode="numeric" autoComplete="one-time-code" maxLength={6} className="w-full rounded border p-2" /></label>}
+      {mfaEnabled===null && !factorError && <p role="status" className="text-sm">Verificando fatores de autenticação…</p>}
+      {factorError && <div className="space-y-2">
+        <p role="alert">Não foi possível verificar os fatores de autenticação. Tente novamente antes de confirmar.</p>
+        <button type="button" onClick={()=>{setFactorError(false);setFactorCheck(value=>value+1);}} className="cursor-pointer rounded border px-2 py-1 focus-visible:outline focus-visible:outline-2">Tentar novamente</button>
+      </div>}
       {error && <p role="alert">{error}</p>}
       <button disabled={busy} type="button" onClick={()=>finish(null)} className="cursor-pointer rounded border px-3 py-2 focus-visible:outline focus-visible:outline-2 disabled:cursor-not-allowed">Cancelar</button>
-      <button disabled={busy} type="submit" className="ml-4 cursor-pointer rounded bg-indigo-600 px-3 py-2 text-white focus-visible:outline focus-visible:outline-2 disabled:cursor-not-allowed">{busy?'Confirmando…':'Confirmar'}</button>
+      <button disabled={busy || mfaEnabled===null} type="submit" className="ml-4 cursor-pointer rounded bg-indigo-600 px-3 py-2 text-white focus-visible:outline focus-visible:outline-2 disabled:cursor-not-allowed disabled:opacity-60">{busy?'Confirmando…':'Confirmar'}</button>
     </form>
   </div>,document.body);
 }

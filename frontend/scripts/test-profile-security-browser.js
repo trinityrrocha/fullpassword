@@ -42,6 +42,7 @@ try{
     const request=route.request(),url=new URL(request.url());assert.equal(url.origin,origin,'no real installation/external service may be accessed');
     if(!url.pathname.startsWith('/api/'))return route.continue();
     if(request.method()==='GET'){
+      if(url.pathname==='/api/auth/me')return route.fulfill({json:{user}});
       if(url.pathname==='/api/auth/password-policy')return route.fulfill({json:passwordPolicy});
       if(url.pathname==='/api/system/client-ip-status')return route.fulfill({json:{mode:'direct',client_ip:'192.0.2.10',cloudflare:false,defined_in_deployment:true}});
       if(url.pathname==='/api/system/login-security-policy')return route.fulfill({json:{policy:{auto_block_enabled:true,failed_attempts_threshold:5,observation_window_minutes:15,block_duration_minutes:30,screen_protection_enabled:true}}});
