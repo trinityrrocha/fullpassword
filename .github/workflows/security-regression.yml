@@ -145,6 +145,12 @@ jobs:
           done
           docker logs --tail 40 fp-audit-api
           exit 1
+      - name: "Automatic updater end-to-end (real Docker - adoption, rollback, backup refusal, crash reconcile)"
+        run: |
+          trusted_node_dir=$(sudo mktemp -d /usr/local/lib/fp-ci-node-XXXXXX)
+          trap 'sudo rm -rf "$trusted_node_dir"' EXIT
+          sudo install -m 0755 "$(command -v node)" "$trusted_node_dir/node"
+          sudo "$trusted_node_dir/node" backend/scripts/test-auto-update-docker.js
       - name: Signed forward and rollback must not recreate or restart database dependency (isolated)
         run: |
           # R-18: the release agent unit runs node as root, so the bootstrap refuses a node outside a root-owned
@@ -153,9 +159,3 @@ jobs:
           trap 'sudo rm -rf "$trusted_node_dir"' EXIT
           sudo install -m 0755 "$(command -v node)" "$trusted_node_dir/node"
           sudo --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT "$trusted_node_dir/node" backend/scripts/test-release-upgrade-docker.js
-      - name: "Automatic updater end-to-end (real Docker - adoption, rollback, backup refusal, crash reconcile)"
-        run: |
-          trusted_node_dir=$(sudo mktemp -d /usr/local/lib/fp-ci-node-XXXXXX)
-          trap 'sudo rm -rf "$trusted_node_dir"' EXIT
-          sudo install -m 0755 "$(command -v node)" "$trusted_node_dir/node"
-          sudo "$trusted_node_dir/node" backend/scripts/test-auto-update-docker.js
