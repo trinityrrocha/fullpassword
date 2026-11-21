@@ -81,6 +81,16 @@ async function run() {
   }
 
   // ---- Provider responses are never trusted ----
+  // Which call failed must be diagnosable on the first real run (message and fixed diagnostic), without leaking anything.
+  for (const [name, answer, expected] of [
+    ['listaccts', { status: 401, body: '' }, /WHM_HTTP_401 listaccts/],
+    ['listaccts', { status: 200, body: JSON.stringify({ metadata: { result: 0 }, data: null }) }, /WHM_API_REFUSED listaccts/],
+    ['listaccts', { status: 200, body: 'nope' }, /WHM_FORMAT listaccts/],
+    ['get_domain_info', { status: 500, body: '' }, /WHM_HTTP_500 get_domain_info/]
+  ]) {
+    const error = await (name === 'listaccts' ? client({}, { transport: async () => answer }).accounts() : client({}, { transport: async () => answer }).domains()).then(() => null, (e) => e);
+    assert.match(error.diagnostic, expected); assert.ok(error.message.includes(name), error.message);
+  }
   const expectFail = async (answer, code, status) => {
     const c = client({}, { transport: typeof answer === 'function' ? answer : async () => answer });
     const error = await c.accounts().then(() => null, (e) => e);

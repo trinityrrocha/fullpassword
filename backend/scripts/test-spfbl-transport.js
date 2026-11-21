@@ -40,7 +40,7 @@ async function run() {
   let result = await whm.defaultTransport({ ...base, port: okPort });
   assert.deepEqual(result, { status: 200, body: '{"metadata":{"result":1},"data":{"acct":[]}}' });
   const call = seen.at(-1);
-  assert.equal(call.host, 'srv.example.com', 'the Host header carries the hostname, not the pinned IP');
+  assert.equal(call.host, `srv.example.com:${okPort}`, 'the Host header carries the hostname and port (like curl), not the pinned IP');
   assert.equal(call.authorization, `whm root:${TOKEN}`); assert.equal(call.url, '/json-api/listaccts?api.version=1');
 
   // Connected by IP, but the certificate must be valid for the hostname.

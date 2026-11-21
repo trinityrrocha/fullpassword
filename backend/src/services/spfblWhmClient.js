@@ -63,7 +63,8 @@ const defaultTransport = ({ ip, host, path, headers, timeoutMs, maxBytes, port =
     ...(ca ? { ca } : {}),
     agent: false,
     timeout: timeoutMs,
-    headers: { ...headers, Host: host }
+    // Like curl (which the PHP client used): the Host header carries the port too.
+    headers: { ...headers, Host: `${host}:${port}` }
   }, (response) => {
     const chunks = [];
     let size = 0;
@@ -143,28 +144,28 @@ class WhmClient {
       throw new WhmError('Não foi possível conectar ao WHM na porta 2087. Confira hostname e liberação de saída HTTPS.', 'WHM_CONNECTION', 502, 'WHM_CONNECTION');
     }
     const status = Number(response?.status) || 0;
-    if (status === 401 || status === 403) throw new WhmError('O WHM recusou a autorização. Confira usuário, token, validade e as permissões do token.', 'WHM_AUTH_REFUSED', 422, `WHM_HTTP_${status}`);
-    if (status >= 300 && status < 400) throw new WhmError('O servidor redirecionou a chamada. Use o hostname direto do WHM.', 'WHM_REDIRECT', 502, 'WHM_REDIRECT');
-    if (status !== 200) throw new WhmError(`O WHM retornou HTTP ${status}. Confira a disponibilidade da API.`, 'WHM_HTTP', 502, `WHM_HTTP_${status}`);
+    if (status === 401 || status === 403) throw new WhmError(`O WHM recusou a autorização em ${name}. Confira usuário, token, validade e as permissões do token.`, 'WHM_AUTH_REFUSED', 422, `WHM_HTTP_${status} ${name}`);
+    if (status >= 300 && status < 400) throw new WhmError('O servidor redirecionou a chamada. Use o hostname direto do WHM.', 'WHM_REDIRECT', 502, `WHM_REDIRECT ${name}`);
+    if (status !== 200) throw new WhmError(`O WHM retornou HTTP ${status} em ${name}. Confira a disponibilidade da API.`, 'WHM_HTTP', 502, `WHM_HTTP_${status} ${name}`);
     const body = typeof response.body === 'string' ? response.body : '';
     if (Buffer.byteLength(body) > MAX_RESPONSE_BYTES) throw new WhmError('A resposta do WHM excedeu o limite permitido.', 'WHM_RESPONSE_TOO_LARGE', 502, 'WHM_SIZE');
     let decoded;
-    try { decoded = JSON.parse(body); } catch { throw new WhmError('A resposta do WHM não é o JSON esperado.', 'WHM_FORMAT', 502, 'WHM_FORMAT'); }
+    try { decoded = JSON.parse(body); } catch { throw new WhmError(`A resposta do WHM em ${name} não é o JSON esperado.`, 'WHM_FORMAT', 502, `WHM_FORMAT ${name}`); }
     if (!decoded || typeof decoded !== 'object' || Array.isArray(decoded) || !decoded.metadata || typeof decoded.metadata !== 'object') {
-      throw new WhmError('A resposta do WHM não é o JSON esperado.', 'WHM_FORMAT', 502, 'WHM_FORMAT');
+      throw new WhmError(`A resposta do WHM em ${name} não é o JSON esperado.`, 'WHM_FORMAT', 502, `WHM_FORMAT ${name}`);
     }
     if (Number(decoded.metadata.result) !== 1) {
-      // The provider's reason text can name accounts; keep it out of the message.
-      throw new WhmError('O WHM recusou a operação. Confira se o token permite listar contas.', 'WHM_API_REFUSED', 502, 'WHM_API_REFUSED');
+      // The provider's reason text can name accounts; keep it out of the message. Which call failed is safe and useful.
+      throw new WhmError(`O WHM recusou ${name}. Confira se o token tem permissão para essa operação.`, 'WHM_API_REFUSED', 502, `WHM_API_REFUSED ${name}`);
     }
-    if (!decoded.data || typeof decoded.data !== 'object') throw new WhmError('O WHM não retornou os dados esperados.', 'WHM_FORMAT', 502, 'WHM_FORMAT');
+    if (!decoded.data || typeof decoded.data !== 'object') throw new WhmError(`O WHM não retornou os dados esperados em ${name}.`, 'WHM_FORMAT', 502, `WHM_FORMAT ${name}`);
     return decoded.data;
   }
 
   // Accounts: user + main domain + suspension flag.
   async accounts() {
     const data = await this.call('listaccts');
-    if (!Array.isArray(data.acct)) throw new WhmError('O WHM não retornou a lista de contas esperada.', 'WHM_FORMAT', 502, 'WHM_FORMAT');
+    if (!Array.isArray(data.acct)) throw new WhmError('O WHM não retornou a lista de contas esperada em listaccts.', 'WHM_FORMAT', 502, 'WHM_FORMAT listaccts');
     if (data.acct.length > MAX_DOMAINS) throw new WhmError('O servidor tem mais contas do que o limite suportado.', 'WHM_TOO_MANY', 422, 'WHM_TOO_MANY');
     const accounts = [];
     let skipped = 0;
@@ -180,7 +181,7 @@ class WhmClient {
 
   async domains() {
     const data = await this.call('get_domain_info');
-    if (!Array.isArray(data.domains)) throw new WhmError('O WHM não retornou a lista de domínios esperada.', 'WHM_FORMAT', 502, 'WHM_FORMAT');
+    if (!Array.isArray(data.domains)) throw new WhmError('O WHM não retornou a lista de domínios esperada em get_domain_info.', 'WHM_FORMAT', 502, 'WHM_FORMAT get_domain_info');
     if (data.domains.length > MAX_DOMAINS) throw new WhmError('O servidor tem mais domínios do que o limite suportado.', 'WHM_TOO_MANY', 422, 'WHM_TOO_MANY');
     const list = [];
     let skipped = 0;

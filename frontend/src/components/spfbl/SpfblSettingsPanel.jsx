@@ -130,7 +130,7 @@ export default function SpfblSettingsPanel({ settings, onSettingsChange, onDomai
         </form>
       </Section>
 
-      <Section icon={<Server className="mr-2 h-5 w-5 text-indigo-500" aria-hidden="true" />} title="Servidor WHM (cPanel)" description="Usado só para listar os domínios ativos (contas não suspensas). Somente leitura: crie no WHM um token com o mínimo de permissões, apenas para listar contas.">
+      <Section icon={<Server className="mr-2 h-5 w-5 text-indigo-500" aria-hidden="true" />} title="Servidor WHM (cPanel)" description="Usado só para listar os domínios ativos (contas não suspensas). Somente leitura: crie no WHM um token com o mínimo de permissões necessárias para listar contas e domínios.">
         <form className="space-y-4" onSubmit={submitWhm} noValidate>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
             <label className="text-sm font-medium text-slate-700">
