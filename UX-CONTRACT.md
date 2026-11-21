@@ -57,7 +57,15 @@ novo pedido, mesmo com request one-shot preservado. Falha de consulta não é
 falha de implantação; progresso antigo não representa uma aprovação nova.
 
 Nenhuma rota criada. Painéis seguem Settings/Clientes existentes; sem mudança no
-shell. SHA quebra linha. Itens diretos não navegam para um cofre não autorizado.
+shell.
+
+Módulo SPFBL (2026-11-21): item de menu e rota `/spfbl` aparecem só quando o servidor
+informa acesso (GET /api/system/modules/menu, booleanos; falha = nenhum módulo). A rota
+fica no ProtectedRoute comum e o servidor decide. Settings ganha o cartão “Módulos” (Super
+Admin) com `role="switch"`, atualização pessimista e reautenticação do cliente existente.
+Formulários usam controles nativos e FormDialog; segredos são campos não controlados,
+nunca preenchidos e limpos após salvar; listas longas filtram e paginam (25 por página);
+confirmações são inline, sem alert/confirm. Ver docs/spfbl-module.md. SHA quebra linha. Itens diretos não navegam para um cofre não autorizado.
 Negação de cofre responde 404 deliberadamente para não divulgar sua existência.
 
 ## Overlays and feedback

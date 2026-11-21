@@ -1,5 +1,5 @@
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
-import { Users, Settings, Shield, LogOut, Menu, X, Building2 } from 'lucide-react';
+import { Users, Settings, Shield, LogOut, Menu, X, Building2, Bug } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import UserProfileModal from '../components/UserProfileModal';
@@ -12,6 +12,7 @@ import UserCryptoIdentitySetup from '../components/UserCryptoIdentitySetup';
 import SecurityNotificationsMenu from '../components/SecurityNotificationsMenu';
 import ThemeToggle from '../components/ThemeToggle';
 import DesktopNavigation from '../components/DesktopNavigation';
+import useModulesMenu from '../hooks/useModulesMenu';
 import { normalizeNavigationPreferences } from '../utils/navigationPreferences';
 import { combineUpdateNotification, isUpdateSuperAdmin, UPDATE_STATUS_CHANGED } from '../utils/updateNotifications';
 
@@ -161,9 +162,12 @@ export default function DashboardLayout() {
     navigate('/login');
   };
 
+  // Optional modules: the server decides who sees which (booleans only); a failed call simply shows none.
+  const { modules } = useModulesMenu(user?.id);
   const navigation = [
     { name: 'Clientes / Cofre', href: '/', icon: Building2 },
     ...(user?.role === 'admin' ? [{ name: 'Gestão de Equipe', href: '/team', icon: Users }] : []),
+    ...(modules.spfbl === true ? [{ name: 'SPFBL', href: '/spfbl', icon: Bug }] : []),
     { name: 'Configurações', href: '/settings', icon: Settings },
   ];
 

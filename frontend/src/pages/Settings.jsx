@@ -11,6 +11,7 @@ import BackupRestoreCard from '../components/BackupRestoreCard';
 import ManualIpRulesCard from '../components/ManualIpRulesCard';
 import SmtpSettingsCard from '../components/SmtpSettingsCard';
 import CloudBackupCard from '../components/CloudBackupCard';
+import ModulesCard from '../components/ModulesCard';
 import UpdateStatusPanel from '../components/UpdateStatusPanel';
 import { formatDateTimeShort } from '../utils/formatDateTimeShort';
 import useClearOnVaultLock from '../hooks/useClearOnVaultLock';
@@ -473,6 +474,8 @@ export default function Settings() {
 
 
         <SmtpSettingsCard isSuperAdmin={canManageSystem} />
+
+        {canManageSystem && <ModulesCard />}
 
         <CloudBackupCard isSuperAdmin={canManageSystem} />
 
