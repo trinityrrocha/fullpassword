@@ -203,7 +203,9 @@ async function run() {
   assert.equal((routes.match(/router\.(get|put|post|delete|patch)\(/g) || []).length, 12, 'every route must be reviewed here (domains: test-spfbl-whm.js, access: test-spfbl-access.js)');
   const server = read('backend/src/server.js');
   assert.ok(server.indexOf("app.use('/api/spfbl', require('./routes/spfblRoutes'))") < server.indexOf("function apiNotFound"));
-  assert.match(server, /app\.use\('\/api\/spfbl', sensitiveOperationLimiter\)/);
+  // sensitiveOperationLimiter allows 5 mutations per 15 min (sized for backup export): wrong for routine admin work.
+  assert.doesNotMatch(server, /app\.use\('\/api\/spfbl', sensitiveOperationLimiter\)/);
+  assert.match(server, /app\.use\(\[[^\]]*'\/api\/spfbl'[^\]]*\], generalWriteLimiter\)/, 'the normal 60/min write limiter covers the module');
   assert.match(read('backend/src/services/reauthService.js'), /\^spfbl_settings\$/);
   console.log('PASS spfbl settings: encrypted+target-bound credentials, no secrets in responses/audit, Matrix adapter contract (simulated), single-flight test with cool-down.');
 }

@@ -10,7 +10,7 @@ const archiver = require('archiver');
 const yauzl = require('yauzl');
 const QueryStream = require('pg-query-stream');
 const db = require('../config/database');
-const { BACKUP_TABLES } = require('../config/backupTables');
+const { BACKUP_TABLES, OPTIONAL_BACKUP_TABLES } = require('../config/backupTables');
 const {
   BACKUP_CHUNK_SIZE_BYTES,
   BACKUP_CHUNK_SIZE_MB,
@@ -548,6 +548,8 @@ const validateManifest = async ({ extractDirectory, extractedEntries }, passphra
     failPackage('BACKUP_V2_INVALID_MANIFEST', 'O resumo do manifesto é inválido.');
   }
   for (const table of BACKUP_TABLES) {
+    // Packages made before an optional table existed have no entry for it (see OPTIONAL_BACKUP_TABLES).
+    if (OPTIONAL_BACKUP_TABLES.has(table) && manifest.summary[table] === undefined) continue;
     if (!Number.isSafeInteger(manifest.summary[table]) || manifest.summary[table] < 0) {
       failPackage('BACKUP_V2_INVALID_MANIFEST', `Contagem inválida para a tabela ${table}.`);
     }
@@ -693,7 +695,7 @@ const scanDatabaseRecords = async (packageContext, passphrase, deadline) => {
     counts[record.table] += 1;
   }
   for (const table of BACKUP_TABLES) {
-    if (counts[table] !== packageContext.manifest.summary[table]) {
+    if (counts[table] !== (packageContext.manifest.summary[table] ?? 0)) {
       failPackage('BACKUP_V2_SUMMARY_MISMATCH', `A contagem da tabela ${table} não corresponde ao manifesto.`);
     }
   }
@@ -706,7 +708,7 @@ const formatV2Summary = (manifest) => ({
   message: 'Backup v2 validado com sucesso.',
   generated_at: manifest.generated_at,
   generated_by: manifest.generated_by,
-  tables: BACKUP_TABLES.map((table) => ({ table, records: manifest.summary[table] })),
+  tables: BACKUP_TABLES.map((table) => ({ table, records: manifest.summary[table] ?? 0 })),
   parts: manifest.parts.length,
   total_bytes: manifest.summary.total_bytes,
   attachments: manifest.summary.attachments,

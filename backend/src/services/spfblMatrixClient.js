@@ -43,34 +43,49 @@ const responseDiagnostic = (data) => {
   return ` result=${code} info=${info}`;
 };
 
-const defaultTransport = ({ endpoint, query, timeoutMs }) => new Promise((resolve, reject) => {
+// Test hooks (connectTo, port, ca, maxBytes) are never passed by request(): production always connects to the fixed
+// host over the system trust store. A total timer bounds the exchange (https.request's own timeout is idle-only).
+const defaultTransport = ({ endpoint, query, timeoutMs, connectTo, port = 443, ca, maxBytes = MAX_RESPONSE_BYTES }) => new Promise((resolve, reject) => {
+  let finished = false;
+  let timer;
+  const finish = (action, value) => {
+    if (finished) return;
+    finished = true;
+    clearTimeout(timer);
+    action(value);
+  };
+  const connectionFailed = () => new MatrixError('Falha de conexão com o Matrix.', 'MATRIX_CONNECTION_FAILED', 502);
   const request = https.request({
-    host: MATRIX_HOST,
-    port: 443,
+    host: connectTo || MATRIX_HOST,
+    port,
     method: 'GET',
     path: `/${endpoint}/?${query}`,
     servername: MATRIX_HOST,
     rejectUnauthorized: true,
+    ...(ca ? { ca } : {}),
     agent: false,
     timeout: timeoutMs,
-    headers: { Accept: 'application/json', 'User-Agent': 'FullPassword-SPFBL/1' }
+    headers: { Accept: 'application/json', 'User-Agent': 'FullPassword-SPFBL/1', Host: MATRIX_HOST }
   }, (response) => {
     const chunks = [];
     let size = 0;
     response.on('data', (chunk) => {
       size += chunk.length;
-      if (size > MAX_RESPONSE_BYTES) {
+      if (size > maxBytes) {
         response.destroy();
-        reject(new MatrixError('Resposta do Matrix excedeu o limite.', 'MATRIX_RESPONSE_TOO_LARGE', 502));
+        request.destroy();
+        finish(reject, new MatrixError('Resposta do Matrix excedeu o limite.', 'MATRIX_RESPONSE_TOO_LARGE', 502));
         return;
       }
       chunks.push(chunk);
     });
-    response.on('end', () => resolve({ status: response.statusCode, body: Buffer.concat(chunks).toString('utf8') }));
-    response.on('error', () => reject(new MatrixError('Falha de conexão com o Matrix.', 'MATRIX_CONNECTION_FAILED', 502)));
+    response.on('end', () => finish(resolve, { status: response.statusCode, body: Buffer.concat(chunks).toString('utf8') }));
+    response.on('error', () => finish(reject, connectionFailed()));
   });
-  request.on('timeout', () => request.destroy());
-  request.on('error', () => reject(new MatrixError('Falha de conexão com o Matrix.', 'MATRIX_CONNECTION_FAILED', 502)));
+  const expire = () => { request.destroy(); finish(reject, connectionFailed()); };
+  timer = setTimeout(expire, timeoutMs);
+  request.on('timeout', expire);
+  request.on('error', () => finish(reject, connectionFailed()));
   request.end();
 });
 
@@ -115,4 +130,4 @@ const testConnection = async (credentials, options) => {
   return { ok: true, diagnostic };
 };
 
-module.exports = { MATRIX_HOST, MatrixError, request, testConnection };
+module.exports = { MATRIX_HOST, MatrixError, request, testConnection, defaultTransport };

@@ -20,7 +20,7 @@ process.env.BACKUP_RESTORE_TIMEOUT_MS = '300000';
 process.env.BACKUP_TEMP_DIR = path.join(os.tmpdir(), `fullpassword-backup-v2-test-${process.pid}`);
 
 const db = require('../src/config/database');
-const { BACKUP_TABLES } = require('../src/config/backupTables');
+const { BACKUP_TABLES, OPTIONAL_BACKUP_TABLES } = require('../src/config/backupTables');
 const {
   createBackupPackageV2,
   inspectBackupPackageV2,
@@ -298,6 +298,72 @@ const run = async () => {
     failInsertTable = null;
     assert.deepEqual(tables, beforeRollback, 'A failed restore must roll back every table');
 
+    // ---- Backups made before the optional tables existed (modules / SPFBL) ----
+    const optional = [...OPTIONAL_BACKUP_TABLES];
+    assert.ok(optional.length >= 5 && optional.every((table) => BACKUP_TABLES.includes(table)));
+    // The fake schema derives columns from seeded rows; give the optional tables theirs.
+    Object.assign(schemaColumns, { system_modules: ['module_key', 'enabled'], spfbl_settings: ['id', 'matrix_user'], spfbl_domains: ['id', 'name'] });
+    const seedConfiguration = () => {
+      tables = makeEmptyTables();
+      tables.users.push({ id: 99, email: 'stale@example.com', is_super_admin: true });
+      tables.system_modules.push({ module_key: 'spfbl', enabled: true });
+      tables.spfbl_settings.push({ id: 1, matrix_user: 'keep@example.com' });
+      tables.spfbl_domains.push({ id: 'd1', name: 'keep.example.com' });
+    };
+    const keptConfiguration = () => {
+      assert.deepEqual(tables.system_modules, [{ module_key: 'spfbl', enabled: true }]);
+      assert.deepEqual(tables.spfbl_settings, [{ id: 1, matrix_user: 'keep@example.com' }]);
+      assert.deepEqual(tables.spfbl_domains, [{ id: 'd1', name: 'keep.example.com' }]);
+    };
+    // v1: a payload without the optional tables is accepted and leaves their current content alone.
+    const oldV1Data = cloneTables(originalTables);
+    for (const table of optional) delete oldV1Data[table];
+    seedConfiguration();
+    await restoreBackupPayload({ ...v1Payload, data: oldV1Data });
+    assert.equal(tables.users.length, originalTables.users.length, 'core tables are still replaced');
+    assert.equal(tables.users.some((user) => user.id === 99), false);
+    keptConfiguration();
+    // v1: a payload that lists them (even empty) replaces them like any other table.
+    seedConfiguration();
+    await restoreBackupPayload({ ...v1Payload, data: cloneTables(originalTables) });
+    assert.deepEqual([tables.system_modules, tables.spfbl_settings, tables.spfbl_domains], [[], [], []]);
+    seedConfiguration();
+    const withConfiguration = cloneTables(originalTables);
+    withConfiguration.system_modules = [{ module_key: 'spfbl', enabled: false }];
+    await restoreBackupPayload({ ...v1Payload, data: withConfiguration });
+    assert.deepEqual(tables.system_modules, [{ module_key: 'spfbl', enabled: false }]);
+    // v2: a package made by the previous version (its table list had no optional tables) is still valid and restorable.
+    const servicePaths = ['backupTables', 'backupPackageV2Service', 'backupRestoreService', 'backupPackageV1Service']
+      .map((name) => require.resolve(`../src/${name === 'backupTables' ? 'config' : 'services'}/${name}`));
+    const saved = new Map(servicePaths.map((file) => [file, require.cache[file]]));
+    let previousVersion;
+    try {
+      servicePaths.forEach((file) => { delete require.cache[file]; });
+      require.cache[servicePaths[0]] = { id: servicePaths[0], filename: servicePaths[0], loaded: true, exports: {
+        BACKUP_TABLES: Object.freeze(BACKUP_TABLES.filter((table) => !OPTIONAL_BACKUP_TABLES.has(table))), OPTIONAL_BACKUP_TABLES: new Set()
+      } };
+      previousVersion = require('../src/services/backupPackageV2Service');
+    } finally {
+      servicePaths.forEach((file) => { delete require.cache[file]; if (saved.get(file)) require.cache[file] = saved.get(file); });
+    }
+    tables = cloneTables(originalTables);
+    const oldExport = await previousVersion.createBackupPackageV2({ generatedBy: 'admin@example.com', passphrase });
+    let oldInspection;
+    try {
+      for (const table of optional) assert.equal(table in oldExport.manifest.summary, false, `previous version has no ${table}`);
+      oldInspection = await inspectBackupPackageV2(oldExport.packagePath, passphrase);
+      assert.equal(oldInspection.summary.tables.length, BACKUP_TABLES.length);
+      assert.equal(oldInspection.summary.tables.find(({ table }) => table === 'spfbl_domains').records, 0);
+      seedConfiguration();
+      await restoreBackupPackageV2({ packageContext: oldInspection.packageContext, passphrase });
+      assert.equal(tables.users.length, originalTables.users.length);
+      assert.equal(tables.users.some((user) => user.id === 99), false);
+      keptConfiguration();
+    } finally {
+      await cleanupBackupWorkspace(oldInspection?.workspace).catch(() => {});
+      await cleanupBackupWorkspace(oldExport?.workspace).catch(() => {});
+    }
+
     console.log(JSON.stringify({
       ok: true,
       v2_parts: exported.manifest.parts.length,
@@ -308,7 +374,8 @@ const run = async () => {
       tampered_part: 'rejected',
       missing_part: 'rejected',
       extra_entry: 'rejected',
-      rollback: 'passed'
+      rollback: 'passed',
+      backups_before_optional_tables: 'passed'
     }, null, 2));
   } finally {
     failInsertTable = null;

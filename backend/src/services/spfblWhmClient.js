@@ -41,14 +41,26 @@ const isPublicIpv4 = (value) => {
 
 const defaultResolver = async (host) => (await dns.lookup(host, { all: true, family: 4 })).map((entry) => entry.address);
 
-const defaultTransport = ({ ip, host, path, headers, timeoutMs, maxBytes }) => new Promise((resolve, reject) => {
+// Test hooks (port, ca) are never passed by WhmClient: production always uses 2087 and the system trust store.
+// https.request's `timeout` is an idle timeout, so a slow-drip server could hold it open for ever: a total timer
+// bounds the whole exchange.
+const defaultTransport = ({ ip, host, path, headers, timeoutMs, maxBytes, port = WHM_PORT, ca }) => new Promise((resolve, reject) => {
+  let finished = false;
+  let timer;
+  const finish = (action, value) => {
+    if (finished) return;
+    finished = true;
+    clearTimeout(timer);
+    action(value);
+  };
   const request = https.request({
     host: ip,
-    port: WHM_PORT,
+    port,
     method: 'GET',
     path,
     servername: host,
     rejectUnauthorized: true,
+    ...(ca ? { ca } : {}),
     agent: false,
     timeout: timeoutMs,
     headers: { ...headers, Host: host }
@@ -59,16 +71,19 @@ const defaultTransport = ({ ip, host, path, headers, timeoutMs, maxBytes }) => n
       size += chunk.length;
       if (size > maxBytes) {
         response.destroy();
-        reject(Object.assign(new Error('too large'), { oversized: true }));
+        request.destroy();
+        finish(reject, Object.assign(new Error('too large'), { oversized: true }));
         return;
       }
       chunks.push(chunk);
     });
-    response.on('end', () => resolve({ status: response.statusCode, body: Buffer.concat(chunks).toString('utf8') }));
-    response.on('error', (error) => reject(error));
+    response.on('end', () => finish(resolve, { status: response.statusCode, body: Buffer.concat(chunks).toString('utf8') }));
+    response.on('error', (error) => finish(reject, error));
   });
-  request.on('timeout', () => request.destroy(Object.assign(new Error('timeout'), { timeout: true })));
-  request.on('error', (error) => reject(error));
+  const expire = () => { request.destroy(); finish(reject, Object.assign(new Error('timeout'), { timeout: true })); };
+  timer = setTimeout(expire, timeoutMs);
+  request.on('timeout', expire);
+  request.on('error', (error) => finish(reject, error));
   request.end();
 });
 
@@ -203,4 +218,4 @@ class WhmClient {
   }
 }
 
-module.exports = { WHM_PORT, MAX_DOMAINS, WhmError, WhmClient, isPublicIpv4 };
+module.exports = { WHM_PORT, MAX_DOMAINS, WhmError, WhmClient, isPublicIpv4, defaultTransport };

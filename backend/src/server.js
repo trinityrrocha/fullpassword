@@ -130,8 +130,7 @@ app.use('/api', csrfProtection);
 app.use('/api/system/backup', sensitiveOperationLimiter);
 app.use('/api/system/update', systemUpdateLimiter);
 app.use('/api/integrations/google-drive', sensitiveOperationLimiter);
-app.use('/api/spfbl', sensitiveOperationLimiter);
-app.use(['/api/clients', '/api/users', '/api/system', '/api/groups'], generalWriteLimiter);
+app.use(['/api/clients', '/api/users', '/api/system', '/api/groups', '/api/spfbl'], generalWriteLimiter);
 
 // O vault transporta anexos já criptografados no navegador e precisa de uma
 // exceção controlada. Todas as demais rotas JSON permanecem no limite padrão.

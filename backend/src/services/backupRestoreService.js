@@ -1,7 +1,7 @@
 const crypto = require('crypto');
 const { promisify } = require('util');
 const db = require('../config/database');
-const { BACKUP_TABLES } = require('../config/backupTables');
+const { BACKUP_TABLES, OPTIONAL_BACKUP_TABLES } = require('../config/backupTables');
 
 const scryptAsync = promisify(crypto.scrypt);
 const MAX_BACKUP_BYTES = 50 * 1024 * 1024;
@@ -212,6 +212,8 @@ const restoreBackupRecords = async (records, expectedCounts = null) => {
       context.table = table;
       // Audit history is append-only: whoever restores chooses the passphrase and could forge an empty trail.
       if (APPEND_ONLY_TABLES.has(table)) continue;
+      // A backup made before an optional table existed does not describe it: keep the current content.
+      if (OPTIONAL_BACKUP_TABLES.has(table) && expectedCounts && expectedCounts[table] === undefined) continue;
       await client.query(`DELETE FROM ${table}`);
     }
 
@@ -310,7 +312,9 @@ const restoreBackupPayload = async (payload) => {
   }
 
   const expectedCounts = Object.fromEntries(
-    restoreOrder.map((table) => [table, Array.isArray(payload.data[table]) ? payload.data[table].length : 0])
+    restoreOrder
+      .filter((table) => !OPTIONAL_BACKUP_TABLES.has(table) || Array.isArray(payload.data[table]))
+      .map((table) => [table, Array.isArray(payload.data[table]) ? payload.data[table].length : 0])
   );
   return restoreBackupRecords(payloadRecords(), expectedCounts);
 };
