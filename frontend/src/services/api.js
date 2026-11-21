@@ -45,6 +45,16 @@ api.interceptors.response.use(
     return response;
   },
   async (error) => {
+    // Axios also returns JSON errors as Blob when downloading a backup. Decode
+    // only bounded JSON error responses, never the successful backup itself.
+    const responseData = error.response?.data;
+    if (responseData instanceof Blob && responseData.size <= 65536
+      && /^application\/json(?:;|$)/i.test(responseData.type)) {
+      try {
+        const decoded = JSON.parse(await responseData.text());
+        if (decoded && typeof decoded === 'object' && !Array.isArray(decoded)) error.response.data = decoded;
+      } catch { /* Preserve the original error when the server did not return valid JSON. */ }
+    }
     if (error.response?.data?.code === 'REAUTH_REQUIRED' && error.response.data.purpose && !error.config?._reauthRetried) {
       // Uploads are checked before the server parses the body, so they carry the grant in a header.
       const isUpload = error.config.data instanceof FormData;
