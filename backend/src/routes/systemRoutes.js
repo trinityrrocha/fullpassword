@@ -109,6 +109,10 @@ router.delete('/sessions/:id', (req, res, next) => require('../middleware/uuidPa
 router.get('/password-policy', asyncRoute(passwordPolicyController.getPolicy));
 router.put('/password-policy', asyncRoute(passwordPolicyController.updatePolicy));
 router.get('/audit-events', systemController.getAuditEvents);
+const modulesController = require('../controllers/modulesController');
+router.get('/modules/menu', asyncRoute(modulesController.menu));
+router.get('/modules', requireSuperAdmin, asyncRoute(modulesController.list));
+router.put('/modules/:key', requireSuperAdmin, require('../services/reauthService').guardFixed('modules_settings'), asyncRoute(modulesController.setState));
 router.get('/smtp', asyncRoute(smtpController.getSettings));
 router.put('/smtp', require('../services/reauthService').guardFixed('smtp_settings'), asyncRoute(smtpController.saveSettings));
 router.post('/smtp/test', smtpTestLimiter, asyncRoute(smtpController.testSettings));

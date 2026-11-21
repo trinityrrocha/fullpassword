@@ -24,7 +24,8 @@ const BACKUP_TABLES = Object.freeze([
   'system_audit_events',
   'smtp_settings',
   'cloud_backup_settings',
-  'cloud_backup_providers'
+  'cloud_backup_providers',
+  'system_modules'
 ]);
 
 module.exports = { BACKUP_TABLES };
