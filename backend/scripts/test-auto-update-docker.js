@@ -115,6 +115,7 @@ async function main() {
       changes: [{ type: 'feat', title: `Rehearsal ${revision.slice(0, 7)}` }] }));
     envelope = { payload: payload.toString('base64'), signature: crypto.sign('sha256', payload, privateKey).toString('base64') };
     fs.writeFileSync(channelFile, JSON.stringify(envelope));
+    fs.rmSync('/var/lib/fullpassword-release-agent/channel.json', { force: true }); // skip the 15-minute fetch cache
   };
   // The agent runs under spawnSync, which blocks this process: serve the channel from a separate process.
   const channelPort = 20000 + (parseInt(id, 16) % 20000);
