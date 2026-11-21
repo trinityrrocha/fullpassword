@@ -1,5 +1,7 @@
 const { recordAuditEvent } = require('../services/auditService');
 const { ModuleError, listModules, setModuleEnabled, getMenuModules } = require('../services/modulesService');
+// Loading the SPFBL access service registers who may open the module (a grant), which the menu asks about.
+require('../services/spfblAccessService');
 const { safeLogError } = require('../utils/safeLogger');
 
 const list = async (_req, res) => res.status(200).json({ modules: await listModules() });

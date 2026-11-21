@@ -5,13 +5,16 @@ const matrix = require('../services/spfblMatrixClient');
 const { MatrixError } = matrix;
 const { WhmError } = require('../services/spfblWhmClient');
 const domains = require('../services/spfblDomainsService');
+const access = require('../services/spfblAccessService');
+const { isSuperAdmin } = require('../config/security');
+const { canUserAccessModule } = require('../services/modulesService');
 const { safeLogError } = require('../utils/safeLogger');
 
 const CONFIG_KEY_MESSAGE = 'A chave de criptografia das configurações não está disponível ou é inválida. Defina CONFIG_ENCRYPTION_KEY no servidor e reinicie o backend.';
 
 // Authorization (Super Admin) and the module toggle are enforced by the router before these handlers run.
 const mapKnownError = (res, error) => {
-  if (error instanceof SpfblSettingsError || error instanceof MatrixError || error instanceof WhmError || error instanceof domains.DomainError) {
+  if (error instanceof SpfblSettingsError || error instanceof MatrixError || error instanceof WhmError || error instanceof domains.DomainError || error instanceof access.AccessError) {
     return res.status(error.statusCode).json({ code: error.code, error: error.message });
   }
   if (error instanceof ConfigEncryptionError) return res.status(503).json({ code: error.code, error: CONFIG_KEY_MESSAGE });
@@ -139,7 +142,67 @@ const removeDomain = async (req, res) => {
   }
 };
 
+const listAccess = async (_req, res) => res.status(200).json({ access: await access.listAccess() });
+
+const saveAccess = async (req, res) => {
+  try {
+    const saved = await access.saveAccess(req.params.userId, req.body, req.user.id);
+    await recordAuditEvent({
+      user: req.user,
+      action: 'spfbl_access_saved',
+      status: 'success',
+      req,
+      metadata: { target_user_id: saved.user_id, unlock_mode: saved.unlock_mode, domains: saved.domains.length }
+    });
+    return res.status(200).json({ access: saved });
+  } catch (error) {
+    await recordAuditEvent({ user: req.user, action: 'spfbl_access_saved', status: 'failed', req, metadata: { reason: error?.code || 'internal_error' } });
+    const handled = mapKnownError(res, error);
+    if (handled) return handled;
+    safeLogError('Falha ao salvar acesso ao SPFBL.', error, { includeStack: false });
+    return res.status(500).json({ error: 'Não foi possível salvar o acesso.' });
+  }
+};
+
+const revokeAccess = async (req, res) => {
+  try {
+    const revoked = await access.revokeAccess(req.params.userId);
+    await recordAuditEvent({ user: req.user, action: 'spfbl_access_revoked', status: 'success', req, metadata: { target_user_id: revoked.user_id } });
+    return res.status(200).json({ revoked: true });
+  } catch (error) {
+    await recordAuditEvent({ user: req.user, action: 'spfbl_access_revoked', status: 'failed', req, metadata: { reason: error?.code || 'internal_error' } });
+    const handled = mapKnownError(res, error);
+    if (handled) return handled;
+    safeLogError('Falha ao revogar acesso ao SPFBL.', error, { includeStack: false });
+    return res.status(500).json({ error: 'Não foi possível revogar o acesso.' });
+  }
+};
+
+// The page's first read. Super Admin: configuration summary. Anyone else: only their own scope.
+const overview = async (req, res) => {
+  if (!(await canUserAccessModule('spfbl', req.user))) return res.status(403).json({ error: 'Você não tem acesso ao módulo SPFBL.', code: 'SPFBL_ACCESS_DENIED' });
+  if (isSuperAdmin(req.user)) {
+    const [settings, list, grants] = await Promise.all([getSettings(), domains.listDomains(), access.listAccess()]);
+    return res.status(200).json({
+      role: 'super_admin',
+      matrix_configured: Boolean(settings.matrix_user && settings.has_matrix_password),
+      whm_configured: Boolean(settings.whm_host && settings.has_whm_token),
+      domain_sync_at: settings.domain_sync_at,
+      domain_sync_status: settings.domain_sync_status,
+      domains: { total: list.length, active: list.filter((d) => d.active).length },
+      users_with_access: grants.length
+    });
+  }
+  const own = await access.getOwnAccess(req.user);
+  return res.status(200).json({
+    role: 'user',
+    unlock_mode: own?.unlock_mode || 'review',
+    domains: (own?.domains || []).map(({ id, name, active }) => ({ id, name, active }))
+  });
+};
+
 module.exports = {
   getSettings: getSettingsHandler, saveSettings, testMatrix, resetTestState, TEST_COOLDOWN_MS,
-  testWhm, syncDomains, listDomains, addDomain, removeDomain, resetWhmState, WHM_COOLDOWN_MS
+  testWhm, syncDomains, listDomains, addDomain, removeDomain, resetWhmState, WHM_COOLDOWN_MS,
+  listAccess, saveAccess, revokeAccess, overview
 };

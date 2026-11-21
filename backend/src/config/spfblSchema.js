@@ -34,11 +34,31 @@ CREATE TABLE IF NOT EXISTS spfbl_domains (
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
 )`;
 
+// Who may open the module besides the Super Admin: a FullPassword account, the domains it may see and how it
+// handles blocks (review by an admin, or direct unlock). Evaluated on every request, so revoking takes effect at once.
+const CREATE_SPFBL_USER_ACCESS_SQL = `
+CREATE TABLE IF NOT EXISTS spfbl_user_access (
+    user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    unlock_mode VARCHAR(16) NOT NULL DEFAULT 'review' CHECK (unlock_mode IN ('review', 'direct')),
+    granted_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+)`;
+
+const CREATE_SPFBL_USER_DOMAINS_SQL = `
+CREATE TABLE IF NOT EXISTS spfbl_user_domains (
+    user_id UUID NOT NULL REFERENCES spfbl_user_access(user_id) ON DELETE CASCADE,
+    domain_id UUID NOT NULL REFERENCES spfbl_domains(id) ON DELETE CASCADE,
+    PRIMARY KEY (user_id, domain_id)
+)`;
+
 const ensureSpfblSchema = async (client) => {
   await client.query(CREATE_SPFBL_SETTINGS_SQL);
   await client.query(SEED_SPFBL_SETTINGS_SQL);
   for (const statement of ADD_SYNC_COLUMNS_SQL) await client.query(statement);
   await client.query(CREATE_SPFBL_DOMAINS_SQL);
+  await client.query(CREATE_SPFBL_USER_ACCESS_SQL);
+  await client.query(CREATE_SPFBL_USER_DOMAINS_SQL);
 };
 
-module.exports = { CREATE_SPFBL_SETTINGS_SQL, SEED_SPFBL_SETTINGS_SQL, ADD_SYNC_COLUMNS_SQL, CREATE_SPFBL_DOMAINS_SQL, ensureSpfblSchema };
+module.exports = { CREATE_SPFBL_SETTINGS_SQL, SEED_SPFBL_SETTINGS_SQL, ADD_SYNC_COLUMNS_SQL, CREATE_SPFBL_DOMAINS_SQL, CREATE_SPFBL_USER_ACCESS_SQL, CREATE_SPFBL_USER_DOMAINS_SQL, ensureSpfblSchema };

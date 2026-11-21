@@ -200,7 +200,7 @@ async function run() {
   assert.match(routes, /router\.get\('\/settings', requireSuperAdmin,/);
   assert.match(routes, /router\.put\('\/settings', requireSuperAdmin, guardFixed\('spfbl_settings'\),/);
   assert.match(routes, /router\.post\('\/matrix\/test', requireSuperAdmin, spfblTestLimiter,/);
-  assert.equal((routes.match(/router\.(get|put|post|delete|patch)\(/g) || []).length, 8, 'every route must be reviewed here (the domain routes are covered by test-spfbl-whm.js)');
+  assert.equal((routes.match(/router\.(get|put|post|delete|patch)\(/g) || []).length, 12, 'every route must be reviewed here (domains: test-spfbl-whm.js, access: test-spfbl-access.js)');
   const server = read('backend/src/server.js');
   assert.ok(server.indexOf("app.use('/api/spfbl', require('./routes/spfblRoutes'))") < server.indexOf("function apiNotFound"));
   assert.match(server, /app\.use\('\/api\/spfbl', sensitiveOperationLimiter\)/);
