@@ -38,7 +38,7 @@ async function run() {
   const admin = { id: adminId, email: 'admin@example.invalid', role: 'admin', is_super_admin: true };
 
   // Schema: fresh install, idempotent ensure and standalone migration keep the saved row.
-  assert.deepEqual(await settings.getSettings(), { matrix_user: '', has_matrix_password: false, whm_host: '', whm_user: '', has_whm_token: false, updated_at: (await raw()).updated_at });
+  assert.deepEqual(await settings.getSettings(), { matrix_user: '', has_matrix_password: false, whm_host: '', whm_user: '', has_whm_token: false, domain_sync_at: null, domain_sync_status: null, updated_at: (await raw()).updated_at });
   await settings.updateSettings({ matrix_user: 'ops@example.com' }, adminId);
   await ensureSecuritySchema();
   const migration = read('database/migrations/26_create_spfbl_settings.sql');
@@ -68,7 +68,7 @@ async function run() {
   // Save: secrets are encrypted, bound to their target, and never come back.
   let result = await settings.updateSettings({ matrix_user: 'ops@example.com', matrix_password: MATRIX_SECRET, whm_host: 'srv.example.com', whm_user: 'root', whm_token: WHM_SECRET }, adminId);
   assert.equal(result.matrix_password_changed, true); assert.equal(result.whm_token_changed, true);
-  assert.deepEqual({ ...result.settings, updated_at: undefined }, { matrix_user: 'ops@example.com', has_matrix_password: true, whm_host: 'srv.example.com', whm_user: 'root', has_whm_token: true, updated_at: undefined });
+  assert.deepEqual({ ...result.settings, updated_at: undefined }, { matrix_user: 'ops@example.com', has_matrix_password: true, whm_host: 'srv.example.com', whm_user: 'root', has_whm_token: true, domain_sync_at: null, domain_sync_status: null, updated_at: undefined });
   assert.equal(leaks(result), false);
   const stored = await raw();
   assert.equal(leaks(stored), false, 'plaintext secrets must not be stored');
@@ -200,7 +200,7 @@ async function run() {
   assert.match(routes, /router\.get\('\/settings', requireSuperAdmin,/);
   assert.match(routes, /router\.put\('\/settings', requireSuperAdmin, guardFixed\('spfbl_settings'\),/);
   assert.match(routes, /router\.post\('\/matrix\/test', requireSuperAdmin, spfblTestLimiter,/);
-  assert.equal((routes.match(/router\.(get|put|post|delete|patch)\(/g) || []).length, 3, 'every route must be reviewed here');
+  assert.equal((routes.match(/router\.(get|put|post|delete|patch)\(/g) || []).length, 8, 'every route must be reviewed here (the domain routes are covered by test-spfbl-whm.js)');
   const server = read('backend/src/server.js');
   assert.ok(server.indexOf("app.use('/api/spfbl', require('./routes/spfblRoutes'))") < server.indexOf("function apiNotFound"));
   assert.match(server, /app\.use\('\/api\/spfbl', sensitiveOperationLimiter\)/);

@@ -16,5 +16,11 @@ router.use(requireModuleEnabled('spfbl'));
 router.get('/settings', requireSuperAdmin, asyncRoute(controller.getSettings));
 router.put('/settings', requireSuperAdmin, guardFixed('spfbl_settings'), asyncRoute(controller.saveSettings));
 router.post('/matrix/test', requireSuperAdmin, spfblTestLimiter, asyncRoute(controller.testMatrix));
+router.post('/whm/test', requireSuperAdmin, spfblTestLimiter, asyncRoute(controller.testWhm));
+
+router.get('/domains', requireSuperAdmin, asyncRoute(controller.listDomains));
+router.post('/domains', requireSuperAdmin, asyncRoute(controller.addDomain));
+router.post('/domains/sync', requireSuperAdmin, spfblTestLimiter, asyncRoute(controller.syncDomains));
+router.delete('/domains/:id', requireSuperAdmin, (req, res, next) => require('../middleware/uuidParam').requireUuidParam(req, res, next, req.params.id), asyncRoute(controller.removeDomain));
 
 module.exports = router;

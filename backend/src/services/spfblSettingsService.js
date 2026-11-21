@@ -79,6 +79,8 @@ const sanitizeSettings = (row = DEFAULTS) => ({
   whm_host: row.whm_host || '',
   whm_user: row.whm_user || '',
   has_whm_token: Boolean(row.encrypted_whm_token),
+  domain_sync_at: row.domain_sync_at || null,
+  domain_sync_status: row.domain_sync_status || null,
   updated_at: row.updated_at || null
 });
 
