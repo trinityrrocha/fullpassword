@@ -94,9 +94,9 @@ main() {
   install -d -o root -g root -m 0755 "$PUBLIC"
   install -d -o root -g "$NODE_GID" -m 0770 "$QUEUE"
 
-  # Database must be up to provision the DML-only runtime role.
-  compose_base up -d db >/dev/null
-  for _ in $(seq 1 60); do compose_base exec -T db sh -c 'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"' >/dev/null 2>&1 && break; sleep 2; done
+  # The installer or operator already started PostgreSQL. Never reconcile its container here.
+  compose_base exec -T db sh -c 'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"' >/dev/null 2>&1 \
+    || die 'PostgreSQL existente não está pronto; a ativação não inicia nem recria o banco.'
   local RUNTIME_PASSWORD
   if [[ -f $STATE/release.env ]] && grep -q '^RUNTIME_DB_PASSWORD=' "$STATE/release.env"; then
     RUNTIME_PASSWORD=$(sed -n 's/^RUNTIME_DB_PASSWORD=//p' "$STATE/release.env")

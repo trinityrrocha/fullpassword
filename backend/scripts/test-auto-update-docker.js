@@ -131,7 +131,10 @@ async function main() {
   fs.writeFileSync(path.join(nodeDir, 'systemctl'), '#!/bin/sh\ncase "$*" in\n  "is-enabled fullpassword-release-agent.timer") exit 1 ;;\n  "daemon-reload"|"enable --now fullpassword-auto-update.timer") exit 0 ;;\nesac\nexit 2\n', { mode: 0o755 });
   const env = { ...process.env, PATH: `${nodeDir}:${process.env.PATH}` };
   log('setup-auto-update.sh --no-adopt');
+  const databaseBeforeSetup = compose('ps', '-q', 'db');
+  assert.ok(databaseBeforeSetup);
   run('bash', [path.join(project, 'scripts/setup-auto-update.sh'), '--project-dir', project, '--no-adopt'], { env });
+  assert.equal(compose('ps', '-q', 'db'), databaseBeforeSetup, 'setup must keep the existing PostgreSQL container');
   const configFile = '/etc/fullpassword/auto-update.json';
   const config = JSON.parse(fs.readFileSync(configFile, 'utf8'));
   assert.equal(config.origin, 'https://audit.example.invalid');
