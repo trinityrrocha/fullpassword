@@ -176,6 +176,16 @@ async function main() {
   assert.ok(inspect.Config.Env.includes('DB_SCHEMA_MODE=verify') && inspect.Config.Env.includes('DB_USER=fullpassword_runtime'));
   assert.equal(inspect.HostConfig.ReadonlyRootfs, true);
 
+  // Re-enabling a previously adopted stack must not rotate the live credential.
+  const roleFingerprint = () => sql("SELECT md5(rolpassword) FROM pg_authid WHERE rolname='fullpassword_runtime'");
+  const beforeRole = roleFingerprint();
+  run('bash', [path.join(project, 'scripts/setup-auto-update.sh'), '--project-dir', project, '--no-adopt'], { env });
+  assert.ok(beforeRole && roleFingerprint() === beforeRole, 'setup must preserve the existing role verifier');
+  assert.equal(compose('ps', '-q', 'db'), databaseBeforeSetup);
+  assert.equal(runningRevision(), B);
+  fs.writeFileSync(configFile, JSON.stringify({ ...config, channelUrl, imageRegistry: registry }));
+  fs.writeFileSync(config.publicKeyFile, publicKey.export({ type: 'spki', format: 'pem' }));
+
   // 3) a release whose frontend does not match: update fails, previous version restored, backup taken, click consumed
   log('update to C (mismatched frontend) must fail and roll back');
   channel(C, cBack, bFront, [A, B]);

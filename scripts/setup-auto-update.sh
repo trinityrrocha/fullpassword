@@ -97,7 +97,25 @@ main() {
   # The installer or operator already started PostgreSQL. Never reconcile its container here.
   compose_base exec -T db sh -c 'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"' >/dev/null 2>&1 \
     || die 'PostgreSQL existente não está pronto; a ativação não inicia nem recria o banco.'
-  local RUNTIME_PASSWORD
+  local RUNTIME_PASSWORD role_exists backend_id frontend_id backend_image frontend_image
+  role_exists=$(compose_base exec -T db sh -c 'psql -XAt -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT count(*) FROM pg_roles WHERE rolname=\$\$fullpassword_runtime\$\$"')
+  if [[ $role_exists == 1 ]]; then
+    # Verify a fresh runtime connection from the running app. Keep its secret
+    # on the host, never pass it in argv, logs or a credential rotation query.
+    set +x
+    RUNTIME_PASSWORD=$(compose_base exec -T backend node -e '
+      (async()=>{const e=process.env;if(e.DB_USER!=="fullpassword_runtime"||e.DB_SCHEMA_MODE!=="verify"||!/^[a-zA-Z0-9_-]{16,256}$/.test(e.DB_PASSWORD||""))throw Error();
+      const c=new (require("pg").Client)({host:e.DB_HOST,port:Number(e.DB_PORT||5432),database:e.DB_NAME,user:e.DB_USER,password:e.DB_PASSWORD,connectionTimeoutMillis:5000});
+      await c.connect();const r=await c.query("SELECT current_user AS name");await c.end();if(r.rows[0].name!==e.DB_USER)throw Error();process.stdout.write(e.DB_PASSWORD)})().catch(()=>process.exit(1))') || die 'Role existente: credencial em uso não confirmada. Nenhuma senha alterada.'
+    if [[ -f $STATE/release.env ]]; then
+      [[ $(sed -n 's/^RUNTIME_DB_PASSWORD=//p' "$STATE/release.env") == "$RUNTIME_PASSWORD" ]] || die 'Credencial persistida diverge do backend.'
+    else
+      backend_id=$(compose_base ps -q backend); frontend_id=$(compose_base ps -q frontend)
+      backend_image=$(docker inspect --format '{{.Config.Image}}' "$backend_id"); frontend_image=$(docker inspect --format '{{.Config.Image}}' "$frontend_id")
+      [[ $backend_image =~ ^ghcr\.io/trinityrrocha/fullpassword-backend@sha256:[a-f0-9]{64}$ && $frontend_image =~ ^ghcr\.io/trinityrrocha/fullpassword-frontend@sha256:[a-f0-9]{64}$ ]] || die 'Imagens anteriores sem digest confirmado para rollback.'
+      ( umask 077; set -C; printf 'RUNTIME_DB_USER=fullpassword_runtime\nRUNTIME_DB_PASSWORD=%s\nRELEASE_BACKEND_IMAGE=%s\nRELEASE_FRONTEND_IMAGE=%s\n' "$RUNTIME_PASSWORD" "$backend_image" "$frontend_image" > "$STATE/release.env" )
+    fi
+  elif [[ $role_exists == 0 ]]; then
   if [[ -f $STATE/release.env ]] && grep -q '^RUNTIME_DB_PASSWORD=' "$STATE/release.env"; then
     RUNTIME_PASSWORD=$(sed -n 's/^RUNTIME_DB_PASSWORD=//p' "$STATE/release.env")
   else
@@ -116,6 +134,9 @@ REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 SQL
   if [[ ! -f $STATE/release.env ]]; then
     ( umask 077; printf 'RUNTIME_DB_USER=fullpassword_runtime\nRUNTIME_DB_PASSWORD=%s\n' "$RUNTIME_PASSWORD" > "$STATE/release.env" )
+  fi
+  else
+    die 'Não foi possível determinar o estado do role de runtime.'
   fi
   "$NODE" -e '
     const fs=require("fs");const [project,origin]=process.argv.slice(1);
