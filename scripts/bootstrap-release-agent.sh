@@ -29,6 +29,11 @@ if [[ $# -ne 2 || $EUID -ne 0 ]]; then
   echo 'Uso: sudo bash bootstrap-release-agent.sh CHECKOUT_REVISADO GID_BACKEND' >&2
   exit 1
 fi
+SOURCE=$(realpath -- "$1")
+GID=$2
+[[ $GID =~ ^[0-9]+$ ]] || { echo 'GID inválido' >&2; exit 1; }
+validate_host_node
+validate_host_node_owner
 # Recovery tool only: never provision the legacy scheduler beside the new one,
 # even when the new timer is temporarily stopped for maintenance.
 if [[ -e /etc/fullpassword/auto-update.json || -L /etc/fullpassword/auto-update.json ||
@@ -38,11 +43,6 @@ if [[ -e /etc/fullpassword/auto-update.json || -L /etc/fullpassword/auto-update.
   echo 'AUTO_UPDATE_PRESENT: o agente legado não pode ser provisionado após a adoção do novo agente.' >&2
   exit 1
 fi
-SOURCE=$(realpath -- "$1")
-GID=$2
-[[ $GID =~ ^[0-9]+$ ]] || { echo 'GID inválido' >&2; exit 1; }
-validate_host_node
-validate_host_node_owner
 [[ -f /etc/fullpassword/release-policy.json ]] || { echo 'Política protegida ainda não provisionada' >&2; exit 1; }
 # Stop before replacing executable files; preserve any stale locks for reconciliation.
 systemctl stop fullpassword-release-agent.timer 2>/dev/null || true
