@@ -1,0 +1,66 @@
+name: Release candidate
+# Maintainer-run. Builds the images for the CURRENT main revision, pushes them to GHCR by digest and produces an UNSIGNED
+# release-candidate.json. Signing happens offline with the maintainer's private key (never stored in GitHub):
+#   node scripts/release-candidate.js sign release-candidate.json /path/outside/checkout/release-private.pem
+on:
+  workflow_dispatch:
+    inputs:
+      expected_revision:
+        description: Full SHA of the reviewed main revision
+        required: true
+        type: string
+permissions:
+  contents: read
+  packages: write
+jobs:
+  candidate:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24.21.0
+      - name: Check reviewed source revision
+        env:
+          EXPECTED_REVISION: ${{ inputs.expected_revision }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_REVISION" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$EXPECTED_REVISION"
+      - name: Log in to GHCR
+        run: echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push by digest
+        id: images
+        run: |
+          for service in backend frontend; do
+            arg=$([ "$service" = backend ] && echo BACKEND_APP_COMMIT || echo VITE_APP_COMMIT)
+            ref="ghcr.io/trinityrrocha/fullpassword-$service"
+            docker build --build-arg "$arg=$GITHUB_SHA" -t "$ref:$GITHUB_SHA" "./$service"
+            docker push "$ref:$GITHUB_SHA"
+            digest=$(docker image inspect --format '{{index .RepoDigests 0}}' "$ref:$GITHUB_SHA")
+            echo "$service=$digest" >> "$GITHUB_OUTPUT"
+          done
+      - name: Prepare unsigned release candidate
+        env:
+          BACKEND_IMAGE: ${{ steps.images.outputs.backend }}
+          FRONTEND_IMAGE: ${{ steps.images.outputs.frontend }}
+        run: |
+          set -euo pipefail
+          anonymous=$(mktemp -d)
+          trap 'rmdir "$anonymous" 2>/dev/null || true' EXIT
+          DOCKER_CONFIG="$anonymous" docker pull "$BACKEND_IMAGE"
+          DOCKER_CONFIG="$anonymous" docker pull "$FRONTEND_IMAGE"
+          test "$(docker run --rm --entrypoint node "$BACKEND_IMAGE" -p 'process.env.BACKEND_APP_COMMIT')" = "$GITHUB_SHA"
+          docker run --rm --entrypoint cat "$FRONTEND_IMAGE" /usr/share/nginx/html/version.json | jq -e --arg revision "$GITHUB_SHA" '.revision == $revision'
+          node scripts/release-candidate.js candidate --revision "$GITHUB_SHA" --backend "$BACKEND_IMAGE" --frontend "$FRONTEND_IMAGE" --out release-candidate.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-candidate
+          path: release-candidate.json

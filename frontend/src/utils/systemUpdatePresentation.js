@@ -6,6 +6,7 @@ export const releasePhaseDescriptions = {
   deploying: 'Implantação em andamento.',
   stabilizing: 'Serviços saudáveis; verificando estabilidade por pelo menos 60 segundos.',
   completed: 'Release instalada e verificada pelo agente.',
+  failed: 'A atualização não foi concluída e a versão anterior foi restaurada.',
   recovery_required: 'A implantação precisa de recuperação pelo operador. Não repita o pedido.'
 };
 
@@ -24,6 +25,7 @@ const states = {
   deploying: { label: 'Implantando atualização', message: 'A atualização está sendo implantada e verificada pelo agente.', tone: 'info' },
   stabilizing: { label: 'Verificando estabilidade', message: 'A nova versão está em verificação de estabilidade. Aguarde a conclusão.', tone: 'info' },
   completed: { label: 'Sistema atualizado', message: 'Atualização concluída e versão instalada confirmada.', tone: 'success' },
+  failed: { label: 'Atualização não concluída', message: 'A atualização falhou e a versão anterior foi restaurada e verificada. Seus dados não foram alterados além do backup feito antes. Você pode tentar novamente.', tone: 'warning' },
   verifying: { label: 'Confirmando versão instalada', message: 'O agente concluiu a atualização. Aguardando a confirmação das versões em execução.', tone: 'info' },
   recovery_required: { label: 'Recuperação necessária', message: 'A atualização precisa da atenção do operador. Não solicite novamente.', tone: 'danger' },
   unknown: { label: 'Estado não identificado', message: 'Consulte o progresso ou contate o operador antes de continuar.', tone: 'warning' }
@@ -40,7 +42,7 @@ export function describeSystemUpdate({ versions, agent, loading = false, error =
   const matchingProgress = !release || progress?.approvalId === release.approvalId;
   const awaitingAgent = agent.requested && !matchingProgress;
   let phase = awaitingAgent ? 'requested' : progress?.state;
-  if (phase === 'completed' && !matchingProgress) phase = undefined;
+  if (['completed', 'failed'].includes(phase) && !matchingProgress) phase = undefined;
   let state;
   if (loading) state = 'loading';
   else if (error) state = 'unavailable';
@@ -49,6 +51,7 @@ export function describeSystemUpdate({ versions, agent, loading = false, error =
   else if (identified && !consistent) state = 'mismatch';
   else if (phase && !Object.hasOwn(releasePhaseDescriptions, phase)) state = 'unknown';
   else if (!identified) state = 'unidentified';
+  else if (phase === 'failed' && release && !agent.requested) state = 'failed';
   else if (phase === 'completed' && matchingProgress && versions.backend !== progress.revision) state = 'verifying';
   else if (discovery?.state === 'available' && isReleaseRevision(publicCandidate?.revision)) {
     state = release?.revision === publicCandidate.revision && !agent.requested ? 'available' : 'public_available';
@@ -63,7 +66,7 @@ export function describeSystemUpdate({ versions, agent, loading = false, error =
   else state = discovery?.state === 'current' ? 'current' : 'none';
   return {
     ...states[state], state, phase,
-    canRequest: state === 'available',
+    canRequest: state === 'available' || state === 'failed',
     canRefresh: !loading && (Boolean(discovery || error || progress || agent.requested) || ['unidentified', 'mismatch', 'unknown'].includes(state)),
     currentRevision: consistent ? versions.backend : null,
     availableRevision: state.startsWith('public_') ? publicCandidate?.revision || null : release?.revision || publicCandidate?.revision || null
