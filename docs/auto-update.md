@@ -39,6 +39,16 @@ O `install.sh` chama isso por padrão em instalações novas. A ativação padr�
 
 ## Instalações com o agente antigo (policy + timer por instalação)
 
+Instalações novas usam apenas `setup-auto-update.sh`; não execute
+`bootstrap-release-agent.sh` nelas. O bootstrap legado é mantido para
+recuperação de instalações ainda não migradas e recusa execução quando
+encontra configuração ou timer do agente novo.
+
+Antes de desativar o legado, confirme que o último pedido foi concluído e
+que backend e frontend executam a revisão de transição. Se a atualização
+ainda estiver disponível no painel, use o legado para concluí-la primeiro:
+parar o timer antes disso impede o consumo do pedido existente.
+
 `setup-auto-update.sh` **recusa** se existir `/etc/fullpassword/release-policy.json` ou o timer `fullpassword-release-agent.timer`:
 os dois agentes nunca rodam juntos. A transição exige um inventário somente leitura antes (qual compose e quais credenciais de runtime
 o agente antigo usa, versão instalada, histórico em `/var/lib/fullpassword-release-*`) e um procedimento explícito que **preserve** a
