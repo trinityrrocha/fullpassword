@@ -29,7 +29,10 @@ const BACKUP_TABLES = Object.freeze([
   'spfbl_settings',
   'spfbl_domains',
   'spfbl_user_access',
-  'spfbl_user_domains'
+  'spfbl_user_domains',
+  'spfbl_requests',
+  'spfbl_operations',
+  'spfbl_release_events'
 ]);
 
 // Tables added after the first backup format shipped. A backup made before them has no entry for them: restoring it
@@ -40,7 +43,10 @@ const OPTIONAL_BACKUP_TABLES = Object.freeze(new Set([
   'spfbl_settings',
   'spfbl_domains',
   'spfbl_user_access',
-  'spfbl_user_domains'
+  'spfbl_user_domains',
+  'spfbl_requests',
+  'spfbl_operations',
+  'spfbl_release_events'
 ]));
 
 module.exports = { BACKUP_TABLES, OPTIONAL_BACKUP_TABLES };

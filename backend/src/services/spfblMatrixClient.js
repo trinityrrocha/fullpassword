@@ -7,7 +7,9 @@ const MATRIX_HOST = 'matrix.spfbl.net';
 const MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 20000;
 // Read-only endpoints. Mutations (block / white) are added deliberately in the phase that needs them.
-const ENDPOINTS = new Set(['history', 'registry']);
+const ENDPOINTS = new Set(['history', 'registry', 'block', 'white']);
+// Mutations: the provider must answer DONE with the exact information, otherwise the outcome is NOT confirmed.
+const MUTATIONS = new Map([['block', 'sender blocked'], ['white', 'sender whitelisted']]);
 
 class MatrixError extends Error {
   constructor(message, code, statusCode = 502, diagnostic = '') {
@@ -28,7 +30,9 @@ const INFORMATION = new Map([
   ['registry not found', 'REGISTRY_NOT_FOUND'],
   ['you cannot define the credential here for security reasons', 'CREDENTIAL_MODE_REFUSED'],
   ['no parameters was provided', 'NO_PARAMETERS'],
-  ['unavailable service', 'UNAVAILABLE_SERVICE']
+  ['unavailable service', 'UNAVAILABLE_SERVICE'],
+  ['sender whitelisted', 'SENDER_WHITELISTED'],
+  ['sender blocked', 'SENDER_BLOCKED']
 ]);
 
 const responseDiagnostic = (data) => {
@@ -116,6 +120,10 @@ const request = async (endpoint, { user, password, params = {} }, { transport = 
   try { data = JSON.parse(lossless); } catch { diagnostic += ' INVALID_JSON'; return fail('Resposta JSON inválida do Matrix.', 'MATRIX_INVALID_JSON'); }
   if (!data || typeof data !== 'object' || Array.isArray(data)) { diagnostic += ' INVALID_JSON_SHAPE'; return fail('Formato JSON inesperado do Matrix.', 'MATRIX_INVALID_SHAPE'); }
   diagnostic += responseDiagnostic(data);
+  if (MUTATIONS.has(endpoint)) {
+    if (data.result !== 'DONE' || data.information !== MUTATIONS.get(endpoint)) fail('O SPFBL não confirmou a operação. Confira o resultado no fornecedor antes de repetir.', 'MATRIX_MUTATION_NOT_CONFIRMED');
+    return { data: { result: 'DONE', information: data.information }, diagnostic };
+  }
   if (data.result !== 'VALID') {
     if (data.result === 'NOTFOUND') fail('O Matrix não encontrou este registro na consulta individual. Atualize o Histórico; se persistir, encaminhe o código de diagnóstico ao administrador.', 'MATRIX_RECORD_NOT_FOUND', 409);
     if (data.information === 'invalid key') fail('O Matrix recusou a chave deste registro. Atualize o Histórico e encaminhe o código de diagnóstico ao administrador.', 'MATRIX_KEY_REFUSED', 409);
@@ -157,4 +165,8 @@ const registry = async (credentials, key, options) => {
   return data.message;
 };
 
-module.exports = { MATRIX_HOST, MatrixError, request, testConnection, historyPage, registry, defaultTransport };
+// Mutations never retry and never throw away the diagnostic: callers record the outcome as "uncertain" on any failure.
+const block = async (credentials, key, options) => request('block', { ...credentials, params: { timekey: bounded(key) } }, options);
+const unlock = async (credentials, key, options) => request('white', { ...credentials, params: { timekey: bounded(key) } }, options);
+
+module.exports = { MATRIX_HOST, MatrixError, request, testConnection, historyPage, registry, block, unlock, defaultTransport };

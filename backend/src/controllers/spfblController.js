@@ -7,6 +7,8 @@ const { WhmError } = require('../services/spfblWhmClient');
 const domains = require('../services/spfblDomainsService');
 const access = require('../services/spfblAccessService');
 const history = require('../services/spfblHistoryService');
+const release = require('../services/spfblReleaseService');
+const notifications = require('../services/spfblNotifications');
 const crypto = require('node:crypto');
 const { isSuperAdmin } = require('../config/security');
 const { canUserAccessModule } = require('../services/modulesService');
@@ -16,7 +18,7 @@ const CONFIG_KEY_MESSAGE = 'A chave de criptografia das configurações não est
 
 // Authorization (Super Admin) and the module toggle are enforced by the router before these handlers run.
 const mapKnownError = (res, error) => {
-  if (error instanceof SpfblSettingsError || error instanceof MatrixError || error instanceof WhmError || error instanceof domains.DomainError || error instanceof access.AccessError || error instanceof history.HistoryError) {
+  if (error instanceof SpfblSettingsError || error instanceof MatrixError || error instanceof WhmError || error instanceof domains.DomainError || error instanceof access.AccessError || error instanceof history.HistoryError || error instanceof release.ReleaseError) {
     return res.status(error.statusCode).json({ code: error.code, error: error.message });
   }
   if (error instanceof ConfigEncryptionError) return res.status(503).json({ code: error.code, error: CONFIG_KEY_MESSAGE });
@@ -239,7 +241,7 @@ const dashboard = guarded('dashboard', async (req, res) => {
   const scope = await scopeDomains(req.user);
   const { state } = await loadHistory(false);
   res.setHeader('Cache-Control', 'no-store');
-  return res.status(200).json({ ...history.buildOverview(state.rows, scope), domains_scope: scope, state: history.stateView(state) });
+  return res.status(200).json({ ...history.buildOverview(state.rows, scope), latest_unlocks: await release.latestUnlocks(scope), domains_scope: scope, state: history.stateView(state) });
 });
 
 const historyList = guarded('histórico', async (req, res) => {
@@ -271,29 +273,112 @@ const findRecord = async (req) => {
   return { row, domain, credentials };
 };
 
+// The caller as the release service needs it, resolved per request (scope and unlock mode are never taken from the client).
+const actorOf = async (req) => {
+  const scope = await scopeDomains(req.user);
+  const superAdmin = isSuperAdmin(req.user);
+  const own = superAdmin ? null : await access.getOwnAccess(req.user);
+  return { user: { id: req.user.id }, isSuperAdmin: superAdmin, scope, unlockMode: superAdmin ? 'direct' : (own?.unlock_mode || 'review') };
+};
+const audit = (req, action, status, metadata) => recordAuditEvent({ user: req.user, action, status, req, metadata });
+
 const recordDetail = guarded('detalhe do registro', async (req, res) => {
   const { row, domain } = await findRecord(req);
+  const state = await release.recordState(await actorOf(req), row);
   res.setHeader('Cache-Control', 'no-store');
-  return res.status(200).json({ domain, record: history.publicRow(row) });
+  return res.status(200).json({ domain, record: history.publicRow(row), ...state });
 });
 
-// Current provider status of one record: read-only, one at a time per account with a short cool-down.
+// Current provider status of one record: one at a time per account with a short cool-down.
 const STATUS_COOLDOWN_MS = 8000;
 const statusState = new Map();
 const resetStatusState = () => statusState.clear();
 const recordStatus = guarded('consulta de status', async (req, res) => {
-  const { row, credentials } = await findRecord(req);
+  const { row, domain, credentials } = await findRecord(req);
   const last = statusState.get(req.user.id) || 0;
   if (Date.now() - last < STATUS_COOLDOWN_MS) return res.status(429).json({ code: 'SPFBL_STATUS_COOLDOWN', error: 'Aguarde alguns segundos antes de consultar de novo.' });
   statusState.set(req.user.id, Date.now());
-  const live = history.normalizeRecord(await matrix.registry(credentials, row.provider_key), integrationOf(credentials));
-  if (!live || live.id !== row.id || live.recipient !== row.recipient) throw new history.HistoryError('O SPFBL retornou um registro diferente. Atualize a consulta.', 'SPFBL_RECORD_MISMATCH', 409);
+  const result = await release.checkCurrent(await actorOf(req), row, domain, credentials);
   const meaning = { WHITELISTED: 'Liberado no SPFBL', BLOCKED: 'Bloqueado no SPFBL', NONE: 'Sem regra no SPFBL', UNKNOWN: 'Situação não informada' };
-  return res.status(200).json({ provider_status: live.provider_status, label: meaning[live.provider_status], changed_reason: live.result !== row.result });
+  await audit(req, 'spfbl_status_checked', 'success', { domain, provider_status: result.provider_status });
+  return res.status(200).json({ provider_status: result.provider_status, label: meaning[result.provider_status], changed_reason: result.changed_reason });
 });
 
+const requireConfirmed = (req) => {
+  if (req.body?.confirm !== true) throw new release.ReleaseError('Confirme a solicitação antes de enviar.', 'SPFBL_CONFIRM_REQUIRED', 422);
+};
+const toAuditMessage = (result) => ({ skipped: 'smtp_skipped', sent: 'sent' }[result] || 'none');
+
+const requestReview = guarded('solicitação de revisão', async (req, res) => {
+  requireConfirmed(req);
+  const { row, domain, credentials } = await findRecord(req);
+  const result = await release.requestReview(await actorOf(req), row, domain, credentials);
+  let mail = 'none';
+  if (result.created) mail = await notifications.notifyAdmins(result.request);
+  await audit(req, 'spfbl_review_requested', 'success', { domain, request_id: result.request.id, notification: toAuditMessage(mail) });
+  return res.status(result.created ? 201 : 200).json({ request: release.publicRequest(result.request) });
+});
+
+const unlockRecord = guarded('desbloqueio', async (req, res) => {
+  requireConfirmed(req);
+  const { row, domain, credentials } = await findRecord(req);
+  try {
+    const result = await release.execute(await actorOf(req), { row, domain, proof: req.body?.proof }, credentials);
+    historyStore.reset(); // statuses changed at the provider: the next read starts from a fresh history
+    await audit(req, 'spfbl_unlock_done', 'success', { domain, request_id: result.request.id, mode: 'direct' });
+    return res.status(200).json({ request: release.publicRequest(result.request) });
+  } catch (error) {
+    await audit(req, 'spfbl_unlock_done', 'failed', { domain, reason: error?.code || 'internal_error', ...(error?.diagnostic ? { diagnostic: error.diagnostic } : {}) });
+    throw error;
+  }
+});
+
+const listRequests = guarded('lista de solicitações', async (req, res) => {
+  const actor = await actorOf(req);
+  res.setHeader('Cache-Control', 'no-store');
+  return res.status(200).json({ requests: await release.listRequests(actor, { status: req.query.status }), is_admin: actor.isSuperAdmin });
+});
+
+const requestDetail = guarded('detalhe da solicitação', async (req, res) => {
+  const actor = await actorOf(req);
+  res.setHeader('Cache-Control', 'no-store');
+  return res.status(200).json(await release.requestDetail(actor, req.params.id));
+});
+
+const decisionInput = (req) => {
+  const { revision, notify, proof } = req.body || {};
+  if (!Number.isInteger(revision) || revision < 0 || (notify !== undefined && typeof notify !== 'boolean') || (proof !== undefined && typeof proof !== 'string')) {
+    throw new release.ReleaseError('Decisão inválida. Recarregue a solicitação.', 'SPFBL_DECISION_INVALID', 422);
+  }
+  return { revision, notify: notify === true, proof };
+};
+const decide = (action, run) => guarded(`decisão (${action})`, async (req, res) => {
+  const input = decisionInput(req);
+  const actor = await actorOf(req);
+  try {
+    const request = await run(actor, req, input);
+    historyStore.reset();
+    const mail = input.notify ? await notifications.notifyDecision(request, { keep: 'kept', release: 'unlocked', block: 'reblocked' }[action]) : 'none';
+    await audit(req, `spfbl_request_${action}`, 'success', { request_id: request.id, domain: request.domain, notification: toAuditMessage(mail) });
+    return res.status(200).json({ request: release.publicRequest(request, { admin: true }), notification: mail });
+  } catch (error) {
+    await audit(req, `spfbl_request_${action}`, 'failed', { request_id: req.params.id, reason: error?.code || 'internal_error', ...(error?.diagnostic ? { diagnostic: error.diagnostic } : {}) });
+    throw error;
+  }
+});
+const snapshotRow = async (request, credentials) => (historyStore.find(integrationOf(credentials), request.record_id, request.domain)
+  || { id: request.record_id, provider_key: request.provider_key, recipient: request.recipient, sender: request.sender, result: request.reason });
+const keepRequest = decide('keep', (actor, req, input) => release.keep(actor, req.params.id, input.revision));
+const releaseRequest = decide('release', async (actor, req, input) => {
+  const request = await release.getRequest(req.params.id);
+  const credentials = await getMatrixCredentials();
+  const result = await release.execute(actor, { row: await snapshotRow(request, credentials), domain: request.domain, requestId: request.id, revision: input.revision, proof: input.proof }, credentials);
+  return result.request;
+});
+const blockRequest = decide('block', async (actor, req, input) => release.blockAgain(actor, req.params.id, input, await getMatrixCredentials()));
+
 module.exports = {
-  dashboard, historyList, refreshHistory, recordDetail, recordStatus, resetStatusState, historyStore, STATUS_COOLDOWN_MS,
+  dashboard, historyList, refreshHistory, recordDetail, recordStatus, requestReview, unlockRecord, listRequests, requestDetail, keepRequest, releaseRequest, blockRequest, resetStatusState, historyStore, STATUS_COOLDOWN_MS,
   getSettings: getSettingsHandler, saveSettings, testMatrix, resetTestState, TEST_COOLDOWN_MS,
   testWhm, syncDomains, listDomains, addDomain, removeDomain, resetWhmState, WHM_COOLDOWN_MS,
   listAccess, saveAccess, revokeAccess, overview

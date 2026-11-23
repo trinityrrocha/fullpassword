@@ -32,6 +32,9 @@ jobs:
         working-directory: backend
       - run: node scripts/test-vault-integrated-postgres.js
         working-directory: backend
+      - name: SPFBL requests and unlock (native PostgreSQL, stubbed provider, concurrency)
+        run: node scripts/test-spfbl-release-postgres.js
+        working-directory: backend
       - run: node scripts/test-approved-release.js
         working-directory: backend
       - name: Deployment must not recreate database dependency (executed argv regression)

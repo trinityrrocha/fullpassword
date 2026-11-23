@@ -115,7 +115,7 @@ async function run() {
       await leastPrivilege.query('SELECT crypto_identity FROM users LIMIT 0');
       const verifyRuntimeSchema=require('../src/config/verifyRuntimeSchema').verifyRuntimeSchema;
       await verifyRuntimeSchema(leastPrivilege);
-      for(const table of ['system_modules','spfbl_settings','spfbl_domains','spfbl_user_access','spfbl_user_domains']) {
+      for(const table of ['system_modules','spfbl_settings','spfbl_domains','spfbl_user_access','spfbl_user_domains','spfbl_requests','spfbl_operations','spfbl_release_events']) {
         assert.equal((await leastPrivilege.query("SELECT has_table_privilege(current_user,$1,'SELECT,INSERT,UPDATE,DELETE') AS ok",[table])).rows[0].ok,true,'runtime role must read and write '+table);
         await leastPrivilege.query(`SELECT * FROM ${table} LIMIT 0`);
       }

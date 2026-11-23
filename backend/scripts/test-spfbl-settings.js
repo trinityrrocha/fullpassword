@@ -143,7 +143,11 @@ async function run() {
   await fails(answer(200, 'null'), 'MATRIX_INVALID_SHAPE');
   await fails(answer(200, 'x'.repeat(4 * 1024 * 1024 + 1)), 'MATRIX_RESPONSE_TOO_LARGE');
   await fails(async () => { throw new Error(`socket hang up for ${MATRIX_SECRET}`); }, 'MATRIX_CONNECTION_FAILED');
-  await assert.rejects(matrix.request('white', creds, { transport: answer(200, { result: 'VALID' }) }), { code: 'MATRIX_ENDPOINT_FORBIDDEN', statusCode: 403 });
+  await assert.rejects(matrix.request('delete', creds, { transport: answer(200, { result: 'VALID' }) }), { code: 'MATRIX_ENDPOINT_FORBIDDEN', statusCode: 403 }, 'only the reviewed endpoints exist');
+  // Mutations are confirmed only by DONE + the exact information; a plain VALID answer (or the other mutation's wording) is "not confirmed".
+  await assert.rejects(matrix.request('white', creds, { transport: answer(200, { result: 'VALID' }) }), { code: 'MATRIX_MUTATION_NOT_CONFIRMED' });
+  await assert.rejects(matrix.request('white', creds, { transport: answer(200, { result: 'DONE', information: 'sender blocked' }) }), { code: 'MATRIX_MUTATION_NOT_CONFIRMED' });
+  assert.equal((await matrix.request('white', creds, { transport: answer(200, { result: 'DONE', information: 'sender whitelisted' }) })).data.information, 'sender whitelisted');
   await assert.rejects(matrix.testConnection({ user: '', password: 'x' }, { transport: answer(200, {}) }), { code: 'MATRIX_NOT_CONFIGURED', statusCode: 422 });
 
   // Controller: audit trail holds no secrets, hosts or users; responses never carry credentials.
@@ -200,7 +204,7 @@ async function run() {
   assert.match(routes, /router\.get\('\/settings', requireSuperAdmin,/);
   assert.match(routes, /router\.put\('\/settings', requireSuperAdmin, guardFixed\('spfbl_settings'\),/);
   assert.match(routes, /router\.post\('\/matrix\/test', requireSuperAdmin, spfblTestLimiter,/);
-  assert.equal((routes.match(/router\.(get|put|post|delete|patch)\(/g) || []).length, 17, 'every route must be reviewed here (domains: test-spfbl-whm.js, access: test-spfbl-access.js)');
+  assert.equal((routes.match(/router\.(get|put|post|delete|patch)\(/g) || []).length, 24, 'every route must be reviewed here (domains: test-spfbl-whm.js, access: test-spfbl-access.js)');
   const server = read('backend/src/server.js');
   assert.ok(server.indexOf("app.use('/api/spfbl', require('./routes/spfblRoutes'))") < server.indexOf("function apiNotFound"));
   // sensitiveOperationLimiter allows 5 mutations per 15 min (sized for backup export): wrong for routine admin work.

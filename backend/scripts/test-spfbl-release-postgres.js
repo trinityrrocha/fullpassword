@@ -1,0 +1,227 @@
+// Phase 2B on a disposable native PostgreSQL: requests, admin decisions, direct unlock, re-block, uncertainty and — the point of
+// the real database — concurrent claims. The Matrix client is stubbed (never a real provider); mail is stubbed.
+const assert = require('node:assert/strict');
+const crypto = require('node:crypto');
+const fs = require('node:fs');
+const net = require('node:net');
+const os = require('node:os');
+const path = require('node:path');
+const { spawnSync } = require('node:child_process');
+
+const find = () => {
+  const embedded = path.join(__dirname, '../node_modules/@embedded-postgres/linux-x64/native/bin');
+  const candidates = [process.env.PG_BIN, ...(fs.existsSync('/usr/lib/postgresql') ? fs.readdirSync('/usr/lib/postgresql').sort().reverse().map((v) => `/usr/lib/postgresql/${v}/bin`) : []), embedded].filter(Boolean);
+  const dir = candidates.find((d) => fs.existsSync(path.join(d, 'postgres')) && fs.existsSync(path.join(d, 'initdb')));
+  if (!dir) throw new Error('PostgreSQL binaries not found (set PG_BIN).');
+  return dir;
+};
+const freePort = () => new Promise((resolve) => { const s = net.createServer(); s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => resolve(p)); }); });
+const root = process.getuid() === 0;
+const asServer = root ? { uid: 65534, gid: 65534 } : {};
+
+async function main() {
+  const bin = find();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'spfbl-release-pg-'));
+  if (root) fs.chownSync(dir, 65534, 65534);
+  fs.chmodSync(dir, 0o755);
+  const data = path.join(dir, 'data'); const port = await freePort();
+  const sh = (cmd, args) => { const r = spawnSync(path.join(bin, cmd), args, { encoding: 'utf8', ...asServer }); if (r.status !== 0) throw new Error(`${cmd} failed: ${r.stderr}`); };
+  sh('initdb', ['-D', data, '-A', 'trust', '-U', 'postgres']);
+  sh('pg_ctl', ['-D', data, '-o', `-p ${port} -h 127.0.0.1 -k ${dir}`, '-l', path.join(dir, 'log'), '-w', 'start']);
+  let database;
+  try {
+    Object.assign(process.env, { DB_HOST: '127.0.0.1', DB_PORT: String(port), DB_USER: 'postgres', DB_PASSWORD: 'unused', DB_NAME: 'postgres', NODE_ENV: 'test',
+      JWT_SECRET: crypto.randomBytes(64).toString('hex'), CONFIG_ENCRYPTION_KEY: crypto.randomBytes(32).toString('base64'), ADMIN_BOOTSTRAP_TOKEN: crypto.randomBytes(48).toString('hex'),
+      APP_ORIGIN: 'https://example.invalid', SUPER_ADMIN_EMAIL: 'admin@example.invalid' });
+    database = require('../src/config/database');
+    const mails = [];
+    const emailService = require('../src/services/emailService');
+    emailService.sendEmail = async (mail) => { if (mail.to === 'bounce@example.invalid') throw new Error('smtp'); mails.push(mail); };
+    const { ensureSecuritySchema } = require('../src/config/securitySchema');
+    const matrix = require('../src/services/spfblMatrixClient');
+    const settings = require('../src/services/spfblSettingsService');
+    const access = require('../src/services/spfblAccessService');
+    const domains = require('../src/services/spfblDomainsService');
+    const release = require('../src/services/spfblReleaseService');
+    const history = require('../src/services/spfblHistoryService');
+    const controller = require('../src/controllers/spfblController');
+    const read = (p) => fs.readFileSync(path.join(__dirname, '../..', p), 'utf8');
+    await database.query(read('database/init.sql'));
+    await ensureSecuritySchema();
+    const migration = read('database/migrations/29_create_spfbl_requests.sql');
+    await database.query(migration); await database.query(migration); // idempotent
+    await database.query("INSERT INTO system_modules (module_key, enabled) VALUES ('spfbl', TRUE) ON CONFLICT (module_key) DO UPDATE SET enabled = TRUE").catch(async () => database.query("INSERT INTO system_modules (key, enabled) VALUES ('spfbl', TRUE) ON CONFLICT (key) DO UPDATE SET enabled = TRUE"));
+
+    const id = (n) => `00000000-0000-0000-0000-${String(n).padStart(12, '0')}`;
+    const users = { admin: id(1), review: id(2), direct: id(3), direct2: id(4), outsider: id(5), bounce: id(6) };
+    const emails = { admin: 'admin@example.invalid', review: 'review@example.invalid', direct: 'direct@example.invalid', direct2: 'direct2@example.invalid', outsider: 'outsider@example.invalid', bounce: 'bounce@example.invalid' };
+    for (const [key, uid] of Object.entries(users)) {
+      await database.query("INSERT INTO users(id,name,email,hash_senha_login,wrapped_key,crypto_salt,is_active,is_super_admin,role) VALUES ($1,$2,$3,'H','W','S',TRUE,$4,$5)", [uid, key, emails[key], key === 'admin', key === 'admin' ? 'admin' : 'user']);
+    }
+    await settings.updateSettings({ matrix_user: 'ops@example.com', matrix_password: 'MATRIX_SECRET_SENTINEL' }, users.admin);
+    await domains.addManualDomain('one.example.com', users.admin); await domains.addManualDomain('two.example.com', users.admin);
+    const dom = Object.fromEntries((await domains.listDomains()).map((d) => [d.name.split('.')[0], d.id]));
+    await access.saveAccess(users.review, { unlock_mode: 'review', domain_ids: [dom.one] }, users.admin);
+    await access.saveAccess(users.direct, { unlock_mode: 'direct', domain_ids: [dom.one] }, users.admin);
+    await access.saveAccess(users.direct2, { unlock_mode: 'direct', domain_ids: [dom.one] }, users.admin);
+    await access.saveAccess(users.bounce, { unlock_mode: 'review', domain_ids: [dom.one] }, users.admin);
+
+    const credentials = { user: 'ops@example.com', password: 'MATRIX_SECRET_SENTINEL' };
+    const integration = release.integrationHash(credentials.user);
+    const nowS = Math.floor(Date.now() / 1000);
+    const rowOf = (key, recipient, result = 'BLOCK', extra = {}) => history.normalizeRecord({ key, recipient, sender: 'bad@out.example', from: '', replyto: '', result, arrival: new Date((nowS - 100) * 1000).toISOString(), status: 'NONE', ...extra }, integration);
+    const actorOf = (key, unlockMode = 'review') => ({ user: { id: users[key] }, isSuperAdmin: key === 'admin', scope: ['one.example.com'], unlockMode });
+
+    // stub provider with an observable, slow white/block
+    const provider = { whites: [], blocks: [], live: new Map(), failWhite: false, delay: 120 };
+    const liveOf = (row, status = 'NONE') => ({ key: row.provider_key, recipient: row.recipient, sender: row.sender, from: '', replyto: '', result: row.result, arrival: new Date(row.timestamp * 1000).toISOString(), status });
+    const stub = {
+      registry: async (_c, key) => provider.live.get(key),
+      unlock: async (_c, key) => { provider.whites.push(key); await new Promise((r) => setTimeout(r, provider.delay)); if (provider.failWhite) { const e = new Error('x'); e.diagnostic = 'white HTTP=200 result=FAIL'; throw e; } return { diagnostic: 'ok' }; },
+      block: async (_c, key) => { provider.blocks.push(key); }
+    };
+    const register = (row, status) => provider.live.set(row.provider_key, liveOf(row, status));
+    const proofFor = async (user, row) => release.confirmation(users[user], { ...row, operation_revision: Number((await database.query('SELECT revision FROM spfbl_operations WHERE record_id = $1', [row.id])).rows[0]?.revision || 0) });
+
+    // ---- schema ----
+    for (const table of ['spfbl_requests', 'spfbl_operations', 'spfbl_release_events']) assert.equal((await database.query('SELECT to_regclass($1) AS t', [table])).rows[0].t, table);
+    await assert.rejects(database.query("INSERT INTO spfbl_requests(record_id,domain,recipient,provider_key,integration_hash,status) VALUES ($1,'one.example.com','a@one.example.com','k',$1,'bogus')", ['a'.repeat(64)]));
+
+    // ---- confirmation proof ----
+    const probe = rowOf('P1', 'p@one.example.com');
+    const proof = release.confirmation(users.direct, { ...probe, operation_revision: 0 });
+    release.checkConfirmation(users.direct, { ...probe, operation_revision: 0 }, proof);
+    for (const bad of [proof.replace(/.$/, (c) => (c === 'a' ? 'b' : 'a')), 'zz', undefined, release.confirmation(users.direct2, { ...probe, operation_revision: 0 })]) assert.throws(() => release.checkConfirmation(users.direct, { ...probe, operation_revision: 0 }, bad), { code: 'SPFBL_CONFIRMATION_STALE' });
+    assert.throws(() => release.checkConfirmation(users.direct, { ...probe, result: 'BANNED', operation_revision: 0 }, proof), { code: 'SPFBL_CONFIRMATION_STALE' }, 'a changed reason invalidates the proof');
+    assert.throws(() => release.checkConfirmation(users.direct, { ...probe, operation_revision: 1 }, proof), { code: 'SPFBL_CONFIRMATION_STALE' }, 'a changed operation invalidates the proof');
+
+    // ---- review flow ----
+    const r1 = rowOf('R1', 'ana@one.example.com'); register(r1);
+    await assert.rejects(release.requestReview(actorOf('review'), r1, 'two.example.com', credentials), { code: 'SPFBL_DOMAIN_FORBIDDEN' });
+    await assert.rejects(release.requestReview(actorOf('review'), rowOf('F1', 'free@one.example.com', 'ACCEPT'), 'one.example.com', credentials), { code: 'SPFBL_RECORD_NOT_BLOCKED' });
+    const first = await release.requestReview(actorOf('review'), r1, 'one.example.com', credentials);
+    assert.equal(first.created, true); assert.equal(first.request.status, 'pending');
+    const again = await release.requestReview(actorOf('review'), r1, 'one.example.com', credentials);
+    assert.equal(again.created, false); assert.equal(again.request.id, first.request.id, 'one request per record and account');
+    assert.equal((await release.listRequests(actorOf('review'))).length, 1); assert.equal((await release.listRequests(actorOf('direct'))).length, 0, 'accounts see only their own requests');
+    assert.equal((await release.listRequests(actorOf('admin'))).length, 1);
+    // review-mode accounts cannot unlock directly; ordinary accounts cannot decide
+    await assert.rejects(release.execute(actorOf('review'), { row: r1, domain: 'one.example.com', proof: await proofFor('review', r1) }, credentials, stub), { code: 'SPFBL_REVIEW_REQUIRED' });
+    await assert.rejects(release.keep(actorOf('review'), first.request.id, 0), { code: 'SPFBL_ADMIN_ONLY' });
+    await assert.rejects(release.requestDetail(actorOf('direct'), first.request.id), { code: 'SPFBL_ADMIN_ONLY' });
+    // notifications through the handler
+    const call = async (handler, key, extra = {}) => { const res = { code: 200, headers: {}, setHeader() {}, status(c) { this.code = c; return this; }, json(b) { this.body = b; return this; } };
+      await handler({ user: { id: users[key], email: emails[key], role: key === 'admin' ? 'admin' : 'user', is_super_admin: key === 'admin' }, params: {}, query: {}, body: {}, get: () => 'a', headers: {}, socket: { remoteAddress: '127.0.0.1' }, ...extra }, res); return res; };
+    matrix.historyPage = async () => ({ messages: [{ key: 'H1', recipient: 'hist@one.example.com', sender: 'bad@out.example', result: 'BLOCK', arrival: new Date((nowS - 50) * 1000).toISOString(), status: 'NONE' }], next: null, signature: 'h' });
+    matrix.registry = async (_c, key) => provider.live.get(key) || { key, recipient: 'hist@one.example.com', sender: 'bad@out.example', from: '', replyto: '', result: 'BLOCK', arrival: new Date((nowS - 50) * 1000).toISOString(), status: 'NONE' };
+    controller.historyStore.reset();
+    let listed = await call(controller.historyList, 'review', { query: { domain: 'one.example.com', status: 'Todos' } }); assert.equal(listed.code, 200, JSON.stringify(listed.body));
+    const histRow = listed.body.rows[0];
+    let res = await call(controller.requestReview, 'review', { params: { id: histRow.id }, body: { domain: 'one.example.com' } }); assert.equal(res.code, 422, 'the confirmation checkbox is required');
+    res = await call(controller.requestReview, 'review', { params: { id: histRow.id }, body: { domain: 'one.example.com', confirm: true } }); assert.equal(res.code, 201, JSON.stringify(res.body));
+    assert.ok(mails.some((m) => m.to === 'admin@example.invalid' && /solicitação/i.test(m.subject)), 'the Super Admin is notified of a new request');
+    assert.ok(!mails.some((m) => /MATRIX_SECRET|provider_key/.test(m.text)), 'no secrets in mail');
+    res = await call(controller.requestReview, 'review', { params: { id: histRow.id }, body: { domain: 'one.example.com', confirm: true } }); assert.equal(res.code, 200, 'the second submit is idempotent'); assert.equal(mails.filter((m) => m.to === 'admin@example.invalid').length, 1, 'no second mail');
+    res = await call(controller.requestReview, 'bounce', { params: { id: histRow.id }, body: { domain: 'one.example.com', confirm: true } }); assert.equal(res.code, 201, 'a failing mail never blocks a request');
+    res = await call(controller.requestReview, 'outsider', { params: { id: histRow.id }, body: { domain: 'one.example.com', confirm: true } }); assert.equal(res.code, 403);
+    res = await call(controller.requestReview, 'review', { params: { id: 'nope' }, body: { domain: 'one.example.com', confirm: true } }); assert.equal(res.code, 404);
+
+    // admin keeps one, releases the other
+    const kept = await release.keep(actorOf('admin'), first.request.id, 0);
+    assert.equal(kept.status, 'kept'); assert.equal(Number(kept.revision), 1);
+    await assert.rejects(release.keep(actorOf('admin'), first.request.id, 1), { code: 'SPFBL_REQUEST_NOT_OPEN' });
+    assert.equal(provider.whites.length, 0, 'keeping never calls the provider');
+    const second = (await release.listRequests(actorOf('admin'))).find((r) => r.recipient === 'hist@one.example.com' && r.actor_name === 'review');
+    const detail = await release.requestDetail(actorOf('admin'), second.id);
+    assert.match(detail.confirmation, /^[a-f0-9]{64}$/);
+    const histFull = controller.historyStore.snapshot(integration).rows.find((r) => r.recipient === 'hist@one.example.com');
+    await assert.rejects(release.execute(actorOf('admin'), { row: histFull, domain: 'one.example.com', requestId: second.id, revision: 99, proof: detail.confirmation }, credentials, stub), { code: 'SPFBL_REVISION_CHANGED' });
+    await assert.rejects(release.execute(actorOf('admin'), { row: histFull, domain: 'one.example.com', requestId: second.id, revision: second.revision, proof: 'a'.repeat(64) }, credentials, stub), { code: 'SPFBL_CONFIRMATION_STALE' });
+    assert.equal(provider.whites.length, 0, 'stale confirmation or revision: nothing sent');
+    // the reason changed at the provider: refused, nothing sent, request marked failed (reopenable)
+    provider.live.set('H1', { ...provider.live.get('H1') || matrixRegistry('H1'), result: 'BANNED' });
+    function matrixRegistry(key) { return { key, recipient: 'hist@one.example.com', sender: 'bad@out.example', from: '', replyto: '', result: 'BLOCK', arrival: new Date(histFull.timestamp * 1000).toISOString(), status: 'NONE' }; }
+    await assert.rejects(release.execute(actorOf('admin'), { row: histFull, domain: 'one.example.com', requestId: second.id, revision: second.revision, proof: detail.confirmation }, credentials, stub), { code: 'SPFBL_REASON_CHANGED' });
+    assert.equal((await release.getRequest(second.id)).status, 'failed'); assert.equal(provider.whites.length, 0);
+    provider.live.set('H1', matrixRegistry('H1'));
+    const failedRow = (await release.listRequests(actorOf('admin'))).find((r) => r.id === second.id);
+    const detail2 = await release.requestDetail(actorOf('admin'), second.id);
+    const done = await release.execute(actorOf('admin'), { row: histFull, domain: 'one.example.com', requestId: second.id, revision: failedRow.revision, proof: detail2.confirmation }, credentials, stub);
+    assert.equal(done.request.status, 'unlocked'); assert.deepEqual(provider.whites, ['H1']);
+    assert.equal((await database.query("SELECT status FROM spfbl_operations WHERE record_id = $1", [histFull.id])).rows[0].status, 'done');
+    await assert.rejects(release.execute(actorOf('admin'), { row: histFull, domain: 'one.example.com', proof: await proofFor('admin', histFull) }, credentials, stub), { code: 'SPFBL_ALREADY_DONE' });
+    assert.equal(provider.whites.length, 1, 'a finished unlock is never sent twice');
+    assert.equal((await release.latestUnlocks(['one.example.com'])).length, 1); assert.equal((await release.latestUnlocks(['two.example.com'])).length, 0);
+
+    // status lookup re-opens a completed unlock that the provider reports as BLOCKED again; then a new request is possible
+    provider.live.set('H1', { ...matrixRegistry('H1'), status: 'BLOCKED' });
+    assert.equal((await release.checkCurrent(actorOf('admin'), histFull, 'one.example.com', credentials, stub)).provider_status, 'BLOCKED');
+    assert.equal((await release.getRequest(second.id)).status, 'reopened');
+    assert.equal((await database.query('SELECT status FROM spfbl_operations WHERE record_id = $1', [histFull.id])).rows[0].status, 'blocked');
+    provider.live.set('H1', { ...matrixRegistry('H1'), status: 'UNKNOWN' });
+    await assert.rejects(release.checkCurrent(actorOf('admin'), histFull, 'one.example.com', credentials, stub), { code: 'SPFBL_STATUS_UNKNOWN' });
+    const renewed = await release.requestReview(actorOf('review'), histFull, 'one.example.com', credentials);
+    assert.equal(renewed.created, true); assert.equal(renewed.request.status, 'pending'); assert.equal(renewed.request.id, second.id, 'the same request is re-opened');
+
+    // block again by the admin (decision "kept" or "unlocked" only)
+    const unlockedAgain = await (async () => { provider.live.set('H1', matrixRegistry('H1')); const d = await release.requestDetail(actorOf('admin'), second.id);
+      return release.execute(actorOf('admin'), { row: histFull, domain: 'one.example.com', requestId: second.id, revision: renewed.request.revision, proof: d.confirmation }, credentials, stub); })();
+    assert.equal(unlockedAgain.request.status, 'unlocked'); assert.equal(provider.whites.length, 2, 'a re-opened record can be unlocked once more');
+    provider.live.set('H1', { ...matrixRegistry('H1'), status: 'WHITELISTED' });
+    const blockDetail = await release.requestDetail(actorOf('admin'), second.id);
+    await assert.rejects(release.blockAgain(actorOf('admin'), second.id, { revision: 0, proof: blockDetail.confirmation }, credentials, stub), { code: 'SPFBL_REVISION_CHANGED' });
+    const blocked = await release.blockAgain(actorOf('admin'), second.id, { revision: blockDetail.request.revision, proof: blockDetail.confirmation }, credentials, stub);
+    assert.equal(blocked.status, 'reblocked'); assert.deepEqual(provider.blocks, ['H1']);
+
+    // ---- direct unlock: concurrent claims -> exactly one provider call ----
+    const c1 = rowOf('C1', 'race@one.example.com'); register(c1);
+    provider.whites.length = 0;
+    const attempts = await Promise.allSettled([...Array(6)].map((_, i) => release.execute(actorOf(i % 2 ? 'direct' : 'direct2', 'direct'), { row: c1, domain: 'one.example.com',
+      proof: release.confirmation(users[i % 2 ? 'direct' : 'direct2'], { ...c1, operation_revision: 0 }) }, credentials, stub)));
+    assert.equal(provider.whites.length, 1, 'six concurrent unlocks of one record reach the provider exactly once');
+    assert.equal(attempts.filter((a) => a.status === 'fulfilled').length, 1);
+    assert.ok(attempts.filter((a) => a.status === 'rejected').every((a) => ['SPFBL_OPERATION_CHANGED', 'SPFBL_OPERATION_UNCERTAIN', 'SPFBL_ALREADY_DONE', 'SPFBL_ALREADY_HANDLED'].includes(a.reason.code)), attempts.map((a) => a.reason?.code).join());
+    assert.equal((await database.query('SELECT count(*)::int AS n FROM spfbl_operations WHERE record_id = $1', [c1.id])).rows[0].n, 1);
+
+    // ---- uncertainty: provider failure is recorded, never retried, and blocks until a person checks ----
+    const u1 = rowOf('U1', 'unsure@one.example.com'); register(u1);
+    provider.whites.length = 0; provider.failWhite = true;
+    await assert.rejects(release.execute(actorOf('direct', 'direct'), { row: u1, domain: 'one.example.com', proof: release.confirmation(users.direct, { ...u1, operation_revision: 0 }) }, credentials, stub), { code: 'SPFBL_UNCERTAIN' });
+    provider.failWhite = false;
+    assert.equal((await database.query('SELECT status FROM spfbl_operations WHERE record_id = $1', [u1.id])).rows[0].status, 'uncertain');
+    assert.equal((await database.query('SELECT status FROM spfbl_requests WHERE record_id = $1', [u1.id])).rows[0].status, 'uncertain');
+    await assert.rejects(release.execute(actorOf('direct', 'direct'), { row: u1, domain: 'one.example.com', proof: release.confirmation(users.direct, { ...u1, operation_revision: 0 }) }, credentials, stub), { code: 'SPFBL_OPERATION_UNCERTAIN' });
+    assert.equal(provider.whites.length, 1, 'an uncertain attempt is not retried');
+    const state = await release.recordState(actorOf('direct', 'direct'), u1); assert.equal(state.can_unlock, false); assert.equal(state.operation.uncertain, true);
+    // a crash between intent and answer: leftover "processing" becomes "uncertain" after the stale window, never retried
+    const s1 = rowOf('S1', 'crash@one.example.com');
+    await database.query("INSERT INTO spfbl_operations(record_id,status,updated_at) VALUES ($1,'processing', now() - interval '11 minutes')", [s1.id]);
+    await database.query("INSERT INTO spfbl_requests(record_id,actor_id,domain,recipient,sender,provider_key,integration_hash,reason,status) VALUES ($1,$2,'one.example.com',$3,'b','S1',$4,'BLOCK','processing')", [s1.id, users.direct, s1.recipient, integration]);
+    await release.reconcileStale();
+    assert.equal((await database.query('SELECT status FROM spfbl_operations WHERE record_id = $1', [s1.id])).rows[0].status, 'uncertain');
+    assert.equal((await database.query('SELECT status FROM spfbl_requests WHERE record_id = $1', [s1.id])).rows[0].status, 'uncertain');
+    await database.query("INSERT INTO spfbl_operations(record_id,status) VALUES ($1,'processing') ON CONFLICT DO NOTHING", ['f'.repeat(64)]); await release.reconcileStale();
+    assert.equal((await database.query("SELECT status FROM spfbl_operations WHERE record_id = $1", ['f'.repeat(64)])).rows[0].status, 'processing', 'a fresh intent is left alone');
+
+    // ---- another Matrix account cannot be released with this request ----
+    const foreign = await database.query("INSERT INTO spfbl_requests(record_id,actor_id,domain,recipient,sender,provider_key,integration_hash,reason) VALUES ($1,$2,'one.example.com','f@one.example.com','b','FK',$3,'BLOCK') RETURNING id", ['e'.repeat(64), users.review, 'd'.repeat(64)]);
+    await assert.rejects(release.execute(actorOf('admin'), { row: { id: 'e'.repeat(64), provider_key: 'FK', recipient: 'f@one.example.com', sender: 'b', result: 'BLOCK' }, domain: 'one.example.com', requestId: foreign.rows[0].id, revision: 0,
+      proof: release.confirmation(users.admin, { id: 'e'.repeat(64), provider_key: 'FK', recipient: 'f@one.example.com', sender: 'b', result: 'BLOCK', operation_revision: 0 }) }, credentials, stub), { code: 'SPFBL_INTEGRATION_CHANGED' });
+
+    // ---- decisions survive user deletion ----
+    await database.query('DELETE FROM users WHERE id = $1', [users.bounce]);
+    const survivor = (await database.query("SELECT actor_id FROM spfbl_requests WHERE recipient = 'hist@one.example.com' AND actor_id IS NULL")).rows;
+    assert.ok(survivor.length >= 1, 'a request outlives its author (actor_id becomes NULL)');
+    assert.ok((await database.query("SELECT count(*)::int AS n FROM spfbl_requests WHERE status = 'unlocked' OR status = 'reblocked' OR status = 'kept'")).rows[0].n >= 2);
+
+    // ---- listing and filters ----
+    await assert.rejects(release.listRequests(actorOf('admin'), { status: 'bogus' }), { code: 'SPFBL_FILTER_INVALID' });
+    assert.ok((await release.listRequests(actorOf('admin'), { status: 'kept' })).every((r) => r.status === 'kept'));
+    console.log('PASS spfbl release (native PostgreSQL): review/keep/release/re-block, proof bound to the record state, one provider call under concurrency, uncertainty and stale intent never retried, survives user deletion.');
+  } finally {
+    try { await database?.pool.end(); } catch { /* ignore */ }
+    spawnSync(path.join(bin, 'pg_ctl'), ['-D', data, '-m', 'immediate', 'stop'], { ...asServer });
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+main().then(() => process.exit(0), (error) => { console.error(error); process.exit(1); });
