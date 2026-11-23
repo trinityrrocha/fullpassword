@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import SpfblStatusBar from './SpfblStatusBar';
 import { getDashboard, refreshHistory } from '../../services/spfblService';
-import { COVERAGE_NOTE, describeError, formatDay, formatNumber } from '../../utils/spfbl';
+import { describeError, formatDay, formatIsoDateTime, formatNumber } from '../../utils/spfbl';
 
 const POLL_MS = 3000;
 const CATEGORY_LABELS = [['banimento', 'Banimento'], ['segurança', 'Segurança'], ['inexistência', 'Inexistência']];
@@ -90,6 +90,14 @@ export default function SpfblDashboard() {
         <Ranking title="Top 10 domínios" subtitle="Domínios dos destinatários · mais bloqueios" items={data.domains} />
       </div>
       <Ranking title="Top 10 destinatários" subtitle="Endereços com mais tentativas bloqueadas" items={data.recipients} />
+      <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm" aria-label="Últimos 10 desbloqueios">
+        <h3 className="text-lg font-semibold text-slate-900">Últimos 10 desbloqueios</h3>
+        <p className="mt-1 text-sm text-slate-600">Liberações confirmadas registradas pelo portal, dentro da retenção local. Uma liberação anterior pode ter sido seguida por novo bloqueio.</p>
+        {data.latest_unlocks.length === 0 ? <p className="mt-3 text-sm text-slate-600">Nenhum desbloqueio registrado.</p> : (
+          <div className="mt-3 overflow-x-auto"><table className="min-w-full text-left text-sm"><thead className="bg-slate-50 text-xs uppercase text-slate-600"><tr>{['Data', 'Domínio', 'Destinatário', 'Remetente'].map((h) => <th key={h} scope="col" className="px-3 py-2 font-semibold">{h}</th>)}</tr></thead>
+            <tbody className="divide-y divide-slate-200">{data.latest_unlocks.map((u, index) => <tr key={`${u.created_at}-${index}`}><td className="whitespace-nowrap px-3 py-2">{formatIsoDateTime(u.created_at)}</td><td className="break-all px-3 py-2">{u.domain}</td><td className="break-all px-3 py-2">{u.recipient}</td><td className="break-all px-3 py-2">{u.sender || '—'}</td></tr>)}</tbody></table></div>
+        )}
+      </section>
     </div>
   );
 }

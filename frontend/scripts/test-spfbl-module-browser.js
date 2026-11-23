@@ -149,7 +149,7 @@ try {
     if (api === '/spfbl/dashboard') {
       state.dashboardCalls = (state.dashboardCalls || 0) + 1;
       return json({ categories: { banimento: 37, 'segurança': 24, 'inexistência': 33 }, domains: [{ name: 'manual.example.org', count: 94 }], recipients: [{ name: 'daniel@manual.example.org', count: 22 }, { name: 'ana@manual.example.org', count: 15 }],
-        total: 1044, blocked: 94, period: { start: '2026-11-17', end: '2026-11-23', timezone: 'America/Sao_Paulo' }, domains_scope: ['manual.example.org', 'two.example.org'],
+        total: 1044, blocked: 94, latest_unlocks: [{ created_at: '2026-09-30T21:02:17Z', domain: 'manual.example.org', recipient: 'daniel@manual.example.org', sender: 'cobranca@tufaonet.com.br' }], period: { start: '2026-11-17', end: '2026-11-23', timezone: 'America/Sao_Paulo' }, domains_scope: ['manual.example.org', 'two.example.org'],
         state: { loading: state.dashboardCalls < 2, pages: 1, partial: true, error: '', updated_at: '2026-11-23T23:15:31Z', rows: 1044 } });
     }
     if (api === '/spfbl/history' && method === 'GET') {
@@ -165,8 +165,33 @@ try {
     }
     if (api === '/spfbl/history/refresh') return json({ state: { loading: false, pages: 1, partial: false, error: '', updated_at: '2026-11-23T23:20:00Z', rows: 60 } });
     const recordMatch = /^\/spfbl\/records\/([0-9a-f]{64})(\/status)?$/.exec(api);
-    if (recordMatch && !recordMatch[2]) return json({ domain: 'manual.example.org', record: { id: recordMatch[1], timestamp: 1795476025, sender: 'mirandacredito@out.example', from: '', replyto: '', recipient: 'daniel@manual.example.org', status: 'Bloqueados', reason: 'Rejeitada por segurança', icon: 'security', result: 'BLOCK' } });
+    const stateOfRecord = () => ({ operation: { status: state.opStatus || null, uncertain: state.opStatus === 'uncertain', done: state.opStatus === 'done' }, request: state.myRequest || null,
+      can_request: state.role === 'user' && state.mode !== 'direct' && !state.myRequest && !state.opStatus, can_unlock: (state.role === 'super_admin' || state.mode === 'direct') && !state.opStatus, confirmation: 'a'.repeat(64) });
+    if (recordMatch && !recordMatch[2]) return json({ domain: 'manual.example.org', record: { id: recordMatch[1], timestamp: 1795476025, sender: 'mirandacredito@out.example', from: '', replyto: '', recipient: 'daniel@manual.example.org', status: 'Bloqueados', reason: 'Rejeitada por segurança', icon: 'security', result: 'BLOCK' }, ...stateOfRecord() });
     if (recordMatch && recordMatch[2]) { state.statusChecks = (state.statusChecks || 0) + 1; return state.statusChecks === 1 ? json({ code: 'SPFBL_STATUS_COOLDOWN', error: 'Aguarde alguns segundos antes de consultar de novo.' }, 429) : json({ provider_status: 'NONE', label: 'Sem regra no SPFBL', changed_reason: false }); }
+    const recordAction = /^\/spfbl\/records\/([0-9a-f]{64})\/(request|unlock)$/.exec(api);
+    if (recordAction && method === 'POST') {
+      if (body.confirm !== true) return json({ code: 'SPFBL_CONFIRM_REQUIRED', error: 'Confirme a solicitação antes de enviar.' }, 422);
+      if (recordAction[2] === 'request') { state.myRequest = { id: uid(700), status: 'pending', status_label: 'Aguardando revisão' }; state.requestCalls = (state.requestCalls || 0) + 1; return json({ request: state.myRequest }, 201); }
+      state.unlockBodies = [...(state.unlockBodies || []), body];
+      if (state.failUnlock) { state.opStatus = 'uncertain'; return json({ code: 'SPFBL_UNCERTAIN', error: 'O SPFBL não confirmou o resultado. A tentativa foi registrada e não será repetida automaticamente. Consulte o administrador.' }, 503); }
+      state.opStatus = 'done'; return json({ request: { id: uid(701), status: 'unlocked' } });
+    }
+    if (api === '/spfbl/requests' && method === 'GET') {
+      state.requestList = state.requestList || [{ id: uid(710), domain: 'manual.example.org', recipient: 'ana@manual.example.org', sender: 'spam@out.example', reason: 'Rejeitada por segurança', icon: 'security', status: 'pending', status_label: 'Aguardando revisão', source: 'review', revision: 0, result_info: '',
+        requested_at: '2026-11-23T20:00:00Z', reviewed_at: null, actor_name: 'Davi Granted', reviewer_name: null, can_keep: true, can_release: true, can_block: false }];
+      return json({ requests: state.requestList, is_admin: state.role === 'super_admin' });
+    }
+    const requestRoute = /^\/spfbl\/requests\/([0-9a-f-]+)(?:\/(keep|release|block))?$/.exec(api);
+    if (requestRoute && !requestRoute[2]) return json({ request: state.requestList.find((r) => r.id === requestRoute[1]), confirmation: 'b'.repeat(64), events: [{ action: 'kept', created_at: '2026-11-23T21:00:00Z', actor_name: 'Root Admin' }] });
+    if (requestRoute && requestRoute[2] && method === 'POST') {
+      state.decisions = [...(state.decisions || []), { action: requestRoute[2], body }];
+      const target = state.requestList.find((r) => r.id === requestRoute[1]);
+      if (state.failDecision) return json({ code: 'SPFBL_REVISION_CHANGED', error: 'Esta decisão mudou desde que a página foi aberta. Recarregue antes de continuar.' }, 409);
+      Object.assign(target, requestRoute[2] === 'keep' ? { status: 'kept', status_label: 'Bloqueio mantido', can_keep: false, can_release: false, can_block: true }
+        : requestRoute[2] === 'release' ? { status: 'unlocked', status_label: 'Desbloqueado pelo SPFBL', can_keep: false, can_release: false, can_block: true } : { status: 'reblocked', status_label: 'Bloqueado novamente pelo administrador', can_block: false }, { revision: target.revision + 1 });
+      return json({ request: target, notification: body.notify ? 'skipped' : 'none' });
+    }
     return json({ error: `Unexpected ${method} ${api}` }, 500);
   });
 
@@ -368,7 +393,7 @@ try {
 
   // ================= 8. Dashboard, history and record detail (Phase 2) =================
   await page.setViewportSize({ width: 1280, height: 900 });
-  state = newState(); state.enabled = true; state.role = 'user';
+  state = newState(); state.enabled = true; state.role = 'user'; state.mode = 'review';
   await open('page');
   await page.getByText('Carregando histórico em etapas').waitFor();
   await page.getByText('Cobertura parcial').waitFor({ timeout: 8000 });
@@ -413,6 +438,72 @@ try {
   await page.getByRole('button', { name: 'Dashboard' }).click(); await page.getByText('Top 10 destinatários').waitFor(); await noOverflow('dashboard 390px');
   await page.evaluate(() => document.documentElement.classList.add('dark')); await shot('dashboard-390-dark'); await page.evaluate(() => document.documentElement.classList.remove('dark'));
   await page.setViewportSize({ width: 1280, height: 900 });
+
+  // ================= 9. Requests and decisions (Phase 2B) =================
+  // 9a. A review-mode account: checkbox required, double submit sends once, then the request is shown instead of the form.
+  await page.getByRole('button', { name: 'Histórico' }).click();
+  await page.getByRole('button', { name: /Ver detalhes de u1@manual.example.org/ }).click();
+  await page.getByRole('heading', { name: 'Solicitar revisão do bloqueio' }).waitFor();
+  assert.equal(await page.getByRole('heading', { name: 'Desbloquear remetente' }).count(), 0, 'a review-mode account never sees the direct unlock');
+  await page.getByRole('button', { name: 'Registrar solicitação' }).click();
+  await page.getByRole('alert').filter({ hasText: 'Marque a confirmação' }).waitFor();
+  assert.equal(state.requestCalls || 0, 0, 'nothing is sent without the confirmation');
+  await page.getByLabel('Confirmo que desejo solicitar a revisão deste registro.').check();
+  await page.getByRole('button', { name: 'Registrar solicitação' }).dblclick();
+  await page.getByText('Solicitação registrada. O administrador foi avisado.').waitFor().catch(() => {});
+  await page.getByRole('heading', { name: 'Sua solicitação' }).waitFor();
+  assert.equal(state.requestCalls, 1, 'a double click sends one request');
+  await shot('record-requested-1280');
+  await page.getByRole('button', { name: '← Voltar ao histórico' }).click();
+  await page.getByRole('button', { name: 'Solicitações' }).click();
+  await page.getByRole('heading', { name: 'Minhas solicitações' }).waitFor();
+  assert.equal(await page.getByRole('button', { name: /Revisar/ }).count(), 0, 'an ordinary account cannot review');
+
+  // 9b. A direct-mode account: scope warning, confirmation required, proof from the server, uncertain result locks the record.
+  state = newState(); state.enabled = true; state.role = 'user'; state.mode = 'direct';
+  await open('page');
+  await page.getByRole('button', { name: 'Histórico' }).click();
+  await page.getByRole('button', { name: /Ver detalhes de u1@manual.example.org/ }).click();
+  await page.getByRole('heading', { name: 'Desbloquear remetente' }).waitFor();
+  await page.getByText(/pode afetar outros destinatários da mesma integração/).first().waitFor();
+  state.failUnlock = true;
+  await page.getByLabel('Entendo o alcance e confirmo o desbloqueio deste remetente.').check();
+  await page.getByRole('button', { name: 'Desbloquear', exact: true }).click();
+  await page.getByRole('heading', { name: 'Resultado não confirmado' }).waitFor();
+  assert.equal(state.unlockBodies.length, 1); assert.equal(state.unlockBodies[0].proof, 'a'.repeat(64), 'the server-issued proof travels with the action'); assert.equal(state.unlockBodies[0].confirm, true);
+  assert.equal(await page.getByRole('heading', { name: 'Desbloquear remetente' }).count(), 0, 'an uncertain record cannot be unlocked again from the screen');
+  await shot('record-uncertain-1280');
+  state.failUnlock = false; state.opStatus = null;
+  await page.getByRole('button', { name: 'Consultar status atual' }).click().catch(() => {});
+
+  // 9c. The Super Admin queue: review, keep, release, block again, stale decision refused with a clear message.
+  state = newState(); state.enabled = true; state.role = 'super_admin';
+  await open('page');
+  await page.getByRole('button', { name: 'Solicitações' }).click();
+  await page.getByRole('heading', { name: 'Solicitações de revisão' }).waitFor();
+  await page.getByRole('button', { name: /Revisar ana@manual.example.org/ }).click();
+  const panel = page.getByRole('region', { name: 'Revisão da solicitação' });
+  await panel.getByText('Davi Granted').waitFor();
+  await shot('requests-admin-1280');
+  await panel.getByRole('button', { name: 'Manter bloqueio' }).click();
+  await panel.getByText('Bloqueio mantido. Nada foi enviado ao SPFBL.').waitFor();
+  assert.deepEqual(state.decisions.map((d) => [d.action, d.body.revision, d.body.notify]), [['keep', 0, false]]);
+  await panel.getByRole('button', { name: 'Bloquear novamente' }).waitFor();
+  await panel.getByRole('button', { name: 'Bloquear novamente' }).click();
+  await panel.getByRole('alert').filter({ hasText: 'Marque a confirmação' }).waitFor();
+  assert.equal(state.decisions.length, 1, 'block-again needs its confirmation');
+  await panel.getByLabel(/Entendo o alcance/).check(); await panel.getByLabel(/Avisar o solicitante/).check();
+  state.failDecision = true;
+  await panel.getByRole('button', { name: 'Bloquear novamente' }).click();
+  await panel.getByRole('alert').filter({ hasText: 'Esta decisão mudou desde que a página foi aberta' }).waitFor();
+  state.failDecision = false;
+  await panel.getByRole('button', { name: 'Bloquear novamente' }).click();
+  await panel.getByText('Bloqueio enviado e confirmado pelo SPFBL.').waitFor();
+  const last = state.decisions.at(-1); assert.equal(last.action, 'block'); assert.equal(last.body.proof, 'b'.repeat(64)); assert.equal(last.body.notify, true);
+  await page.getByRole('combobox', { name: 'Situação' }).selectOption('pending');
+  await page.setViewportSize({ width: 390, height: 800 }); await noOverflow('requests admin 390px'); await page.setViewportSize({ width: 1280, height: 900 });
+  await page.getByRole('button', { name: 'Dashboard' }).click();
+  await page.getByText('Últimos 10 desbloqueios').waitFor(); await page.getByText('cobranca@tufaonet.com.br').waitFor();
 
   assert.deepEqual(pageErrors, [], 'no uncaught page errors');
   console.log(JSON.stringify({ spfblUi: 'PASS', moduleSwitch: 'keyboard + reauth bound to the action, pessimistic, menu refreshed', secrets: 'never prefilled, cleared after save, absent from DOM/storage', domains: '121 rows paginated 25/page, filter, manual add/remove', access: 'dialog focus/Escape/return, candidates scoped, reauth bound to target, revoke', responsive: [1280, 768, 390, 320], themes: ['light', 'dark'], grantedUser: 'own scope only' }));

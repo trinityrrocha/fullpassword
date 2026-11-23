@@ -6,6 +6,7 @@ import SpfblAccessPanel from '../components/spfbl/SpfblAccessPanel';
 import SpfblOwnScope from '../components/spfbl/SpfblOwnScope';
 import SpfblDashboard from '../components/spfbl/SpfblDashboard';
 import SpfblHistory from '../components/spfbl/SpfblHistory';
+import SpfblRequests from '../components/spfbl/SpfblRequests';
 import { getOverview, getSettings, listAccess, listDomains, listUsers } from '../services/spfblService';
 import { describeError } from '../utils/spfbl';
 
@@ -87,7 +88,7 @@ function AdminView({ overview, onOverviewChange }) {
   );
 }
 
-const TABS = { dashboard: 'Dashboard', history: 'Histórico', settings: 'Configuração', access: 'Meu acesso' };
+const TABS = { dashboard: 'Dashboard', history: 'Histórico', requests: 'Solicitações', settings: 'Configuração', access: 'Meu acesso' };
 
 export default function Spfbl() {
   const [overview, setOverview] = useState(null);
@@ -120,6 +121,7 @@ export default function Spfbl() {
       )}
       {overview && tab === 'dashboard' && <SpfblDashboard />}
       {overview && tab === 'history' && <SpfblHistory />}
+      {overview && tab === 'requests' && <SpfblRequests />}
       {overview?.role === 'super_admin' && tab === 'settings' && <AdminView overview={overview} onOverviewChange={setOverview} />}
       {overview?.role === 'user' && tab === 'access' && <SpfblOwnScope overview={overview} />}
     </div>

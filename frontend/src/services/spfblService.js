@@ -27,3 +27,12 @@ export const getHistory = async (params) => (await api.get('/spfbl/history', { p
 export const refreshHistory = async () => (await api.post('/spfbl/history/refresh', {})).data;
 export const getRecord = async (id, domain) => (await api.get(`/spfbl/records/${encodeURIComponent(id)}`, { params: { domain } })).data;
 export const checkRecordStatus = async (id, domain) => (await api.post(`/spfbl/records/${encodeURIComponent(id)}/status`, { domain })).data;
+
+// Requests and decisions. No reauthentication here: each action carries the server-issued proof for the record state.
+export const requestReview = async (id, domain) => (await api.post(`/spfbl/records/${encodeURIComponent(id)}/request`, { domain, confirm: true })).data.request;
+export const unlockRecord = async (id, domain, proof) => (await api.post(`/spfbl/records/${encodeURIComponent(id)}/unlock`, { domain, proof, confirm: true })).data.request;
+export const listRequests = async (status) => (await api.get('/spfbl/requests', { params: status ? { status } : {} })).data;
+export const getRequestDetail = async (id) => (await api.get(`/spfbl/requests/${encodeURIComponent(id)}`)).data;
+export const keepRequest = async (id, { revision, notify }) => (await api.post(`/spfbl/requests/${encodeURIComponent(id)}/keep`, { revision, notify })).data;
+export const releaseRequest = async (id, { revision, notify, proof }) => (await api.post(`/spfbl/requests/${encodeURIComponent(id)}/release`, { revision, notify, proof })).data;
+export const blockRequest = async (id, { revision, notify, proof }) => (await api.post(`/spfbl/requests/${encodeURIComponent(id)}/block`, { revision, notify, proof })).data;

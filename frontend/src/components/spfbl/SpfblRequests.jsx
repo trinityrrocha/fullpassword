@@ -1,0 +1,120 @@
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { blockRequest, getRequestDetail, keepRequest, listRequests, releaseRequest } from '../../services/spfblService';
+import { REQUEST_FILTERS, REQUEST_STATUS_TONE, describeError, formatIsoDateTime } from '../../utils/spfbl';
+
+const Badge = ({ request }) => <span className={`inline-block rounded border px-2 py-1 text-xs font-medium ${REQUEST_STATUS_TONE[request.status] || 'text-slate-800 border-slate-400'}`}>{request.status_label}</span>;
+
+// Admin decision panel for one request: keep the block, release it at the provider, or block again.
+function ReviewPanel({ id, onDone, onClose }) {
+  const [detail, setDetail] = useState(null);
+  const [error, setError] = useState('');
+  const [confirm, setConfirm] = useState(false);
+  const [notify, setNotify] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState('');
+  const lock = useRef(false);
+  const close = useRef(null);
+
+  const load = useCallback(async () => { try { setDetail(await getRequestDetail(id)); setError(''); } catch (failure) { setError(describeError(failure, 'Não foi possível abrir a solicitação.')); } }, [id]);
+  useEffect(() => { load(); }, [load]);
+  useEffect(() => { close.current?.focus(); }, []);
+
+  const act = async (action, needsConfirm, success) => {
+    if (lock.current) return;
+    if (needsConfirm && !confirm) { setError('Marque a confirmação para continuar.'); return; }
+    lock.current = true; setBusy(true); setError(''); setDone('');
+    try {
+      await action({ revision: detail.request.revision, notify, proof: detail.confirmation });
+      setDone(success); setConfirm(false); await load(); await onDone();
+    } catch (failure) { await load(); setError(describeError(failure, 'Não foi possível concluir. Recarregue a solicitação.')); } finally { lock.current = false; setBusy(false); }
+  };
+
+  const request = detail?.request;
+  return (
+    <section className="space-y-3 rounded-lg border border-slate-300 bg-white p-4 shadow-sm" aria-label="Revisão da solicitação">
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="text-lg font-semibold text-slate-900">Revisão da solicitação</h3>
+        <button ref={close} type="button" onClick={onClose} className="text-sm text-blue-800 underline">Fechar</button>
+      </div>
+      {error && <p role="alert" className="text-sm text-red-800">{error}</p>}
+      {!detail && !error && <p role="status" className="text-sm text-slate-600">Carregando...</p>}
+      {request && (
+        <>
+          <dl className="grid gap-3 text-sm md:grid-cols-2">
+            <div><dt className="text-xs text-slate-600">Domínio</dt><dd className="break-all font-mono">{request.domain}</dd></div>
+            <div><dt className="text-xs text-slate-600">Solicitante</dt><dd>{request.actor_name || 'Conta removida'}</dd></div>
+            <div><dt className="text-xs text-slate-600">Destinatário</dt><dd className="break-all font-mono">{request.recipient}</dd></div>
+            <div><dt className="text-xs text-slate-600">Remetente</dt><dd className="break-all font-mono">{request.sender || 'Não informado'}</dd></div>
+            <div><dt className="text-xs text-slate-600">Motivo original</dt><dd>{request.reason}</dd></div>
+            <div><dt className="text-xs text-slate-600">Situação</dt><dd><Badge request={request} />{request.result_info ? <span className="ml-2 text-xs text-slate-600">{request.result_info}</span> : null}</dd></div>
+          </dl>
+          {(request.can_release || request.can_block) && (
+            <>
+              <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">Liberar ou bloquear é enviado ao SPFBL e pode afetar outros destinatários da mesma integração. Se o SPFBL não confirmar, a tentativa fica registrada e não é repetida automaticamente.</p>
+              <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={confirm} onChange={(event) => setConfirm(event.target.checked)} className="mt-1 h-4 w-4" /><span>Entendo o alcance e confirmo a decisão sobre o motivo mostrado acima.</span></label>
+              <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={notify} onChange={(event) => setNotify(event.target.checked)} className="mt-1 h-4 w-4" /><span>Avisar o solicitante por e-mail (se o SMTP estiver ativo).</span></label>
+            </>
+          )}
+          <div className="flex flex-wrap gap-2">
+            {request.can_keep && <button type="button" disabled={busy} onClick={() => act((i) => keepRequest(id, i), false, 'Bloqueio mantido. Nada foi enviado ao SPFBL.')} className="min-h-9 rounded-md border border-slate-300 bg-white px-4 text-sm font-medium text-slate-900 hover:bg-slate-50 disabled:opacity-60">Manter bloqueio</button>}
+            {request.can_release && <button type="button" disabled={busy} onClick={() => act((i) => releaseRequest(id, i), true, 'Liberação confirmada pelo SPFBL.')} className="min-h-9 rounded-md bg-blue-800 px-4 text-sm font-semibold text-white hover:bg-blue-900 disabled:opacity-60">Liberar no SPFBL</button>}
+            {request.can_block && <button type="button" disabled={busy} onClick={() => act((i) => blockRequest(id, i), true, 'Bloqueio enviado e confirmado pelo SPFBL.')} className="min-h-9 rounded-md border border-red-700 bg-white px-4 text-sm font-semibold text-red-800 hover:bg-red-50 disabled:opacity-60">Bloquear novamente</button>}
+          </div>
+          <div role="status" aria-live="polite">{done && <p className="text-sm font-medium text-emerald-800">{done}</p>}</div>
+          {detail.events.length > 0 && (
+            <div><h4 className="text-sm font-semibold text-slate-900">Eventos</h4>
+              <ul className="mt-1 divide-y divide-slate-200 border-t border-slate-200 text-sm">{detail.events.map((e, index) => <li key={`${e.created_at}-${index}`} className="py-1">{formatIsoDateTime(e.created_at)} · {{ unlocked: 'liberado', kept: 'mantido', reopened: 'bloqueado novamente (confirmado no fornecedor)', reblocked: 'bloqueado novamente' }[e.action] || e.action}{e.actor_name ? ` · ${e.actor_name}` : ''}</li>)}</ul>
+            </div>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
+export default function SpfblRequests() {
+  const [filter, setFilter] = useState('');
+  const [data, setData] = useState(null);
+  const [error, setError] = useState('');
+  const [open, setOpen] = useState(null);
+  const load = useCallback(async (status) => {
+    try { setData(await listRequests(status)); setError(''); } catch (failure) { setError(describeError(failure, 'Não foi possível carregar as solicitações.')); }
+  }, []);
+  useEffect(() => { load(filter); }, [filter, load]);
+
+  if (error && !data) return <p role="alert" className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>;
+  if (!data) return <p role="status" className="text-sm text-slate-600">Carregando...</p>;
+  const admin = data.is_admin;
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <h2 className="text-lg font-semibold text-slate-900">{admin ? 'Solicitações de revisão' : 'Minhas solicitações'}</h2>
+        <label className="text-sm font-medium text-slate-800">Situação
+          <select value={filter} onChange={(event) => setFilter(event.target.value)} className="ml-2 min-h-9 rounded-md border border-slate-300 bg-white px-3 text-sm">{REQUEST_FILTERS.map(([value, text]) => <option key={value} value={value}>{text}</option>)}</select>
+        </label>
+      </div>
+      {error && <p role="alert" className="text-sm text-red-800">{error}</p>}
+      {open && <ReviewPanel id={open} onDone={() => load(filter)} onClose={() => setOpen(null)} />}
+      <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white shadow-sm">
+        <table className="min-w-full text-left text-sm">
+          <caption className="sr-only">{admin ? 'Solicitações de revisão' : 'Minhas solicitações'}</caption>
+          <thead className="bg-slate-50 text-xs uppercase text-slate-600"><tr>{['Solicitada em', ...(admin ? ['Solicitante'] : []), 'Destinatário', 'Remetente', 'Motivo', 'Situação', ...(admin ? ['Ações'] : [])].map((h) => <th key={h} scope="col" className="px-3 py-3 font-semibold">{h}</th>)}</tr></thead>
+          <tbody className="divide-y divide-slate-200">
+            {data.requests.length === 0 && <tr><td colSpan={admin ? 7 : 5} className="px-3 py-6 text-center text-slate-600">Nenhuma solicitação.</td></tr>}
+            {data.requests.map((r) => (
+              <tr key={r.id}>
+                <td className="whitespace-nowrap px-3 py-3">{formatIsoDateTime(r.requested_at)}</td>
+                {admin && <td className="px-3 py-3">{r.actor_name || '—'}</td>}
+                <td className="break-all px-3 py-3">{r.recipient}</td>
+                <td className="break-all px-3 py-3">{r.sender || '—'}</td>
+                <td className="px-3 py-3">{r.reason}</td>
+                <td className="px-3 py-3"><Badge request={r} /></td>
+                {admin && <td className="px-3 py-3"><button type="button" onClick={() => setOpen(r.id)} className="text-blue-800 underline">Revisar<span className="sr-only"> {r.recipient}</span></button></td>}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}

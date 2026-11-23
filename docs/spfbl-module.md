@@ -1,9 +1,9 @@
-# Módulo SPFBL (Fase 1)
+# Módulo SPFBL
 
-Portal de consulta e gestão de bloqueios de e-mail do Matrix SPFBL, recriado dentro do FullPassword a partir de
-o portal SPFBL Ban original (PHP). Esta fase entrega o menu **Módulos**, a configuração, o catálogo de domínios
-(com importação do WHM) e os acessos por usuário. Histórico de bloqueios, pedido/revisão de desbloqueio e
-notificações ficam para a Fase 2.
+Portal de consulta e gestão de bloqueios de e-mail do Matrix SPFBL, recriado dentro do FullPassword a partir do
+portal SPFBL Ban original (PHP). Fase 1: menu **Módulos**, configuração, catálogo de domínios (importação do WHM) e
+acessos por usuário. Fase 2: **Dashboard**, **Histórico**, detalhes do registro, consulta de status atual, **solicitação de
+revisão**, **desbloqueio direto**, fila do administrador, novo bloqueio e **notificações por e-mail**.
 
 ## Uso
 
@@ -18,6 +18,38 @@ notificações ficam para a Fase 2.
 5. **Acessos de usuários**: contas do FullPassword com 1 a 100 domínios e o modo de tratamento dos bloqueios (revisão
    pelo administrador ou desbloqueio direto). Não existe uma segunda senha: valem o login, o MFA e a auditoria do
    FullPassword. O acesso é avaliado a cada requisição.
+
+## Fase 2: histórico, solicitações e desbloqueio
+
+**Telas** (abas da página SPFBL): *Dashboard* (período de 7 dias em America/Sao_Paulo: tentativas, bloqueios por motivo, top 10 domínios e
+destinatários, últimos 10 desbloqueios), *Histórico* (filtros por domínio autorizado, remetente/destinatário, situação, período de até
+31 dias; 25 por página; detalhes do registro), *Solicitações* (a conta vê as suas; o Super Admin vê a fila e decide).
+
+**Histórico em memória.** O Matrix devolve o histórico da conta inteira. O servidor o carrega em etapas (1ª página + até 10; no
+máximo 20 000 registros; validade de 10 minutos) **só em memória**, nunca em disco, e **filtra sempre pelos domínios atuais do
+solicitante** (correspondência exata do destinatário; revogar o acesso ou desativar o domínio vale na próxima requisição). A chave do
+fornecedor nunca vai ao navegador. Quando a cobertura é incerta a tela diz "Cobertura parcial".
+
+**Modos de tratamento (por usuário):**
+- *Revisão*: o usuário registra a solicitação (com confirmação) e o Super Admin decide: **Manter bloqueio** (nada vai ao SPFBL),
+  **Liberar no SPFBL** ou, depois, **Bloquear novamente**.
+- *Desbloqueio direto*: o usuário (e o Super Admin) libera o remetente na hora, com confirmação.
+- O alcance é avisado nas telas: a operação `white` do fornecedor **pode afetar outros destinatários da mesma integração**.
+
+**Garantias.** Uma operação por registro, reservada com trava de linha no PostgreSQL; a intenção ("processando") é gravada
+**antes** da chamada ao SPFBL; qualquer dúvida depois da chamada (erro, tempo, resposta que não é exatamente `DONE`) vira **resultado
+não confirmado** e **nunca é repetida automaticamente**; uma intenção "processando" esquecida por mais de 10 minutos (queda no meio)
+também vira "não confirmado". "Consultar status atual" (somente leitura) reabre uma liberação que o fornecedor reporta como
+BLOCKED de novo. Cada ação leva uma **prova emitida pelo servidor**, presa à conta e ao estado do registro (motivo, revisão da
+operação): se o registro mudou, a confirmação falha e a tela pede para reabrir. Não há reautenticação por ação (o limite de 5
+por 15 minutos a tornaria inviável); vale CSRF + limite próprio (60 ações por 15 min) + auditoria.
+
+**Notificações.** E-mail pelo SMTP do FullPassword, **melhor esforço**: aos Super Admins quando chega uma solicitação nova; ao
+solicitante quando o administrador marca "Avisar o solicitante". Falha de e-mail (ou SMTP desligado) nunca bloqueia nem desfaz a
+decisão e fica na auditoria. Sem fila persistente nesta versão.
+
+**Dados.** `spfbl_requests`, `spfbl_operations` e `spfbl_release_events` (migração 29), nos backups como tabelas opcionais; as
+decisões sobrevivem à exclusão do usuário (`actor_id` fica nulo).
 
 ## Token do WHM
 
@@ -62,4 +94,8 @@ conexão, concessão a vários usuários numa só reautenticação, ou dispensar
 
 Testado: lógica, PostgreSQL real (inclusive papel de runtime restrito e restauração de backup), transportes https contra
 servidores TLS locais, interface em navegador (teclado, foco, claro/escuro, 320 a 1280 px). **Não** foi executado contra um
-Matrix SPFBL nem contra um WHM reais: ambos foram simulados a partir da documentação e do projeto PHP.
+Matrix SPFBL nem contra um WHM reais: ambos foram simulados a partir da documentação e do projeto PHP. Em especial, **o formato real
+de `arrival`, `status` e das respostas de `registry`/`white`/`block` do Matrix não foi confirmado** (o histórico aceita ISO 8601 e RFC 2822
+com fuso; registros fora disso são ignorados e a cobertura vira parcial). Antes de liberar para usuários, faça um desbloqueio de teste com um
+registro real e confira no painel do SPFBL. A concorrência (várias liberações simultâneas do mesmo registro chegam ao fornecedor uma
+única vez) foi provada em PostgreSQL nativo com o fornecedor simulado.
