@@ -122,9 +122,12 @@ const requestReview = async (actor, row, domain, credentials) => {
       }
       return { request: existing, created: false };
     }
-    const inserted = (await client.query(`INSERT INTO spfbl_requests (record_id, actor_id, domain, recipient, sender, provider_key, integration_hash, reason, source)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'review') RETURNING *`, [row.id, actor.user.id, domain, row.recipient, row.sender, row.provider_key, integrationHash(credentials.user), row.result])).rows[0];
-    return { request: inserted, created: true };
+    // Two concurrent submits of the same person: the unique (record, account) index decides; the loser reads the winner's row.
+    const insert = await client.query(`INSERT INTO spfbl_requests (record_id, actor_id, domain, recipient, sender, provider_key, integration_hash, reason, source)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'review') ON CONFLICT (record_id, actor_id) WHERE actor_id IS NOT NULL DO NOTHING RETURNING *`,
+    [row.id, actor.user.id, domain, row.recipient, row.sender, row.provider_key, integrationHash(credentials.user), row.result]);
+    if (insert.rows[0]) return { request: insert.rows[0], created: true };
+    return { request: (await client.query('SELECT * FROM spfbl_requests WHERE record_id = $1 AND actor_id = $2', [row.id, actor.user.id])).rows[0], created: false };
   });
 };
 
@@ -170,8 +173,13 @@ const execute = async (actor, { row, domain, requestId = null, revision, proof }
       if (!['pending', 'failed', 'reopened', 'reblocked'].includes(existing.status)) throw new ReleaseError('Este registro já tem uma decisão. Consulte o histórico de solicitações.', 'SPFBL_ALREADY_HANDLED', 409);
       return existing;
     }
-    return (await client.query(`INSERT INTO spfbl_requests (record_id, actor_id, domain, recipient, sender, provider_key, integration_hash, reason, source)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'direct') RETURNING *`, [row.id, actor.user.id, domain, row.recipient, row.sender, row.provider_key, integrationHash(credentials.user), row.result])).rows[0];
+    const insert = await client.query(`INSERT INTO spfbl_requests (record_id, actor_id, domain, recipient, sender, provider_key, integration_hash, reason, source)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'direct') ON CONFLICT (record_id, actor_id) WHERE actor_id IS NOT NULL DO NOTHING RETURNING *`,
+    [row.id, actor.user.id, domain, row.recipient, row.sender, row.provider_key, integrationHash(credentials.user), row.result]);
+    if (insert.rows[0]) return insert.rows[0];
+    const raced = (await client.query('SELECT * FROM spfbl_requests WHERE record_id = $1 AND actor_id = $2 FOR UPDATE', [row.id, actor.user.id])).rows[0];
+    if (!['pending', 'failed', 'reopened', 'reblocked'].includes(raced.status)) throw new ReleaseError('Este registro já tem uma decisão. Consulte o histórico de solicitações.', 'SPFBL_ALREADY_HANDLED', 409);
+    return raced;
   }));
 
   const failBeforeSend = async (message, code, status) => {
