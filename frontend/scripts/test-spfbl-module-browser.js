@@ -146,6 +146,27 @@ try {
       if (!reauthGate(route, body, `spfbl_access:${access[1]}`)) return;
       state.grants = state.grants.filter((g) => g.user_id !== access[1]); return json({ revoked: true });
     }
+    if (api === '/spfbl/dashboard') {
+      state.dashboardCalls = (state.dashboardCalls || 0) + 1;
+      return json({ categories: { banimento: 37, 'segurança': 24, 'inexistência': 33 }, domains: [{ name: 'manual.example.org', count: 94 }], recipients: [{ name: 'daniel@manual.example.org', count: 22 }, { name: 'ana@manual.example.org', count: 15 }],
+        total: 1044, blocked: 94, period: { start: '2026-11-17', end: '2026-11-23', timezone: 'America/Sao_Paulo' }, domains_scope: ['manual.example.org', 'two.example.org'],
+        state: { loading: state.dashboardCalls < 2, pages: 1, partial: true, error: '', updated_at: '2026-11-23T23:15:31Z', rows: 1044 } });
+    }
+    if (api === '/spfbl/history' && method === 'GET') {
+      const q = Object.fromEntries(url.searchParams);
+      state.historyQueries = [...(state.historyQueries || []), q];
+      if (q.start === 'garbage') return json({ code: 'SPFBL_FILTER_DATE', error: 'Informe uma data válida.' }, 422);
+      const all = Array.from({ length: 60 }, (_, i) => ({ id: String(i).padStart(64, '0'), timestamp: 1795476025 - i * 600, sender: `s${i}@out.example`, from: '', replyto: '', recipient: `u${i}@${q.domain || 'manual.example.org'}`,
+        status: i % 5 === 0 ? 'Livres' : 'Bloqueados', reason: i % 5 === 0 ? 'Aceita pelo filtro' : (i % 2 ? 'Rejeitada por segurança' : 'Rejeitada por inexistência'), icon: i % 5 === 0 ? '' : (i % 2 ? 'security' : 'inexistent'), result: i % 2 ? 'BLOCK' : 'INEXISTENT' }));
+      const wanted = all.filter((r) => (q.status || 'Bloqueados') === 'Todos' || r.status === (q.status || 'Bloqueados'));
+      const page = Math.max(1, Number(q.page) || 1);
+      return json({ domain: q.domain || 'manual.example.org', domains_scope: ['manual.example.org', 'two.example.org'], filters: { status: q.status || 'Bloqueados', by: q.by || 'sender', email: q.email || '', start: q.start || '2026-11-17', end: q.end || '2026-11-23' },
+        rows: wanted.slice((page - 1) * 25, page * 25), period_total: 60, filtered_total: wanted.length, page, pages: Math.ceil(wanted.length / 25), state: { loading: false, pages: 2, partial: true, error: '', updated_at: '2026-11-23T23:14:51Z', rows: 60 } });
+    }
+    if (api === '/spfbl/history/refresh') return json({ state: { loading: false, pages: 1, partial: false, error: '', updated_at: '2026-11-23T23:20:00Z', rows: 60 } });
+    const recordMatch = /^\/spfbl\/records\/([0-9a-f]{64})(\/status)?$/.exec(api);
+    if (recordMatch && !recordMatch[2]) return json({ domain: 'manual.example.org', record: { id: recordMatch[1], timestamp: 1795476025, sender: 'mirandacredito@out.example', from: '', replyto: '', recipient: 'daniel@manual.example.org', status: 'Bloqueados', reason: 'Rejeitada por segurança', icon: 'security', result: 'BLOCK' } });
+    if (recordMatch && recordMatch[2]) { state.statusChecks = (state.statusChecks || 0) + 1; return state.statusChecks === 1 ? json({ code: 'SPFBL_STATUS_COOLDOWN', error: 'Aguarde alguns segundos antes de consultar de novo.' }, 429) : json({ provider_status: 'NONE', label: 'Sem regra no SPFBL', changed_reason: false }); }
     return json({ error: `Unexpected ${method} ${api}` }, 500);
   });
 
@@ -196,6 +217,7 @@ try {
   state = newState(); state.enabled = true;
   await open('page');
   await page.getByRole('heading', { level: 1, name: 'SPFBL' }).waitFor();
+  await page.getByRole('button', { name: 'Configuração' }).click();
   await page.getByRole('heading', { name: 'Conexão Matrix SPFBL' }).waitFor();
   const summary = await page.locator('dl').innerText();
   assert.match(summary, /Matrix\s+Configurado/); assert.match(summary, /Domínios ativos\s+109 de 121/); assert.match(summary, /Usuários com acesso\s+1/);
@@ -335,13 +357,62 @@ try {
   state.ownScope = { role: 'user', unlock_mode: 'review', domains: [{ id: uid(900), name: 'manual.example.org', active: true }, { id: uid(901), name: 'inativo.example.org', active: false }] };
   state.calls.length = 0;
   await open('page');
+  await page.getByRole('button', { name: 'Meu acesso' }).click();
   await page.getByRole('heading', { name: 'Seus domínios' }).waitFor();
   await page.getByText('Solicitar revisão ao administrador').first().waitFor();
   assert.equal(await page.getByText('manual.example.org').count(), 1);
   assert.equal(await page.getByText('Conexão Matrix SPFBL').count(), 0); assert.equal(await page.getByText('Acessos de usuários').count(), 0);
-  assert.deepEqual([...new Set(state.calls.map((c) => c.api))], ['/spfbl/overview'], 'a granted account never even requests configuration, domains or grants');
+  assert.deepEqual([...new Set(state.calls.map((c) => c.api))].filter((api) => !['/spfbl/overview', '/spfbl/dashboard'].includes(api)), [], 'a granted account never even requests configuration, domains or grants');
   for (const dark of [false, true]) { await page.evaluate((value) => document.documentElement.classList.toggle('dark', value), dark); await shot(`page-user-${dark ? 'dark' : 'light'}`); }
   await page.setViewportSize({ width: 390, height: 800 }); await noOverflow('granted user 390px');
+
+  // ================= 8. Dashboard, history and record detail (Phase 2) =================
+  await page.setViewportSize({ width: 1280, height: 900 });
+  state = newState(); state.enabled = true; state.role = 'user';
+  await open('page');
+  await page.getByText('Carregando histórico em etapas').waitFor();
+  await page.getByText('Cobertura parcial').waitFor({ timeout: 8000 });
+  await page.getByText('1.044').waitFor(); await page.getByText('94').first().waitFor();
+  assert.equal(await page.getByRole('progressbar').count(), 3, 'one bar per reason');
+  await page.getByText('Top 10 destinatários').waitFor();
+  await shot('dashboard-1280');
+  await page.getByRole('button', { name: 'Histórico' }).click();
+  await page.getByRole('heading', { name: 'Registros do domínio' }).waitFor();
+  assert.deepEqual(await page.getByLabel('Domínio autorizado').locator('option').allInnerTexts(), ['manual.example.org', 'two.example.org']);
+  assert.equal(await page.locator('tbody tr').count(), 25, '25 rows per page');
+  assert.equal(await page.getByText(/48 registros\/tentativas com os filtros/).count(), 1);
+  await page.getByRole('button', { name: 'Próxima' }).click();
+  await page.getByText('Página 2 de 2').waitFor();
+  await page.getByLabel('Situação').selectOption('Todos');
+  await page.getByLabel('Até').fill('2026-11-22');
+  await page.getByRole('button', { name: 'Consultar' }).click();
+  await page.getByText(/60 registros\/tentativas com os filtros/).waitFor();
+  assert.equal(state.historyQueries.at(-1).status, 'Todos'); assert.equal(state.historyQueries.at(-1).end, '2026-11-22');
+  await page.getByLabel('De').fill('garbage').catch(() => {});
+  await page.getByLabel('E-mail completo').fill('mirandacredito@out.example');
+  await page.getByRole('button', { name: 'Limpar filtros' }).click();
+  await page.getByText(/48 registros\/tentativas com os filtros/).waitFor();
+  await shot('history-1280');
+  await page.getByRole('button', { name: /Ver detalhes de u1@manual.example.org/ }).click();
+  await page.getByRole('heading', { name: 'Detalhes do registro' }).waitFor();
+  assert.equal(await page.evaluate(() => document.activeElement?.textContent?.includes('Voltar ao histórico')), true, 'focus moves to the back control');
+  await page.getByText('Resultado original').waitFor();
+  await page.getByRole('button', { name: 'Consultar status atual' }).click();
+  await page.getByRole('alert').filter({ hasText: 'Aguarde alguns segundos' }).waitFor();
+  await page.getByRole('button', { name: 'Consultar status atual' }).click();
+  await page.getByText('Sem regra no SPFBL.').waitFor();
+  await shot('record-1280');
+  for (const width of [768, 390, 320]) {
+    await page.setViewportSize({ width, height: 800 });
+    await noOverflow(`record ${width}px`);
+  }
+  await page.setViewportSize({ width: 390, height: 800 });
+  await page.getByRole('button', { name: '← Voltar ao histórico' }).click();
+  await page.getByRole('heading', { name: 'Registros do domínio' }).waitFor();
+  await noOverflow('history 390px');
+  await page.getByRole('button', { name: 'Dashboard' }).click(); await page.getByText('Top 10 destinatários').waitFor(); await noOverflow('dashboard 390px');
+  await page.evaluate(() => document.documentElement.classList.add('dark')); await shot('dashboard-390-dark'); await page.evaluate(() => document.documentElement.classList.remove('dark'));
+  await page.setViewportSize({ width: 1280, height: 900 });
 
   assert.deepEqual(pageErrors, [], 'no uncaught page errors');
   console.log(JSON.stringify({ spfblUi: 'PASS', moduleSwitch: 'keyboard + reauth bound to the action, pessimistic, menu refreshed', secrets: 'never prefilled, cleared after save, absent from DOM/storage', domains: '121 rows paginated 25/page, filter, manual add/remove', access: 'dialog focus/Escape/return, candidates scoped, reauth bound to target, revoke', responsive: [1280, 768, 390, 320], themes: ['light', 'dark'], grantedUser: 'own scope only' }));

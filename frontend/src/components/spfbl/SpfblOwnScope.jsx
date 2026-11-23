@@ -15,7 +15,6 @@ export default function SpfblOwnScope({ overview }) {
         <p className="mt-1 text-sm text-slate-600">Modo de tratamento dos bloqueios: <strong>{MODE_LABELS[overview.unlock_mode]}</strong>.</p>
       </header>
       <div className="space-y-4 p-4">
-        <p className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">A consulta de bloqueios e o pedido de desbloqueio chegam na próxima etapa do módulo. Por enquanto você já vê os domínios que o administrador liberou.</p>
         {overview.domains.length === 0 ? (
           <p className="text-sm text-slate-600">Nenhum domínio liberado para você ainda. Fale com o administrador.</p>
         ) : (

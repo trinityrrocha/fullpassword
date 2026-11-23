@@ -6,6 +6,8 @@ const { MatrixError } = matrix;
 const { WhmError } = require('../services/spfblWhmClient');
 const domains = require('../services/spfblDomainsService');
 const access = require('../services/spfblAccessService');
+const history = require('../services/spfblHistoryService');
+const crypto = require('node:crypto');
 const { isSuperAdmin } = require('../config/security');
 const { canUserAccessModule } = require('../services/modulesService');
 const { safeLogError } = require('../utils/safeLogger');
@@ -14,7 +16,7 @@ const CONFIG_KEY_MESSAGE = 'A chave de criptografia das configurações não est
 
 // Authorization (Super Admin) and the module toggle are enforced by the router before these handlers run.
 const mapKnownError = (res, error) => {
-  if (error instanceof SpfblSettingsError || error instanceof MatrixError || error instanceof WhmError || error instanceof domains.DomainError || error instanceof access.AccessError) {
+  if (error instanceof SpfblSettingsError || error instanceof MatrixError || error instanceof WhmError || error instanceof domains.DomainError || error instanceof access.AccessError || error instanceof history.HistoryError) {
     return res.status(error.statusCode).json({ code: error.code, error: error.message });
   }
   if (error instanceof ConfigEncryptionError) return res.status(503).json({ code: error.code, error: CONFIG_KEY_MESSAGE });
@@ -201,7 +203,97 @@ const overview = async (req, res) => {
   });
 };
 
+// ---- history, dashboard, record detail (read only) ----------------------------------------------------------------
+const historyStore = history.createHistoryStore({ fetchPage: (cursor, credentials) => matrix.historyPage(credentials, cursor) });
+const integrationOf = (credentials) => crypto.createHash('sha256').update(credentials.user).digest('hex');
+
+// The caller's CURRENT domains (active only), resolved on every request: revoking access or deactivating a domain applies at once.
+const scopeDomains = async (user) => {
+  if (!(await canUserAccessModule('spfbl', user))) throw new access.AccessError('Você não tem acesso ao módulo SPFBL.', 'SPFBL_ACCESS_DENIED', 403);
+  if (isSuperAdmin(user)) return (await domains.listDomains()).filter((d) => d.active).map((d) => d.name);
+  const own = await access.getOwnAccess(user);
+  if (!own) throw new access.AccessError('Você não tem acesso ao módulo SPFBL.', 'SPFBL_ACCESS_DENIED', 403);
+  return own.domains.filter((d) => d.active).map((d) => d.name);
+};
+const requireDomain = (scope, value) => {
+  const domain = history.normalizeDomain(value);
+  if (!scope.includes(domain)) throw new access.AccessError('Domínio fora do seu acesso.', 'SPFBL_DOMAIN_FORBIDDEN', 403);
+  return domain;
+};
+const guarded = (action, handler) => async (req, res) => {
+  try { return await handler(req, res); } catch (error) {
+    const handled = mapKnownError(res, error);
+    if (handled) return handled;
+    safeLogError(`Falha em ${action} do SPFBL.`, error, { includeStack: false });
+    return res.status(500).json({ error: 'Não foi possível concluir a consulta do SPFBL.' });
+  }
+};
+const loadHistory = async (refresh) => {
+  const credentials = await getMatrixCredentials();
+  const integration = integrationOf(credentials);
+  const state = await historyStore.advance(integration, { refresh, context: credentials });
+  return { integration, state };
+};
+
+const dashboard = guarded('dashboard', async (req, res) => {
+  const scope = await scopeDomains(req.user);
+  const { state } = await loadHistory(false);
+  res.setHeader('Cache-Control', 'no-store');
+  return res.status(200).json({ ...history.buildOverview(state.rows, scope), domains_scope: scope, state: history.stateView(state) });
+});
+
+const historyList = guarded('histórico', async (req, res) => {
+  const scope = await scopeDomains(req.user);
+  const domain = requireDomain(scope, req.query.domain ?? scope[0]);
+  const filters = history.parseFilters(req.query);
+  const { state } = await loadHistory(false);
+  const selected = history.selectRows(state.rows, domain, filters, req.query.page);
+  res.setHeader('Cache-Control', 'no-store');
+  return res.status(200).json({ domain, domains_scope: scope, filters: { status: filters.status, by: filters.by, email: filters.email, start: filters.start, end: filters.end },
+    rows: selected.rows.map(history.publicRow), period_total: selected.period, filtered_total: selected.filtered, page: selected.page, pages: selected.pages,
+    state: history.stateView(state) });
+});
+
+const refreshHistory = guarded('atualização do histórico', async (req, res) => {
+  await scopeDomains(req.user);
+  const { state } = await loadHistory(true);
+  return res.status(200).json({ state: history.stateView(state) });
+});
+
+const RECORD_ID = /^[a-f0-9]{64}$/;
+const findRecord = async (req) => {
+  const scope = await scopeDomains(req.user);
+  const domain = requireDomain(scope, req.query.domain ?? req.body?.domain);
+  if (!RECORD_ID.test(req.params.id)) throw new history.HistoryError('Registro indisponível. Atualize a consulta.', 'SPFBL_RECORD_NOT_FOUND', 404);
+  const credentials = await getMatrixCredentials();
+  const row = historyStore.find(integrationOf(credentials), req.params.id, domain);
+  if (!row) throw new history.HistoryError('Registro indisponível. Atualize a consulta.', 'SPFBL_RECORD_NOT_FOUND', 404);
+  return { row, domain, credentials };
+};
+
+const recordDetail = guarded('detalhe do registro', async (req, res) => {
+  const { row, domain } = await findRecord(req);
+  res.setHeader('Cache-Control', 'no-store');
+  return res.status(200).json({ domain, record: history.publicRow(row) });
+});
+
+// Current provider status of one record: read-only, one at a time per account with a short cool-down.
+const STATUS_COOLDOWN_MS = 8000;
+const statusState = new Map();
+const resetStatusState = () => statusState.clear();
+const recordStatus = guarded('consulta de status', async (req, res) => {
+  const { row, credentials } = await findRecord(req);
+  const last = statusState.get(req.user.id) || 0;
+  if (Date.now() - last < STATUS_COOLDOWN_MS) return res.status(429).json({ code: 'SPFBL_STATUS_COOLDOWN', error: 'Aguarde alguns segundos antes de consultar de novo.' });
+  statusState.set(req.user.id, Date.now());
+  const live = history.normalizeRecord(await matrix.registry(credentials, row.provider_key), integrationOf(credentials));
+  if (!live || live.id !== row.id || live.recipient !== row.recipient) throw new history.HistoryError('O SPFBL retornou um registro diferente. Atualize a consulta.', 'SPFBL_RECORD_MISMATCH', 409);
+  const meaning = { WHITELISTED: 'Liberado no SPFBL', BLOCKED: 'Bloqueado no SPFBL', NONE: 'Sem regra no SPFBL', UNKNOWN: 'Situação não informada' };
+  return res.status(200).json({ provider_status: live.provider_status, label: meaning[live.provider_status], changed_reason: live.result !== row.result });
+});
+
 module.exports = {
+  dashboard, historyList, refreshHistory, recordDetail, recordStatus, resetStatusState, historyStore, STATUS_COOLDOWN_MS,
   getSettings: getSettingsHandler, saveSettings, testMatrix, resetTestState, TEST_COOLDOWN_MS,
   testWhm, syncDomains, listDomains, addDomain, removeDomain, resetWhmState, WHM_COOLDOWN_MS,
   listAccess, saveAccess, revokeAccess, overview

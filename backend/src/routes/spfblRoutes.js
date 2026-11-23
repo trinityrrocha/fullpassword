@@ -16,6 +16,13 @@ router.use(requireModuleEnabled('spfbl'));
 // Open to any account with a grant (checked in the handler, per request); everything below is Super Admin only.
 router.get('/overview', asyncRoute(controller.overview));
 
+// Read-only history views. Scope (current active domains of the caller) is resolved per request in the handlers.
+router.get('/dashboard', asyncRoute(controller.dashboard));
+router.get('/history', asyncRoute(controller.historyList));
+router.post('/history/refresh', asyncRoute(controller.refreshHistory));
+router.get('/records/:id', asyncRoute(controller.recordDetail));
+router.post('/records/:id/status', asyncRoute(controller.recordStatus));
+
 router.get('/settings', requireSuperAdmin, asyncRoute(controller.getSettings));
 router.put('/settings', requireSuperAdmin, guardFixed('spfbl_settings'), asyncRoute(controller.saveSettings));
 router.post('/matrix/test', requireSuperAdmin, spfblTestLimiter, asyncRoute(controller.testMatrix));

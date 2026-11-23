@@ -20,3 +20,10 @@ export const listAccess = async () => (await api.get('/spfbl/access')).data.acce
 export const saveAccess = async (userId, { unlock_mode, domain_ids }) => (await api.put(`/spfbl/access/${encodeURIComponent(userId)}`, { unlock_mode, domain_ids })).data.access;
 export const revokeAccess = async (userId) => (await api.delete(`/spfbl/access/${encodeURIComponent(userId)}`)).data;
 export const listUsers = async () => (await api.get('/users')).data || [];
+
+// History views (read only). Filters travel as query parameters; the server validates and scopes everything.
+export const getDashboard = async () => (await api.get('/spfbl/dashboard')).data;
+export const getHistory = async (params) => (await api.get('/spfbl/history', { params })).data;
+export const refreshHistory = async () => (await api.post('/spfbl/history/refresh', {})).data;
+export const getRecord = async (id, domain) => (await api.get(`/spfbl/records/${encodeURIComponent(id)}`, { params: { domain } })).data;
+export const checkRecordStatus = async (id, domain) => (await api.post(`/spfbl/records/${encodeURIComponent(id)}/status`, { domain })).data;

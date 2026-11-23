@@ -106,3 +106,15 @@ export const grantableUsers = (users, grants, editingId = null) => {
     .filter((user) => user.is_active === true && user.is_super_admin !== true && (!granted.has(user.id) || user.id === editingId))
     .sort((a, b) => String(a.name).localeCompare(String(b.name), 'pt-BR'));
 };
+
+// ---- history presentation (Phase 2) ----
+const TIMEZONE = 'America/Sao_Paulo';
+export const formatEpoch = (seconds) => new Intl.DateTimeFormat('pt-BR', { timeZone: TIMEZONE, day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' })
+  .format(new Date(seconds * 1000)).replace(',', '');
+export const formatIsoDateTime = (iso) => (iso ? formatEpoch(Math.floor(Date.parse(iso) / 1000)) : '');
+export const formatDay = (value) => (/^\d{4}-\d{2}-\d{2}$/.test(value || '') ? value.split('-').reverse().join('/') : '');
+export const formatNumber = (value) => new Intl.NumberFormat('pt-BR').format(Number(value) || 0);
+export const REASON_ICONS = { banned: '🚫', security: '💀', inexistent: '⚠️', '': '' };
+export const STATE_LABELS = (state) => (state?.loading ? 'Carregando histórico em etapas' : state?.partial ? 'Cobertura parcial' : 'Histórico carregado');
+export const COVERAGE_NOTE = 'Contagens parciais; a cobertura dos sete dias não está garantida.';
+export const DEFAULT_FILTERS = { status: 'Bloqueados', by: 'sender', email: '' };

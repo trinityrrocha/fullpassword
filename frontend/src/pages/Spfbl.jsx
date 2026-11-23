@@ -4,6 +4,8 @@ import SpfblSettingsPanel from '../components/spfbl/SpfblSettingsPanel';
 import SpfblDomainsPanel from '../components/spfbl/SpfblDomainsPanel';
 import SpfblAccessPanel from '../components/spfbl/SpfblAccessPanel';
 import SpfblOwnScope from '../components/spfbl/SpfblOwnScope';
+import SpfblDashboard from '../components/spfbl/SpfblDashboard';
+import SpfblHistory from '../components/spfbl/SpfblHistory';
 import { getOverview, getSettings, listAccess, listDomains, listUsers } from '../services/spfblService';
 import { describeError } from '../utils/spfbl';
 
@@ -85,9 +87,12 @@ function AdminView({ overview, onOverviewChange }) {
   );
 }
 
+const TABS = { dashboard: 'Dashboard', history: 'Histórico', settings: 'Configuração', access: 'Meu acesso' };
+
 export default function Spfbl() {
   const [overview, setOverview] = useState(null);
   const [error, setError] = useState('');
+  const [tab, setTab] = useState('dashboard');
 
   useEffect(() => {
     let active = true;
@@ -105,8 +110,18 @@ export default function Spfbl() {
       </header>
       {error && <p role="alert" className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>}
       {!overview && !error && <p role="status" className="text-sm text-slate-600">Carregando...</p>}
-      {overview?.role === 'super_admin' && <AdminView overview={overview} onOverviewChange={setOverview} />}
-      {overview?.role === 'user' && <SpfblOwnScope overview={overview} />}
+      {overview && (
+        <nav aria-label="Seções do SPFBL" className="flex flex-wrap gap-1 border-b border-slate-200">
+          {Object.keys(TABS).filter((key) => (overview.role === 'super_admin' ? key !== 'access' : key !== 'settings')).map((key) => (
+            <button key={key} type="button" onClick={() => setTab(key)} aria-current={tab === key ? 'page' : undefined}
+              className={`min-h-9 border-b-2 px-3 text-sm font-medium ${tab === key ? 'border-blue-800 text-blue-800' : 'border-transparent text-slate-700 hover:text-slate-900'}`}>{TABS[key]}</button>
+          ))}
+        </nav>
+      )}
+      {overview && tab === 'dashboard' && <SpfblDashboard />}
+      {overview && tab === 'history' && <SpfblHistory />}
+      {overview?.role === 'super_admin' && tab === 'settings' && <AdminView overview={overview} onOverviewChange={setOverview} />}
+      {overview?.role === 'user' && tab === 'access' && <SpfblOwnScope overview={overview} />}
     </div>
   );
 }
