@@ -2,7 +2,7 @@ const db = require('../config/database');
 const { encryptConfigSecret, decryptConfigSecret } = require('./configSecretCrypto');
 
 // Stored credentials are bound to their target inside the authenticated plaintext, so a ciphertext copied to
-// another row, host or user never decrypts into a usable secret (same idea as the target check of sti-spfbl-portal).
+// another row, host or user never decrypts into a usable secret (same idea as the target check of the original PHP SPFBL portal).
 const SECRET_VERSION = 1;
 const PURPOSES = Object.freeze({ matrix: 'spfbl.matrix.password', whm: 'spfbl.whm.token' });
 

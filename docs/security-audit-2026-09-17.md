@@ -19,7 +19,7 @@ Branch: `security/audit-remediation-2026-09-17`. Base desta continuação:
 
 **Implementação integrada e validação local não equivalem a implantação.**
 PR #3 permanece draft. Nenhum acesso autenticado, mudança de conta, cofre,
-segredo ou implantação foi realizado em pw.sti1.com.br. A senha fornecida não
+segredo ou implantação foi realizado em pw.example.com. A senha fornecida não
 foi copiada para ferramentas, arquivos ou evidências.
 
 ## Evidência e plano executado
@@ -152,7 +152,7 @@ Head da branch testada: `2d0172bc7499191a7120c60e9287eb634883a4da`.
 O workflow de pull_request constrói a revisão de merge sintética do GitHub;
 health identificou `12949789cbc61dfcc1b4b839fd8d3bfe27836150`, schema
 `vault-identity-v2`, Node v24.21.0 Linux x64 e Argon2 OK. Isso NÃO é uma release
-publicada, assinatura ou revisão implantada em pw.sti1.com.br.
+publicada, assinatura ou revisão implantada em pw.example.com.
 IDs de imagem locais ao runner:
 - backend: `sha256:8389f995d4b0e2e06ce0e5d2b2f95c4d62078597164eb296b97462d146d9cb6d`;
 - frontend: `sha256:ba990f31e678367372edf2748ef974360f95537d4f638da0164d00977db6c146`.

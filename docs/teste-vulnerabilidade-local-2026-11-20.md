@@ -78,7 +78,7 @@ Detalhados em `docs/revisao-2026-11-20.md`:
 
 | ID (revisão) | Sev. | Por que não foi reproduzido |
 |---|---|---|
-| R-01 (reset sem contador de MFA por conta) | média | Os usuários de teste não têm MFA, e o reset envia e-mail real para caixas `@sti1.com.br`. |
+| R-01 (reset sem contador de MFA por conta) | média | Os usuários de teste não têm MFA, e o reset envia e-mail real para caixas `@example.com`. |
 | R-02 (`can_delete` apaga o cofre inteiro) | média | Não havia usuário não-dono com `can_delete`. O teste não destrutivo é `DELETE` com `confirmation` inválida: se a permissão passar, o retorno é 400; se não, 403. |
 | R-04 (exportar e restaurar backup sem reauth) | média | Exige a conta Super Admin, vetada para testes. |
 | R-06 (credencial FTP/S3 reaproveitada com host novo) | baixa | Exige a conta Super Admin, vetada para testes. |
@@ -143,7 +143,7 @@ Detalhados em `docs/revisao-2026-11-20.md`:
 
 - **"Servidor nunca recebe texto claro"** (marcador `TESTE-FP-MARCADOR-7781`): o item não foi salvo pela janela monitorada. Não houve nenhum `POST .../records` no tráfego capturado. O marcador não apareceu em nada, mas isso **não prova** a propriedade. Repetir: salvar o item na janela A e procurar o marcador nas requisições.
 - **MFA** (bypass, replay, códigos de recuperação): as contas de teste não têm MFA, e habilitar exigiria um autenticador do responsável. Fica coberto por código e pelas suítes do projeto.
-- **Reset de senha:** dispara e-mail real para endereços `@sti1.com.br`, fora do "só dados fictícios".
+- **Reset de senha:** dispara e-mail real para endereços `@example.com`, fora do "só dados fictícios".
 - **Bloqueio e rate limit até o limite:** por decisão do responsável, não foi rodado, porque o IP é compartilhado com a sessão de admin. O bloqueio ocorreu de qualquer forma (incidente 1).
 - **Troca obrigatória de senha:** nenhuma conta de teste estava nesse estado.
 - **SSRF** (S3/B2/FTP/SMTP/Google Drive), **upload de backup** (zip slip) e **exportação**: todos exigem Super Admin, vetado para testes. Ficam cobertos pela revisão de código (R-04, R-06, validação de nomes no v2).

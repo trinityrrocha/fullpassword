@@ -2,7 +2,7 @@ const dns = require('node:dns').promises;
 const https = require('node:https');
 const ipaddr = require('ipaddr.js');
 
-// Read-only WHM API 1 client, ported from CpanelApi.php of sti-spfbl-portal and adapted to WHM (port 2087):
+// Read-only WHM API 1 client, ported from the CpanelApi.php of the original PHP SPFBL portal and adapted to WHM (port 2087):
 // - the hostname is resolved once; every address must be a public IPv4, and the connection goes to that exact
 //   address (no second lookup, so no DNS rebinding) while TLS is verified against the hostname;
 // - fixed port, no redirects, no proxy, bounded response and time, and only two allow-listed read functions;

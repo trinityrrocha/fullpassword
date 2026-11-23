@@ -1,7 +1,7 @@
 {
   "run": "https://github.com/trinityrrocha/fullpassword/actions/runs/37399889906",
   "job": 112064491733,
-  "scope": "Disposable GitHub-hosted Docker rehearsal; NOT pw.sti1.com.br; registry removed after test.",
+  "scope": "Disposable GitHub-hosted Docker rehearsal; NOT pw.example.com; registry removed after test.",
   "passed": true,
   "base": "d9a7a3786143379df43ff1910263894df33449bf",
   "bootstrap": "821efb2659974b9a96ab7947dc07f988038042a5",

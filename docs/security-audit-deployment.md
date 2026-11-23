@@ -16,7 +16,7 @@ Este roteiro não autoriza alterar produção. Nenhuma etapa remota foi executad
 
 ## Pré-condições obrigatórias
 
-1. O responsável confirmou em 2026-09-18 que pw.sti1.com.br é exclusivamente
+1. O responsável confirmou em 2026-09-18 que pw.example.com é exclusivamente
    de homologação e autorizou update web. Essa condição não precisa ser
    perguntada novamente. Ainda é necessário identificar host, SHA e digests
    efetivamente instalados; health com `unknown` não basta.

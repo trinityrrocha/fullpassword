@@ -1,7 +1,7 @@
 # Módulo SPFBL (Fase 1)
 
 Portal de consulta e gestão de bloqueios de e-mail do Matrix SPFBL, recriado dentro do FullPassword a partir de
-`trinityrrocha/sti-spfbl-portal` (PHP). Esta fase entrega o menu **Módulos**, a configuração, o catálogo de domínios
+o portal SPFBL Ban original (PHP). Esta fase entrega o menu **Módulos**, a configuração, o catálogo de domínios
 (com importação do WHM) e os acessos por usuário. Histórico de bloqueios, pedido/revisão de desbloqueio e
 notificações ficam para a Fase 2.
 

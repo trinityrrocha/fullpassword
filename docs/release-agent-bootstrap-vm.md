@@ -95,7 +95,7 @@ Manifesto:
 {
   "repository": "trinityrrocha/fullpassword",
   "revision": "SHA_COMPLETO_REVISADO",
-  "origin": "https://pw.sti1.com.br",
+  "origin": "https://pw.example.com",
   "backend": "ghcr.io/trinityrrocha/fullpassword-backend@sha256:DIGEST_REAL",
   "frontend": "ghcr.io/trinityrrocha/fullpassword-frontend@sha256:DIGEST_REAL"
 }
@@ -201,7 +201,7 @@ Política root /etc/fullpassword/release-policy.json:
 ```json
 {
   "environment": "test",
-  "origin": "https://pw.sti1.com.br",
+  "origin": "https://pw.example.com",
   "approvedRevision": "SHA_COMPLETO_REVISADO",
   "approvalId": "UUID_NOVO_DA_APROVACAO",
   "expiresAt": "VALIDADE_UTC_ATE_7_DIAS",

@@ -1,6 +1,6 @@
 const https = require('node:https');
 
-// Port of the Matrix adapter of sti-spfbl-portal (Matrix.php). Fixed host, TLS verified, no redirects, bounded
+// Port of the Matrix adapter of the original PHP SPFBL portal (Matrix.php). Fixed host, TLS verified, no redirects, bounded
 // response, and only fixed diagnostic tokens ever leave this module: the provider takes the credentials in the
 // query string, so the URL, the query and the response body must never reach logs, errors or the audit trail.
 const MATRIX_HOST = 'matrix.spfbl.net';
