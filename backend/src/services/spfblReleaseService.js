@@ -41,6 +41,13 @@ const checkConfirmation = (userId, row, proof) => {
   }
 };
 
+// The registry answer is the same record the history listed. If it omits the key we asked for, the asked key is the identity
+// (recipient and sender are still compared, so a different record is still refused).
+const normalizeLive = (live, key, integration) => {
+  const { normalizeRecord } = require('./spfblHistoryService');
+  return normalizeRecord({ ...live, key: live?.key ?? live?.timekey ?? key }, integration);
+};
+
 const integrationHash = (user) => crypto.createHash('sha256').update(user).digest('hex');
 
 const transaction = async (work) => {
@@ -188,8 +195,7 @@ const execute = async (actor, { row, domain, requestId = null, revision, proof }
   };
   let live;
   try { live = await matrix.registry(credentials, row.provider_key); } catch (error) { return failBeforeSend(error.message, error.code || 'SPFBL_MATRIX_FAILED', error.statusCode || 502); }
-  const { normalizeRecord } = require('./spfblHistoryService');
-  const liveRow = normalizeRecord(live, integrationHash(credentials.user));
+  const liveRow = normalizeLive(live, row.provider_key, integrationHash(credentials.user));
   if (!liveRow || liveRow.id !== row.id || liveRow.recipient !== row.recipient || liveRow.sender !== row.sender) return failBeforeSend('O SPFBL retornou um registro diferente. Atualize a consulta antes de liberar.', 'SPFBL_RECORD_MISMATCH', 409);
   if (liveRow.result !== row.result) return failBeforeSend('O motivo mudou. Atualize o Histórico deste domínio e reabra esta decisão para confirmar o novo motivo.', 'SPFBL_REASON_CHANGED', 409);
 
@@ -224,8 +230,7 @@ const execute = async (actor, { row, domain, requestId = null, revision, proof }
 // ---- current status lookup: a confirmed BLOCKED after a completed unlock re-opens it -------------------------------------
 const checkCurrent = async (actor, row, domain, credentials, matrix = matrixClient) => {
   assertRecord(actor, row, domain);
-  const { normalizeRecord } = require('./spfblHistoryService');
-  const live = normalizeRecord(await matrix.registry(credentials, row.provider_key), integrationHash(credentials.user));
+  const live = normalizeLive(await matrix.registry(credentials, row.provider_key), row.provider_key, integrationHash(credentials.user));
   if (!live || live.id !== row.id || live.recipient !== row.recipient) throw new ReleaseError('O SPFBL retornou um registro diferente. Atualize a consulta.', 'SPFBL_RECORD_MISMATCH', 409);
   if (live.provider_status === 'UNKNOWN') throw new ReleaseError('O SPFBL não informou a situação atual (status). O motivo original não comprova um novo bloqueio.', 'SPFBL_STATUS_UNKNOWN', 503);
   if (live.provider_status === 'BLOCKED') {
@@ -256,8 +261,7 @@ const blockAgain = async (actor, id, { revision, proof }, credentials, matrix = 
   checkConfirmation(actor.user.id, row, proof);
   const op = await readOperation(row.id);
   if (['processing', 'uncertain'].includes(op.status)) throw new ReleaseError('Existe uma tentativa sem resultado confirmado. Confira no fornecedor.', 'SPFBL_OPERATION_UNCERTAIN', 409);
-  const { normalizeRecord } = require('./spfblHistoryService');
-  const live = normalizeRecord(await matrix.registry(credentials, row.provider_key), integrationHash(credentials.user));
+  const live = normalizeLive(await matrix.registry(credentials, row.provider_key), row.provider_key, integrationHash(credentials.user));
   if (!live || live.id !== row.id || live.recipient !== row.recipient || live.sender !== row.sender) throw new ReleaseError('O SPFBL retornou um registro diferente. Nenhuma alteração foi enviada.', 'SPFBL_RECORD_MISMATCH', 409);
   if (live.provider_status === 'UNKNOWN') throw new ReleaseError('Situação atual não informada pelo SPFBL. Nenhum bloqueio enviado.', 'SPFBL_STATUS_UNKNOWN', 503);
   if (live.provider_status === 'BLOCKED') throw new ReleaseError('O SPFBL já informa BLOCKED. Use Consultar status atual para sincronizar a situação.', 'SPFBL_ALREADY_BLOCKED', 409);

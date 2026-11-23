@@ -100,6 +100,22 @@ async function run() {
   const failing = history.createHistoryStore({ now: () => clock, fetchPage: async () => { throw new Error('X'.repeat(500)); } });
   clock += 3000; state = await failing.advance(integration); assert.equal(state.done, true); assert.equal(state.partial, true); assert.ok(state.error.length <= 300);
 
+  // failure handling: only reviewed messages reach the client; a failed load is retried after a short window, not cached for 10 minutes
+  let attemptsMade = 0; let broken = true; clock += 100000;
+  const flaky = history.createHistoryStore({ now: () => clock, fetchPage: async () => { attemptsMade += 1; if (broken) { const e = new Error('Matrix recusou a autenticação.'); e.name = 'MatrixError'; throw e; } return { messages: [], next: null, signature: 'ok' }; } });
+  state = await flaky.advance(integration); assert.equal(state.error, 'Matrix recusou a autenticação.'); assert.equal(history.stateView(state).error, 'Matrix recusou a autenticação.');
+  clock += 3000; state = await flaky.advance(integration); assert.equal(attemptsMade, 1, 'no hammering of the provider right after a failure');
+  broken = false; clock += 16000; state = await flaky.advance(integration); assert.equal(state.error, ''); assert.equal(state.done, true, 'recovers by itself once the cause is fixed');
+  const leaky = history.createHistoryStore({ now: () => clock, fetchPage: async () => { throw new TypeError("Cannot read properties of undefined (reading 'secret')"); } });
+  clock += 20000; assert.equal((await leaky.advance(integration)).error, 'Falha ao consultar o histórico.', 'internal error text never reaches the client');
+  // an unlock resets the history but open record screens keep working from the retired rows
+  const kept = history.createHistoryStore({ now: () => clock, fetchPage: async () => ({ messages: [raw('KEEP', 'keep@one.example.com', 'BLOCK', 30)], next: null, signature: 'k' }) });
+  clock += 3000; state = await kept.advance(integration); const keepId = state.rows[0].id;
+  kept.reset({ keepRetired: true });
+  assert.equal(kept.snapshot(integration).rows.length, 0, 'the next list starts from a fresh load'); assert.equal(kept.find(integration, keepId, 'one.example.com').recipient, 'keep@one.example.com');
+  assert.equal(kept.find(integration, keepId, 'two.example.com'), null, 'a retired row is still scoped to its domain'); assert.equal(kept.find('another', keepId, 'one.example.com'), null);
+  kept.reset(); assert.equal(kept.find(integration, keepId, 'one.example.com'), null, 'a plain reset forgets everything');
+
   // ---- selection / overview ----
   const rows = [raw('1', 'a@one.example.com', 'BLOCK', 3600), raw('2', 'b@one.example.com', 'ACCEPT', 7200), raw('3', 'a@two.example.com', 'BANNED', 3600),
     raw('4', 'c@sub.one.example.com', 'BLOCK', 100), raw('5', 'a@one.example.com', 'BLOCK', 40 * 86400), raw('6', 'd@one.example.com', 'INEXISTENT', 600, { sender: 'Spam@X.example' })]

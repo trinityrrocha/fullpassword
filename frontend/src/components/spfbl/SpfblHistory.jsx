@@ -18,6 +18,7 @@ export default function SpfblHistory() {
   const [selected, setSelected] = useState(null);
   const timer = useRef(null);
   const request = useRef(0);
+  const hasData = useRef(false);
 
   const load = useCallback(async (params) => {
     const ticket = ++request.current;
@@ -25,13 +26,14 @@ export default function SpfblHistory() {
     try {
       const next = await getHistory(params);
       if (ticket !== request.current) return;
+      hasData.current = true;
       setData(next); setError(''); setFieldError('');
       setDraft((current) => current || { domain: next.domain, ...next.filters });
       if (next.state.loading) timer.current = setTimeout(() => load(params), POLL_MS);
     } catch (failure) {
       if (ticket !== request.current) return;
       const message = describeError(failure, 'Não foi possível carregar o histórico.');
-      if (failure?.response?.status === 422) setFieldError(message); else setError(message);
+      if (failure?.response?.status === 422 && hasData.current) setFieldError(message); else setError(message); // a rejected FIRST load must not leave the screen on "Carregando"
     }
   }, []);
   useEffect(() => { load({ ...applied, page }); return () => { clearTimeout(timer.current); request.current += 1; }; }, [applied, page, load]);

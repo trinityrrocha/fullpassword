@@ -30,6 +30,7 @@ const getSettingsHandler = async (_req, res) => res.status(200).json(await getSe
 const saveSettings = async (req, res) => {
   try {
     const { settings, matrix_password_changed: matrixChanged, whm_token_changed: whmChanged } = await updateSettings(req.body, req.user.id);
+    historyStore.reset(); // new credentials: never serve (or keep a cached failure of) the previous account's history
     await recordAuditEvent({
       user: req.user,
       action: 'spfbl_settings_updated',
@@ -237,8 +238,11 @@ const loadHistory = async (refresh) => {
   return { integration, state };
 };
 
+const emptyView = () => history.stateView({ ...history.emptyState(), done: true });
 const dashboard = guarded('dashboard', async (req, res) => {
   const scope = await scopeDomains(req.user);
+  // Nothing authorized yet (or no active domain): no provider call, a clear empty answer.
+  if (scope.length === 0) return res.status(200).json({ ...history.buildOverview([], []), latest_unlocks: [], domains_scope: [], state: emptyView() });
   const { state } = await loadHistory(false);
   res.setHeader('Cache-Control', 'no-store');
   return res.status(200).json({ ...history.buildOverview(state.rows, scope), latest_unlocks: await release.latestUnlocks(scope), domains_scope: scope, state: history.stateView(state) });
@@ -246,6 +250,10 @@ const dashboard = guarded('dashboard', async (req, res) => {
 
 const historyList = guarded('histórico', async (req, res) => {
   const scope = await scopeDomains(req.user);
+  if (scope.length === 0) {
+    const f = history.parseFilters({});
+    return res.status(200).json({ domain: null, domains_scope: [], filters: { status: f.status, by: f.by, email: '', start: f.start, end: f.end }, rows: [], period_total: 0, filtered_total: 0, page: 1, pages: 1, state: emptyView() });
+  }
   const domain = requireDomain(scope, req.query.domain ?? scope[0]);
   const filters = history.parseFilters(req.query);
   const { state } = await loadHistory(false);
@@ -324,7 +332,7 @@ const unlockRecord = guarded('desbloqueio', async (req, res) => {
   const { row, domain, credentials } = await findRecord(req);
   try {
     const result = await release.execute(await actorOf(req), { row, domain, proof: req.body?.proof }, credentials);
-    historyStore.reset(); // statuses changed at the provider: the next read starts from a fresh history
+    historyStore.reset({ keepRetired: true }); // statuses changed at the provider: the next list starts fresh, open record screens keep working
     await audit(req, 'spfbl_unlock_done', 'success', { domain, request_id: result.request.id, mode: 'direct' });
     return res.status(200).json({ request: release.publicRequest(result.request) });
   } catch (error) {
@@ -357,7 +365,7 @@ const decide = (action, run) => guarded(`decisão (${action})`, async (req, res)
   const actor = await actorOf(req);
   try {
     const request = await run(actor, req, input);
-    historyStore.reset();
+    historyStore.reset({ keepRetired: true });
     const mail = input.notify ? await notifications.notifyDecision(request, { keep: 'kept', release: 'unlocked', block: 'reblocked' }[action]) : 'none';
     await audit(req, `spfbl_request_${action}`, 'success', { request_id: request.id, domain: request.domain, notification: toAuditMessage(mail) });
     return res.status(200).json({ request: release.publicRequest(request, { admin: true }), notification: mail });

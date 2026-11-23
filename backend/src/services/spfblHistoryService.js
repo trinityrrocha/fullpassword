@@ -11,6 +11,8 @@ const MAX_ROWS = 20000;
 const TTL_MS = 10 * 60 * 1000;
 const MIN_ADVANCE_MS = 2000;
 const REFRESH_MIN_MS = 60 * 1000;
+const RETRY_AFTER_ERROR_MS = 15 * 1000;
+const SAFE_ERRORS = new Set(['MatrixError', 'HistoryError']);
 
 class HistoryError extends Error {
   constructor(message, code, statusCode = 422, field) {
@@ -186,6 +188,9 @@ const createHistoryStore = ({ fetchPage, now = Date.now } = {}) => {
   let state = emptyState();
   let integration = null;
   let pending = null;
+  // After a reset (an unlock changed provider statuses) the rows of the previous load stay readable for record lookups only,
+  // so a screen the person is on does not turn into "registro indisponível" the moment its action succeeds.
+  let retired = { rows: [], at: 0, integration: null };
   const fresh = (current) => (integration === current && state.started && now() - state.started <= TTL_MS ? state : emptyState());
 
   const advance = async (currentIntegration, { refresh = false, context } = {}) => {
@@ -193,6 +198,8 @@ const createHistoryStore = ({ fetchPage, now = Date.now } = {}) => {
     pending = (async () => {
       if (integration !== currentIntegration) { state = emptyState(); integration = currentIntegration; }
       state = fresh(currentIntegration);
+      // A failed load is not cached for the whole TTL: a corrected password or a recovered provider is picked up shortly.
+      if (state.error && now() - state.last >= RETRY_AFTER_ERROR_MS) state = emptyState();
       if (refresh && now() - state.started >= REFRESH_MIN_MS) state = emptyState();
       if (state.done || now() - state.last < MIN_ADVANCE_MS) return state;
       const next = { ...state, last: now() };
@@ -204,19 +211,28 @@ const createHistoryStore = ({ fetchPage, now = Date.now } = {}) => {
         state = merge(next, { rows, next: page.next, skipped, signature: page.signature });
         state.updated = now();
       } catch (error) {
-        state = { ...next, partial: true, done: true, error: error?.message ? String(error.message).slice(0, 300) : 'Falha ao consultar o histórico.' };
+        state = { ...next, partial: true, done: true, error: SAFE_ERRORS.has(error?.name) && error.message ? String(error.message).slice(0, 300) : 'Falha ao consultar o histórico.' };
       }
       return state;
     })().finally(() => { pending = null; });
     return pending;
   };
   const snapshot = (currentIntegration) => fresh(currentIntegration);
-  const reset = () => { state = emptyState(); integration = null; pending = null; };
-  const find = (currentIntegration, id, domain) => fresh(currentIntegration).rows.find((r) => r.id === id && belongs(r.recipient, domain)) || null;
+  const find = (currentIntegration, id, domain) => {
+    const match = (r) => r.id === id && belongs(r.recipient, domain);
+    const current = fresh(currentIntegration).rows.find(match);
+    if (current) return current;
+    return retired.integration === currentIntegration && now() - retired.at <= TTL_MS ? retired.rows.find(match) || null : null;
+  };
+  // Drops the loaded history so the next read starts over; keepRetired=true keeps the old rows for find() only.
+  const reset = ({ keepRetired = false } = {}) => {
+    retired = keepRetired && integration ? { rows: state.rows, at: now(), integration } : { rows: [], at: 0, integration: null };
+    state = emptyState(); integration = null; pending = null;
+  };
   return { advance, snapshot, find, reset };
 };
 
-const stateView = (state, now = Date.now()) => ({ loading: !state.done, pages: state.pages, partial: state.partial, error: state.error ? 'O histórico foi carregado parcialmente.' : '',
+const stateView = (state, now = Date.now()) => ({ loading: !state.done, pages: state.pages, partial: state.partial, error: state.error || '',
   updated_at: state.updated ? new Date(state.updated).toISOString() : null, rows: state.rows.length, now });
 
 module.exports = { HistoryError, TIMEZONE, PAGE_SIZE, classify, normalizeDomain, normalizeEmail, emailDomain, belongs, parseArrival, normalizeRecord,

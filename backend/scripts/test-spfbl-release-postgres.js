@@ -173,6 +173,38 @@ async function main() {
     const blocked = await release.blockAgain(actorOf('admin'), second.id, { revision: blockDetail.request.revision, proof: blockDetail.confirmation }, credentials, stub);
     assert.equal(blocked.status, 'reblocked'); assert.deepEqual(provider.blocks, ['H1']);
 
+    // ---- the screen survives its own success: after a direct unlock the record is still readable and shows "done" ----
+    matrix.unlock = stub.unlock; matrix.registry = async (_c, key) => provider.live.get(key) || matrixRegistryFallback(key);
+    function matrixRegistryFallback(key) { return { key, recipient: 'hist@one.example.com', sender: 'bad@out.example', result: 'BLOCK', arrival: new Date((nowS - 50) * 1000).toISOString(), status: 'NONE' }; }
+    matrix.historyPage = async () => ({ messages: [{ key: 'D1', recipient: 'direct@one.example.com', sender: 'bad@out.example', result: 'BLOCK', arrival: new Date((nowS - 40) * 1000).toISOString(), status: 'NONE' }], next: null, signature: 'd1' });
+    provider.live.set('D1', { key: 'D1', recipient: 'direct@one.example.com', sender: 'bad@out.example', from: '', replyto: '', result: 'BLOCK', arrival: new Date((nowS - 40) * 1000).toISOString(), status: 'NONE' });
+    controller.historyStore.reset();
+    const d1 = (await call(controller.historyList, 'direct', { query: { domain: 'one.example.com', status: 'Todos' } })).body.rows.find((r) => r.recipient === 'direct@one.example.com');
+    const before = await call(controller.recordDetail, 'direct', { params: { id: d1.id }, query: { domain: 'one.example.com' } });
+    assert.equal(before.code, 200); assert.equal(before.body.can_unlock, true);
+    provider.whites.length = 0;
+    const unlocked = await call(controller.unlockRecord, 'direct', { params: { id: d1.id }, body: { domain: 'one.example.com', confirm: true, proof: before.body.confirmation } });
+    assert.equal(unlocked.code, 200, JSON.stringify(unlocked.body)); assert.deepEqual(provider.whites, ['D1']);
+    const after = await call(controller.recordDetail, 'direct', { params: { id: d1.id }, query: { domain: 'one.example.com' } });
+    assert.equal(after.code, 200, 'the open record screen is still served after the cache reset'); assert.equal(after.body.operation.done, true); assert.equal(after.body.can_unlock, false);
+    assert.equal(controller.historyStore.snapshot(integration).rows.length, 0, 'but the next list reloads from the provider');
+
+    // ---- first run: nothing authorized, wrong credentials ----
+    await access.saveAccess(users.outsider, { unlock_mode: 'review', domain_ids: [dom.two] }, users.admin);
+    await database.query('UPDATE spfbl_domains SET active = FALSE WHERE id = $1', [dom.two]);
+    let calls = 0; const realPage = matrix.historyPage; matrix.historyPage = async (...a) => { calls += 1; return realPage(...a); };
+    const emptyDash = await call(controller.dashboard, 'outsider'); assert.equal(emptyDash.code, 200); assert.deepEqual(emptyDash.body.domains_scope, []); assert.equal(emptyDash.body.total, 0); assert.equal(calls, 0, 'no provider call without an authorized domain');
+    const emptyHist = await call(controller.historyList, 'outsider'); assert.equal(emptyHist.code, 200); assert.deepEqual(emptyHist.body.rows, []); assert.equal(emptyHist.body.domain, null);
+    await database.query('UPDATE spfbl_domains SET active = TRUE WHERE id = $1', [dom.two]);
+    const { MatrixError } = matrix;
+    matrix.historyPage = async () => { throw new MatrixError('O Matrix recusou a autenticação. Revise o usuário e a senha.', 'MATRIX_AUTH_REFUSED', 422); };
+    controller.historyStore.reset();
+    const failed = await call(controller.dashboard, 'admin'); assert.equal(failed.code, 200);
+    assert.equal(failed.body.state.error, 'O Matrix recusou a autenticação. Revise o usuário e a senha.', 'a Matrix failure is shown, not hidden as partial coverage');
+    matrix.historyPage = realPage;
+    await call(controller.saveSettings, 'admin', { body: { matrix_user: 'ops@example.com', matrix_password: 'MATRIX_SECRET_SENTINEL_2' } });
+    const recovered = await call(controller.dashboard, 'admin'); assert.equal(recovered.body.state.error, '', 'saving credentials clears the cached failure at once');
+
     // ---- direct unlock: concurrent claims -> exactly one provider call ----
     const c1 = rowOf('C1', 'race@one.example.com'); register(c1);
     provider.whites.length = 0;

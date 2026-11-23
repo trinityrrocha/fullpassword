@@ -85,7 +85,7 @@ const SPFBL_REQUEST_STATEMENTS = [
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
 )`,
   `CREATE TABLE IF NOT EXISTS spfbl_release_events (
-    id BIGSERIAL PRIMARY KEY,
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     request_id UUID REFERENCES spfbl_requests(id) ON DELETE CASCADE,
     actor_id UUID REFERENCES users(id) ON DELETE SET NULL,
     domain VARCHAR(253) NOT NULL,

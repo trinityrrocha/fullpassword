@@ -435,6 +435,16 @@ async function run() {
       await denies(directApi.put('/spfbl/settings',{matrix_user:'x'}),403,'SUPER_ADMIN_REQUIRED');
       await denies(directApi.put('/system/modules/spfbl',{enabled:false}),403,'SUPER_ADMIN_REQUIRED');
       await denies(ordinaryAdminApi.get('/spfbl/overview'),403,'SPFBL_ACCESS_DENIED');
+      // Phase 2 routes through the real router (nothing here reaches the provider: every request is refused before any Matrix call).
+      const zeroUuid='00000000-0000-4000-8000-000000000000';
+      await denies(ordinaryAdminApi.get('/spfbl/requests'),403,'SPFBL_ACCESS_DENIED');
+      await denies(ordinaryAdminApi.get('/spfbl/history?domain='+domainOne.name),403,'SPFBL_ACCESS_DENIED');
+      await denies(directApi.get('/spfbl/history?domain=other.example.com'),403,'SPFBL_DOMAIN_FORBIDDEN');
+      await denies(directApi.get('/spfbl/records/'+'a'.repeat(64)+'?domain='+domainOne.name),404,'SPFBL_RECORD_NOT_FOUND');
+      await denies(directApi.get('/spfbl/records/'+'a'.repeat(64)+'?domain=other.example.com'),403,'SPFBL_DOMAIN_FORBIDDEN');
+      await denies(directApi.get('/spfbl/requests/'+zeroUuid),403,'SUPER_ADMIN_REQUIRED');
+      for(const action of ['keep','release','block']) await denies(directApi.post('/spfbl/requests/'+zeroUuid+'/'+action,{revision:0}),403,'SUPER_ADMIN_REQUIRED');
+      assert.deepEqual((await directApi.get('/spfbl/requests')).data,{requests:[],is_admin:false});
       const adminView=(await sa2.api.get('/spfbl/overview')).data;
       assert.deepEqual([adminView.role,adminView.matrix_configured,adminView.whm_configured,adminView.domains,adminView.users_with_access],['super_admin',true,true,{total:2,active:2},1]);
       assert.equal(leaked(adminView),false);
@@ -455,6 +465,8 @@ async function run() {
       await denies(directApi.get('/spfbl/overview'),404,'MODULE_DISABLED');
       await denies(sa1.api.get('/spfbl/settings'),404,'MODULE_DISABLED');
       assert.deepEqual((await directApi.get('/system/modules/menu')).data,{modules:{spfbl:false}});
+      for(const url of ['/spfbl/dashboard','/spfbl/history','/spfbl/requests','/spfbl/records/'+'a'.repeat(64)]) await denies(directApi.get(url),404,'MODULE_DISABLED');
+      await denies(sa1.api.get('/spfbl/requests'),404,'MODULE_DISABLED');
       // Audit trail: what happened, never secrets.
       const audit=(await database.query("SELECT action,status,metadata FROM system_audit_events WHERE action LIKE 'spfbl_%' OR action='system_module_toggled' ORDER BY created_at,id")).rows;
       assert.ok(audit.some(e=>e.action==='system_module_toggled'&&e.status==='success'&&e.metadata.enabled===true));
