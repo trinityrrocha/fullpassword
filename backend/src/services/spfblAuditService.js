@@ -19,7 +19,10 @@ const ACTION_LABELS = {
   spfbl_request_release: 'Liberação (revisão)',
   spfbl_request_block: 'Novo bloqueio (revisão)',
   spfbl_history_collected: 'Histórico coletado',
-  spfbl_history_settings_updated: 'Retenção do histórico alterada'
+  spfbl_history_settings_updated: 'Retenção do histórico alterada',
+  spfbl_whm_server_added: 'Servidor WHM cadastrado',
+  spfbl_whm_server_updated: 'Servidor WHM alterado',
+  spfbl_whm_server_removed: 'Servidor WHM removido'
 };
 const STATUS_LABELS = { success: 'Sucesso', failed: 'Falha', denied: 'Negado', blocked: 'Bloqueado' };
 const PAGE_SIZES = Object.freeze([20, 40, 100]);
@@ -41,8 +44,10 @@ const safeMetadata = (metadata) => {
   if (['direct', 'review'].includes(m.mode)) out.mode = m.mode;
   if (['WHITELISTED', 'BLOCKED', 'NONE', 'UNKNOWN'].includes(m.provider_status)) out.provider_status = m.provider_status;
   if (['sent', 'smtp_skipped', 'none'].includes(m.notification)) out.notification = m.notification;
-  for (const key of ['pages', 'rows', 'retention_days', 'interval_hours', 'deleted']) if (Number.isInteger(m[key]) && m[key] >= 0 && m[key] < 1e7) out[key] = m[key];
+  for (const key of ['pages', 'rows', 'retention_days', 'interval_hours', 'deleted', 'domains_removed', 'domains_kept', 'ok', 'failed']) if (Number.isInteger(m[key]) && m[key] >= 0 && m[key] < 1e7) out[key] = m[key];
   if (typeof m.capped === 'boolean') out.capped = m.capped;
+  if (typeof m.remove_domains === 'boolean') out.remove_domains = m.remove_domains;
+  if (typeof m.server === 'string' && /^[^\u0000-\u001f<>]{1,80}$/.test(m.server)) out.server = m.server;
   if (typeof m.gap === 'boolean') out.gap = m.gap;
   if (['schedule', 'manual', 'query'].includes(m.run)) out.run = m.run;
   if (typeof m.diagnostic === 'string' && /^[A-Za-z0-9_= .]{1,120}$/.test(m.diagnostic)) out.diagnostic = m.diagnostic;

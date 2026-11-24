@@ -40,10 +40,13 @@ router.put('/history-settings', requireSuperAdmin, guardFixed('spfbl_settings'),
 router.post('/history/collect', requireSuperAdmin, spfblTestLimiter, asyncRoute(controller.collectNow));
 router.get('/audit', requireSuperAdmin, asyncRoute(controller.auditList));
 
-router.get('/settings', requireSuperAdmin, asyncRoute(controller.getSettings));
-router.put('/settings', requireSuperAdmin, guardFixed('spfbl_settings'), asyncRoute(controller.saveSettings));
-router.post('/matrix/test', requireSuperAdmin, spfblTestLimiter, asyncRoute(controller.testMatrix));
-router.post('/whm/test', requireSuperAdmin, spfblTestLimiter, asyncRoute(controller.testWhm));
+router.get('/whm-servers', requireSuperAdmin, asyncRoute(controller.listWhmServers));
+router.post('/whm-servers', requireSuperAdmin, guardFixed('spfbl_settings'), asyncRoute(controller.createWhmServer));
+router.put('/whm-servers/:id', requireSuperAdmin, uuidParam('id'), guardFixed('spfbl_settings'), asyncRoute(controller.updateWhmServer));
+router.delete('/whm-servers/:id', requireSuperAdmin, uuidParam('id'), guardFixed('spfbl_settings'), asyncRoute(controller.removeWhmServer));
+router.post('/whm-servers/:id/test', requireSuperAdmin, uuidParam('id'), spfblTestLimiter, asyncRoute(controller.testWhm));
+router.post('/whm-servers/:id/sync', requireSuperAdmin, uuidParam('id'), spfblTestLimiter, asyncRoute(controller.syncWhmServer));
+router.post('/whm-servers/:id/matrix/test', requireSuperAdmin, uuidParam('id'), spfblTestLimiter, asyncRoute(controller.testMatrix));
 
 router.get('/domains', requireSuperAdmin, asyncRoute(controller.listDomains));
 router.post('/domains', requireSuperAdmin, asyncRoute(controller.addDomain));

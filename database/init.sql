@@ -388,3 +388,25 @@ VALUES (
 UPDATE groups
 SET can_view = TRUE, can_edit = TRUE, can_add = TRUE, can_delete = TRUE
 WHERE name = 'Administradores';
+
+-- SPFBL: vários servidores WHM, cada um com a sua conexão Matrix (migration 33; a migração dos dados antigos roda na partida do backend).
+CREATE TABLE IF NOT EXISTS spfbl_whm_servers (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name VARCHAR(80) NOT NULL CHECK (length(btrim(name)) >= 1),
+    host VARCHAR(253) NOT NULL,
+    whm_user VARCHAR(32) NOT NULL,
+    encrypted_token TEXT NOT NULL,
+    matrix_user VARCHAR(254) NOT NULL DEFAULT '',
+    encrypted_matrix_password TEXT,
+    sync_at TIMESTAMP WITH TIME ZONE,
+    sync_status VARCHAR(48),
+    history_last_run_at TIMESTAMP WITH TIME ZONE,
+    created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE UNIQUE INDEX IF NOT EXISTS spfbl_whm_servers_name_idx ON spfbl_whm_servers (lower(name));
+CREATE UNIQUE INDEX IF NOT EXISTS spfbl_whm_servers_target_idx ON spfbl_whm_servers (host, whm_user);
+CREATE UNIQUE INDEX IF NOT EXISTS spfbl_whm_servers_matrix_idx ON spfbl_whm_servers (lower(matrix_user)) WHERE matrix_user <> '';
+ALTER TABLE spfbl_domains ADD COLUMN IF NOT EXISTS server_id UUID REFERENCES spfbl_whm_servers(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS spfbl_domains_server_idx ON spfbl_domains (server_id);

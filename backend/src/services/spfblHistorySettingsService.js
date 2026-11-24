@@ -11,17 +11,18 @@ class HistorySettingsError extends Error {
   constructor(message, code, statusCode = 422, extra = {}) { super(message); this.name = 'HistorySettingsError'; this.code = code; this.statusCode = statusCode; Object.assign(this, extra); }
 }
 
-const read = async (queryable = db) => (await queryable.query('SELECT history_retention_days, history_interval_hours, history_last_run_at FROM spfbl_settings WHERE id = 1')).rows[0]
-  || { history_retention_days: 30, history_interval_hours: 24, history_last_run_at: null };
+const read = async (queryable = db) => (await queryable.query('SELECT history_retention_days, history_interval_hours FROM spfbl_settings WHERE id = 1')).rows[0]
+  || { history_retention_days: 30, history_interval_hours: 24 };
 
-const get = async (integration, queryable = db) => {
+const get = async (queryable = db) => {
   const row = await read(queryable);
-  const stats = integration ? await repository.stats(integration, queryable) : { rows: 0, oldest_at: null, newest_at: null };
+  const stats = await repository.stats(null, queryable);
   return { retention_days: Number(row.history_retention_days), interval_hours: Number(row.history_interval_hours), retention_options: RETENTION_OPTIONS, interval_options: INTERVAL_OPTIONS,
-    timezone: TIMEZONE, last_run_at: row.history_last_run_at ? new Date(row.history_last_run_at).toISOString() : null, stored: stats };
+    timezone: TIMEZONE, servers: (await queryable.query("SELECT id, name, matrix_user <> '' AS matrix, history_last_run_at FROM spfbl_whm_servers ORDER BY lower(name)")).rows
+      .map((r) => ({ id: r.id, name: r.name, matrix: r.matrix, last_run_at: r.history_last_run_at ? new Date(r.history_last_run_at).toISOString() : null })), stored: stats };
 };
 
-const update = async (input, integration, queryable = db) => {
+const update = async (input, queryable = db) => {
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw new HistorySettingsError('Dados inválidos.', 'SPFBL_HISTORY_SETTINGS_INVALID');
   const current = await read(queryable);
   const retention = input.retention_days === undefined ? Number(current.history_retention_days) : input.retention_days;
@@ -38,7 +39,7 @@ const update = async (input, integration, queryable = db) => {
   }
   await queryable.query('UPDATE spfbl_settings SET history_retention_days = $1, history_interval_hours = $2, updated_at = CURRENT_TIMESTAMP WHERE id = 1', [retention, interval]);
   const deleted = toDelete > 0 ? await repository.prune(retention, queryable) : 0;
-  return { ...(await get(integration, queryable)), deleted };
+  return { ...(await get(queryable)), deleted };
 };
 
 module.exports = { HistorySettingsError, RETENTION_OPTIONS, INTERVAL_OPTIONS, TIMEZONE, get, update, read };

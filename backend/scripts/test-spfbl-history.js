@@ -16,7 +16,8 @@ const db = require('../src/config/database');
 const { ensureSecuritySchema } = require('../src/config/securitySchema');
 const matrix = require('../src/services/spfblMatrixClient');
 const history = require('../src/services/spfblHistoryService');
-const settings = require('../src/services/spfblSettingsService');
+const servers = require('../src/services/spfblServersService');
+const collectors = require('../src/services/spfblCollectors');
 const access = require('../src/services/spfblAccessService');
 const domains = require('../src/services/spfblDomainsService');
 const modules = require('../src/services/modulesService');
@@ -96,8 +97,10 @@ async function run() {
   const user = (key) => ({ id: ids[key], email: `${key}@example.invalid`, role: 'user', is_super_admin: false });
   await modules.setModuleEnabled?.('spfbl', true, ids.admin).catch(() => {});
   await pg.query("INSERT INTO system_modules(key, enabled) VALUES ('spfbl', TRUE) ON CONFLICT (key) DO UPDATE SET enabled = TRUE").catch(() => {});
-  await settings.updateSettings({ matrix_user: 'ops@example.com', matrix_password: 'MATRIX_SECRET_SENTINEL' }, ids.admin);
+  await Promise.resolve();
   await domains.addManualDomain('one.example.com', ids.admin); await domains.addManualDomain('two.example.com', ids.admin);
+  const serverId = (await servers.createServer({ name: 'Servidor 1', host: 'srv.example.com', whm_user: 'root', token: 'WHMTOKENSENTINEL0123456789ABCDEF', matrix_user: 'ops@example.com', matrix_password: 'MATRIX_SECRET_SENTINEL' }, ids.admin)).server.id;
+  await pg.query('UPDATE spfbl_domains SET server_id = $1', [serverId]);
   const d = Object.fromEntries((await domains.listDomains()).map((r) => [r.name.split('.')[0], r.id]));
   await access.saveAccess(ids.alice, { unlock_mode: 'review', domain_ids: [d.one] }, ids.admin);
 
@@ -106,7 +109,7 @@ async function run() {
   matrix.historyPage = async (credentials) => { calls += 1; lastCredentials = credentials; return providerPage; };
   let lookup = null;
   matrix.registry = async (credentials, key) => lookup(key);
-  const recollect = async () => { await pg.query('DELETE FROM spfbl_history_records'); await pg.query('DELETE FROM spfbl_history_runs'); await (await controller.collector.start({ trigger: 'manual', windowStartTs: Date.now() / 1000 - 8 * 86400 })).done; };
+  const recollect = async () => { await pg.query('DELETE FROM spfbl_history_records'); await pg.query('DELETE FROM spfbl_history_runs'); await (await collectors.forServer(serverId).start({ trigger: 'manual', windowStartTs: Date.now() / 1000 - 8 * 86400 })).done; };
   await recollect();
 
   let res = await call(controller.dashboard, user('alice')); assert.equal(res.code, 200, JSON.stringify(res.body));
@@ -133,7 +136,7 @@ async function run() {
 
   // status lookup
   controller.resetStatusState();
-  const mine = await require('../src/services/spfblHistoryRepository').find(require('node:crypto').createHash('sha256').update('ops@example.com').digest('hex'), first.id, 'one.example.com');
+  const mine = await require('../src/services/spfblHistoryRepository').find(first.id, 'one.example.com');
   lookup = (key) => ({ key, recipient: mine.recipient, sender: mine.sender, from: mine.from, replyto: mine.replyto, result: mine.result, arrival: new Date(mine.timestamp * 1000).toISOString(), status: 'WHITELISTED' });
   res = await call(controller.recordStatus, user('alice'), { params: { id: first.id }, body: { domain: 'one.example.com' } }); assert.equal(res.code, 200, JSON.stringify(res.body));
   assert.equal(res.body.provider_status, 'WHITELISTED'); assert.equal(res.body.changed_reason, false);

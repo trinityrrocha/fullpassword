@@ -14,7 +14,7 @@ const read = (relativePath) => fs.readFileSync(path.join(__dirname, '../..', rel
 const db = require('../src/config/database');
 const { ensureSecuritySchema } = require('../src/config/securitySchema');
 const { BACKUP_TABLES } = require('../src/config/backupTables');
-const settings = require('../src/services/spfblSettingsService');
+const servers = require('../src/services/spfblServersService');
 const { WhmClient, WhmError, isPublicIpv4, MAX_DOMAINS } = require('../src/services/spfblWhmClient');
 const domains = require('../src/services/spfblDomainsService');
 const controller = require('../src/controllers/spfblController');
@@ -23,7 +23,7 @@ const pg = new PGlite({ extensions: { uuid_ossp } });
 const query = async (sql, params) => (!params && /;\s*\S/.test(sql.trim()) ? pg.exec(sql) : pg.query(sql, params));
 db.query = query;
 db.pool.connect = async () => ({ query, release() {} });
-const response = () => ({ code: 200, status(code) { this.code = code; return this; }, json(body) { this.body = body; return this; } });
+const response = () => ({ code: 200, setHeader() {}, status(code) { this.code = code; return this; }, json(body) { this.body = body; return this; } });
 const request = (user, extra = {}) => ({ user, params: {}, body: {}, get: () => 'test-agent', headers: {}, socket: { remoteAddress: '127.0.0.1' }, ...extra });
 
 const TOKEN = 'WHMTOKENSENTINEL0123456789ABCDEF';
@@ -150,7 +150,6 @@ async function run() {
   assert.ok(BACKUP_TABLES.includes('spfbl_domains') && BACKUP_TABLES.indexOf('spfbl_domains') > BACKUP_TABLES.indexOf('users'));
   await assert.rejects(pg.query("INSERT INTO spfbl_domains(name) VALUES ('UPPER.example.com')"));
   await assert.rejects(pg.query("INSERT INTO spfbl_domains(name,source) VALUES ('x.example.com','other')"));
-  assert.equal((await settings.getSettings()).domain_sync_at, null);
 
   // Manual catalogue
   for (const bad of ['a@b.com', 'http://x.com', 'x', 'a..com', '-a.com', '203.0.113.9', '', null, 5, 'a b.com', 'x.com/path']) {
@@ -161,35 +160,37 @@ async function run() {
   await assert.rejects(domains.addManualDomain('manual.example.com', adminId), { code: 'SPFBL_DOMAIN_EXISTS', statusCode: 409 });
   for (const id of ['nope', '', null, '00000000-0000-0000-0000-00000000ffff']) await assert.rejects(domains.removeDomain(id), { code: 'SPFBL_DOMAIN_NOT_FOUND', statusCode: 404 });
 
-  // WHM not configured => refused before any network use
-  await assert.rejects(domains.testWhm(), { code: 'WHM_NOT_CONFIGURED', statusCode: 422 });
-  await assert.rejects(domains.syncFromWhm(adminId), { code: 'WHM_NOT_CONFIGURED' });
-  assert.match((await settings.getSettings()).domain_sync_status, /^failed:WHM_NOT_CONFIGURED$/);
-  await settings.updateSettings({ whm_host: 'srv.example.com', whm_user: 'root', whm_token: TOKEN }, adminId);
+  // Unknown server => refused before any network use
+  const NOPE = '00000000-0000-0000-0000-00000000dead';
+  await assert.rejects(domains.testWhm(NOPE), { code: 'SPFBL_SERVER_NOT_FOUND', statusCode: 404 });
+  const A = (await servers.createServer({ name: 'Servidor A', host: 'srv.example.com', whm_user: 'root', token: TOKEN }, adminId)).server.id;
   domains.internals.createClient = (credentials) => new WhmClient(credentials, { transport, resolver });
+  const syncOf = async (serverId) => (await pg.query('SELECT sync_status, sync_at FROM spfbl_whm_servers WHERE id = $1', [serverId])).rows[0];
 
   server.accounts = [{ user: 'alice', domain: 'alice.com.br', suspended: 0 }, { user: 'bob', domain: 'bob.net', suspended: 0 }];
   server.domains = [{ domain: 'alice.com.br', user: 'alice' }, { domain: 'shop.alice.com.br', user: 'alice' }, { domain: 'bob.net', user: 'bob' }, { domain: 'manual.example.com', user: 'alice' }];
-  const dry = await domains.testWhm();
+  const dry = await domains.testWhm(A);
   assert.deepEqual(dry, { accounts: 2, domains: 4, active: 4, suspended: 0, skipped: 0 });
   assert.equal((await pg.query("SELECT count(*)::int AS n FROM spfbl_domains WHERE source = 'whm'")).rows[0].n, 0, 'the test writes nothing');
 
-  let sync = await domains.syncFromWhm(adminId);
+  let sync = await domains.syncFromWhm(adminId, A);
   assert.deepEqual(sync, { accounts: 2, domains: 4, active: 4, suspended: 0, skipped: 0, added: 3, updated: 1, deactivated: 0 });
   let rows = Object.fromEntries((await domains.listDomains()).map((d) => [d.name, d]));
   assert.equal(rows['manual.example.com'].source, 'manual', 'a hand-typed domain keeps its source');
   assert.equal(rows['manual.example.com'].cpanel_user, 'alice');
   assert.equal(rows['shop.alice.com.br'].source, 'whm'); assert.equal(rows['shop.alice.com.br'].active, true);
-  const status = await settings.getSettings();
-  assert.equal(status.domain_sync_status, 'ok'); assert.ok(status.domain_sync_at);
+  const status = await syncOf(A);
+  assert.equal(status.sync_status, 'ok'); assert.ok(status.sync_at);
   assert.equal(leaks(status), false);
+  assert.deepEqual([rows['alice.com.br'].server_id, rows['alice.com.br'].server_name, rows['alice.com.br'].no_server], [A, 'Servidor A', false], 'each imported domain knows its server');
+  assert.deepEqual([rows['manual.example.com'].server_id, rows['manual.example.com'].no_server], [A, false], 'a hand-typed domain found in the WHM is linked to that server');
 
   // Second sync is idempotent; a suspended account turns its domains inactive; a vanished domain is deactivated.
-  sync = await domains.syncFromWhm(adminId);
+  sync = await domains.syncFromWhm(adminId, A);
   assert.equal(sync.added, 0); assert.equal(sync.updated, 4); assert.equal(sync.deactivated, 0);
   server.accounts[1].suspended = 1;
   server.domains = server.domains.filter((d) => d.domain !== 'shop.alice.com.br');
-  sync = await domains.syncFromWhm(adminId);
+  sync = await domains.syncFromWhm(adminId, A);
   assert.deepEqual([sync.added, sync.updated, sync.deactivated, sync.suspended, sync.active], [0, 3, 1, 1, 2]);
   rows = Object.fromEntries((await domains.listDomains()).map((d) => [d.name, d]));
   assert.deepEqual([rows['bob.net'].suspended, rows['bob.net'].active], [true, false]);
@@ -199,17 +200,55 @@ async function run() {
   // Failures change nothing and are recorded with a fixed code.
   const snapshot = JSON.stringify(await domains.listDomains());
   server.failWith = new Error(`connect ECONNREFUSED ${TOKEN}`);
-  await assert.rejects(domains.syncFromWhm(adminId), { code: 'WHM_CONNECTION' });
+  await assert.rejects(domains.syncFromWhm(adminId, A), { code: 'WHM_CONNECTION' });
   server.failWith = null;
   assert.equal(JSON.stringify(await domains.listDomains()), snapshot);
-  assert.equal((await settings.getSettings()).domain_sync_status, 'failed:WHM_CONNECTION');
+  assert.equal((await syncOf(A)).sync_status, 'failed:WHM_CONNECTION');
   // An empty answer (e.g. a token without the right permissions) must never wipe the imported domains.
   server.accounts = []; server.domains = [];
-  await assert.rejects(domains.syncFromWhm(adminId), { code: 'SPFBL_SYNC_EMPTY', statusCode: 409 });
+  await assert.rejects(domains.syncFromWhm(adminId, A), { code: 'SPFBL_SYNC_EMPTY', statusCode: 409 });
   assert.equal(JSON.stringify(await domains.listDomains()), snapshot, 'nothing changed');
-  assert.equal((await settings.getSettings()).domain_sync_status, 'failed:SPFBL_SYNC_EMPTY');
+  assert.equal((await syncOf(A)).sync_status, 'failed:SPFBL_SYNC_EMPTY');
 
-  // Removal: only hand-typed domains.
+  // Several servers: each sync only touches ITS domains; a domain listed by another server moves there; syncAll isolates failures.
+  server.accounts = [{ user: 'alice', domain: 'alice.com.br', suspended: 0 }, { user: 'bob', domain: 'bob.net', suspended: 0 }];
+  server.domains = [{ domain: 'alice.com.br', user: 'alice' }, { domain: 'bob.net', user: 'bob' }, { domain: 'manual.example.com', user: 'alice' }];
+  await domains.syncFromWhm(adminId, A);
+  const Bsrv = (await servers.createServer({ name: 'Servidor B', host: 'b.example.com', whm_user: 'root', token: TOKEN }, adminId)).server.id;
+  server.accounts = [{ user: 'carol', domain: 'carol.org', suspended: 0 }];
+  server.domains = [{ domain: 'carol.org', user: 'carol' }];
+  const syncB = await domains.syncFromWhm(adminId, Bsrv);
+  assert.deepEqual([syncB.added, syncB.deactivated], [1, 0], "server B's sync never deactivates server A's domains");
+  rows = Object.fromEntries((await domains.listDomains()).map((d) => [d.name, d]));
+  assert.equal(rows['carol.org'].server_id, Bsrv); assert.equal(rows['alice.com.br'].server_id, A); assert.equal(rows['alice.com.br'].active, true);
+  // a domain that appears on another server moves to it
+  server.accounts = [{ user: 'alice', domain: 'alice.com.br', suspended: 0 }]; server.domains = [{ domain: 'alice.com.br', user: 'alice' }];
+  await domains.syncFromWhm(adminId, Bsrv);
+  assert.equal((await domains.listDomains()).find((d) => d.name === 'alice.com.br').server_id, Bsrv, 'the last server that lists a domain owns it');
+  await domains.syncFromWhm(adminId, A).catch(() => {});
+  // syncAll: per-server results; one failing does not stop the other
+  server.accounts = [{ user: 'alice', domain: 'alice.com.br', suspended: 0 }]; server.domains = [{ domain: 'alice.com.br', user: 'alice' }];
+  const all = await domains.syncAll(adminId);
+  assert.equal(all.servers.length, 2); assert.ok(all.ok + all.failed === 2);
+  assert.ok(all.servers.every((r) => typeof r.name === 'string' && (r.ok || /^[A-Z_]+$/.test(r.code))), 'failures come back as fixed codes');
+  server.failWith = new Error(`connect ECONNREFUSED ${TOKEN}`);
+  const allFail = await domains.syncAll(adminId); server.failWith = null;
+  assert.deepEqual([allFail.ok, allFail.failed], [0, 2]); assert.equal(leaks(allFail), false);
+
+  // Without a server: removed servers keep their domains (history only) and those can be deleted by hand; others cannot.
+  await servers.removeServer(Bsrv, false);
+  rows = Object.fromEntries((await domains.listDomains()).map((d) => [d.name, d]));
+  assert.deepEqual([rows['carol.org'].server_id, rows['carol.org'].no_server, rows['carol.org'].server_name], [null, true, null], 'kept domains are flagged "no server"');
+  assert.deepEqual([rows['alice.com.br'].no_server, rows['alice.com.br'].active], [true, true], 'a kept domain stays active: its history keeps working');
+  await domains.removeDomain(rows['carol.org'].id); // allowed: it has no server
+  assert.equal((await domains.listDomains()).some((d) => d.name === 'carol.org'), false);
+  // A later sync from a server re-links an orphan that it lists.
+  server.accounts = [{ user: 'alice', domain: 'alice.com.br', suspended: 0 }]; server.domains = [{ domain: 'alice.com.br', user: 'alice' }];
+  await domains.syncFromWhm(adminId, A);
+  assert.equal((await domains.listDomains()).find((d) => d.name === 'alice.com.br').server_id, A);
+  rows = Object.fromEntries((await domains.listDomains()).map((d) => [d.name, d]));
+
+  // Removal: only hand-typed domains (or orphans).
   const imported = rows['alice.com.br'];
   await assert.rejects(domains.removeDomain(imported.id), { code: 'SPFBL_DOMAIN_IMPORTED', statusCode: 409 });
   assert.deepEqual(await domains.removeDomain(manual.id), { id: manual.id, name: 'manual.example.com' });
@@ -219,23 +258,29 @@ async function run() {
   server.accounts = [{ user: 'alice', domain: 'alice.com.br', suspended: 0 }];
   server.domains = [{ domain: 'alice.com.br', user: 'alice' }];
   controller.resetWhmState();
-  let res = response(); await controller.testWhm(request(admin), res);
+  let res = response(); await controller.testWhm(request(admin, { params: { id: A } }), res);
   assert.equal(res.code, 200); assert.deepEqual(res.body, { accounts: 1, domains: 1, active: 1, suspended: 0, skipped: 0 });
-  res = response(); await controller.syncDomains(request(admin), res);
+  res = response(); await controller.syncWhmServer(request(admin, { params: { id: A } }), res);
   assert.equal(res.code, 429); assert.equal(res.body.code, 'SPFBL_WHM_COOLDOWN'); assert.ok(res.body.retry_after_seconds >= 1);
+  const otherServer = (await servers.createServer({ name: 'Servidor C', host: 'c.example.com', whm_user: 'root', token: TOKEN }, adminId)).server.id;
+  res = response(); await controller.testWhm(request(admin, { params: { id: otherServer } }), res);
+  assert.equal(res.code, 200, 'the cool-down is per server');
   controller.resetWhmState();
-  res = response(); await controller.syncDomains(request(admin), res);
+  res = response(); await controller.syncWhmServer(request(admin, { params: { id: A } }), res);
   assert.equal(res.code, 200); assert.equal(res.body.added, 0);
   controller.resetWhmState();
-  server.failWith = Object.assign(new Error('x'), { timeout: true });
   res = response(); await controller.syncDomains(request(admin), res);
+  assert.equal(res.code, 200); assert.equal(res.body.servers.length, 2, 'sync all runs every server');
+  controller.resetWhmState();
+  server.failWith = Object.assign(new Error('x'), { timeout: true });
+  res = response(); await controller.syncWhmServer(request(admin, { params: { id: A } }), res);
   assert.equal(res.code, 504); assert.equal(res.body.code, 'WHM_TIMEOUT'); assert.equal(leaks(res.body), false);
   server.failWith = null; controller.resetWhmState();
   const realCreate = domains.internals.createClient;
   let release; domains.internals.createClient = () => ({ listDomains: () => new Promise((resolve) => { release = resolve; }) });
-  const first = (async () => { const r = response(); await controller.testWhm(request(admin), r); return r; })();
+  const first = (async () => { const r = response(); await controller.testWhm(request(admin, { params: { id: A } }), r); return r; })();
   await new Promise((resolve) => setTimeout(resolve, 20));
-  res = response(); await controller.testWhm(request(admin), res);
+  res = response(); await controller.testWhm(request(admin, { params: { id: otherServer } }), res);
   assert.equal(res.code, 429); assert.equal(res.body.code, 'SPFBL_WHM_BUSY');
   release({ accounts: 0, domains: [], skipped: 0 });
   assert.equal((await first).code, 200);
@@ -257,12 +302,13 @@ async function run() {
   assert.equal(leaks(audit), false, 'no token in the audit trail');
   assert.equal(JSON.stringify(audit).includes('srv.example.com'), false, 'no WHM host in the audit trail');
   assert.ok(audit.some((e) => e.action === 'spfbl_whm_test' && e.status === 'success' && e.metadata.domains === 1));
+  assert.ok(audit.some((e) => e.action === 'spfbl_domains_synced' && e.status === 'success' && e.metadata.ok !== undefined || e.metadata.domains !== undefined));
   assert.ok(audit.some((e) => e.action === 'spfbl_domains_synced' && e.status === 'failed' && e.metadata.reason === 'WHM_TIMEOUT'));
   assert.ok(audit.some((e) => e.action === 'spfbl_domain_added' && e.metadata.domain === 'novo.example.org'));
 
   // ---- Wiring ----
   const routes = read('backend/src/routes/spfblRoutes.js');
-  for (const line of ["router.post('/whm/test', requireSuperAdmin, spfblTestLimiter,", "router.get('/domains', requireSuperAdmin,", "router.post('/domains', requireSuperAdmin,", "router.post('/domains/sync', requireSuperAdmin, spfblTestLimiter,", "router.delete('/domains/:id', requireSuperAdmin,"]) {
+  for (const line of ["router.post('/whm-servers/:id/test', requireSuperAdmin, uuidParam('id'), spfblTestLimiter,", "router.post('/whm-servers/:id/sync', requireSuperAdmin, uuidParam('id'), spfblTestLimiter,", "router.get('/domains', requireSuperAdmin,", "router.post('/domains', requireSuperAdmin,", "router.post('/domains/sync', requireSuperAdmin, spfblTestLimiter,", "router.delete('/domains/:id', requireSuperAdmin,"]) {
     assert.ok(routes.includes(line), line);
   }
   assert.match(routes, /requireUuidParam\(req, res, next, req\.params\.id\)/);

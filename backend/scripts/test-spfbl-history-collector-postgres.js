@@ -39,7 +39,7 @@ async function main() {
     emailService.sendEmail = async (mail) => { if (mail.to === 'bounce@example.invalid') throw new Error('smtp'); mails.push(mail); };
     const { ensureSecuritySchema } = require('../src/config/securitySchema');
     const matrix = require('../src/services/spfblMatrixClient');
-    const settings = require('../src/services/spfblSettingsService');
+    const servers = require('../src/services/spfblServersService');
     const access = require('../src/services/spfblAccessService');
     const domains = require('../src/services/spfblDomainsService');
     const release = require('../src/services/spfblReleaseService');
@@ -58,17 +58,16 @@ async function main() {
     const nowS = Math.floor(Date.now() / 1000);
     const iso = (ago) => new Date((nowS - ago) * 1000).toISOString();
     const D = 86400;
-    await settings.updateSettings({ matrix_user: 'ops@example.com', matrix_password: 'MATRIX_SECRET_SENTINEL' }, null).catch(async () => {
-      await database.query("INSERT INTO users(id,name,email,hash_senha_login,wrapped_key,crypto_salt,is_active,is_super_admin,role) VALUES ('00000000-0000-0000-0000-000000000001','a','a@example.invalid','H','W','S',TRUE,TRUE,'admin')");
-      await settings.updateSettings({ matrix_user: 'ops@example.com', matrix_password: 'MATRIX_SECRET_SENTINEL' }, '00000000-0000-0000-0000-000000000001');
-    });
-    await database.query("INSERT INTO users(id,name,email,hash_senha_login,wrapped_key,crypto_salt,is_active,is_super_admin,role) VALUES ('00000000-0000-0000-0000-000000000001','a','a@example.invalid','H','W','S',TRUE,TRUE,'admin') ON CONFLICT DO NOTHING");
-    await domains.addManualDomain('one.example.com', '00000000-0000-0000-0000-000000000001');
+    const adminId = '00000000-0000-0000-0000-000000000001';
+    await database.query("INSERT INTO users(id,name,email,hash_senha_login,wrapped_key,crypto_salt,is_active,is_super_admin,role) VALUES ($1,'a','a@example.invalid','H','W','S',TRUE,TRUE,'admin')", [adminId]);
+    await domains.addManualDomain('one.example.com', adminId);
+    const serverId = (await servers.createServer({ name: 'Servidor 1', host: 'srv.example.com', whm_user: 'root', token: 'WHMTOKENSENTINEL0123456789ABCDEF', matrix_user: 'ops@example.com', matrix_password: 'MATRIX_SECRET_SENTINEL' }, adminId)).server.id;
+    await database.query('UPDATE spfbl_domains SET server_id = $1', [serverId]);
     const { createCollector, integrationOf } = require('../src/services/spfblCollectorService');
     const repository = require('../src/services/spfblHistoryRepository');
     const historySettings = require('../src/services/spfblHistorySettingsService');
     const scheduler = require('../src/services/spfblHistoryScheduler');
-    const credentials = await settings.getMatrixCredentials();
+    const credentials = await servers.getMatrixCredentials(serverId);
     const integration = integrationOf(credentials);
     const msg = (key, recipient, ago, result = 'BLOCK', status = 'NONE') => ({ key, recipient, sender: 'bad@out.example', from: '', replyto: '', result, arrival: iso(ago), status });
     const wipe = async () => { await database.query('DELETE FROM spfbl_history_records'); await database.query('DELETE FROM spfbl_history_runs'); };
@@ -122,22 +121,22 @@ async function main() {
     await wipe(); await (await collector.start({ trigger: 'manual', windowStartTs: nowS - 30 * D })).done;
     await database.query("UPDATE spfbl_history_records SET arrival_at = CURRENT_TIMESTAMP - INTERVAL '45 days' WHERE record_id IN (SELECT record_id FROM spfbl_history_records LIMIT 3)");
     await database.query('UPDATE spfbl_settings SET history_retention_days = 60 WHERE id = 1');
-    await assert.rejects(historySettings.update({ retention_days: 45 }, integration), { code: 'SPFBL_HISTORY_RETENTION_INVALID' });
-    await assert.rejects(historySettings.update({ interval_hours: 3 }, integration), { code: 'SPFBL_HISTORY_INTERVAL_INVALID' });
-    await assert.rejects(historySettings.update({ interval_hours: 0 }, integration), { code: 'SPFBL_HISTORY_INTERVAL_INVALID' });
-    await assert.rejects(historySettings.update({ retention_days: 30 }, integration), { code: 'SPFBL_HISTORY_SHRINK_CONFIRM', rows_to_delete: 3 });
+    await assert.rejects(historySettings.update({ retention_days: 45 }), { code: 'SPFBL_HISTORY_RETENTION_INVALID' });
+    await assert.rejects(historySettings.update({ interval_hours: 3 }), { code: 'SPFBL_HISTORY_INTERVAL_INVALID' });
+    await assert.rejects(historySettings.update({ interval_hours: 0 }), { code: 'SPFBL_HISTORY_INTERVAL_INVALID' });
+    await assert.rejects(historySettings.update({ retention_days: 30 }), { code: 'SPFBL_HISTORY_SHRINK_CONFIRM', rows_to_delete: 3 });
     assert.equal((await repository.stats(integration)).rows, 9, 'nothing deleted without confirmation');
-    const shrunk = await historySettings.update({ retention_days: 30, interval_hours: 4, confirm_shrink: true }, integration);
+    const shrunk = await historySettings.update({ retention_days: 30, interval_hours: 4, confirm_shrink: true });
     assert.equal(shrunk.deleted, 3); assert.equal(shrunk.retention_days, 30); assert.equal(shrunk.interval_hours, 4); assert.deepEqual(shrunk.interval_options, [1, 2, 4, 8, 12, 24]); assert.equal((await repository.stats(integration)).rows, 6);
-    assert.equal((await historySettings.update({ retention_days: 90 }, integration)).retention_days, 90, 'growing needs no confirmation');
+    assert.equal((await historySettings.update({ retention_days: 90 })).retention_days, 90, 'growing needs no confirmation');
 
-    // scope: another integration's rows never come back, and a credential change purges them
+    // scope: reads are by domain; rows of a replaced Matrix account are purged
     await database.query("INSERT INTO spfbl_history_records (record_id, integration_hash, domain, recipient, sender, from_address, replyto, result, provider_status, provider_key, arrival_at) VALUES ($1,'other','one.example.com','z@one.example.com','s','','','BLOCK','NONE','KZ',CURRENT_TIMESTAMP)", ['f'.repeat(64)]);
     const filters = history.parseFilters({ status: 'Todos' });
-    const page = await repository.selectPage({ integration, domain: 'one.example.com', filters });
-    assert.ok(page.rows.every((r) => r.id !== 'f'.repeat(64)));
-    assert.equal(await repository.find(integration, 'f'.repeat(64), 'one.example.com'), null);
-    assert.equal(await repository.purgeOtherIntegrations(integration), 1);
+    const page = await repository.selectPage({ domain: 'one.example.com', filters });
+    assert.ok(page.rows.some((r) => r.id === 'f'.repeat(64) && r.integration.trim() === 'other'), 'reads are by domain; each row says which connection collected it (actions are refused for another one)');
+    assert.equal((await repository.find('f'.repeat(64), 'two.example.com')), null, 'a record is only found under its own domain');
+    assert.equal(await repository.purgeIntegration('other'), 1, 'rows of a replaced Matrix account are dropped');
 
     // the Matrix shows at most 1024 records per SERVER: hitting that ceiling is detected, and a non-overlapping next run is a GAP
     await wipe(); base = 30 * D;
@@ -164,22 +163,25 @@ async function main() {
     assert.equal((await still.state(integration, nowS - 20 * D)).complete, true, 'collected continuously since 40 days ago');
     assert.equal((await still.state(integration, nowS - 60 * D)).complete, false, 'before the first collection nothing is known');
 
+    const collectors = { isRunning: () => collector.isRunning(), forServer: () => collector, markInterrupted: async () => {} };
     // scheduler: every N hours, claimed in the database, a failure gives the claim back
-    await wipe(); await database.query('UPDATE spfbl_settings SET history_interval_hours = 2, history_last_run_at = NULL WHERE id = 1');
+    await wipe(); await database.query('UPDATE spfbl_settings SET history_interval_hours = 2 WHERE id = 1'); await database.query('UPDATE spfbl_whm_servers SET history_last_run_at = NULL');
     scheduler.resetSchedulerState();
-    const first = await scheduler.tick({ collector }); assert.ok(first.ran, JSON.stringify(first));
-    const second = await scheduler.tick({ collector }); assert.equal(second.skipped, 'not_due');
+    const first = await scheduler.tick({ collectors }); assert.ok(first.ran, JSON.stringify(first));
+    assert.equal(first.ran[0].server_id, serverId);
+    const second = await scheduler.tick({ collectors }); assert.equal(second.skipped, 'not_due');
     assert.ok(Number((await database.query("SELECT COUNT(*)::integer n FROM system_audit_events WHERE action='spfbl_history_collected'")).rows[0].n) >= 1);
-    await database.query("UPDATE spfbl_settings SET history_last_run_at = CURRENT_TIMESTAMP - INTERVAL '3 hours' WHERE id = 1");
-    const before = (await database.query('SELECT history_last_run_at AS t FROM spfbl_settings WHERE id = 1')).rows[0].t.getTime();
+    await database.query("UPDATE spfbl_whm_servers SET history_last_run_at = CURRENT_TIMESTAMP - INTERVAL '3 hours'");
+    const before = (await database.query('SELECT history_last_run_at AS t FROM spfbl_whm_servers')).rows[0].t.getTime();
     scheduler.resetSchedulerState(); fail = true;
-    const bad = await scheduler.tick({ collector }); assert.equal(bad.outcome.status, 'failed'); fail = false;
-    assert.equal((await database.query('SELECT history_last_run_at AS t FROM spfbl_settings WHERE id = 1')).rows[0].t.getTime(), before, 'a failed run gives the turn back');
-    assert.equal((await scheduler.tick({ collector })).skipped, 'busy', 'waits before retrying');
-    scheduler.resetSchedulerState(); await database.query("UPDATE spfbl_settings SET history_last_run_at = CURRENT_TIMESTAMP - INTERVAL '90 minutes' WHERE id = 1");
-    assert.equal((await scheduler.tick({ collector })).skipped, 'not_due', '90 minutes is not due on a 2-hour interval');
+    const bad = await scheduler.tick({ collectors }); assert.equal(bad.ran[0].outcome.status, 'failed'); fail = false;
+    assert.equal((await database.query('SELECT history_last_run_at AS t FROM spfbl_whm_servers')).rows[0].t.getTime(), before, 'a failed run gives the turn back');
+    assert.equal((await scheduler.tick({ collectors })).skipped, 'not_due', 'a failed server waits before the next attempt');
+    scheduler.resetSchedulerState(); await database.query("UPDATE spfbl_whm_servers SET history_last_run_at = CURRENT_TIMESTAMP - INTERVAL '90 minutes'");
+    assert.equal((await scheduler.tick({ collectors })).skipped, 'not_due', '90 minutes is not due on a 2-hour interval');
     await database.query('UPDATE spfbl_settings SET history_interval_hours = 1 WHERE id = 1');
-    assert.ok((await scheduler.tick({ collector })).ran, '90 minutes is due on a 1-hour interval');
+    scheduler.resetSchedulerState();
+    assert.ok((await scheduler.tick({ collectors })).ran, '90 minutes is due on a 1-hour interval');
     await database.query("UPDATE system_modules SET enabled = FALSE WHERE module_key = 'spfbl'").catch(() => {});
 
     console.log('PASS spfbl stored history (native PostgreSQL): crawl, idempotence, scope, cap, failure, interruption, retention confirmation, interval schedule, provider ceiling and gap detection.');

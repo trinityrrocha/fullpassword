@@ -39,7 +39,8 @@ async function main() {
     emailService.sendEmail = async (mail) => { if (mail.to === 'bounce@example.invalid') throw new Error('smtp'); mails.push(mail); };
     const { ensureSecuritySchema } = require('../src/config/securitySchema');
     const matrix = require('../src/services/spfblMatrixClient');
-    const settings = require('../src/services/spfblSettingsService');
+    const servers = require('../src/services/spfblServersService');
+    const collectors = require('../src/services/spfblCollectors');
     const access = require('../src/services/spfblAccessService');
     const domains = require('../src/services/spfblDomainsService');
     const release = require('../src/services/spfblReleaseService');
@@ -61,8 +62,9 @@ async function main() {
     for (const [key, uid] of Object.entries(users)) {
       await database.query("INSERT INTO users(id,name,email,hash_senha_login,wrapped_key,crypto_salt,is_active,is_super_admin,role) VALUES ($1,$2,$3,'H','W','S',TRUE,$4,$5)", [uid, key, emails[key], key === 'admin', key === 'admin' ? 'admin' : 'user']);
     }
-    await settings.updateSettings({ matrix_user: 'ops@example.com', matrix_password: 'MATRIX_SECRET_SENTINEL' }, users.admin);
     await domains.addManualDomain('one.example.com', users.admin); await domains.addManualDomain('two.example.com', users.admin);
+    const serverId = (await servers.createServer({ name: 'Servidor 1', host: 'srv.example.com', whm_user: 'root', token: 'WHMTOKENSENTINEL0123456789ABCDEF', matrix_user: 'ops@example.com', matrix_password: 'MATRIX_SECRET_SENTINEL' }, users.admin)).server.id;
+    await database.query('UPDATE spfbl_domains SET server_id = $1', [serverId]);
     const dom = Object.fromEntries((await domains.listDomains()).map((d) => [d.name.split('.')[0], d.id]));
     await access.saveAccess(users.review, { unlock_mode: 'review', domain_ids: [dom.one] }, users.admin);
     await access.saveAccess(users.direct, { unlock_mode: 'direct', domain_ids: [dom.one] }, users.admin);
@@ -117,7 +119,7 @@ async function main() {
       await handler({ user: { id: users[key], email: emails[key], role: key === 'admin' ? 'admin' : 'user', is_super_admin: key === 'admin' }, params: {}, query: {}, body: {}, get: () => 'a', headers: {}, socket: { remoteAddress: '127.0.0.1' }, ...extra }, res); return res; };
     matrix.historyPage = async () => ({ messages: [{ key: 'H1', recipient: 'hist@one.example.com', sender: 'bad@out.example', result: 'BLOCK', arrival: new Date((nowS - 50) * 1000).toISOString(), status: 'NONE' }], next: null, signature: 'h' });
     matrix.registry = async (_c, key) => provider.live.get(key) || { key, recipient: 'hist@one.example.com', sender: 'bad@out.example', from: '', replyto: '', result: 'BLOCK', arrival: new Date((nowS - 50) * 1000).toISOString(), status: 'NONE' };
-    const recollect = async () => { await database.query('DELETE FROM spfbl_history_records'); await database.query('DELETE FROM spfbl_history_runs'); await (await controller.collector.start({ trigger: 'manual', windowStartTs: nowS - 3 * 86400 })).done; };
+    const recollect = async () => { await database.query('DELETE FROM spfbl_history_records'); await database.query('DELETE FROM spfbl_history_runs'); await (await collectors.forServer(serverId).start({ trigger: 'manual', windowStartTs: nowS - 3 * 86400 })).done; };
     await recollect();
     let listed = await call(controller.historyList, 'review', { query: { domain: 'one.example.com', status: 'Todos' } }); assert.equal(listed.code, 200, JSON.stringify(listed.body));
     const histRow = listed.body.rows[0];
@@ -138,7 +140,7 @@ async function main() {
     const second = (await release.listRequests(actorOf('admin'))).find((r) => r.recipient === 'hist@one.example.com' && r.actor_name === 'review');
     const detail = await release.requestDetail(actorOf('admin'), second.id);
     assert.match(detail.confirmation, /^[a-f0-9]{64}$/);
-    const histFull = await repository.find(integration, histRow.id, 'one.example.com');
+    const histFull = await repository.find(histRow.id, 'one.example.com');
     await assert.rejects(release.execute(actorOf('admin'), { row: histFull, domain: 'one.example.com', requestId: second.id, revision: 99, proof: detail.confirmation }, credentials, stub), { code: 'SPFBL_REVISION_CHANGED' });
     await assert.rejects(release.execute(actorOf('admin'), { row: histFull, domain: 'one.example.com', requestId: second.id, revision: second.revision, proof: 'a'.repeat(64) }, credentials, stub), { code: 'SPFBL_CONFIRMATION_STALE' });
     assert.equal(provider.whites.length, 0, 'stale confirmation or revision: nothing sent');
@@ -191,7 +193,7 @@ async function main() {
     assert.equal(unlocked.code, 200, JSON.stringify(unlocked.body)); assert.deepEqual(provider.whites, ['D1']);
     const after = await call(controller.recordDetail, 'direct', { params: { id: d1.id }, query: { domain: 'one.example.com' } });
     assert.equal(after.code, 200, 'the open record screen is still served after the cache reset'); assert.equal(after.body.operation.done, true); assert.equal(after.body.can_unlock, false);
-    assert.equal((await repository.find(integration, d1.id, 'one.example.com')).provider_status, 'WHITELISTED', 'the stored copy reflects the unlock at once');
+    assert.equal((await repository.find(d1.id, 'one.example.com')).provider_status, 'WHITELISTED', 'the stored copy reflects the unlock at once');
 
     // ---- what the person sees afterwards: "was blocked, now unlocked", who and when; filter; then a direct block ----
     const listAfter = await call(controller.historyList, 'direct', { query: { domain: 'one.example.com', status: 'Todos' } });
@@ -290,7 +292,7 @@ async function main() {
     assert.ok(failed.body.state.error && failed.body.state.partial, 'a failed collection is shown, not hidden as partial coverage');
     assert.ok(!/MATRIX_SECRET/.test(JSON.stringify(failed.body)));
     matrix.historyPage = realPage;
-    await call(controller.saveSettings, 'admin', { body: { matrix_user: 'ops@example.com', matrix_password: 'MATRIX_SECRET_SENTINEL_2' } });
+    await call(controller.updateWhmServer, 'admin', { params: { id: serverId }, body: { matrix_user: 'ops@example.com', matrix_password: 'MATRIX_SECRET_SENTINEL_2' } });
     const recovered = await call(controller.dashboard, 'admin'); assert.equal(recovered.body.state.error, '', 'saving credentials clears the cached failure at once');
 
     // ---- direct unlock: concurrent claims -> exactly one provider call ----

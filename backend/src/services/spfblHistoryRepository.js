@@ -1,7 +1,6 @@
 const db = require('../config/database');
 
-// SQL side of the stored history. Every read takes the integration (Matrix account) and the caller's CURRENT domains, so rows of
-// another account or of a domain the caller lost never come back. provider_key leaves this module only through `find`, which the
+// SQL side of the stored history. Every read takes the caller's CURRENT domains, so rows of a domain the caller lost never come back. provider_key leaves this module only through `find`, which the
 // server uses to act on a record; it is never part of a list or overview.
 const BLOCKED = ['BANNED', 'FLAG', 'BLOCK', 'REJECT', 'INEXISTENT', 'GREYLIST'];
 const CATEGORY_SQL = `CASE UPPER(result)
@@ -11,7 +10,7 @@ const CATEGORY_SQL = `CASE UPPER(result)
 
 const toRow = (r) => ({
   id: r.record_id, provider_key: r.provider_key, recipient: r.recipient, sender: r.sender, from: r.from_address, replyto: r.replyto,
-  result: r.result, provider_status: r.provider_status, timestamp: Math.floor(new Date(r.arrival_at).getTime() / 1000)
+  result: r.result, provider_status: r.provider_status, integration: r.integration_hash, timestamp: Math.floor(new Date(r.arrival_at).getTime() / 1000)
 });
 
 // Upsert page by page. Identity columns and the original result never change; only the provider status is refreshed.
@@ -29,9 +28,11 @@ const upsertRows = async (rows, integration, queryable = db) => {
   return result.rowCount;
 };
 
-const filterClause = (integration, domain, filters, unlockedIds = []) => {
-  const params = [integration, domain, filters.start_ts, filters.end_ts];
-  const where = ['integration_hash = $1', 'domain = $2', 'arrival_at >= to_timestamp($3)', 'arrival_at < to_timestamp($4)'];
+// Reads are by DOMAIN (the caller's current domains are the boundary), not by Matrix account: a domain keeps its history when it moves
+// to another server or loses its server.
+const filterClause = (domain, filters, unlockedIds = []) => {
+  const params = [domain, filters.start_ts, filters.end_ts];
+  const where = ['domain = $1', 'arrival_at >= to_timestamp($2)', 'arrival_at < to_timestamp($3)'];
   if (filters.status === 'Bloqueados') { params.push(BLOCKED); where.push(`UPPER(result) = ANY($${params.length}::text[])`); }
   else if (filters.status === 'Livres') { params.push(BLOCKED); where.push(`NOT (UPPER(result) = ANY($${params.length}::text[]))`); }
   else if (filters.status === 'Desbloqueados') { params.push([...unlockedIds]); where.push(`(record_id = ANY($${params.length}::text[]) OR provider_status = 'WHITELISTED')`); }
@@ -44,10 +45,10 @@ const filterClause = (integration, domain, filters, unlockedIds = []) => {
 };
 
 // One page (25) of one authorized domain, newest first, filtered and counted in SQL.
-const selectPage = async ({ integration, domain, filters, page = 1, pageSize = 20, unlockedIds = [] }, queryable = db) => {
-  const { where, params } = filterClause(integration, domain, filters, unlockedIds);
-  const periodWhere = 'integration_hash = $1 AND domain = $2 AND arrival_at >= to_timestamp($3) AND arrival_at < to_timestamp($4)';
-  const period = Number((await queryable.query(`SELECT COUNT(*)::integer AS n FROM spfbl_history_records WHERE ${periodWhere}`, params.slice(0, 4))).rows[0].n);
+const selectPage = async ({ domain, filters, page = 1, pageSize = 20, unlockedIds = [] }, queryable = db) => {
+  const { where, params } = filterClause(domain, filters, unlockedIds);
+  const periodWhere = 'domain = $1 AND arrival_at >= to_timestamp($2) AND arrival_at < to_timestamp($3)';
+  const period = Number((await queryable.query(`SELECT COUNT(*)::integer AS n FROM spfbl_history_records WHERE ${periodWhere}`, params.slice(0, 3))).rows[0].n);
   const filtered = Number((await queryable.query(`SELECT COUNT(*)::integer AS n FROM spfbl_history_records WHERE ${where}`, params)).rows[0].n);
   const pages = Math.max(1, Math.ceil(filtered / pageSize));
   const current = Math.min(Math.max(1, Number.parseInt(page, 10) || 1), pages);
@@ -55,8 +56,8 @@ const selectPage = async ({ integration, domain, filters, page = 1, pageSize = 2
   return { rows: rows.map(toRow), period, filtered, page: current, pages };
 };
 
-const find = async (integration, id, domain, queryable = db) => {
-  const row = (await queryable.query('SELECT * FROM spfbl_history_records WHERE integration_hash = $1 AND record_id = $2 AND domain = $3', [integration, id, domain])).rows[0];
+const find = async (id, domain, queryable = db) => {
+  const row = (await queryable.query('SELECT * FROM spfbl_history_records WHERE record_id = $1 AND domain = $2', [id, domain])).rows[0];
   return row ? toRow(row) : null;
 };
 
@@ -64,38 +65,39 @@ const setProviderStatus = (id, status, queryable = db) => queryable.query(
   'UPDATE spfbl_history_records SET provider_status = $2, updated_at = CURRENT_TIMESTAMP WHERE record_id = $1', [id, status]);
 
 // Dashboard numbers over a window, for the given domains only.
-const overview = async ({ integration, domains, startTs, endTs }, queryable = db) => {
-  const base = [integration, domains, startTs, endTs];
-  const where = 'integration_hash = $1 AND domain = ANY($2::text[]) AND arrival_at >= to_timestamp($3) AND arrival_at < to_timestamp($4)';
+const overview = async ({ domains, startTs, endTs }, queryable = db) => {
+  const base = [domains, startTs, endTs];
+  const where = 'domain = ANY($1::text[]) AND arrival_at >= to_timestamp($2) AND arrival_at < to_timestamp($3)';
   const total = Number((await queryable.query(`SELECT COUNT(*)::integer AS n FROM spfbl_history_records WHERE ${where}`, base)).rows[0].n);
-  const byCategory = (await queryable.query(`SELECT ${CATEGORY_SQL} AS category, COUNT(*)::integer AS n FROM spfbl_history_records WHERE ${where} AND UPPER(result) = ANY($5::text[]) GROUP BY 1`, [...base, BLOCKED])).rows;
-  const byDomain = (await queryable.query(`SELECT domain AS name, COUNT(*)::integer AS count FROM spfbl_history_records WHERE ${where} AND UPPER(result) = ANY($5::text[]) GROUP BY domain ORDER BY count DESC, domain LIMIT 10`, [...base, BLOCKED])).rows;
-  const byRecipient = (await queryable.query(`SELECT recipient AS name, COUNT(*)::integer AS count FROM spfbl_history_records WHERE ${where} AND UPPER(result) = ANY($5::text[]) GROUP BY recipient ORDER BY count DESC, recipient LIMIT 10`, [...base, BLOCKED])).rows;
+  const byCategory = (await queryable.query(`SELECT ${CATEGORY_SQL} AS category, COUNT(*)::integer AS n FROM spfbl_history_records WHERE ${where} AND UPPER(result) = ANY($4::text[]) GROUP BY 1`, [...base, BLOCKED])).rows;
+  const byDomain = (await queryable.query(`SELECT domain AS name, COUNT(*)::integer AS count FROM spfbl_history_records WHERE ${where} AND UPPER(result) = ANY($4::text[]) GROUP BY domain ORDER BY count DESC, domain LIMIT 10`, [...base, BLOCKED])).rows;
+  const byRecipient = (await queryable.query(`SELECT recipient AS name, COUNT(*)::integer AS count FROM spfbl_history_records WHERE ${where} AND UPPER(result) = ANY($4::text[]) GROUP BY recipient ORDER BY count DESC, recipient LIMIT 10`, [...base, BLOCKED])).rows;
   const categories = { banimento: 0, 'segurança': 0, 'inexistência': 0 };
   for (const r of byCategory) if (r.category) categories[r.category] = r.n;
   return { categories, domains: byDomain, recipients: byRecipient, total, blocked: Object.values(categories).reduce((a, b) => a + b, 0) };
 };
 
 // Per-domain counts for the Super Admin table (every registered domain is added by the caller, zero-filled).
-const domainCounts = async ({ integration, domains, startTs, endTs }, queryable = db) => {
-  const rows = (await queryable.query(`SELECT domain, COUNT(*)::integer AS total, COUNT(*) FILTER (WHERE UPPER(result) = ANY($5::text[]))::integer AS blocked,
+const domainCounts = async ({ domains, startTs, endTs }, queryable = db) => {
+  const rows = (await queryable.query(`SELECT domain, COUNT(*)::integer AS total, COUNT(*) FILTER (WHERE UPPER(result) = ANY($4::text[]))::integer AS blocked,
       COUNT(*) FILTER (WHERE UPPER(result) IN ('BANNED','FLAG'))::integer AS banimento, COUNT(*) FILTER (WHERE UPPER(result) IN ('BLOCK','REJECT'))::integer AS seguranca,
       COUNT(*) FILTER (WHERE UPPER(result) IN ('INEXISTENT','GREYLIST'))::integer AS inexistencia
-    FROM spfbl_history_records WHERE integration_hash = $1 AND domain = ANY($2::text[]) AND arrival_at >= to_timestamp($3) AND arrival_at < to_timestamp($4) GROUP BY domain`,
-  [integration, domains, startTs, endTs, BLOCKED])).rows;
+    FROM spfbl_history_records WHERE domain = ANY($1::text[]) AND arrival_at >= to_timestamp($2) AND arrival_at < to_timestamp($3) GROUP BY domain`,
+  [domains, startTs, endTs, BLOCKED])).rows;
   return new Map(rows.map((r) => [r.domain, r]));
 };
 
 const prune = async (retentionDays, queryable = db) => (await queryable.query(
   "DELETE FROM spfbl_history_records WHERE arrival_at < CURRENT_TIMESTAMP - ($1::integer * INTERVAL '1 day')", [retentionDays])).rowCount;
-const purgeOtherIntegrations = async (integration, queryable = db) => (await queryable.query(
-  'DELETE FROM spfbl_history_records WHERE integration_hash <> $1', [integration])).rowCount;
+// A server changed its Matrix account: the rows collected with the old account are stale.
+const purgeIntegration = async (integration, queryable = db) => (await queryable.query(
+  'DELETE FROM spfbl_history_records WHERE integration_hash = $1', [integration])).rowCount;
 // New credentials: forget failed runs (so the next screen retries at once) and any run of another account.
 const resetRuns = async (integration, queryable = db) => (await queryable.query(
-  "DELETE FROM spfbl_history_runs WHERE status = 'failed' OR integration_hash <> $1", [integration])).rowCount;
-const stats = async (integration, queryable = db) => {
-  const r = (await queryable.query('SELECT COUNT(*)::integer AS n, MIN(arrival_at) AS oldest, MAX(arrival_at) AS newest FROM spfbl_history_records WHERE integration_hash = $1', [integration])).rows[0];
+  "DELETE FROM spfbl_history_runs WHERE status = 'failed' AND integration_hash = $1", [integration])).rowCount;
+const stats = async (integration = null, queryable = db) => {
+  const r = (await queryable.query('SELECT COUNT(*)::integer AS n, MIN(arrival_at) AS oldest, MAX(arrival_at) AS newest FROM spfbl_history_records WHERE ($1::text IS NULL OR integration_hash = $1)', [integration])).rows[0];
   return { rows: Number(r.n), oldest_at: r.oldest, newest_at: r.newest };
 };
 
-module.exports = { BLOCKED, upsertRows, selectPage, find, setProviderStatus, overview, domainCounts, prune, purgeOtherIntegrations, resetRuns, stats };
+module.exports = { BLOCKED, upsertRows, selectPage, find, setProviderStatus, overview, domainCounts, prune, purgeIntegration, resetRuns, stats };

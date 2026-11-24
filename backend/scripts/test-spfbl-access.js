@@ -113,7 +113,7 @@ async function run() {
   assert.equal(res.code, 403); assert.equal(res.body.code, 'SPFBL_ACCESS_DENIED');
   res = response(); await controller.overview(request(admin), res);
   assert.equal(res.code, 200); assert.equal(res.body.role, 'super_admin');
-  assert.deepEqual([res.body.matrix_configured, res.body.whm_configured, res.body.domains, res.body.users_with_access], [false, false, { total: 2, active: 2 }, 1]);
+  assert.deepEqual([res.body.matrix_configured, res.body.whm_configured, res.body.domains, res.body.users_with_access], [false, false, { total: 2, active: 2, without_server: 0 }, 1]);
   assert.equal(Object.keys(res.body).some((key) => /password|token|secret/i.test(key)), false);
   await modules.setModuleEnabled('spfbl', false, ids.admin);
   res = response(); await controller.overview(request(admin), res);
@@ -146,7 +146,7 @@ async function run() {
     assert.ok(routes.includes(line), line);
   }
   const routeLines = routes.split('\n').filter((line) => /^router\.(get|put|post|delete|patch)\(/.test(line));
-  assert.equal(routeLines.length, 30);
+  assert.equal(routeLines.length, 33);
   const open = routeLines.filter((line) => !line.includes('requireSuperAdmin'));
   // Open to granted users: the overview and the read-only history views. Each one resolves the caller's CURRENT scope per request
   // (test-spfbl-history.js); everything else is Super Admin only.

@@ -144,6 +144,38 @@ const SPFBL_HISTORY_STATEMENTS = [
   `ALTER TABLE spfbl_history_runs ADD COLUMN IF NOT EXISTS gap BOOLEAN NOT NULL DEFAULT FALSE`
 ];
 
+// Several WHM servers, each with its Matrix connection (migration 33). The legacy single server/connection is moved into the list once.
+const SPFBL_SERVER_STATEMENTS = [
+  `CREATE TABLE IF NOT EXISTS spfbl_whm_servers (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name VARCHAR(80) NOT NULL CHECK (length(btrim(name)) >= 1),
+    host VARCHAR(253) NOT NULL,
+    whm_user VARCHAR(32) NOT NULL,
+    encrypted_token TEXT NOT NULL,
+    matrix_user VARCHAR(254) NOT NULL DEFAULT '',
+    encrypted_matrix_password TEXT,
+    sync_at TIMESTAMP WITH TIME ZONE,
+    sync_status VARCHAR(48),
+    history_last_run_at TIMESTAMP WITH TIME ZONE,
+    created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS spfbl_whm_servers_name_idx ON spfbl_whm_servers (lower(name))`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS spfbl_whm_servers_target_idx ON spfbl_whm_servers (host, whm_user)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS spfbl_whm_servers_matrix_idx ON spfbl_whm_servers (lower(matrix_user)) WHERE matrix_user <> ''`,
+  `ALTER TABLE spfbl_domains ADD COLUMN IF NOT EXISTS server_id UUID REFERENCES spfbl_whm_servers(id) ON DELETE SET NULL`,
+  `CREATE INDEX IF NOT EXISTS spfbl_domains_server_idx ON spfbl_domains (server_id)`,
+  `INSERT INTO spfbl_whm_servers (name, host, whm_user, encrypted_token, matrix_user, encrypted_matrix_password, sync_at, sync_status, history_last_run_at)
+SELECT whm_host, whm_host, whm_user, encrypted_whm_token, matrix_user, encrypted_matrix_password, domain_sync_at, domain_sync_status, history_last_run_at FROM spfbl_settings
+ WHERE id = 1 AND whm_host <> '' AND whm_user <> '' AND encrypted_whm_token IS NOT NULL
+ON CONFLICT DO NOTHING`,
+  `UPDATE spfbl_domains d SET server_id = s.id FROM spfbl_whm_servers s, spfbl_settings st
+ WHERE st.id = 1 AND s.host = st.whm_host AND s.whm_user = st.whm_user AND d.source = 'whm' AND d.server_id IS NULL`,
+  `UPDATE spfbl_settings SET whm_host = '', whm_user = '', encrypted_whm_token = NULL, matrix_user = '', encrypted_matrix_password = NULL
+ WHERE id = 1 AND EXISTS (SELECT 1 FROM spfbl_whm_servers s WHERE s.host = spfbl_settings.whm_host AND s.whm_user = spfbl_settings.whm_user)`
+];
+
 const ensureSpfblSchema = async (client) => {
   await client.query(CREATE_SPFBL_SETTINGS_SQL);
   await client.query(SEED_SPFBL_SETTINGS_SQL);
@@ -153,6 +185,7 @@ const ensureSpfblSchema = async (client) => {
   await client.query(CREATE_SPFBL_USER_DOMAINS_SQL);
   for (const statement of SPFBL_REQUEST_STATEMENTS) await client.query(statement);
   for (const statement of SPFBL_HISTORY_STATEMENTS) await client.query(statement);
+  for (const statement of SPFBL_SERVER_STATEMENTS) await client.query(statement);
 };
 
-module.exports = { SPFBL_HISTORY_STATEMENTS, SPFBL_REQUEST_STATEMENTS, CREATE_SPFBL_SETTINGS_SQL, SEED_SPFBL_SETTINGS_SQL, ADD_SYNC_COLUMNS_SQL, CREATE_SPFBL_DOMAINS_SQL, CREATE_SPFBL_USER_ACCESS_SQL, CREATE_SPFBL_USER_DOMAINS_SQL, ensureSpfblSchema };
+module.exports = { SPFBL_SERVER_STATEMENTS, SPFBL_HISTORY_STATEMENTS, SPFBL_REQUEST_STATEMENTS, CREATE_SPFBL_SETTINGS_SQL, SEED_SPFBL_SETTINGS_SQL, ADD_SYNC_COLUMNS_SQL, CREATE_SPFBL_DOMAINS_SQL, CREATE_SPFBL_USER_ACCESS_SQL, CREATE_SPFBL_USER_DOMAINS_SQL, ensureSpfblSchema };
