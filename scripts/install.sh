@@ -732,6 +732,11 @@ main() {
         install_cloudflared
         configure_cloudflare_tunnel
     fi
+    if [ "${FULLPASSWORD_AUTO_UPDATE:-1}" != 0 ]; then
+        install -d -o root -g root -m 0755 /var/lib/fullpassword-release-public
+        install -d -o root -g 1000 -m 0770 /var/lib/fullpassword-release-queue
+        printf '\nCOMPOSE_FILE=docker-compose.yml:docker-compose.webupdate-mounts.yml\n' >> "$APP_DIR/.env"
+    fi
     start_containers
     if [ "$INSTALL_MODE" = cloudflare_tunnel ]; then
         start_cloudflared_service

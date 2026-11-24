@@ -5,13 +5,9 @@ Objetivo: qualquer instalação do FullPassword (open source, sem política por 
 
 ## Como funciona
 
-1. O mantenedor publica uma release: o workflow **Release candidate** constrói as imagens e as envia ao GHCR **por digest**; o mantenedor assina
-   o canal **offline** (a chave privada nunca entra no GitHub) e commita `releases/stable.json`.
-2. Em cada instalação, o agente de host (`scripts/auto-update-agent.js`, systemd timer, root) baixa `releases/stable.json`, verifica a
-   assinatura com a chave pública gravada em `/etc/fullpassword/release-public.pem`, confere o esquema estrito, a validade (≤ 90 dias),
-   o anti-rollback (`ancestors`) e que as imagens são `ghcr.io/trinityrrocha/fullpassword-*@sha256:…`.
-3. Se a instalação descende da release anunciada, o agente publica `catalog.json` (somente leitura para o app). O painel mostra
-   **Atualização disponível** com as notas.
+1. Após o merge, a CI de push da main protegida executa regression, images e o builder pelo SHA integrado. O builder testa o pull anônimo e a revisão interna antes de registrar os dois digests como passos públicos da execução.
+2. Backend e agente consultam a API HTTPS do GitHub (repositório e ID do workflow fixos). Somente o push aprovado da própria main, no SHA atual e na tentativa exata, é elegível. PR, fork, tag, execução manual, CI incompleta, imagens mutáveis e histórico divergente não autorizam instalação.
+3. O SHA instalado precisa ser ancestral do novo. O catálogo local é vinculado ao SHA e aos dois digests. A consulta tem cache de 15 minutos; indisponibilidade do GitHub não autoriza deploy. Sem agente o backend novo ainda pode anunciar a versão, mas não pode instalar.
 4. No clique, o backend (sem Docker, sem root) grava só `{approvalId, revision, manifestHash, requestId}` na fila. O agente confere que é
    exatamente o que ele anunciou e então executa: `pull` por digest → para o backend → **backup `pg_dump` verificado** → migração de
    esquema (role de dono, só em contêiner efêmero) → sobe backend/frontend → confere revisão + digests → estabiliza ≥ 60 s e reconfere.
@@ -26,11 +22,10 @@ O backend continua sem autoridade: não escolhe imagem, caminho, comando nem URL
 
 ```bash
 cd /caminho/da/instalacao
-sudo bash scripts/setup-auto-update.sh          # instala o agente, cria o role de banco restrito e adota a release estável
+sudo bash scripts/setup-auto-update.sh          # ativa a descoberta; não solicita deploy
 ```
 
-O `install.sh` chama isso por padrão em instalações novas. A ativação padrão executa `--adopt`: **não é só ligar um timer**, é a primeira atualização (pode migrar o banco): faz backup, migra para o modo
-`verify` com role sem DDL, monta a fila e valida; se algo falhar, volta ao estado anterior.
+O instalador prepara os mounts da fila e do catálogo antes de iniciar o backend. Não atualiza a aplicação sem o clique. Uma instalação já adotada com mounts pode receber uma atualização única do agente via setup da versão revisada. Se a instalação antiga não tem os mounts, prepare-os no Compose antes da transição. Aplicar imagens não substitui o executável de host.
 
 - **Desligar / ligar**: `sudo bash scripts/setup-auto-update.sh --disable` / `--enable` (arquivo `/etc/fullpassword/auto-update.disabled`).
 - Recusa se existir o agente antigo (`/etc/fullpassword/release-policy.json` ou `fullpassword-release-agent.timer`): os dois não coexistem.
@@ -62,18 +57,11 @@ automaticamente (restaurar o banco diante de qualquer falha poderia sobrescrever
 É **local**: não protege contra perda do disco. Restaurar: `docker compose exec -T db pg_restore -U <owner> -d <db> --clean --if-exists < arquivo.dump`.
 O rollback automático reverte **imagens**, não o banco; as migrações são aditivas, e o backup cobre o pior caso.
 
-## Publicar uma release (mantenedor)
+## Publicar uma atualização
 
-1. Após um push na `main`, o workflow **Security regression** testa o SHA integrado. Se `regression` e `images` passarem, o job `release-candidate` gera o artefato na mesma execução. Um push que altera apenas `releases/stable.json` não produz outro candidato. **Release candidate → Run workflow** permanece disponível para repetição explícita com o SHA completo. Baixe `release-candidate.json` somente após build, pull anônimo e revisão interna de ambas as imagens passarem. O artefato ainda não é um anúncio.
-2. Offline: `node scripts/release-candidate.js sign release-candidate.json /caminho/FORA/do/checkout/release-private.pem`
-3. PR com `releases/stable.json`. Só então as instalações enxergam a versão.
+Abra o PR, valide migrações e rollback, faça merge na main protegida e aguarde **Security regression** no SHA de push, inclusive **release-candidate / candidate**. Não é necessário assinar arquivo, abrir segundo PR ou acessar instalações já migradas. Não trate build manual ou CI de PR como anúncio. Se falhar, corrija a CI; não desative os gates. A proteção de escrita/revisão da main, do workflow e das permissões GitHub é parte da autoridade de release.
 
-### Checklist para Claude Code e outros agentes
-
-- Abra PR para as alterações e aguarde a CI. Se houver migrações, documente o caminho de upgrade e prove em PostgreSQL isolado a preservação dos dados, a restauração e a compatibilidade com rollback de imagens.
-- Depois do merge, não confunda push, tag ou imagens publicadas com anúncio concluído. Gere o candidato do SHA revisado, entregue o artefato e as notas ao mantenedor para assinatura offline e abra o PR do canal com o envelope assinado. Nunca copie a chave privada para o checkout, GitHub Actions ou VPS.
-- Depois do merge do anúncio, confirme acesso anônimo, assinatura e revisão no canal público. Registre SHA, digests, links da CI/PR e o resultado da descoberta no WebUpdate. Não anuncie deploy concluído antes de verificar o runtime instalado.
-- Não faça SSH nem crie aprovações locais a cada release em instalações já migradas. Para provar a adoção, publique uma segunda release e verifique descoberta e instalação pelo painel sem alteração no host.
+Instalações ainda no protocolo assinado não descobrem este protocolo sozinhas. Usam o canal antigo até a transição única do agente pelo operador; uma release de transição para clientes exclusivamente assinados segue o fluxo offline anterior. Nunca troque a chave pública nesses clientes para forçar a adoção.
 
 ## Limites conhecidos
 

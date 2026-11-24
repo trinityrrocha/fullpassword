@@ -69,3 +69,8 @@ jobs:
         with:
           name: release-candidate
           path: release-candidate.json
+      # Public, anonymous Actions API exposes successful step names for this exact run attempt.
+      - name: WebUpdate backend ${{ steps.images.outputs.backend }}
+        run: 'true'
+      - name: WebUpdate frontend ${{ steps.images.outputs.frontend }}
+        run: 'true'

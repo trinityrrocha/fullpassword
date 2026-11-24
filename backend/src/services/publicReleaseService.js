@@ -81,4 +81,4 @@ function createPublicReleaseService({ fetcher = global.fetch, publicKey = PUBLIC
       release, checkedAt, stale: failed || Boolean(expired) };
   };
 }
-module.exports = { CHANNEL_URL, verifyPublicRelease, createPublicReleaseService, getPublicRelease: createPublicReleaseService() };
+module.exports = { CHANNEL_URL, verifyPublicRelease, createPublicReleaseService, getPublicRelease: require('./mainCiRelease').cachedDiscovery() };
