@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { formatDateTimeShort } from '../utils/formatDateTimeShort';
 import { AlertTriangle, Loader2, Upload } from 'lucide-react';
 import api from '../services/api';
 import useClearOnVaultLock from '../hooks/useClearOnVaultLock';
@@ -174,7 +175,7 @@ export default function BackupRestoreCard() {
       </div>
       {summary && (
         <div className="rounded-md bg-slate-50 p-4 text-sm">
-          <p><strong>Data:</strong> {summary.generated_at ? new Date(summary.generated_at).toLocaleString() : 'Não informada'}</p>
+          <p><strong>Data:</strong> {summary.generated_at ? formatDateTimeShort(summary.generated_at) : 'Não informada'}</p>
           <p><strong>Gerado por:</strong> {summary.generated_by || 'Não informado'}</p>
           <p><strong>Versão:</strong> {summary.version}</p>
           {summary.parts !== undefined && <p><strong>Partes:</strong> {summary.parts}</p>}

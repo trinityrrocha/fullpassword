@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import SpfblStatusBar from './SpfblStatusBar';
+import SpfblAdminDomains from './SpfblAdminDomains';
 import { getDashboard, refreshHistory } from '../../services/spfblService';
-import { describeError, formatDay, formatIsoDateTime, formatNumber } from '../../utils/spfbl';
+import { describeError, formatDay, formatIsoShort, formatNumber } from '../../utils/spfbl';
 
 const POLL_MS = 3000;
 const CATEGORY_LABELS = [['banimento', 'Banimento'], ['segurança', 'Segurança'], ['inexistência', 'Inexistência']];
@@ -36,7 +37,7 @@ function Ranking({ title, subtitle, items }) {
   );
 }
 
-export default function SpfblDashboard() {
+export default function SpfblDashboard({ role }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -74,6 +75,7 @@ export default function SpfblDashboard() {
       <Card label="Domínio com mais incidência" note={top ? `${formatNumber(top.count)} tentativas bloqueadas` : 'Sem bloqueios no período'}>
         <span className="break-all text-2xl">{top ? top.name : '—'}</span>
       </Card>
+      {role === 'super_admin' && <SpfblAdminDomains />}
       <div className="grid gap-4 md:grid-cols-2">
         <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm" aria-label="Bloqueios por motivo">
           <h3 className="text-lg font-semibold text-slate-900">Bloqueios por motivo</h3>
@@ -95,7 +97,7 @@ export default function SpfblDashboard() {
         <p className="mt-1 text-sm text-slate-600">Liberações confirmadas registradas pelo portal, dentro da retenção local. Uma liberação anterior pode ter sido seguida por novo bloqueio.</p>
         {data.latest_unlocks.length === 0 ? <p className="mt-3 text-sm text-slate-600">Nenhum desbloqueio registrado.</p> : (
           <div className="mt-3 overflow-x-auto"><table className="min-w-full text-left text-sm"><thead className="bg-slate-50 text-xs uppercase text-slate-600"><tr>{['Data', 'Domínio', 'Destinatário', 'Remetente'].map((h) => <th key={h} scope="col" className="px-3 py-2 font-semibold">{h}</th>)}</tr></thead>
-            <tbody className="divide-y divide-slate-200">{data.latest_unlocks.map((u, index) => <tr key={`${u.created_at}-${index}`}><td className="whitespace-nowrap px-3 py-2">{formatIsoDateTime(u.created_at)}</td><td className="break-all px-3 py-2">{u.domain}</td><td className="break-all px-3 py-2">{u.recipient}</td><td className="break-all px-3 py-2">{u.sender || '—'}</td></tr>)}</tbody></table></div>
+            <tbody className="divide-y divide-slate-200">{data.latest_unlocks.map((u, index) => <tr key={`${u.created_at}-${index}`}><td className="whitespace-nowrap px-3 py-2">{formatIsoShort(u.created_at)}</td><td className="break-all px-3 py-2">{u.domain}</td><td className="break-all px-3 py-2">{u.recipient}</td><td className="break-all px-3 py-2">{u.sender || '—'}</td></tr>)}</tbody></table></div>
         )}
       </section>
     </div>

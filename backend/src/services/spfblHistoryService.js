@@ -167,6 +167,24 @@ const buildOverview = (rows, domains, now = Date.now()) => {
     period: { start: period.start, end: period.end, timezone: TIMEZONE } };
 };
 
+// Per-domain results for the Super Admin overview: every REGISTERED domain appears (even with no records), counted over the same
+// 7-day window as the dashboard. Records of domains that are not in the catalogue are ignored.
+const buildDomainsOverview = (rows, catalogue, now = Date.now()) => {
+  const period = parseFilters({}, now);
+  const byName = new Map(catalogue.map((d) => [d.name, { domain: d.name, active: d.active, source: d.source, total: 0, blocked: 0, banimento: 0, 'segurança': 0, 'inexistência': 0 }]));
+  for (const r of rows) {
+    if (r.timestamp < period.start_ts || r.timestamp >= period.end_ts) continue;
+    const entry = byName.get(emailDomain(r.recipient));
+    if (!entry) continue;
+    entry.total += 1;
+    const { category } = classify(r.result);
+    if (category) { entry[category] += 1; entry.blocked += 1; }
+  }
+  const list = [...byName.values()].sort((a, b) => (b.blocked - a.blocked) || (b.total - a.total) || (a.domain < b.domain ? -1 : 1));
+  const totals = list.reduce((t, d) => ({ total: t.total + d.total, blocked: t.blocked + d.blocked }), { total: 0, blocked: 0 });
+  return { domains: list, totals, period: { start: period.start, end: period.end, timezone: TIMEZONE }, start_ts: period.start_ts, end_ts: period.end_ts };
+};
+
 // ---- staged in-memory history -----------------------------------------------------------------------------------
 const emptyState = () => ({ rows: [], next: null, pages: 0, signatures: [], cursors: [], updated: 0, started: 0, last: 0, partial: false, done: false, error: '' });
 
@@ -239,4 +257,4 @@ const stateView = (state, now = Date.now()) => ({ loading: !state.done, pages: s
   updated_at: state.updated ? new Date(state.updated).toISOString() : null, rows: state.rows.length, now });
 
 module.exports = { HistoryError, TIMEZONE, PAGE_SIZE, classify, normalizeDomain, normalizeEmail, emailDomain, belongs, parseArrival, normalizeRecord,
-  zonedMidnight, parseFilters, selectRows, publicRow, buildOverview, merge, createHistoryStore, stateView, emptyState };
+  zonedMidnight, parseFilters, selectRows, publicRow, buildOverview, buildDomainsOverview, merge, createHistoryStore, stateView, emptyState };

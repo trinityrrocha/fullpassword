@@ -7,6 +7,7 @@ import SpfblOwnScope from '../components/spfbl/SpfblOwnScope';
 import SpfblDashboard from '../components/spfbl/SpfblDashboard';
 import SpfblHistory from '../components/spfbl/SpfblHistory';
 import SpfblRequests from '../components/spfbl/SpfblRequests';
+import SpfblAudit from '../components/spfbl/SpfblAudit';
 import { getOverview, getSettings, listAccess, listDomains, listUsers } from '../services/spfblService';
 import { describeError } from '../utils/spfbl';
 
@@ -88,12 +89,13 @@ function AdminView({ overview, onOverviewChange }) {
   );
 }
 
-const TABS = { dashboard: 'Dashboard', history: 'Histórico', requests: 'Solicitações', settings: 'Configuração', access: 'Meu acesso' };
+const TABS = { dashboard: 'Dashboard', history: 'Histórico', requests: 'Solicitações', audit: 'Auditoria', settings: 'Configuração', access: 'Meu acesso' };
+const tabsFor = (role) => Object.keys(TABS).filter((key) => (role === 'super_admin' ? key !== 'access' : !['settings', 'audit'].includes(key)));
 
 export default function Spfbl() {
   const [overview, setOverview] = useState(null);
   const [error, setError] = useState('');
-  const [tab, setTab] = useState('dashboard');
+  const [tab, setTab] = useState(() => { const wanted = new URLSearchParams(window.location.search).get('tab'); return TABS[wanted] ? wanted : 'dashboard'; });
 
   useEffect(() => {
     let active = true;
@@ -104,7 +106,7 @@ export default function Spfbl() {
   }, []);
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6 p-4 md:p-6">
+    <div className="mx-auto max-w-7xl space-y-5 p-4 md:p-6">
       <header>
         <h1 className="flex items-center text-2xl font-bold text-slate-900"><Bug className="mr-2 h-6 w-6 text-indigo-500" aria-hidden="true" />SPFBL</h1>
         <p className="mt-1 text-sm text-slate-600">Consulta e gestão de bloqueios de e-mail do Matrix SPFBL.</p>
@@ -113,15 +115,16 @@ export default function Spfbl() {
       {!overview && !error && <p role="status" className="text-sm text-slate-600">Carregando...</p>}
       {overview && (
         <nav aria-label="Seções do SPFBL" className="flex flex-wrap gap-1 border-b border-slate-200">
-          {Object.keys(TABS).filter((key) => (overview.role === 'super_admin' ? key !== 'access' : key !== 'settings')).map((key) => (
+          {tabsFor(overview.role).map((key) => (
             <button key={key} type="button" onClick={() => setTab(key)} aria-current={tab === key ? 'page' : undefined}
               className={`min-h-9 border-b-2 px-3 text-sm font-medium ${tab === key ? 'border-blue-800 text-blue-800' : 'border-transparent text-slate-700 hover:text-slate-900'}`}>{TABS[key]}</button>
           ))}
         </nav>
       )}
-      {overview && tab === 'dashboard' && <SpfblDashboard />}
+      {overview && tab === 'dashboard' && <SpfblDashboard role={overview.role} />}
       {overview && tab === 'history' && <SpfblHistory />}
       {overview && tab === 'requests' && <SpfblRequests />}
+      {overview?.role === 'super_admin' && tab === 'audit' && <SpfblAudit />}
       {overview?.role === 'super_admin' && tab === 'settings' && <AdminView overview={overview} onOverviewChange={setOverview} />}
       {overview?.role === 'user' && tab === 'access' && <SpfblOwnScope overview={overview} />}
     </div>

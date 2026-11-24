@@ -39,7 +39,7 @@ export const domainState = (domain) => {
 export const formatDateTime = (value) => {
   if (!value) return '';
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? '' : date.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+  return Number.isNaN(date.getTime()) ? '' : new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }).format(date).replace(',', '');
 };
 
 export const describeSync = (at, status) => {
@@ -109,10 +109,10 @@ export const grantableUsers = (users, grants, editingId = null) => {
 
 // ---- history presentation (Phase 2) ----
 const TIMEZONE = 'America/Sao_Paulo';
-export const formatEpoch = (seconds) => new Intl.DateTimeFormat('pt-BR', { timeZone: TIMEZONE, day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' })
+export const formatEpoch = (seconds) => new Intl.DateTimeFormat('pt-BR', { timeZone: TIMEZONE, day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' })
   .format(new Date(seconds * 1000)).replace(',', '');
 export const formatIsoDateTime = (iso) => (iso ? formatEpoch(Math.floor(Date.parse(iso) / 1000)) : '');
-export const formatDay = (value) => (/^\d{4}-\d{2}-\d{2}$/.test(value || '') ? value.split('-').reverse().join('/') : '');
+export const formatDay = (value) => { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value || ''); return m ? `${m[3]}/${m[2]}/${m[1].slice(2)}` : ''; };
 export const formatNumber = (value) => new Intl.NumberFormat('pt-BR').format(Number(value) || 0);
 export const REASON_ICONS = { banned: '🚫', security: '💀', inexistent: '⚠️', '': '' };
 export const STATE_LABELS = (state) => (state?.loading ? 'Carregando histórico em etapas' : state?.partial ? 'Cobertura parcial' : 'Histórico carregado');
@@ -132,3 +132,9 @@ export const describeRelease = (release) => {
   if (release.state === 'unlocked') return { tone: 'text-emerald-800 border-emerald-700', badge: 'Desbloqueado', line: release.at ? `Desbloqueado${when}${who}` : 'Liberado no SPFBL (fora do portal)' };
   return { tone: 'text-slate-800 border-slate-500', badge: 'Bloqueado novamente', line: `Bloqueado novamente${when}${who}` };
 };
+
+// Short time of day (no seconds) for dense tables: dd/mm/aa HH:mm.
+export const formatEpochShort = (seconds) => formatEpoch(seconds).replace(/:\d{2}$/, '');
+export const formatIsoShort = (iso) => (iso ? formatEpochShort(Math.floor(Date.parse(iso) / 1000)) : '');
+
+export const REASON_SHORT = { banned: 'Banimento', security: 'Segurança', inexistent: 'Inexistência', '': 'Aceita' };

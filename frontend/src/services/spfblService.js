@@ -37,3 +37,6 @@ export const keepRequest = async (id, { revision, notify }) => (await api.post(`
 export const releaseRequest = async (id, { revision, notify, proof }) => (await api.post(`/spfbl/requests/${encodeURIComponent(id)}/release`, { revision, notify, proof })).data;
 export const blockRequest = async (id, { revision, notify, proof }) => (await api.post(`/spfbl/requests/${encodeURIComponent(id)}/block`, { revision, notify, proof })).data;
 export const blockSender = async (id, domain, proof) => (await api.post(`/spfbl/records/${encodeURIComponent(id)}/block`, { domain, proof, confirm: true })).data.request;
+
+export const getAdminDomains = async () => (await api.get('/spfbl/dashboard/domains')).data;
+export const getAudit = async (params) => (await api.get('/spfbl/audit', { params })).data;

@@ -9,6 +9,7 @@ const access = require('../services/spfblAccessService');
 const history = require('../services/spfblHistoryService');
 const release = require('../services/spfblReleaseService');
 const notifications = require('../services/spfblNotifications');
+const auditService = require('../services/spfblAuditService');
 const crypto = require('node:crypto');
 const { isSuperAdmin } = require('../config/security');
 const { canUserAccessModule } = require('../services/modulesService');
@@ -18,7 +19,7 @@ const CONFIG_KEY_MESSAGE = 'A chave de criptografia das configurações não est
 
 // Authorization (Super Admin) and the module toggle are enforced by the router before these handlers run.
 const mapKnownError = (res, error) => {
-  if (error instanceof SpfblSettingsError || error instanceof MatrixError || error instanceof WhmError || error instanceof domains.DomainError || error instanceof access.AccessError || error instanceof history.HistoryError || error instanceof release.ReleaseError) {
+  if (error instanceof SpfblSettingsError || error instanceof MatrixError || error instanceof WhmError || error instanceof domains.DomainError || error instanceof access.AccessError || error instanceof history.HistoryError || error instanceof release.ReleaseError || error instanceof auditService.AuditError) {
     return res.status(error.statusCode).json({ code: error.code, error: error.message });
   }
   if (error instanceof ConfigEncryptionError) return res.status(503).json({ code: error.code, error: CONFIG_KEY_MESSAGE });
@@ -356,6 +357,25 @@ const blockSender = guarded('bloqueio do remetente', async (req, res) => {
   }
 });
 
+// Super Admin: results of EVERY registered domain (active or not) over the dashboard window.
+const adminDomains = guarded('visão dos domínios', async (req, res) => {
+  const catalogue = await domains.listDomains();
+  const credentials = await getMatrixCredentials().catch(() => null);
+  const state = credentials ? (await loadHistory(false)).state : history.emptyState();
+  const overview = history.buildDomainsOverview(state.rows, catalogue);
+  const activity = await release.domainActivity(overview.start_ts, overview.end_ts);
+  res.setHeader('Cache-Control', 'no-store');
+  return res.status(200).json({
+    domains: overview.domains.map((d) => ({ ...d, unlocked: activity.unlocked.get(d.domain) || 0, pending: activity.pending.get(d.domain) || 0 })),
+    totals: overview.totals, period: overview.period, state: history.stateView(state)
+  });
+});
+
+const auditList = guarded('auditoria', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  return res.status(200).json(await auditService.list(req.query));
+});
+
 const listRequests = guarded('lista de solicitações', async (req, res) => {
   const actor = await actorOf(req);
   res.setHeader('Cache-Control', 'no-store');
@@ -401,7 +421,7 @@ const releaseRequest = decide('release', async (actor, req, input) => {
 const blockRequest = decide('block', async (actor, req, input) => release.blockAgain(actor, req.params.id, input, await getMatrixCredentials()));
 
 module.exports = {
-  dashboard, historyList, refreshHistory, recordDetail, recordStatus, requestReview, unlockRecord, blockSender, listRequests, requestDetail, keepRequest, releaseRequest, blockRequest, resetStatusState, historyStore, STATUS_COOLDOWN_MS,
+  dashboard, historyList, refreshHistory, recordDetail, recordStatus, requestReview, unlockRecord, blockSender, adminDomains, auditList, listRequests, requestDetail, keepRequest, releaseRequest, blockRequest, resetStatusState, historyStore, STATUS_COOLDOWN_MS,
   getSettings: getSettingsHandler, saveSettings, testMatrix, resetTestState, TEST_COOLDOWN_MS,
   testWhm, syncDomains, listDomains, addDomain, removeDomain, resetWhmState, WHM_COOLDOWN_MS,
   listAccess, saveAccess, revokeAccess, overview

@@ -226,6 +226,48 @@ async function main() {
     assert.equal((await database.query("SELECT status FROM spfbl_operations WHERE record_id = $1", [free.id])).rows[0].status, 'blocked');
     provider.blocks.length = 0;
 
+    // ---- audit page, admin overview of every registered domain, and the bell for administrators ----
+    await database.query("INSERT INTO system_audit_events(user_id,user_email,action,status,metadata) VALUES ($1,$2,'spfbl_unlock_done','failed',$3)", [users.direct, emails.direct,
+      JSON.stringify({ domain: 'one.example.com', reason: 'SPFBL_UNCERTAIN', password: 'AUDIT_SECRET_SENTINEL', provider_key: 'PK_SENTINEL', diagnostic: 'white HTTP=200 result=FAIL', extra: { nested: 'x' } })]);
+    let auditRes = await call(controller.auditList, 'admin', { query: {} });
+    assert.equal(auditRes.code, 200, JSON.stringify(auditRes.body)); assert.ok(auditRes.body.total >= 5);
+    assert.ok(auditRes.body.events.every((e) => e.action.startsWith('spfbl_')), 'only SPFBL entries');
+    assert.ok(auditRes.body.events.some((e) => e.action === 'spfbl_review_requested' && e.details.domain === 'one.example.com' && e.label === 'Revisão solicitada'));
+    assert.ok(!JSON.stringify(auditRes.body).includes('AUDIT_SECRET_SENTINEL') && !JSON.stringify(auditRes.body).includes('PK_SENTINEL'), 'metadata passes an allow-list');
+    const sentinel = auditRes.body.events.find((e) => e.details.diagnostic === 'white HTTP=200 result=FAIL'); assert.deepEqual(Object.keys(sentinel.details).sort(), ['diagnostic', 'domain', 'reason']);
+    auditRes = await call(controller.auditList, 'admin', { query: { status: 'failed', action: 'spfbl_unlock_done', domain: 'ONE.example.com' } }); assert.equal(auditRes.code, 200);
+    assert.ok(auditRes.body.events.length >= 1 && auditRes.body.events.every((e) => e.status === 'failed' && e.action === 'spfbl_unlock_done'));
+    assert.equal((await call(controller.auditList, 'admin', { query: { action: 'login_failed' } })).code, 422, 'only SPFBL actions can be requested');
+    assert.equal((await call(controller.auditList, 'admin', { query: { start: '2026-13-40' } })).code, 422);
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
+    assert.ok((await call(controller.auditList, 'admin', { query: { start: today, end: today } })).body.total >= 5, 'a same-day period includes today');
+    assert.equal((await call(controller.auditList, 'admin', { query: { start: '2000-01-01', end: '2000-01-02' } })).body.total, 0);
+    assert.equal((await call(controller.auditList, 'admin', { query: { page: '9999' } })).body.page, auditRes.body.pages > 1 ? (await call(controller.auditList, 'admin', { query: { page: '9999' } })).body.pages : 1);
+
+    controller.historyStore.reset();
+    matrix.historyPage = async () => ({ messages: [
+      { key: 'A1', recipient: 'a@one.example.com', sender: 's@out.example', result: 'BANNED', arrival: new Date((nowS - 100) * 1000).toISOString(), status: 'NONE' },
+      { key: 'A2', recipient: 'b@one.example.com', sender: 's@out.example', result: 'BLOCK', arrival: new Date((nowS - 90) * 1000).toISOString(), status: 'NONE' },
+      { key: 'A3', recipient: 'c@one.example.com', sender: 's@out.example', result: 'ACCEPT', arrival: new Date((nowS - 80) * 1000).toISOString(), status: 'NONE' },
+      { key: 'A4', recipient: 'x@unregistered.example', sender: 's@out.example', result: 'BLOCK', arrival: new Date((nowS - 70) * 1000).toISOString(), status: 'NONE' }], next: null, signature: 'ad' });
+    const overviewRes = await call(controller.adminDomains, 'admin'); assert.equal(overviewRes.code, 200, JSON.stringify(overviewRes.body));
+    const byDomain = Object.fromEntries(overviewRes.body.domains.map((d) => [d.domain, d]));
+    assert.deepEqual(Object.keys(byDomain).sort(), ['one.example.com', 'two.example.com'], 'every registered domain, and only registered ones');
+    assert.deepEqual([byDomain['one.example.com'].total, byDomain['one.example.com'].blocked, byDomain['one.example.com'].banimento, byDomain['one.example.com']['segurança']], [3, 2, 1, 1]);
+    assert.deepEqual([byDomain['two.example.com'].total, byDomain['two.example.com'].blocked], [0, 0], 'a registered domain without records still appears');
+    assert.ok(byDomain['one.example.com'].unlocked >= 1, 'unlocks of the window are counted'); assert.ok(byDomain['one.example.com'].pending >= 0);
+    assert.equal(overviewRes.body.domains[0].domain, 'one.example.com', 'sorted by blocks'); assert.equal(overviewRes.body.totals.total, 3);
+    assert.equal((await call(controller.adminDomains, 'admin')).body.state.loading, false);
+
+    const securityController = require('../src/controllers/securityController');
+    const bell = await call(securityController.getSecurityNotifications, 'admin');
+    assert.equal(bell.code, 200, JSON.stringify(bell.body));
+    const requested = bell.body.items.find((i) => i.title === 'Nova solicitação de revisão (SPFBL)'); assert.ok(requested, 'a new request reaches the administrators bell');
+    assert.match(requested.summary, /one\.example\.com/); assert.equal(requested.target_url, '/spfbl?tab=requests');
+    const failedBell = bell.body.items.find((i) => i.title === 'Desbloqueio SPFBL não concluído'); assert.ok(failedBell); assert.equal(failedBell.target_url, '/spfbl?tab=audit'); assert.equal(failedBell.severity, 'error');
+    assert.ok(!JSON.stringify(bell.body).includes('AUDIT_SECRET_SENTINEL'));
+    assert.equal((await call(securityController.getSecurityNotifications, 'direct')).code, 403, 'ordinary accounts never see the bell');
+
     // ---- first run: nothing authorized, wrong credentials ----
     await access.saveAccess(users.outsider, { unlock_mode: 'review', domain_ids: [dom.two] }, users.admin);
     await database.query('UPDATE spfbl_domains SET active = FALSE WHERE id = $1', [dom.two]);

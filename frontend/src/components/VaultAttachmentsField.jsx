@@ -42,7 +42,7 @@ const formatSize = (size = 0) => size < 1024 ? `${size} B` : size < 1024 * 1024 
 const formatDate = (value) => {
   if (!value) return 'Data não disponível';
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? 'Data não disponível' : date.toLocaleString('pt-BR');
+  return Number.isNaN(date.getTime()) ? 'Data não disponível' : new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }).format(date).replace(',', '');
 };
 
 export default function VaultAttachmentsField({ title, helpText, attachments, allowedExtensions, onChange, multiple = true }) {

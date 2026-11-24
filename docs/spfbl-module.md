@@ -59,6 +59,19 @@ decisão e fica na auditoria. Sem fila persistente nesta versão.
 **Dados.** `spfbl_requests`, `spfbl_operations` e `spfbl_release_events` (migração 29), nos backups como tabelas opcionais; as
 decisões sobrevivem à exclusão do usuário (`actor_id` fica nulo).
 
+## Fase 3: avisos, auditoria e visão do administrador
+
+- **Notificações recentes (sino).** Os Super Admins recebem no sino: nova solicitação de revisão, desbloqueios/bloqueios diretos feitos por
+  usuários e qualquer operação **não concluída** (falha ou resultado não confirmado). O clique abre a aba **Solicitações** ou **Auditoria**
+  (`/spfbl?tab=requests|audit`). Além disso o e-mail ao administrador (melhor esforço) continua valendo.
+- **Auditoria** (aba, só Super Admin): eventos `spfbl_*` da trilha de auditoria do sistema, com filtros por evento, situação, domínio e período
+  (America/Sao_Paulo), 25 por página. Os detalhes passam por **lista de permissão** (domínio, modo, motivo, status do SPFBL, diagnóstico
+  fixo): nunca senhas, tokens, chaves do fornecedor ou texto livre.
+- **Todos os domínios cadastrados** (Dashboard do Super Admin): uma linha por domínio do catálogo (ativo ou não, mesmo sem registros) com
+  tentativas, bloqueios por motivo, desbloqueios do período e solicitações pendentes; busca e filtro "só com bloqueios".
+- **Layout e datas.** Tabelas minimalistas, uma linha por registro (texto longo é cortado com a dica completa ao passar o mouse). Datas
+  curtas **dd/mm/aa** em todo o sistema (os campos de data nativos seguem o idioma do navegador).
+
 ## Token do WHM
 
 Crie em WHM → *Manage API Tokens* um token com o **mínimo de permissões** para listar contas e domínios, de preferência

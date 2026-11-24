@@ -421,5 +421,13 @@ const latestUnlocks = async (scope) => {
   return result.rows;
 };
 
-module.exports = { blockRecord, releaseInfo, unlockedRecordIds, ReleaseError, STALE_MS, LABELS, label, confirmation, checkConfirmation, integrationHash, reconcileStale, requestReview, keep, execute, checkCurrent, blockAgain,
+// Counts by domain for the admin overview: unlocks inside the period and requests still waiting for a decision.
+const domainActivity = async (startTs, endTs) => {
+  const unlocked = (await db.query(`SELECT domain, COUNT(*)::integer AS n FROM spfbl_release_events WHERE action = 'unlocked'
+    AND created_at >= to_timestamp($1) AND created_at < to_timestamp($2) GROUP BY domain`, [startTs, endTs])).rows;
+  const pending = (await db.query("SELECT domain, COUNT(*)::integer AS n FROM spfbl_requests WHERE status = 'pending' GROUP BY domain")).rows;
+  return { unlocked: new Map(unlocked.map((r) => [r.domain, r.n])), pending: new Map(pending.map((r) => [r.domain, r.n])) };
+};
+
+module.exports = { domainActivity, blockRecord, releaseInfo, unlockedRecordIds, ReleaseError, STALE_MS, LABELS, label, confirmation, checkConfirmation, integrationHash, reconcileStale, requestReview, keep, execute, checkCurrent, blockAgain,
   listRequests, requestDetail, recordState, latestUnlocks, publicRequest, getRequest };

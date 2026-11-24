@@ -146,6 +146,21 @@ try {
       if (!reauthGate(route, body, `spfbl_access:${access[1]}`)) return;
       state.grants = state.grants.filter((g) => g.user_id !== access[1]); return json({ revoked: true });
     }
+    if (api === '/spfbl/dashboard/domains') {
+      return json({ domains: [{ domain: 'manual.example.org', active: true, source: 'manual', total: 40, blocked: 9, banimento: 4, 'segurança': 5, 'inexistência': 0, unlocked: 1, pending: 2 },
+        { domain: 'quiet.example.org', active: true, source: 'whm', total: 0, blocked: 0, banimento: 0, 'segurança': 0, 'inexistência': 0, unlocked: 0, pending: 0 },
+        { domain: 'old.example.org', active: false, source: 'whm', total: 3, blocked: 0, banimento: 0, 'segurança': 0, 'inexistência': 0, unlocked: 0, pending: 0 }],
+        totals: { total: 43, blocked: 9 }, period: { start: '2026-11-17', end: '2026-11-23', timezone: 'America/Sao_Paulo' }, state: { loading: false, pages: 1, partial: true, error: '', updated_at: '2026-11-23T23:15:31Z', rows: 43 } });
+    }
+    if (api === '/spfbl/audit' && method === 'GET') {
+      const q = Object.fromEntries(url.searchParams); state.auditQueries = [...(state.auditQueries || []), q];
+      if (q.start === 'bad') return json({ code: 'SPFBL_AUDIT_FILTER', error: 'Informe uma data válida.' }, 422);
+      const all = [{ id: 'e1', at: '2026-11-23T21:17:03Z', action: 'spfbl_unlock_done', label: 'Desbloqueio', status: 'success', status_label: 'Sucesso', user: 'ana@example.com', details: { domain: 'manual.example.org', mode: 'direct' } },
+        { id: 'e2', at: '2026-11-23T22:07:26Z', action: 'spfbl_review_requested', label: 'Revisão solicitada', status: 'success', status_label: 'Sucesso', user: 'davi@example.com', details: { domain: 'manual.example.org', notification: 'smtp_skipped' } },
+        { id: 'e3', at: '2026-11-23T23:00:00Z', action: 'spfbl_unlock_done', label: 'Desbloqueio', status: 'failed', status_label: 'Falha', user: 'ana@example.com', details: { domain: 'manual.example.org', reason: 'SPFBL_UNCERTAIN', diagnostic: 'white HTTP=200 result=FAIL' } }];
+      const events = all.filter((e) => (!q.status || e.status === q.status) && (!q.action || e.action === q.action));
+      return json({ events, total: events.length, page: 1, pages: 1, actions: [{ value: 'spfbl_unlock_done', label: 'Desbloqueio' }, { value: 'spfbl_review_requested', label: 'Revisão solicitada' }] });
+    }
     if (api === '/spfbl/dashboard') {
       state.dashboardCalls = (state.dashboardCalls || 0) + 1;
       return json({ categories: { banimento: 37, 'segurança': 24, 'inexistência': 33 }, domains: [{ name: 'manual.example.org', count: 94 }], recipients: [{ name: 'daniel@manual.example.org', count: 22 }, { name: 'ana@manual.example.org', count: 15 }],
@@ -422,7 +437,7 @@ try {
   await page.getByRole('button', { name: 'Limpar filtros' }).click();
   await page.getByText(/48 registros\/tentativas com os filtros/).waitFor();
   await shot('history-1280');
-  await page.getByRole('button', { name: /Ver detalhes de u1@manual.example.org/ }).click();
+  await page.getByRole('button', { name: /Detalhes de u1@manual.example.org/ }).click();
   await page.getByRole('heading', { name: 'Detalhes do registro' }).waitFor();
   assert.equal(await page.evaluate(() => document.activeElement?.textContent?.includes('Voltar ao histórico')), true, 'focus moves to the back control');
   await page.getByText('Resultado original').waitFor();
@@ -446,7 +461,7 @@ try {
   // ================= 9. Requests and decisions (Phase 2B) =================
   // 9a. A review-mode account: checkbox required, double submit sends once, then the request is shown instead of the form.
   await page.getByRole('button', { name: 'Histórico' }).click();
-  await page.getByRole('button', { name: /Ver detalhes de u1@manual.example.org/ }).click();
+  await page.getByRole('button', { name: /Detalhes de u1@manual.example.org/ }).click();
   await page.getByRole('heading', { name: 'Solicitar revisão do bloqueio' }).waitFor();
   assert.equal(await page.getByRole('heading', { name: 'Desbloquear remetente' }).count(), 0, 'a review-mode account never sees the direct unlock');
   await page.getByRole('button', { name: 'Registrar solicitação' }).click();
@@ -467,7 +482,7 @@ try {
   state = newState(); state.enabled = true; state.role = 'user'; state.mode = 'direct';
   await open('page');
   await page.getByRole('button', { name: 'Histórico' }).click();
-  await page.getByRole('button', { name: /Ver detalhes de u1@manual.example.org/ }).click();
+  await page.getByRole('button', { name: /Detalhes de u1@manual.example.org/ }).click();
   await page.getByRole('heading', { name: 'Desbloquear remetente' }).waitFor();
   await page.getByText(/pode afetar outros destinatários da mesma integração/).first().waitFor();
   state.failUnlock = true;
@@ -481,7 +496,7 @@ try {
   await page.getByRole('button', { name: 'Consultar status atual' }).click().catch(() => {});
   // success path: the same screen immediately shows "was blocked, now unlocked", who and when, and offers blocking again
   await page.getByRole('button', { name: '← Voltar ao histórico' }).click();
-  await page.getByRole('button', { name: /Ver detalhes de u1@manual.example.org/ }).click();
+  await page.getByRole('button', { name: /Detalhes de u1@manual.example.org/ }).click();
   await page.getByLabel('Entendo o alcance e confirmo o desbloqueio deste remetente.').check();
   await page.getByRole('button', { name: 'Desbloquear', exact: true }).click();
   await page.getByRole('heading', { name: 'Remetente desbloqueado' }).waitFor();
@@ -494,8 +509,7 @@ try {
   assert.deepEqual(state.blockBodies.map((b) => [b.proof, b.confirm]), [['a'.repeat(64), true]], 'the block carries the server proof and the confirmation');
   assert.equal(await page.getByRole('heading', { name: 'Bloquear remetente', exact: true }).count(), 0, 'no second block offered');
   await page.getByRole('button', { name: '← Voltar ao histórico' }).click();
-  await page.getByText('Desbloqueado', { exact: true }).first().waitFor();
-  await page.getByText(/Desbloqueado em .* por Ana Souza/).first().waitFor();
+  await page.locator('tbody').getByText(/Ana Souza/).first().waitFor();
   assert.ok((await page.getByLabel('Situação').locator('option').allInnerTexts()).includes('Desbloqueados'), 'filter option for released records');
   await shot('history-unlocked-1280');
 
@@ -527,6 +541,50 @@ try {
   await page.setViewportSize({ width: 390, height: 800 }); await noOverflow('requests admin 390px'); await page.setViewportSize({ width: 1280, height: 900 });
   await page.getByRole('button', { name: 'Dashboard' }).click();
   await page.getByText('Últimos 10 desbloqueios').waitFor(); await page.getByText('cobranca@tufaonet.com.br').waitFor();
+
+  // ================= 10. Phase 3: admin overview of every domain, audit page, compact one-line rows, short dates =================
+  state = newState(); state.enabled = true; state.role = 'super_admin';
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await open('page');
+  await page.getByRole('heading', { name: 'Todos os domínios cadastrados' }).waitFor();
+  const overviewRows = page.getByRole('table', { name: 'Resultados por domínio cadastrado' }).locator('tbody tr');
+  assert.equal(await overviewRows.count(), 3, 'every registered domain is listed, including one without records and an inactive one');
+  await page.getByText('quiet.example.org').waitFor(); await page.getByText('inativo', { exact: true }).waitFor();
+  await page.getByPlaceholder('Buscar domínio').fill('quiet'); assert.equal(await overviewRows.count(), 1);
+  await page.getByPlaceholder('Buscar domínio').fill(''); await page.getByLabel('Só com bloqueios').check(); assert.equal(await overviewRows.count(), 1); await page.getByLabel('Só com bloqueios').uncheck();
+  await shot('admin-overview-1280');
+  // history rows are one line each
+  await page.getByRole('button', { name: 'Histórico' }).click();
+  await page.getByRole('heading', { name: 'Registros do domínio' }).waitFor();
+  const heights = await page.locator('tbody tr').evaluateAll((rowsEls) => rowsEls.map((el) => Math.round(el.getBoundingClientRect().height)));
+  assert.ok(heights.length >= 20 && Math.max(...heights) <= 44, `history rows stay on one line (max ${Math.max(...heights)}px)`);
+  const firstDate = await page.locator('tbody tr td').first().innerText();
+  assert.match(firstDate, /^\d{2}\/\d{2}\/\d{2} \d{2}:\d{2}$/, 'dates are dd/mm/aa hh:mm');
+  await noOverflow('history 1280 compact');
+  await shot('history-compact-1280');
+  // audit page
+  await page.getByRole('button', { name: 'Auditoria' }).click();
+  await page.getByText('3 eventos').waitFor();
+  assert.equal(await page.getByRole('table', { name: 'Auditoria do SPFBL' }).locator('tbody tr').count(), 3);
+  await page.getByRole('table', { name: 'Auditoria do SPFBL' }).getByText(/white HTTP=200 result=FAIL/).waitFor();
+  assert.equal(await page.getByText(/MATRIX_PASSWORD_SENTINEL|WHMTOKENSENTINEL/).count(), 0, 'no secrets on the audit page');
+  await page.getByLabel('Situação').selectOption('failed'); await page.getByRole('button', { name: 'Filtrar' }).click();
+  await page.getByText('1 eventos').waitFor();
+  assert.equal(state.auditQueries.at(-1).status, 'failed');
+  await page.getByLabel('Situação').selectOption(''); await page.getByRole('button', { name: 'Limpar' }).click(); await page.getByText('3 eventos').waitFor();
+  await shot('audit-1280');
+  await page.setViewportSize({ width: 390, height: 800 }); await noOverflow('audit 390px'); await page.setViewportSize({ width: 1280, height: 900 });
+  // deep link from the bell: ?tab=requests opens the queue directly, ?tab=audit the audit page
+  await page.goto(`${origin}/__spfbl_fixture?view=page&tab=requests`);
+  await page.getByRole('heading', { name: 'Solicitações de revisão' }).waitFor();
+  await page.goto(`${origin}/__spfbl_fixture?view=page&tab=audit`);
+  await page.getByRole('table', { name: 'Auditoria do SPFBL' }).waitFor();
+  // an ordinary account never gets the audit tab nor the all-domains table
+  state = newState(); state.enabled = true; state.role = 'user'; state.mode = 'review';
+  await page.goto(`${origin}/__spfbl_fixture?view=page&tab=audit`);
+  await page.getByRole('button', { name: 'Dashboard' }).waitFor();
+  assert.equal(await page.getByRole('button', { name: 'Auditoria' }).count(), 0, 'no audit tab for ordinary accounts');
+  assert.equal(await page.getByRole('heading', { name: 'Todos os domínios cadastrados' }).count(), 0);
 
   assert.deepEqual(pageErrors, [], 'no uncaught page errors');
   console.log(JSON.stringify({ spfblUi: 'PASS', moduleSwitch: 'keyboard + reauth bound to the action, pessimistic, menu refreshed', secrets: 'never prefilled, cleared after save, absent from DOM/storage', domains: '121 rows paginated 25/page, filter, manual add/remove', access: 'dialog focus/Escape/return, candidates scoped, reauth bound to target, revoke', responsive: [1280, 768, 390, 320], themes: ['light', 'dark'], grantedUser: 'own scope only' }));

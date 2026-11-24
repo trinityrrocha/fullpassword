@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { blockRequest, getRequestDetail, keepRequest, listRequests, releaseRequest } from '../../services/spfblService';
-import { REQUEST_FILTERS, REQUEST_STATUS_TONE, describeError, formatIsoDateTime } from '../../utils/spfbl';
+import { REQUEST_FILTERS, REQUEST_STATUS_TONE, describeError, formatIsoDateTime, formatIsoShort } from '../../utils/spfbl';
 
-const Badge = ({ request }) => <span className={`inline-block rounded border px-2 py-1 text-xs font-medium ${REQUEST_STATUS_TONE[request.status] || 'text-slate-800 border-slate-400'}`}>{request.status_label}</span>;
+const Badge = ({ request }) => <span className={`inline-block rounded-full border px-2 py-0.5 text-xs font-medium ${REQUEST_STATUS_TONE[request.status] || 'text-slate-800 border-slate-400'}`}>{request.status_label}</span>;
 
 // Admin decision panel for one request: keep the block, release it at the provider, or block again.
 function ReviewPanel({ id, onDone, onClose }) {
@@ -88,28 +88,28 @@ export default function SpfblRequests() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <h2 className="text-lg font-semibold text-slate-900">{admin ? 'Solicitações de revisão' : 'Minhas solicitações'}</h2>
+        <h2 className="text-base font-semibold text-slate-900">{admin ? 'Solicitações de revisão' : 'Minhas solicitações'}</h2>
         <label className="text-sm font-medium text-slate-800">Situação
           <select value={filter} onChange={(event) => setFilter(event.target.value)} className="ml-2 min-h-9 rounded-md border border-slate-300 bg-white px-3 text-sm">{REQUEST_FILTERS.map(([value, text]) => <option key={value} value={value}>{text}</option>)}</select>
         </label>
       </div>
       {error && <p role="alert" className="text-sm text-red-800">{error}</p>}
       {open && <ReviewPanel id={open} onDone={() => load(filter)} onClose={() => setOpen(null)} />}
-      <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white shadow-sm">
-        <table className="min-w-full text-left text-sm">
+      <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+        <table className="min-w-full whitespace-nowrap text-left text-[13px]">
           <caption className="sr-only">{admin ? 'Solicitações de revisão' : 'Minhas solicitações'}</caption>
-          <thead className="bg-slate-50 text-xs uppercase text-slate-600"><tr>{['Solicitada em', ...(admin ? ['Solicitante'] : []), 'Destinatário', 'Remetente', 'Motivo', 'Situação', ...(admin ? ['Ações'] : [])].map((h) => <th key={h} scope="col" className="px-3 py-3 font-semibold">{h}</th>)}</tr></thead>
-          <tbody className="divide-y divide-slate-200">
+          <thead className="text-[11px] uppercase tracking-wide text-slate-500"><tr className="border-b border-slate-200">{['Data', ...(admin ? ['Solicitante'] : []), 'Destinatário', 'Remetente', 'Motivo', 'Situação', ...(admin ? [''] : [])].map((h) => <th key={h || 'acoes'} scope="col" className="px-3 py-2 font-medium">{h || <span className="sr-only">Ações</span>}</th>)}</tr></thead>
+          <tbody className="divide-y divide-slate-100">
             {data.requests.length === 0 && <tr><td colSpan={admin ? 7 : 5} className="px-3 py-6 text-center text-slate-600">Nenhuma solicitação.</td></tr>}
             {data.requests.map((r) => (
-              <tr key={r.id}>
-                <td className="whitespace-nowrap px-3 py-3">{formatIsoDateTime(r.requested_at)}</td>
-                {admin && <td className="px-3 py-3">{r.actor_name || '—'}</td>}
-                <td className="break-all px-3 py-3">{r.recipient}</td>
-                <td className="break-all px-3 py-3">{r.sender || '—'}</td>
-                <td className="px-3 py-3">{r.reason}</td>
-                <td className="px-3 py-3"><Badge request={r} /></td>
-                {admin && <td className="px-3 py-3"><button type="button" onClick={() => setOpen(r.id)} className="text-blue-800 underline">Revisar<span className="sr-only"> {r.recipient}</span></button></td>}
+              <tr key={r.id} className="hover:bg-slate-50">
+                <td className="px-3 py-2 tabular-nums text-slate-700">{formatIsoShort(r.requested_at)}</td>
+                {admin && <td className="max-w-[12rem] truncate px-3 py-2" title={r.actor_name || ''}>{r.actor_name || '—'}</td>}
+                <td className="max-w-[18rem] truncate px-3 py-2" title={r.recipient}>{r.recipient}</td>
+                <td className="max-w-[22rem] truncate px-3 py-2" title={r.sender}>{r.sender || '—'}</td>
+                <td className="px-3 py-2 text-slate-700">{r.reason}</td>
+                <td className="px-3 py-2"><Badge request={r} /></td>
+                {admin && <td className="px-3 py-2 text-right"><button type="button" onClick={() => setOpen(r.id)} className="text-blue-800 underline">Revisar<span className="sr-only"> {r.recipient}</span></button></td>}
               </tr>
             ))}
           </tbody>
