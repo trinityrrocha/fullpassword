@@ -3,6 +3,11 @@ name: Release candidate
 # release-candidate.json. Signing happens offline with the maintainer's private key (never stored in GitHub):
 #   node scripts/release-candidate.js sign release-candidate.json /path/outside/checkout/release-private.pem
 on:
+  workflow_call:
+    inputs:
+      expected_revision:
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       expected_revision:
