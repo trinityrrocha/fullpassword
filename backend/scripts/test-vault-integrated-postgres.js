@@ -403,7 +403,7 @@ async function run() {
       assert.equal(leaked(row),false,'secrets are stored encrypted'); assert.match(row.encrypted_token,/^[^:]+:[^:]+:[^:]+:[^:]+$/);
       await denies(sa1.api.put('/spfbl/whm-servers/'+saved.id,{host:'other.example.com',_reauth_token:await reauthToken(sa1.api,'spfbl_settings',{host:'other.example.com'})}),400,'SPFBL_SECRET_REENTRY_REQUIRED');
       // removing needs an explicit answer about the domains
-      await denies(sa1.api.delete('/spfbl/whm-servers/'+saved.id,{data:{_reauth_token:await reauthToken(sa1.api,'spfbl_settings',{})}}),422,'SPFBL_REMOVE_CHOICE_REQUIRED');
+      await denies(sa1.api.delete('/spfbl/whm-servers/'+saved.id,{_reauth_token:await reauthToken(sa1.api,'spfbl_settings',{})}),422,'SPFBL_REMOVE_CHOICE_REQUIRED');
 
       // Domain catalogue: Super Admin only.
       await denies(ordinaryAdminApi.post('/spfbl/domains',{name:'x.example.com'}),403,'SUPER_ADMIN_REQUIRED');
