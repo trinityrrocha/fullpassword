@@ -35,6 +35,9 @@ jobs:
       - name: SPFBL requests and unlock (native PostgreSQL, stubbed provider, concurrency)
         run: node scripts/test-spfbl-release-postgres.js
         working-directory: backend
+      - name: SPFBL stored history (native PostgreSQL, collector, retention, schedule)
+        run: node scripts/test-spfbl-history-collector-postgres.js
+        working-directory: backend
       - run: node scripts/test-approved-release.js
         working-directory: backend
       - name: Deployment must not recreate database dependency (executed argv regression)

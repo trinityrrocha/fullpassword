@@ -182,6 +182,7 @@ const startServer = async () => {
       console.log(`Ambiente: ${process.env.NODE_ENV || 'development'}`);
       startCloudBackupScheduler();
       startDomainExpirationScheduler();
+      require('./services/spfblHistoryScheduler').startSpfblHistoryScheduler({ collector: require('./controllers/spfblController').collector });
     });
   } catch (error) {
     safeLogError('Falha ao garantir o schema de segurança.', error, { includeStack: false });

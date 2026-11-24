@@ -35,6 +35,9 @@ router.post('/requests/:id/release', requireSuperAdmin, uuidParam('id'), spfblAc
 router.post('/requests/:id/block', requireSuperAdmin, uuidParam('id'), spfblActionLimiter, asyncRoute(controller.blockRequest));
 
 router.get('/dashboard/domains', requireSuperAdmin, asyncRoute(controller.adminDomains));
+router.get('/history-settings', requireSuperAdmin, asyncRoute(controller.getHistorySettings));
+router.put('/history-settings', requireSuperAdmin, guardFixed('spfbl_settings'), asyncRoute(controller.saveHistorySettings));
+router.post('/history/collect', requireSuperAdmin, spfblTestLimiter, asyncRoute(controller.collectNow));
 router.get('/audit', requireSuperAdmin, asyncRoute(controller.auditList));
 
 router.get('/settings', requireSuperAdmin, asyncRoute(controller.getSettings));

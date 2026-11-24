@@ -5,7 +5,7 @@ const crypto = require('node:crypto');
 // read is filtered by the caller's current domains (exact match) before anything leaves this module.
 const TIMEZONE = 'America/Sao_Paulo';
 const PAGE_SIZE = 25;
-const MAX_PERIOD_DAYS = 31;
+const MAX_PERIOD_DAYS = 90;
 const EXTRA_PAGES = 10;            // first page + 10 more, like the original portal
 const MAX_ROWS = 20000;
 const TTL_MS = 10 * 60 * 1000;
@@ -118,7 +118,7 @@ const parseFilters = (input = {}, now = Date.now()) => {
   for (const key of ['start', 'end']) if (!validYmd(f[key])) throw new HistoryError('Informe uma data válida.', 'SPFBL_FILTER_DATE', 422, key);
   f.start_ts = midnightOf(f.start);
   f.end_ts = midnightOf(addDays(f.end, 1));
-  if (f.start_ts >= f.end_ts || f.end_ts - f.start_ts > MAX_PERIOD_DAYS * 86400 || f.end > today) throw new HistoryError('Escolha até 31 dias, sem datas futuras.', 'SPFBL_FILTER_PERIOD', 422, 'start');
+  if (f.start_ts >= f.end_ts || f.end_ts - f.start_ts > MAX_PERIOD_DAYS * 86400 || f.end > today) throw new HistoryError('Escolha até 90 dias, sem datas futuras.', 'SPFBL_FILTER_PERIOD', 422, 'start');
   return f;
 };
 

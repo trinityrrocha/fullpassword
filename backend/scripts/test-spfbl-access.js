@@ -146,7 +146,7 @@ async function run() {
     assert.ok(routes.includes(line), line);
   }
   const routeLines = routes.split('\n').filter((line) => /^router\.(get|put|post|delete|patch)\(/.test(line));
-  assert.equal(routeLines.length, 27);
+  assert.equal(routeLines.length, 30);
   const open = routeLines.filter((line) => !line.includes('requireSuperAdmin'));
   // Open to granted users: the overview and the read-only history views. Each one resolves the caller's CURRENT scope per request
   // (test-spfbl-history.js); everything else is Super Admin only.

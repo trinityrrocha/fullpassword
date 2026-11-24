@@ -8,9 +8,11 @@ const domains = require('../services/spfblDomainsService');
 const access = require('../services/spfblAccessService');
 const history = require('../services/spfblHistoryService');
 const release = require('../services/spfblReleaseService');
+const repository = require('../services/spfblHistoryRepository');
+const { createCollector, integrationOf } = require('../services/spfblCollectorService');
+const historySettings = require('../services/spfblHistorySettingsService');
 const notifications = require('../services/spfblNotifications');
 const auditService = require('../services/spfblAuditService');
-const crypto = require('node:crypto');
 const { isSuperAdmin } = require('../config/security');
 const { canUserAccessModule } = require('../services/modulesService');
 const { safeLogError } = require('../utils/safeLogger');
@@ -31,7 +33,9 @@ const getSettingsHandler = async (_req, res) => res.status(200).json(await getSe
 const saveSettings = async (req, res) => {
   try {
     const { settings, matrix_password_changed: matrixChanged, whm_token_changed: whmChanged } = await updateSettings(req.body, req.user.id);
-    historyStore.reset(); // new credentials: never serve (or keep a cached failure of) the previous account's history
+    // new credentials: never serve the previous Matrix account's stored history
+    const fresh = await getMatrixCredentials().catch(() => null);
+    if (fresh) { await repository.purgeOtherIntegrations(integrationOf(fresh)).catch(() => {}); await repository.resetRuns(integrationOf(fresh)).catch(() => {}); }
     await recordAuditEvent({
       user: req.user,
       action: 'spfbl_settings_updated',
@@ -208,8 +212,11 @@ const overview = async (req, res) => {
 };
 
 // ---- history, dashboard, record detail (read only) ----------------------------------------------------------------
-const historyStore = history.createHistoryStore({ fetchPage: (cursor, credentials) => matrix.historyPage(credentials, cursor) });
-const integrationOf = (credentials) => crypto.createHash('sha256').update(credentials.user).digest('hex');
+const collector = createCollector({
+  fetchPage: (cursor, credentials) => matrix.historyPage(credentials, cursor),
+  credentials: getMatrixCredentials,
+  catalogue: async () => (await domains.listDomains()).map((d) => d.name)
+});
 
 // The caller's CURRENT domains (active only), resolved on every request: revoking access or deactivating a domain applies at once.
 const scopeDomains = async (user) => {
@@ -232,21 +239,27 @@ const guarded = (action, handler) => async (req, res) => {
     return res.status(500).json({ error: 'Não foi possível concluir a consulta do SPFBL.' });
   }
 };
-const loadHistory = async (refresh) => {
+const DAY = 86400;
+// Starts (in the background) any crawl needed to cover the wanted window and returns what the screens show about coverage.
+const loadHistory = async (windowStartTs, force = false) => {
   const credentials = await getMatrixCredentials();
-  const integration = integrationOf(credentials);
-  const state = await historyStore.advance(integration, { refresh, context: credentials });
-  return { integration, state };
+  const { integration, state } = await collector.ensure({ windowStartTs, force });
+  return { integration, state, view: stateView(state) };
 };
+const stateView = (state) => ({ loading: state.loading, partial: !state.complete, complete: state.complete, capped: state.capped, error: state.error,
+  updated_at: state.updated_at, oldest_at: state.oldest_at, pages: 0, rows: 0, now: Date.now() });
+const emptyView = () => ({ loading: false, partial: false, complete: true, capped: false, error: '', updated_at: null, oldest_at: null, pages: 0, rows: 0, now: Date.now() });
+const retentionStart = async () => (Date.now() / 1000) - Number((await historySettings.read()).history_retention_days) * DAY;
 
-const emptyView = () => history.stateView({ ...history.emptyState(), done: true });
 const dashboard = guarded('dashboard', async (req, res) => {
   const scope = await scopeDomains(req.user);
   // Nothing authorized yet (or no active domain): no provider call, a clear empty answer.
   if (scope.length === 0) return res.status(200).json({ ...history.buildOverview([], []), latest_unlocks: [], domains_scope: [], state: emptyView() });
-  const { state } = await loadHistory(false);
+  const period = history.parseFilters({});
+  const { integration, view } = await loadHistory(period.start_ts);
+  const overview = await repository.overview({ integration, domains: scope, startTs: period.start_ts, endTs: period.end_ts });
   res.setHeader('Cache-Control', 'no-store');
-  return res.status(200).json({ ...history.buildOverview(state.rows, scope), latest_unlocks: await release.latestUnlocks(scope), domains_scope: scope, state: history.stateView(state) });
+  return res.status(200).json({ ...overview, period: { start: period.start, end: period.end, timezone: history.TIMEZONE }, latest_unlocks: await release.latestUnlocks(scope), domains_scope: scope, state: view });
 });
 
 const historyList = guarded('histórico', async (req, res) => {
@@ -257,20 +270,30 @@ const historyList = guarded('histórico', async (req, res) => {
   }
   const domain = requireDomain(scope, req.query.domain ?? scope[0]);
   const filters = history.parseFilters(req.query);
-  const { state } = await loadHistory(false);
-  const selected = history.selectRows(state.rows, domain, filters, req.query.page, { unlocked: filters.status === 'Desbloqueados' ? await release.unlockedRecordIds(domain) : new Set() });
+  const keptSince = await retentionStart();
+  if (filters.start_ts < keptSince - DAY) {
+    const days = Number((await historySettings.read()).history_retention_days);
+    throw new history.HistoryError(`O histórico é guardado por ${days} dias. Escolha uma data inicial mais recente.`, 'SPFBL_FILTER_RETENTION', 422, 'start');
+  }
+  const { integration, view } = await loadHistory(filters.start_ts);
+  const unlockedIds = filters.status === 'Desbloqueados' ? [...await release.unlockedRecordIds(domain)] : [];
+  const selected = await repository.selectPage({ integration, domain, filters, page: req.query.page, unlockedIds });
   const info = await release.releaseInfo(selected.rows.map((r) => r.id));
   res.setHeader('Cache-Control', 'no-store');
   return res.status(200).json({ domain, domains_scope: scope, filters: { status: filters.status, by: filters.by, email: filters.email, start: filters.start, end: filters.end },
     rows: selected.rows.map((r) => history.publicRow(r, info.get(r.id) || null)), period_total: selected.period, filtered_total: selected.filtered, page: selected.page, pages: selected.pages,
-    state: history.stateView(state) });
+    state: view });
 });
 
 const refreshHistory = guarded('atualização do histórico', async (req, res) => {
   await scopeDomains(req.user);
-  const { state } = await loadHistory(true);
-  return res.status(200).json({ state: history.stateView(state) });
+  const filters = history.parseFilters(req.body || {}, Date.now());
+  const { view } = await loadHistory(filters.start_ts, true);
+  return res.status(200).json({ state: view });
 });
+
+// The provider status changed through this portal: reflect it in the stored copy right away (a failure here never blocks the action).
+const markStatus = (id, status) => repository.setProviderStatus(id, status).catch(() => {});
 
 const RECORD_ID = /^[a-f0-9]{64}$/;
 const findRecord = async (req) => {
@@ -278,7 +301,7 @@ const findRecord = async (req) => {
   const domain = requireDomain(scope, req.query.domain ?? req.body?.domain);
   if (!RECORD_ID.test(req.params.id)) throw new history.HistoryError('Registro indisponível. Atualize a consulta.', 'SPFBL_RECORD_NOT_FOUND', 404);
   const credentials = await getMatrixCredentials();
-  const row = historyStore.find(integrationOf(credentials), req.params.id, domain);
+  const row = await repository.find(integrationOf(credentials), req.params.id, domain);
   if (!row) throw new history.HistoryError('Registro indisponível. Atualize a consulta.', 'SPFBL_RECORD_NOT_FOUND', 404);
   return { row, domain, credentials };
 };
@@ -334,7 +357,7 @@ const unlockRecord = guarded('desbloqueio', async (req, res) => {
   const { row, domain, credentials } = await findRecord(req);
   try {
     const result = await release.execute(await actorOf(req), { row, domain, proof: req.body?.proof }, credentials);
-    historyStore.reset({ keepRetired: true }); // statuses changed at the provider: the next list starts fresh, open record screens keep working
+    await markStatus(row.id, 'WHITELISTED');
     await audit(req, 'spfbl_unlock_done', 'success', { domain, request_id: result.request.id, mode: 'direct' });
     return res.status(200).json({ request: release.publicRequest(result.request) });
   } catch (error) {
@@ -348,7 +371,7 @@ const blockSender = guarded('bloqueio do remetente', async (req, res) => {
   const { row, domain, credentials } = await findRecord(req);
   try {
     const request = await release.blockRecord(await actorOf(req), { row, domain, proof: req.body?.proof }, credentials);
-    historyStore.reset({ keepRetired: true });
+    await markStatus(row.id, 'BLOCKED');
     await audit(req, 'spfbl_block_done', 'success', { domain, request_id: request.id });
     return res.status(200).json({ request: release.publicRequest(request) });
   } catch (error) {
@@ -360,15 +383,57 @@ const blockSender = guarded('bloqueio do remetente', async (req, res) => {
 // Super Admin: results of EVERY registered domain (active or not) over the dashboard window.
 const adminDomains = guarded('visão dos domínios', async (req, res) => {
   const catalogue = await domains.listDomains();
+  const period = history.parseFilters({});
   const credentials = await getMatrixCredentials().catch(() => null);
-  const state = credentials ? (await loadHistory(false)).state : history.emptyState();
-  const overview = history.buildDomainsOverview(state.rows, catalogue);
-  const activity = await release.domainActivity(overview.start_ts, overview.end_ts);
+  let view = emptyView();
+  let counts = new Map();
+  if (credentials) {
+    const loaded = await loadHistory(period.start_ts);
+    view = loaded.view;
+    counts = await repository.domainCounts({ integration: loaded.integration, domains: catalogue.map((d) => d.name), startTs: period.start_ts, endTs: period.end_ts });
+  }
+  const activity = await release.domainActivity(period.start_ts, period.end_ts);
+  const list = catalogue.map((d) => {
+    const c = counts.get(d.name) || {};
+    return { domain: d.name, active: d.active, source: d.source, total: c.total || 0, blocked: c.blocked || 0, banimento: c.banimento || 0, 'segurança': c.seguranca || 0, 'inexistência': c.inexistencia || 0,
+      unlocked: activity.unlocked.get(d.name) || 0, pending: activity.pending.get(d.name) || 0 };
+  }).sort((a, b) => (b.blocked - a.blocked) || (b.total - a.total) || (a.domain < b.domain ? -1 : 1));
+  const totals = list.reduce((t, d) => ({ total: t.total + d.total, blocked: t.blocked + d.blocked }), { total: 0, blocked: 0 });
   res.setHeader('Cache-Control', 'no-store');
-  return res.status(200).json({
-    domains: overview.domains.map((d) => ({ ...d, unlocked: activity.unlocked.get(d.domain) || 0, pending: activity.pending.get(d.domain) || 0 })),
-    totals: overview.totals, period: overview.period, state: history.stateView(state)
-  });
+  return res.status(200).json({ domains: list, totals, period: { start: period.start, end: period.end, timezone: history.TIMEZONE }, state: view });
+});
+
+// ---- stored history: retention, schedule, manual collection (Super Admin) ------------------------------------------------
+const currentIntegration = async () => integrationOf(await getMatrixCredentials().catch(() => ({ user: '' })));
+const getHistorySettings = guarded('configuração do histórico', async (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  return res.status(200).json({ ...(await historySettings.get(await currentIntegration())), running: collector.isRunning() });
+});
+const saveHistorySettings = guarded('configuração do histórico', async (req, res) => {
+  try {
+    const result = await historySettings.update(req.body, await currentIntegration());
+    await audit(req, 'spfbl_history_settings_updated', 'success', { retention_days: result.retention_days, schedule_hour: result.schedule_hour, deleted: result.deleted });
+    return res.status(200).json(result);
+  } catch (error) {
+    if (error instanceof historySettings.HistorySettingsError) {
+      await audit(req, 'spfbl_history_settings_updated', 'failed', { reason: error.code });
+      return res.status(error.statusCode).json({ code: error.code, error: error.message, ...(error.rows_to_delete !== undefined ? { rows_to_delete: error.rows_to_delete } : {}) });
+    }
+    throw error;
+  }
+});
+const COLLECT_COOLDOWN_MS = 60000;
+const collectState = { lastAt: 0 };
+const resetCollectState = () => { collectState.lastAt = 0; };
+const collectNow = guarded('coleta do histórico', async (req, res) => {
+  if (collector.isRunning()) return res.status(409).json({ code: 'SPFBL_COLLECT_BUSY', error: 'Já há uma coleta em andamento.' });
+  if (Date.now() - collectState.lastAt < COLLECT_COOLDOWN_MS) return res.status(429).json({ code: 'SPFBL_COLLECT_COOLDOWN', error: 'Aguarde um minuto antes de coletar de novo.' });
+  collectState.lastAt = Date.now();
+  const retention = Number((await historySettings.read()).history_retention_days);
+  const started = await collector.start({ trigger: 'manual', windowStartTs: Date.now() / 1000 - retention * DAY, retentionDays: retention });
+  started.done.then((outcome) => recordAuditEvent({ user: req.user, action: 'spfbl_history_collected', status: outcome.status === 'failed' ? 'failed' : 'success', req,
+    metadata: { run: 'manual', pages: outcome.pages, rows: outcome.stored, capped: outcome.status === 'capped', ...(outcome.error ? { reason: String(outcome.error) } : {}) } })).catch(() => {});
+  return res.status(202).json({ started: started.started });
 });
 
 const auditList = guarded('auditoria', async (req, res) => {
@@ -400,7 +465,7 @@ const decide = (action, run) => guarded(`decisão (${action})`, async (req, res)
   const actor = await actorOf(req);
   try {
     const request = await run(actor, req, input);
-    historyStore.reset({ keepRetired: true });
+    if (action !== 'keep') await markStatus(request.record_id, action === 'release' ? 'WHITELISTED' : 'BLOCKED');
     const mail = input.notify ? await notifications.notifyDecision(request, { keep: 'kept', release: 'unlocked', block: 'reblocked' }[action]) : 'none';
     await audit(req, `spfbl_request_${action}`, 'success', { request_id: request.id, domain: request.domain, notification: toAuditMessage(mail) });
     return res.status(200).json({ request: release.publicRequest(request, { admin: true }), notification: mail });
@@ -409,7 +474,7 @@ const decide = (action, run) => guarded(`decisão (${action})`, async (req, res)
     throw error;
   }
 });
-const snapshotRow = async (request, credentials) => (historyStore.find(integrationOf(credentials), request.record_id, request.domain)
+const snapshotRow = async (request, credentials) => (await repository.find(integrationOf(credentials), request.record_id, request.domain)
   || { id: request.record_id, provider_key: request.provider_key, recipient: request.recipient, sender: request.sender, result: request.reason });
 const keepRequest = decide('keep', (actor, req, input) => release.keep(actor, req.params.id, input.revision));
 const releaseRequest = decide('release', async (actor, req, input) => {
@@ -421,7 +486,7 @@ const releaseRequest = decide('release', async (actor, req, input) => {
 const blockRequest = decide('block', async (actor, req, input) => release.blockAgain(actor, req.params.id, input, await getMatrixCredentials()));
 
 module.exports = {
-  dashboard, historyList, refreshHistory, recordDetail, recordStatus, requestReview, unlockRecord, blockSender, adminDomains, auditList, listRequests, requestDetail, keepRequest, releaseRequest, blockRequest, resetStatusState, historyStore, STATUS_COOLDOWN_MS,
+  dashboard, historyList, refreshHistory, recordDetail, recordStatus, requestReview, unlockRecord, blockSender, adminDomains, auditList, listRequests, requestDetail, keepRequest, releaseRequest, blockRequest, resetStatusState, getHistorySettings, saveHistorySettings, collectNow, resetCollectState, collector, STATUS_COOLDOWN_MS,
   getSettings: getSettingsHandler, saveSettings, testMatrix, resetTestState, TEST_COOLDOWN_MS,
   testWhm, syncDomains, listDomains, addDomain, removeDomain, resetWhmState, WHM_COOLDOWN_MS,
   listAccess, saveAccess, revokeAccess, overview

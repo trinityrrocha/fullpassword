@@ -51,7 +51,7 @@ async function run() {
   const f = history.parseFilters({}, fixedNow);
   assert.equal(f.end, '2026-11-23'); assert.equal(f.start, '2026-11-17'); assert.equal(f.start_ts, Date.parse('2026-11-17T03:00:00Z') / 1000);
   assert.equal(history.parseFilters({}, Date.parse('2026-11-24T02:30:00Z')).end, '2026-11-23', '23:30 local on the 23rd is already the 24th in UTC');
-  for (const bad of [{ status: 'x' }, { by: 'x' }, { email: 'nope' }, { start: '2026-02-30' }, { start: '2026-10-01' }, { end: '2026-11-25' }, { start: ['a'] }]) {
+  for (const bad of [{ status: 'x' }, { by: 'x' }, { email: 'nope' }, { start: '2026-02-30' }, { start: '2026-08-01' }, { end: '2026-11-25' }, { start: ['a'] }]) {
     assert.throws(() => history.parseFilters(bad, fixedNow), history.HistoryError, JSON.stringify(bad));
   }
 
@@ -68,53 +68,6 @@ async function run() {
   assert.throws(() => history.normalizeRecord({ ...raw('K', 'a@one.example.com', 'BLOCK', 1), sender: { a: 1 } }, integration), history.HistoryError);
   assert.equal(history.normalizeRecord(raw(12345678901234567890n.toString(), 'a@one.example.com', 'BLOCK', 1), integration).provider_key, '12345678901234567890');
   assert.ok(!('provider_key' in history.publicRow(row)), 'the provider key never reaches the client');
-
-  // ---- staged store: pages, dedupe, caps, repeated pages, single flight, TTL, integration switch ----
-  let clock = 1000000;
-  const pages = new Map();
-  let fetches = 0;
-  const store = history.createHistoryStore({ now: () => clock, fetchPage: async (cursor) => { fetches += 1; return pages.get(cursor ?? 'first'); } });
-  pages.set('first', { messages: [raw('A', 'a@one.example.com', 'BLOCK', 50), raw('B', 'b@one.example.com', 'BANNED', 60), { recipient: 'bad' }], next: 'p2', signature: 's1' });
-  pages.set('p2', { messages: [raw('A', 'a@one.example.com', 'BLOCK', 50), raw('C', 'c@one.example.com', 'GREYLIST', 70)], next: null, signature: 's2' });
-  let state = await store.advance(integration);
-  assert.equal(state.pages, 1); assert.equal(state.rows.length, 2); assert.equal(state.partial, true, 'a skipped row makes coverage partial'); assert.equal(state.done, false);
-  state = await store.advance(integration); assert.equal(fetches, 1, 'no new request within the 2 s minimum interval');
-  clock += 3000; state = await store.advance(integration);
-  assert.equal(state.rows.length, 3, 'duplicate record deduplicated'); assert.equal(state.done, true);
-  clock += 3000; await store.advance(integration); assert.equal(fetches, 2, 'a finished history is not fetched again');
-  clock += 11 * 60 * 1000; assert.equal(store.snapshot(integration).rows.length, 0, 'the cache expires after 10 minutes');
-  await store.advance(integration); assert.equal(fetches, 3);
-  assert.equal(store.snapshot('other-account').rows.length, 0, 'another Matrix account never sees this cache');
-  // single flight
-  store.reset(); fetches = 0; let release; const gate = new Promise((r) => { release = r; });
-  const slow = history.createHistoryStore({ now: () => clock, fetchPage: async () => { fetches += 1; await gate; return { messages: [], next: null, signature: 'x' }; } });
-  const both = [slow.advance(integration), slow.advance(integration)]; release(); await Promise.all(both); assert.equal(fetches, 1, 'concurrent advances share one provider call');
-  // caps and loops
-  let counter = 0; clock += 100000;
-  const loop = history.createHistoryStore({ now: () => clock, fetchPage: async () => { counter += 1; return { messages: [], next: `n${counter}`, signature: `sig${counter}` }; } });
-  for (let i = 0; i < 20; i += 1) { clock += 3000; await loop.advance(integration); }
-  assert.equal(counter, 11, 'first page plus ten more'); assert.equal(loop.snapshot(integration).partial, true);
-  const same = history.createHistoryStore({ now: () => clock, fetchPage: async () => ({ messages: [], next: 'again', signature: 'same' }) });
-  for (let i = 0; i < 4; i += 1) { clock += 3000; await same.advance(integration); }
-  assert.equal(same.snapshot(integration).done, true, 'a repeated page stops the loading as partial');
-  const failing = history.createHistoryStore({ now: () => clock, fetchPage: async () => { throw new Error('X'.repeat(500)); } });
-  clock += 3000; state = await failing.advance(integration); assert.equal(state.done, true); assert.equal(state.partial, true); assert.ok(state.error.length <= 300);
-
-  // failure handling: only reviewed messages reach the client; a failed load is retried after a short window, not cached for 10 minutes
-  let attemptsMade = 0; let broken = true; clock += 100000;
-  const flaky = history.createHistoryStore({ now: () => clock, fetchPage: async () => { attemptsMade += 1; if (broken) { const e = new Error('Matrix recusou a autenticação.'); e.name = 'MatrixError'; throw e; } return { messages: [], next: null, signature: 'ok' }; } });
-  state = await flaky.advance(integration); assert.equal(state.error, 'Matrix recusou a autenticação.'); assert.equal(history.stateView(state).error, 'Matrix recusou a autenticação.');
-  clock += 3000; state = await flaky.advance(integration); assert.equal(attemptsMade, 1, 'no hammering of the provider right after a failure');
-  broken = false; clock += 16000; state = await flaky.advance(integration); assert.equal(state.error, ''); assert.equal(state.done, true, 'recovers by itself once the cause is fixed');
-  const leaky = history.createHistoryStore({ now: () => clock, fetchPage: async () => { throw new TypeError("Cannot read properties of undefined (reading 'secret')"); } });
-  clock += 20000; assert.equal((await leaky.advance(integration)).error, 'Falha ao consultar o histórico.', 'internal error text never reaches the client');
-  // an unlock resets the history but open record screens keep working from the retired rows
-  const kept = history.createHistoryStore({ now: () => clock, fetchPage: async () => ({ messages: [raw('KEEP', 'keep@one.example.com', 'BLOCK', 30)], next: null, signature: 'k' }) });
-  clock += 3000; state = await kept.advance(integration); const keepId = state.rows[0].id;
-  kept.reset({ keepRetired: true });
-  assert.equal(kept.snapshot(integration).rows.length, 0, 'the next list starts from a fresh load'); assert.equal(kept.find(integration, keepId, 'one.example.com').recipient, 'keep@one.example.com');
-  assert.equal(kept.find(integration, keepId, 'two.example.com'), null, 'a retired row is still scoped to its domain'); assert.equal(kept.find('another', keepId, 'one.example.com'), null);
-  kept.reset(); assert.equal(kept.find(integration, keepId, 'one.example.com'), null, 'a plain reset forgets everything');
 
   // ---- selection / overview ----
   const rows = [raw('1', 'a@one.example.com', 'BLOCK', 3600), raw('2', 'b@one.example.com', 'ACCEPT', 7200), raw('3', 'a@two.example.com', 'BANNED', 3600),
@@ -150,7 +103,8 @@ async function run() {
   matrix.historyPage = async (credentials) => { calls += 1; lastCredentials = credentials; return providerPage; };
   let lookup = null;
   matrix.registry = async (credentials, key) => lookup(key);
-  controller.historyStore.reset();
+  const recollect = async () => { await pg.query('DELETE FROM spfbl_history_records'); await pg.query('DELETE FROM spfbl_history_runs'); await (await controller.collector.start({ trigger: 'manual', windowStartTs: Date.now() / 1000 - 8 * 86400 })).done; };
+  await recollect();
 
   let res = await call(controller.dashboard, user('alice')); assert.equal(res.code, 200, JSON.stringify(res.body));
   assert.deepEqual(res.body.domains_scope, ['one.example.com']); assert.equal(res.body.total, 3);
@@ -176,7 +130,7 @@ async function run() {
 
   // status lookup
   controller.resetStatusState();
-  const mine = controller.historyStore.snapshot(history.createHistoryStore && require('node:crypto').createHash('sha256').update('ops@example.com').digest('hex')).rows.find((r) => r.id === first.id);
+  const mine = await require('../src/services/spfblHistoryRepository').find(require('node:crypto').createHash('sha256').update('ops@example.com').digest('hex'), first.id, 'one.example.com');
   lookup = (key) => ({ key, recipient: mine.recipient, sender: mine.sender, from: mine.from, replyto: mine.replyto, result: mine.result, arrival: new Date(mine.timestamp * 1000).toISOString(), status: 'WHITELISTED' });
   res = await call(controller.recordStatus, user('alice'), { params: { id: first.id }, body: { domain: 'one.example.com' } }); assert.equal(res.code, 200, JSON.stringify(res.body));
   assert.equal(res.body.provider_status, 'WHITELISTED'); assert.equal(res.body.changed_reason, false);
@@ -187,6 +141,6 @@ async function run() {
   await access.revokeAccess(ids.alice);
   res = await call(controller.historyList, user('alice'), { query: { domain: 'one.example.com' } }); assert.equal(res.code, 403, 'revoked access applies on the next request');
   assert.ok(calls >= 1);
-  console.log('PASS spfbl history: rules, filters in America/Sao_Paulo, staged in-memory store, scope per request, no provider keys, status lookup.');
+  console.log('PASS spfbl history: rules, filters in America/Sao_Paulo, stored history, scope per request, no provider keys, status lookup.');
 }
 run().catch((error) => { console.error(error); process.exitCode = 1; });

@@ -44,10 +44,13 @@ async function main() {
     const domains = require('../src/services/spfblDomainsService');
     const release = require('../src/services/spfblReleaseService');
     const history = require('../src/services/spfblHistoryService');
+    const repository = require('../src/services/spfblHistoryRepository');
     const controller = require('../src/controllers/spfblController');
     const read = (p) => fs.readFileSync(path.join(__dirname, '../..', p), 'utf8');
     await database.query(read('database/init.sql'));
     await ensureSecuritySchema();
+    const migration30 = read('database/migrations/30_create_spfbl_history_storage.sql');
+    await database.query(migration30); await database.query(migration30);
     const migration = read('database/migrations/29_create_spfbl_requests.sql');
     await database.query(migration); await database.query(migration); // idempotent
     await database.query("INSERT INTO system_modules (module_key, enabled) VALUES ('spfbl', TRUE) ON CONFLICT (module_key) DO UPDATE SET enabled = TRUE").catch(async () => database.query("INSERT INTO system_modules (key, enabled) VALUES ('spfbl', TRUE) ON CONFLICT (key) DO UPDATE SET enabled = TRUE"));
@@ -114,7 +117,8 @@ async function main() {
       await handler({ user: { id: users[key], email: emails[key], role: key === 'admin' ? 'admin' : 'user', is_super_admin: key === 'admin' }, params: {}, query: {}, body: {}, get: () => 'a', headers: {}, socket: { remoteAddress: '127.0.0.1' }, ...extra }, res); return res; };
     matrix.historyPage = async () => ({ messages: [{ key: 'H1', recipient: 'hist@one.example.com', sender: 'bad@out.example', result: 'BLOCK', arrival: new Date((nowS - 50) * 1000).toISOString(), status: 'NONE' }], next: null, signature: 'h' });
     matrix.registry = async (_c, key) => provider.live.get(key) || { key, recipient: 'hist@one.example.com', sender: 'bad@out.example', from: '', replyto: '', result: 'BLOCK', arrival: new Date((nowS - 50) * 1000).toISOString(), status: 'NONE' };
-    controller.historyStore.reset();
+    const recollect = async () => { await database.query('DELETE FROM spfbl_history_records'); await database.query('DELETE FROM spfbl_history_runs'); await (await controller.collector.start({ trigger: 'manual', windowStartTs: nowS - 3 * 86400 })).done; };
+    await recollect();
     let listed = await call(controller.historyList, 'review', { query: { domain: 'one.example.com', status: 'Todos' } }); assert.equal(listed.code, 200, JSON.stringify(listed.body));
     const histRow = listed.body.rows[0];
     let res = await call(controller.requestReview, 'review', { params: { id: histRow.id }, body: { domain: 'one.example.com' } }); assert.equal(res.code, 422, 'the confirmation checkbox is required');
@@ -134,7 +138,7 @@ async function main() {
     const second = (await release.listRequests(actorOf('admin'))).find((r) => r.recipient === 'hist@one.example.com' && r.actor_name === 'review');
     const detail = await release.requestDetail(actorOf('admin'), second.id);
     assert.match(detail.confirmation, /^[a-f0-9]{64}$/);
-    const histFull = controller.historyStore.snapshot(integration).rows.find((r) => r.recipient === 'hist@one.example.com');
+    const histFull = await repository.find(integration, histRow.id, 'one.example.com');
     await assert.rejects(release.execute(actorOf('admin'), { row: histFull, domain: 'one.example.com', requestId: second.id, revision: 99, proof: detail.confirmation }, credentials, stub), { code: 'SPFBL_REVISION_CHANGED' });
     await assert.rejects(release.execute(actorOf('admin'), { row: histFull, domain: 'one.example.com', requestId: second.id, revision: second.revision, proof: 'a'.repeat(64) }, credentials, stub), { code: 'SPFBL_CONFIRMATION_STALE' });
     assert.equal(provider.whites.length, 0, 'stale confirmation or revision: nothing sent');
@@ -178,7 +182,7 @@ async function main() {
     function matrixRegistryFallback(key) { return { key, recipient: 'hist@one.example.com', sender: 'bad@out.example', result: 'BLOCK', arrival: new Date((nowS - 50) * 1000).toISOString(), status: 'NONE' }; }
     matrix.historyPage = async () => ({ messages: [{ key: 'D1', recipient: 'direct@one.example.com', sender: 'bad@out.example', result: 'BLOCK', arrival: new Date((nowS - 40) * 1000).toISOString(), status: 'NONE' }], next: null, signature: 'd1' });
     provider.live.set('D1', { key: 'D1', recipient: 'direct@one.example.com', sender: 'bad@out.example', from: '', replyto: '', result: 'BLOCK', arrival: new Date((nowS - 40) * 1000).toISOString(), status: 'NONE' });
-    controller.historyStore.reset();
+    await recollect();
     const d1 = (await call(controller.historyList, 'direct', { query: { domain: 'one.example.com', status: 'Todos' } })).body.rows.find((r) => r.recipient === 'direct@one.example.com');
     const before = await call(controller.recordDetail, 'direct', { params: { id: d1.id }, query: { domain: 'one.example.com' } });
     assert.equal(before.code, 200); assert.equal(before.body.can_unlock, true);
@@ -187,7 +191,7 @@ async function main() {
     assert.equal(unlocked.code, 200, JSON.stringify(unlocked.body)); assert.deepEqual(provider.whites, ['D1']);
     const after = await call(controller.recordDetail, 'direct', { params: { id: d1.id }, query: { domain: 'one.example.com' } });
     assert.equal(after.code, 200, 'the open record screen is still served after the cache reset'); assert.equal(after.body.operation.done, true); assert.equal(after.body.can_unlock, false);
-    assert.equal(controller.historyStore.snapshot(integration).rows.length, 0, 'but the next list reloads from the provider');
+    assert.equal((await repository.find(integration, d1.id, 'one.example.com')).provider_status, 'WHITELISTED', 'the stored copy reflects the unlock at once');
 
     // ---- what the person sees afterwards: "was blocked, now unlocked", who and when; filter; then a direct block ----
     const listAfter = await call(controller.historyList, 'direct', { query: { domain: 'one.example.com', status: 'Todos' } });
@@ -244,12 +248,12 @@ async function main() {
     assert.equal((await call(controller.auditList, 'admin', { query: { start: '2000-01-01', end: '2000-01-02' } })).body.total, 0);
     assert.equal((await call(controller.auditList, 'admin', { query: { page: '9999' } })).body.page, auditRes.body.pages > 1 ? (await call(controller.auditList, 'admin', { query: { page: '9999' } })).body.pages : 1);
 
-    controller.historyStore.reset();
     matrix.historyPage = async () => ({ messages: [
       { key: 'A1', recipient: 'a@one.example.com', sender: 's@out.example', result: 'BANNED', arrival: new Date((nowS - 100) * 1000).toISOString(), status: 'NONE' },
       { key: 'A2', recipient: 'b@one.example.com', sender: 's@out.example', result: 'BLOCK', arrival: new Date((nowS - 90) * 1000).toISOString(), status: 'NONE' },
       { key: 'A3', recipient: 'c@one.example.com', sender: 's@out.example', result: 'ACCEPT', arrival: new Date((nowS - 80) * 1000).toISOString(), status: 'NONE' },
       { key: 'A4', recipient: 'x@unregistered.example', sender: 's@out.example', result: 'BLOCK', arrival: new Date((nowS - 70) * 1000).toISOString(), status: 'NONE' }], next: null, signature: 'ad' });
+    await recollect();
     const overviewRes = await call(controller.adminDomains, 'admin'); assert.equal(overviewRes.code, 200, JSON.stringify(overviewRes.body));
     const byDomain = Object.fromEntries(overviewRes.body.domains.map((d) => [d.domain, d]));
     assert.deepEqual(Object.keys(byDomain).sort(), ['one.example.com', 'two.example.com'], 'every registered domain, and only registered ones');
@@ -277,9 +281,10 @@ async function main() {
     await database.query('UPDATE spfbl_domains SET active = TRUE WHERE id = $1', [dom.two]);
     const { MatrixError } = matrix;
     matrix.historyPage = async () => { throw new MatrixError('O Matrix recusou a autenticação. Revise o usuário e a senha.', 'MATRIX_AUTH_REFUSED', 422); };
-    controller.historyStore.reset();
+    await recollect();
     const failed = await call(controller.dashboard, 'admin'); assert.equal(failed.code, 200);
-    assert.equal(failed.body.state.error, 'O Matrix recusou a autenticação. Revise o usuário e a senha.', 'a Matrix failure is shown, not hidden as partial coverage');
+    assert.ok(failed.body.state.error && failed.body.state.partial, 'a failed collection is shown, not hidden as partial coverage');
+    assert.ok(!/MATRIX_SECRET/.test(JSON.stringify(failed.body)));
     matrix.historyPage = realPage;
     await call(controller.saveSettings, 'admin', { body: { matrix_user: 'ops@example.com', matrix_password: 'MATRIX_SECRET_SENTINEL_2' } });
     const recovered = await call(controller.dashboard, 'admin'); assert.equal(recovered.body.state.error, '', 'saving credentials clears the cached failure at once');

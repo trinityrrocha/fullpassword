@@ -17,7 +17,9 @@ const ACTION_LABELS = {
   spfbl_block_done: 'Bloqueio de remetente',
   spfbl_request_keep: 'Bloqueio mantido (revisão)',
   spfbl_request_release: 'Liberação (revisão)',
-  spfbl_request_block: 'Novo bloqueio (revisão)'
+  spfbl_request_block: 'Novo bloqueio (revisão)',
+  spfbl_history_collected: 'Histórico coletado',
+  spfbl_history_settings_updated: 'Retenção do histórico alterada'
 };
 const STATUS_LABELS = { success: 'Sucesso', failed: 'Falha', denied: 'Negado', blocked: 'Bloqueado' };
 const PAGE_SIZE = 25;
@@ -38,6 +40,9 @@ const safeMetadata = (metadata) => {
   if (['direct', 'review'].includes(m.mode)) out.mode = m.mode;
   if (['WHITELISTED', 'BLOCKED', 'NONE', 'UNKNOWN'].includes(m.provider_status)) out.provider_status = m.provider_status;
   if (['sent', 'smtp_skipped', 'none'].includes(m.notification)) out.notification = m.notification;
+  for (const key of ['pages', 'rows', 'retention_days', 'schedule_hour', 'deleted']) if (Number.isInteger(m[key]) && m[key] >= 0 && m[key] < 1e7) out[key] = m[key];
+  if (typeof m.capped === 'boolean') out.capped = m.capped;
+  if (['schedule', 'manual', 'query'].includes(m.run)) out.run = m.run;
   if (typeof m.diagnostic === 'string' && /^[A-Za-z0-9_= .]{1,120}$/.test(m.diagnostic)) out.diagnostic = m.diagnostic;
   return out;
 };

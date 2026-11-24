@@ -23,12 +23,18 @@ revisão**, **desbloqueio direto**, fila do administrador, novo bloqueio e **not
 
 **Telas** (abas da página SPFBL): *Dashboard* (período de 7 dias em America/Sao_Paulo: tentativas, bloqueios por motivo, top 10 domínios e
 destinatários, últimos 10 desbloqueios), *Histórico* (filtros por domínio autorizado, remetente/destinatário, situação, período de até
-31 dias; 25 por página; detalhes do registro), *Solicitações* (a conta vê as suas; o Super Admin vê a fila e decide).
+90 dias; 25 por página; detalhes do registro), *Solicitações* (a conta vê as suas; o Super Admin vê a fila e decide).
 
-**Histórico em memória.** O Matrix devolve o histórico da conta inteira. O servidor o carrega em etapas (1ª página + até 10; no
-máximo 20 000 registros; validade de 10 minutos) **só em memória**, nunca em disco, e **filtra sempre pelos domínios atuais do
+**Histórico armazenado.** O Matrix devolve o histórico da conta inteira. Uma coleta em segundo plano (1 por vez) percorre as páginas,
+do mais novo ao mais antigo, e grava no PostgreSQL **só os registros dos domínios cadastrados** (`spfbl_history_records`; cada
+execução fica em `spfbl_history_runs`). A consulta lê do banco, pagina 25 por página e **filtra sempre pelos domínios atuais do
 solicitante** (correspondência exata do destinatário; revogar o acesso ou desativar o domínio vale na próxima requisição). A chave do
-fornecedor nunca vai ao navegador. Quando a cobertura é incerta a tela diz "Cobertura parcial".
+fornecedor nunca vai ao navegador. A coleta roda sozinha **1 vez por dia** na hora definida pelo Super Admin (fuso America/Sao_Paulo; a
+reivindicação do dia é gravada no banco, então reinício ou duas instâncias não repetem a coleta) e as linhas são mantidas por **30, 60 ou
+90 dias** (escolha do Super Admin; reduzir a retenção apaga registros e exige confirmação com a contagem). Ao consultar um período que
+a coleta ainda não cobre, o servidor inicia uma coleta e a tela mostra "Coletando…"; quando a cobertura é incerta (limite de páginas,
+falha, linhas ignoradas) aparece "Cobertura parcial". Estas tabelas guardam endereços de terceiros e **ficam fora do backup**; trocar a conta
+Matrix apaga os registros da conta anterior. Parâmetros fixos: até 300 páginas e 100 000 linhas por coleta, 0,75 s entre páginas.
 
 **Modos de tratamento (por usuário):**
 - *Revisão*: o usuário registra a solicitação (com confirmação) e o Super Admin decide: **Manter bloqueio** (nada vai ao SPFBL),
