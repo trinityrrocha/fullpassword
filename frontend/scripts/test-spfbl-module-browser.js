@@ -17,6 +17,11 @@ import {createRoot} from 'react-dom/client';
 import {MemoryRouter} from 'react-router-dom';
 import ModulesCard from '/src/components/ModulesCard.jsx';
 import Spfbl from '/src/pages/Spfbl.jsx';
+import {SHELL_ROOT,SHELL_MAIN,SHELL_SCROLLER} from '/src/layouts/shellClasses.js';
+import {Routes,Route} from 'react-router-dom';
+import {AuthProvider} from '/src/context/AuthContext.jsx';
+import {ThemeProvider} from '/src/context/ThemeContext.jsx';
+import DashboardLayout from '/src/layouts/DashboardLayout.jsx';
 import useModulesMenu from '/src/hooks/useModulesMenu.js';
 import api from '/src/services/api.js';
 import '/src/index.css';
@@ -25,7 +30,9 @@ window.__reauth=[];
 window.addEventListener('fullpassword:reauth',event=>{window.__reauth.push({purpose:event.detail.purpose,action:event.detail.action});event.detail.resolve(window.__refuseReauth?null:'SYNTHETIC_GRANT');});
 function MenuProbe(){const {modules}=useModulesMenu('user-1');return <nav aria-label="Menu de teste">{modules.spfbl===true&&<a href="/spfbl" data-menu-spfbl>SPFBL</a>}</nav>;}
 const view=new URLSearchParams(location.search).get('view');
-createRoot(document.getElementById('root')).render(<MemoryRouter><main className="mx-auto max-w-5xl p-4">{view==='settings'?<><MenuProbe/><ModulesCard/></>:<Spfbl/>}</main></MemoryRouter>);
+const shellView=view==='shell'||view==='shellbug';
+const appView=view==='app';
+createRoot(document.getElementById('root')).render(appView?<MemoryRouter initialEntries={['/spfbl']}><ThemeProvider><AuthProvider><Routes><Route element={<DashboardLayout/>}><Route path="/spfbl" element={<Spfbl/>}/></Route></Routes></AuthProvider></ThemeProvider></MemoryRouter>:<MemoryRouter>{shellView?<div className={SHELL_ROOT}><main className={view==='shell'?SHELL_MAIN:SHELL_MAIN.replace('relative ','')}><div className={view==='shell'?SHELL_SCROLLER:SHELL_SCROLLER.replace('relative ','')}><Spfbl/></div></main></div>:<main className="mx-auto max-w-5xl p-4">{view==='settings'?<><MenuProbe/><ModulesCard/></>:<Spfbl/>}</main>}</MemoryRouter>);
 `;
 const vite = await createServer({ root, server: { host: '127.0.0.1', port: 0 }, appType: 'custom', plugins: [{
   name: 'spfbl-isolated-fixture', enforce: 'pre',
@@ -66,7 +73,7 @@ let state = newState();
 let browser;
 try {
   await vite.listen();
-  browser = await chromium.launch({ headless: true, ...(process.env.PLAYWRIGHT_CHANNEL ? { channel: process.env.PLAYWRIGHT_CHANNEL } : {}) });
+  browser = await chromium.launch({ headless: true, ignoreDefaultArgs: ['--hide-scrollbars'], ...(process.env.PLAYWRIGHT_CHANNEL ? { channel: process.env.PLAYWRIGHT_CHANNEL } : {}) });
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, reducedMotion: 'reduce' });
   const page = await context.newPage();
   const origin = `http://127.0.0.1:${vite.httpServer.address().port}`;
@@ -146,6 +153,10 @@ try {
       if (!reauthGate(route, body, `spfbl_access:${access[1]}`)) return;
       state.grants = state.grants.filter((g) => g.user_id !== access[1]); return json({ revoked: true });
     }
+    if (api === '/auth/me') return json({ user: { id: uid(1), name: 'Root Admin', email: 'root@example.com', role: 'admin', is_super_admin: true, is_active: true, must_change_password: false, menu_position: 'side', menu_display: 'icons', crypto_identity: { version: 2 } } });
+    if (api === '/system/security-notifications') return json({ unread_count: 0, items: [] });
+    if (api === '/crypto/identity') return json({ identity: null });
+    if (api === '/system/update/status') return json({ error: 'n/a' }, 404);
     if (api === '/spfbl/dashboard/domains') {
       return json({ domains: [{ domain: 'manual.example.org', active: true, source: 'manual', total: 40, blocked: 9, banimento: 4, 'segurança': 5, 'inexistência': 0, unlocked: 1, pending: 2 },
         { domain: 'quiet.example.org', active: true, source: 'whm', total: 0, blocked: 0, banimento: 0, 'segurança': 0, 'inexistência': 0, unlocked: 0, pending: 0 },
@@ -595,6 +606,56 @@ try {
   await page.getByRole('button', { name: 'Dashboard' }).waitFor();
   assert.equal(await page.getByRole('button', { name: 'Auditoria' }).count(), 0, 'no audit tab for ordinary accounts');
   assert.equal(await page.getByRole('heading', { name: 'Todos os domínios cadastrados' }).count(), 0);
+
+  // ================= 11. Layout regression: one scrollbar, the menu never moves with the wheel =================
+  state = newState(); state.enabled = true; state.role = 'user'; state.mode = 'review';
+  await page.setViewportSize({ width: 1280, height: 600 });
+  const extraDocumentScroll = async (view) => {
+    await page.goto(`${origin}/__spfbl_fixture?view=${view}&tab=history`);
+    await page.getByRole('heading', { name: 'Registros do domínio' }).waitFor();
+    // Measured at the top of the content area (where the user starts scrolling) and again after scrolling it to the end.
+    const gap = () => page.evaluate(() => document.documentElement.scrollHeight - window.innerHeight);
+    const atTop = await gap();
+    await page.locator('div.overflow-y-auto').first().evaluate((el) => { el.scrollTop = el.scrollHeight; });
+    await page.mouse.move(640, 300); await page.mouse.wheel(0, 4000);
+    return Math.max(atTop, await gap());
+  };
+  assert.equal(await extraDocumentScroll('shell'), 0, 'the page itself never scrolls: only the content area does (no second scrollbar)');
+  assert.equal(await page.evaluate(() => window.scrollY), 0);
+  await page.setViewportSize({ width: 1280, height: 900 });
+
+  // ================= 12. The REAL app layout (menu + content): wheel scrolling must not move the page or add a scrollbar =================
+  state = newState(); state.enabled = true; state.role = 'super_admin';
+  await page.setViewportSize({ width: 1600, height: 740 });
+  const appGap = async (strip) => {
+    await page.goto(`${origin}/__spfbl_fixture?view=app`);
+    await page.getByRole('button', { name: 'Histórico' }).click();
+    await page.getByRole('heading', { name: 'Registros do domínio' }).waitFor();
+    if (strip) await page.evaluate(() => document.querySelectorAll('[data-app-shell]').forEach((el) => el.classList.remove('relative')));
+    const gap = () => page.evaluate(() => document.documentElement.scrollHeight - window.innerHeight);
+    const top = await gap();
+    await page.mouse.move(800, 400); await page.mouse.wheel(0, 3000);
+    return { top, after: await gap(), scrollY: await page.evaluate(() => window.scrollY), menuTop: await page.evaluate(() => Math.round(document.querySelector('nav, aside')?.getBoundingClientRect().top ?? 0)) };
+  };
+  const fixed = await appGap(false);
+  assert.deepEqual([fixed.top, fixed.after, fixed.scrollY, fixed.menuTop], [0, 0, 0, 0], 'the real layout never scrolls the page; the menu stays put');
+  // Whatever leaks out of the shell (simulated: an absolutely positioned element far below), the document must not scroll.
+  const leak = async (active) => {
+    await page.goto(`${origin}/__spfbl_fixture?view=app`);
+    await page.getByRole('button', { name: 'Histórico' }).click();
+    await page.getByRole('heading', { name: 'Registros do domínio' }).waitFor();
+    await page.evaluate((on) => {
+      if (!on) document.documentElement.classList.remove('app-shell-active');
+      const stray = document.createElement('div'); stray.style.cssText = 'position:absolute;top:3000px;left:0;width:10px;height:10px'; document.body.appendChild(stray);
+    }, active);
+    await page.mouse.move(800, 400);
+    for (let n = 0; n < 4; n += 1) { await page.mouse.wheel(0, 3000); await page.waitForTimeout(700); } // separate gestures: the first scrolls the content area, later ones chain to the page
+    await page.keyboard.press('PageDown');
+    return page.evaluate(() => ({ scrollY: window.scrollY, menuTop: Math.round(document.querySelector('aside')?.getBoundingClientRect().top ?? 0) }));
+  };
+  assert.deepEqual(await leak(true), { scrollY: 0, menuTop: 0 }, 'a stray element cannot make the page scroll or move the menu');
+  assert.ok((await leak(false)).scrollY > 0, 'negative control: without the shell lock the same stray element makes the page scroll');
+  await page.setViewportSize({ width: 1280, height: 900 });
 
   assert.deepEqual(pageErrors, [], 'no uncaught page errors');
   console.log(JSON.stringify({ spfblUi: 'PASS', moduleSwitch: 'keyboard + reauth bound to the action, pessimistic, menu refreshed', secrets: 'never prefilled, cleared after save, absent from DOM/storage', domains: '121 rows paginated 25/page, filter, manual add/remove', access: 'dialog focus/Escape/return, candidates scoped, reauth bound to target, revoke', responsive: [1280, 768, 390, 320], themes: ['light', 'dark'], grantedUser: 'own scope only' }));

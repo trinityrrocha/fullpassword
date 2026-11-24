@@ -340,6 +340,12 @@
   color: #ff8a78;
 }
 
+.app-shell-active,
+.app-shell-active body {
+  height: 100%;
+  overflow: hidden;
+}
+
 .protected-app-content {
   min-height: 100vh;
   transition: filter 120ms ease;
