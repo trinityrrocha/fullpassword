@@ -52,6 +52,7 @@ const vite = await createServer({ root, server: { host: '127.0.0.1', port: 0 }, 
 const SECRETS = ['MATRIX_PASSWORD_SENTINEL_x1', 'WHMTOKENSENTINEL0123456789ABCDEF'];
 const uid = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const newState = () => ({
+  history: { retention_days: 30, schedule_hour: 3, retention_options: [30, 60, 90], timezone: 'America/Sao_Paulo', last_run_date: '2026-11-23', stored: { rows: 4321, oldest_at: '2026-10-25T10:00:00Z', newest_at: '2026-11-24T10:00:00Z' }, running: false },
   enabled: false, role: 'super_admin', failToggle: false, calls: [], whmCooldown: false,
   settings: { matrix_user: 'ops@example.com', has_matrix_password: true, whm_host: 'srv.example.com', whm_user: 'root', has_whm_token: true, domain_sync_at: null, domain_sync_status: null, updated_at: '2026-11-21T00:00:00Z' },
   domains: [
@@ -110,6 +111,16 @@ try {
       state.enabled = body.enabled; return json({ module: { key: 'spfbl', name: 'SPFBL', description: 'x', enabled: state.enabled, updated_at: '' } });
     }
     if (api === '/spfbl/overview') return state.enabled ? json(overview()) : json({ error: 'Módulo não está ativo.', code: 'MODULE_DISABLED' }, 404);
+    if (api === '/spfbl/history-settings' && method === 'GET') return json(state.history);
+    if (api === '/spfbl/history-settings' && method === 'PUT') {
+      if (!reauthGate(route, body, 'spfbl_settings')) return;
+      if (![30, 60, 90].includes(body.retention_days)) return json({ code: 'SPFBL_HISTORY_RETENTION_INVALID', error: 'Escolha 30, 60 ou 90 dias de retenção.' }, 422);
+      if (body.retention_days < state.history.retention_days && !body.confirm_shrink) return json({ code: 'SPFBL_HISTORY_SHRINK_CONFIRM', error: 'x', rows_to_delete: 1234 }, 409);
+      const deleted = body.retention_days < state.history.retention_days ? 1234 : 0;
+      state.history = { ...state.history, retention_days: body.retention_days, schedule_hour: body.schedule_hour };
+      return json({ ...state.history, deleted });
+    }
+    if (api === '/spfbl/history/collect' && method === 'POST') { state.history.running = true; return json({ started: true }, 202); }
     if (api === '/spfbl/settings' && method === 'GET') return json(state.settings);
     if (api === '/spfbl/settings' && method === 'PUT') {
       if (!reauthGate(route, body, 'spfbl_settings')) return;
@@ -272,18 +283,35 @@ try {
   state = newState(); state.enabled = true;
   await open('page');
   await page.getByRole('heading', { level: 1, name: 'SPFBL' }).waitFor();
-  assert.equal(await page.getByText('Conexão Matrix SPFBL').count(), 0, 'connection settings are hidden until the gear is used');
-  assert.equal(await page.getByRole('button', { name: 'Configuração', exact: true }).count(), 0, 'no settings tab any more');
-  await page.getByRole('button', { name: 'Configurações do SPFBL' }).click();
-  await page.getByRole('dialog', { name: 'Configurações do SPFBL' }).waitFor();
-  await page.getByRole('heading', { name: 'Conexão Matrix SPFBL' }).waitFor();
+  assert.equal(await page.getByText('Conexão Matrix SPFBL').count(), 0, 'connection settings are hidden until a gear is used');
+  assert.equal(await page.getByRole('button', { name: 'Configurações do SPFBL', exact: true }).count(), 1, 'one tab, no gear in the header');
+  await page.getByRole('button', { name: 'Configurações do SPFBL', exact: true }).click();
+  const cards = page.getByRole('list').filter({ has: page.getByRole('button', { name: 'Configurar Conexão Matrix' }) }).getByRole('listitem');
+  assert.equal(await cards.count(), 3, 'three cards: Matrix, WHM, Domínios');
+  assert.match(await cards.nth(2).innerText(), /109 ativos de 121/);
+  await shot('settings-tab-1280');
+  await page.getByRole('button', { name: 'Configurar Conexão Matrix' }).click();
+  await page.getByRole('dialog', { name: 'Conexão Matrix' }).waitFor();
+  assert.equal(await page.getByLabel('Servidor (hostname)').count(), 0, 'the Matrix dialog has no WHM form');
   await shot('settings-dialog-1280');
-  const summary = await page.getByRole('dialog', { name: 'Configurações do SPFBL' }).locator('dl').innerText();
-  assert.match(summary, /Matrix\s+Configurado/); assert.match(summary, /Domínios ativos\s+109 de 121/); assert.match(summary, /Usuários com acesso\s+1/);
+  // History retention (30/60/90) and daily hour live next to the Matrix connection.
+  assert.deepEqual(await page.getByLabel('Guardar por').locator('option').allInnerTexts(), ['30 dias', '60 dias', '90 dias']);
+  await page.getByLabel('Guardar por').selectOption('90'); await page.getByLabel('Coletar todo dia às').selectOption('5');
+  await page.getByRole('button', { name: 'Salvar' }).nth(1).click();
+  await page.getByRole('status').filter({ hasText: 'Configuração do histórico salva.' }).waitFor();
+  assert.deepEqual([state.history.retention_days, state.history.schedule_hour], [90, 5]);
+  await page.getByLabel('Guardar por').selectOption('30');
+  await page.getByRole('button', { name: 'Salvar' }).nth(1).click();
+  await page.getByRole('alert').filter({ hasText: 'apagará 1.234 registros' }).waitFor();
+  assert.equal(state.history.retention_days, 90, 'nothing changes before the confirmation');
+  await page.getByRole('button', { name: 'Confirmar e apagar' }).click();
+  await page.getByRole('status').filter({ hasText: '1.234 registros antigos foram apagados.' }).waitFor();
+  assert.equal(state.history.retention_days, 30);
+  await page.getByRole('button', { name: 'Coletar agora' }).click();
+  await page.getByRole('status').filter({ hasText: 'Coleta iniciada em segundo plano' }).waitFor();
   // Secrets: never prefilled, kept when blank, cleared after saving, absent from DOM and storage.
-  const matrixPassword = page.getByLabel('Senha Matrix'); const whmToken = page.getByLabel('Token WHM');
-  assert.equal(await matrixPassword.inputValue(), ''); assert.equal(await whmToken.inputValue(), '');
-  assert.equal(await matrixPassword.getAttribute('type'), 'password'); assert.equal(await whmToken.getAttribute('type'), 'password');
+  const matrixPassword = page.getByLabel('Senha Matrix');
+  assert.equal(await matrixPassword.inputValue(), ''); assert.equal(await matrixPassword.getAttribute('type'), 'password');
   assert.match(await page.getByText('Há uma senha salva. Deixe em branco para mantê-la.').innerText(), /mantê-la/);
   // Changing the user without re-entering the password: the server refuses and the UI explains why.
   await page.getByLabel('Usuário Matrix').fill('other@example.com');
@@ -301,8 +329,14 @@ try {
   await page.getByRole('button', { name: 'Testar conexão salva' }).click();
   await page.getByRole('status').filter({ hasText: 'Conexão com o Matrix confirmada' }).waitFor();
   // WHM: save with a token, test (writes nothing), sync, cool-down.
+  await page.keyboard.press('Escape');
+  await page.getByRole('dialog', { name: 'Conexão Matrix' }).waitFor({ state: 'detached' });
+  await page.getByRole('button', { name: 'Configurar Servidor WHM' }).click();
+  await page.getByRole('dialog', { name: 'Servidor WHM (cPanel)' }).waitFor();
+  const whmToken = page.getByLabel('Token WHM');
+  assert.equal(await whmToken.inputValue(), '');
   await whmToken.fill(SECRETS[1]);
-  await page.getByRole('button', { name: 'Salvar' }).nth(1).click();
+  await page.getByRole('button', { name: 'Salvar' }).first().click();
   await page.getByRole('status').filter({ hasText: 'Configuração do WHM salva.' }).waitFor();
   assert.equal(await whmToken.inputValue(), '');
   const whmSave = state.calls.filter((c) => c.method === 'PUT' && c.api === '/spfbl/settings').at(-1);
@@ -325,6 +359,10 @@ try {
   assert.deepEqual(await page.evaluate(() => [localStorage.length, sessionStorage.length]), [0, 0]);
 
   // ================= 4. Domains: 121 rows, filtered and paginated =================
+  await page.keyboard.press('Escape');
+  await page.getByRole('dialog', { name: 'Servidor WHM (cPanel)' }).waitFor({ state: 'detached' });
+  await page.getByRole('button', { name: 'Configurar Domínios' }).click();
+  await page.getByRole('dialog', { name: 'Domínios' }).waitFor();
   const list = page.getByRole('list', { name: 'Domínios do catálogo' });
   assert.equal(await list.getByRole('listitem').count(), 20, 'at most 20 domains per page');
   await page.getByText(/121 de 121 domínios · página 1 de 7/).waitFor();
@@ -356,8 +394,8 @@ try {
   // ================= 5. Access: dialog, keyboard, scoped candidates, reauthentication per target =================
   await page.getByLabel('Buscar por domínio ou conta cPanel').fill('');
   await page.keyboard.press('Escape');
-  await page.getByRole('dialog', { name: 'Configurações do SPFBL' }).waitFor({ state: 'detached' });
-  assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')), 'Configurações do SPFBL', 'focus returns to the gear');
+  await page.getByRole('dialog', { name: 'Domínios' }).waitFor({ state: 'detached' });
+  assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')), 'Configurar Domínios', 'focus returns to the gear');
   await page.getByRole('button', { name: 'Acessos' }).click();
   const give = page.getByRole('button', { name: 'Dar acesso' });
   await give.click();
@@ -433,7 +471,7 @@ try {
   await page.setViewportSize({ width: 1280, height: 900 });
   state = newState(); state.enabled = true; state.role = 'user'; state.mode = 'review';
   await open('page');
-  await page.getByText('Carregando histórico em etapas').waitFor();
+  await page.getByText('Coletando histórico do Matrix').waitFor();
   await page.getByText('Cobertura parcial').waitFor({ timeout: 8000 });
   await page.getByText('1.044').waitFor(); await page.getByText('94').first().waitFor();
   assert.equal(await page.getByRole('progressbar').count(), 3, 'one bar per reason');

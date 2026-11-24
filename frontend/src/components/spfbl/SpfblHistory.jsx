@@ -42,7 +42,7 @@ export default function SpfblHistory() {
   const clear = () => { setDraft(null); setPage(1); setApplied({}); };
   const refresh = async () => {
     setBusy(true);
-    try { await refreshHistory(); await load({ ...applied, page }); } catch (failure) { setError(describeError(failure, 'Não foi possível atualizar agora.')); } finally { setBusy(false); }
+    try { await refreshHistory(applied); await load({ ...applied, page }); } catch (failure) { setError(describeError(failure, 'Não foi possível atualizar agora.')); } finally { setBusy(false); }
   };
   const set = (key) => (event) => setDraft((current) => ({ ...current, [key]: event.target.value }));
 
@@ -72,7 +72,7 @@ export default function SpfblHistory() {
           <button type="submit" className="min-h-9 flex-1 rounded-md bg-blue-800 px-4 text-sm font-semibold text-white hover:bg-blue-900">Consultar</button>
           <button type="button" onClick={clear} className="min-h-9 flex-1 rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-blue-800 hover:bg-slate-50">Limpar filtros</button>
         </div>
-        <p className="col-span-full text-xs text-slate-500">E-mail opcional. Remetente busca o endereço exato no envelope, From e Reply-To. Período em America/Sao_Paulo, até 31 dias.</p>
+        <p className="col-span-full text-xs text-slate-500">E-mail opcional. Remetente busca o endereço exato no envelope, From e Reply-To. Período em America/Sao_Paulo, até 90 dias (limitado ao tempo de retenção configurado).</p>
         {fieldError && <p role="alert" className="col-span-full text-sm text-red-800">{fieldError}</p>}
       </form>
 

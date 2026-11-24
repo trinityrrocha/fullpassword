@@ -115,7 +115,7 @@ export const formatIsoDateTime = (iso) => (iso ? formatEpoch(Math.floor(Date.par
 export const formatDay = (value) => { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value || ''); return m ? `${m[3]}/${m[2]}/${m[1].slice(2)}` : ''; };
 export const formatNumber = (value) => new Intl.NumberFormat('pt-BR').format(Number(value) || 0);
 export const REASON_ICONS = { banned: '🚫', security: '💀', inexistent: '⚠️', '': '' };
-export const STATE_LABELS = (state) => (state?.loading ? 'Carregando histórico em etapas' : state?.partial ? 'Cobertura parcial' : 'Histórico carregado');
+export const STATE_LABELS = (state) => (state?.loading ? 'Coletando histórico do Matrix' : state?.partial ? 'Cobertura parcial' : 'Histórico carregado');
 export const COVERAGE_NOTE = 'Contagens parciais; a cobertura dos sete dias não está garantida.';
 export const DEFAULT_FILTERS = { status: 'Bloqueados', by: 'sender', email: '' };
 

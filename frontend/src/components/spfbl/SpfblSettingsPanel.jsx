@@ -29,7 +29,7 @@ function Section({ icon, title, description, children }) {
 }
 
 // Secret inputs are uncontrolled and cleared after every submit: a saved secret is never sent back to the browser.
-export default function SpfblSettingsPanel({ settings, onSettingsChange, onDomainsChanged }) {
+export default function SpfblSettingsPanel({ settings, onSettingsChange, onDomainsChanged, only = null }) {
   // onDomainsChanged reloads the catalogue AND the settings (last sync status).
   const matrixPasswordRef = useRef(null);
   const whmTokenRef = useRef(null);
@@ -106,7 +106,7 @@ export default function SpfblSettingsPanel({ settings, onSettingsChange, onDomai
 
   return (
     <div className="space-y-6">
-      <Section icon={<Plug className="mr-2 h-5 w-5 text-indigo-500" aria-hidden="true" />} title="Conexão Matrix SPFBL" description="Credenciais da conta Matrix usadas para consultar os bloqueios. Ficam cifradas no servidor e nunca voltam para o navegador.">
+      {only !== 'whm' && <Section icon={<Plug className="mr-2 h-5 w-5 text-indigo-500" aria-hidden="true" />} title="Conexão Matrix SPFBL" description="Credenciais da conta Matrix usadas para consultar os bloqueios. Ficam cifradas no servidor e nunca voltam para o navegador.">
         <form className="space-y-4" onSubmit={submitMatrix} noValidate>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <label className="text-sm font-medium text-slate-700">
@@ -128,9 +128,9 @@ export default function SpfblSettingsPanel({ settings, onSettingsChange, onDomai
           </div>
           <Message message={matrixMessage} />
         </form>
-      </Section>
+      </Section>}
 
-      <Section icon={<Server className="mr-2 h-5 w-5 text-indigo-500" aria-hidden="true" />} title="Servidor WHM (cPanel)" description="Usado só para listar os domínios ativos (contas não suspensas). Somente leitura: crie no WHM um token com o mínimo de permissões necessárias para listar contas e domínios.">
+      {only !== 'matrix' && <Section icon={<Server className="mr-2 h-5 w-5 text-indigo-500" aria-hidden="true" />} title="Servidor WHM (cPanel)" description="Usado só para listar os domínios ativos (contas não suspensas). Somente leitura: crie no WHM um token com o mínimo de permissões necessárias para listar contas e domínios.">
         <form className="space-y-4" onSubmit={submitWhm} noValidate>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
             <label className="text-sm font-medium text-slate-700">
@@ -160,7 +160,7 @@ export default function SpfblSettingsPanel({ settings, onSettingsChange, onDomai
           </div>
           <Message message={whmMessage} />
         </form>
-      </Section>
+      </Section>}
     </div>
   );
 }
