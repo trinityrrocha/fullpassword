@@ -40,7 +40,7 @@ assert.doesNotMatch(
 );
 assert.match(
   sharingManager,
-  /saveCryptoShares\(cleanedShares\)/
+  /saveCryptoShares\(cleanedShares(?:,|\))/
 );
 assert.match(
   clientsList,

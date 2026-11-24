@@ -390,9 +390,9 @@ export default function ClientVault() {
     return () => { cancelled = true; };
   }, [id, isVaultUnlocked, masterKey, user, identityKeys]);
 
-  const saveCryptoShares = async (shares) => {
+  const saveCryptoShares = async (shares, userShares) => {
     if (!vaultSessionRef.current) throw new Error('Cofre bloqueado.');
-    await vaultSessionRef.current.migrateOrRotate(shares);
+    await vaultSessionRef.current.migrateOrRotate(shares, userShares);
     setVaultDataKey(vaultSessionRef.current.key);
   };
 

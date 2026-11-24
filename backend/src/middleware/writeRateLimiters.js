@@ -106,6 +106,14 @@ const spfblTestLimiter = createWriteRateLimiter({
   message: 'Limite de testes do SPFBL atingido. Aguarde alguns minutos antes de tentar novamente.'
 });
 
+// Requests and decisions are deliberate, low-volume actions; this only bounds abuse, it must not get in the way of a review session.
+const spfblActionLimiter = createWriteRateLimiter({
+  windowMs: 15 * 60 * 1000,
+  limit: 60,
+  code: 'SPFBL_ACTION_RATE_LIMITED',
+  message: 'Muitas ações no SPFBL em pouco tempo. Aguarde alguns minutos antes de continuar.'
+});
+
 const smtpTestLimiter = createWriteRateLimiter({
   windowMs: 15 * 60 * 1000,
   limit: 5,
@@ -151,6 +159,7 @@ module.exports = {
   systemUpdateLimiter,
   smtpTestLimiter,
   spfblTestLimiter,
+  spfblActionLimiter,
   passwordResetRequestIpLimiter,
   passwordResetRequestLimiter,
   passwordResetValidateLimiter,

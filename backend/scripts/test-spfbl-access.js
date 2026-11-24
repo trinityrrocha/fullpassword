@@ -113,7 +113,7 @@ async function run() {
   assert.equal(res.code, 403); assert.equal(res.body.code, 'SPFBL_ACCESS_DENIED');
   res = response(); await controller.overview(request(admin), res);
   assert.equal(res.code, 200); assert.equal(res.body.role, 'super_admin');
-  assert.deepEqual([res.body.matrix_configured, res.body.whm_configured, res.body.domains, res.body.users_with_access], [false, false, { total: 2, active: 2 }, 1]);
+  assert.deepEqual([res.body.matrix_configured, res.body.whm_configured, res.body.domains, res.body.users_with_access], [false, false, { total: 2, active: 2, without_server: 0 }, 1]);
   assert.equal(Object.keys(res.body).some((key) => /password|token|secret/i.test(key)), false);
   await modules.setModuleEnabled('spfbl', false, ids.admin);
   res = response(); await controller.overview(request(admin), res);
@@ -146,10 +146,12 @@ async function run() {
     assert.ok(routes.includes(line), line);
   }
   const routeLines = routes.split('\n').filter((line) => /^router\.(get|put|post|delete|patch)\(/.test(line));
-  assert.equal(routeLines.length, 12);
+  assert.equal(routeLines.length, 33);
   const open = routeLines.filter((line) => !line.includes('requireSuperAdmin'));
-  assert.equal(open.length, 1, 'only the overview is open to granted users');
-  assert.ok(open[0].startsWith("router.get('/overview',"));
+  // Open to granted users: the overview and the read-only history views. Each one resolves the caller's CURRENT scope per request
+  // (test-spfbl-history.js); everything else is Super Admin only.
+  const openPaths = open.map((line) => /^router\.(\w+)\('([^']+)'/.exec(line).slice(1).join(' '));
+  assert.deepEqual(openPaths.sort(), ['get /dashboard', 'get /history', 'get /overview', 'get /records/:id', 'get /requests', 'post /history/refresh', 'post /records/:id/block', 'post /records/:id/request', 'post /records/:id/status', 'post /records/:id/unlock'].sort());
   assert.match(read('backend/src/services/reauthService.js'), /\|spfbl_access\):\[0-9a-f-\]\{36\}\$/, 'access reauth is bound to the target account');
   assert.match(read('backend/src/controllers/modulesController.js'), /require\('\.\.\/services\/spfblAccessService'\)/);
   console.log('PASS spfbl access: FK-ordered schema, validated grants (1-100 domains, no Super Admin/inactive), live menu check, scoped overview, cascades, audit without e-mails.');

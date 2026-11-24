@@ -202,6 +202,97 @@ CREATE TABLE IF NOT EXISTS spfbl_user_domains (
     PRIMARY KEY (user_id, domain_id)
 );
 
+CREATE TABLE IF NOT EXISTS spfbl_requests (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    record_id CHAR(64) NOT NULL,
+    actor_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    domain VARCHAR(253) NOT NULL,
+    recipient VARCHAR(254) NOT NULL,
+    sender VARCHAR(254) NOT NULL DEFAULT '',
+    provider_key VARCHAR(128) NOT NULL,
+    integration_hash CHAR(64) NOT NULL,
+    reason VARCHAR(254) NOT NULL DEFAULT '',
+    source VARCHAR(8) NOT NULL DEFAULT 'review' CHECK (source IN ('review', 'direct')),
+    status VARCHAR(16) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'processing', 'unlocked', 'kept', 'failed', 'uncertain', 'reopened', 'reblocked')),
+    revision INTEGER NOT NULL DEFAULT 0,
+    result_info VARCHAR(160) NOT NULL DEFAULT '',
+    reviewed_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    reviewed_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    requested_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE UNIQUE INDEX IF NOT EXISTS spfbl_requests_record_actor_idx ON spfbl_requests (record_id, actor_id) WHERE actor_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS spfbl_requests_status_idx ON spfbl_requests (status, requested_at DESC);
+CREATE INDEX IF NOT EXISTS spfbl_requests_domain_idx ON spfbl_requests (domain);
+
+CREATE TABLE IF NOT EXISTS spfbl_operations (
+    record_id CHAR(64) PRIMARY KEY,
+    status VARCHAR(12) NOT NULL DEFAULT 'blocked' CHECK (status IN ('processing', 'uncertain', 'done', 'blocked')),
+    revision INTEGER NOT NULL DEFAULT 0,
+    actor_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS spfbl_release_events (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    request_id UUID REFERENCES spfbl_requests(id) ON DELETE CASCADE,
+    actor_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    domain VARCHAR(253) NOT NULL,
+    recipient VARCHAR(254) NOT NULL,
+    sender VARCHAR(254) NOT NULL DEFAULT '',
+    reason VARCHAR(254) NOT NULL DEFAULT '',
+    action VARCHAR(12) NOT NULL CHECK (action IN ('unlocked', 'kept', 'reopened', 'reblocked')),
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS spfbl_release_events_action_idx ON spfbl_release_events (action, created_at DESC);
+
+ALTER TABLE spfbl_settings ADD COLUMN IF NOT EXISTS history_retention_days INTEGER NOT NULL DEFAULT 30 CHECK (history_retention_days IN (30, 60, 90));
+ALTER TABLE spfbl_settings ADD COLUMN IF NOT EXISTS history_schedule_hour INTEGER NOT NULL DEFAULT 3 CHECK (history_schedule_hour BETWEEN 0 AND 23);
+ALTER TABLE spfbl_settings ADD COLUMN IF NOT EXISTS history_last_run_date DATE;
+
+CREATE TABLE IF NOT EXISTS spfbl_history_records (
+    record_id CHAR(64) PRIMARY KEY,
+    integration_hash CHAR(64) NOT NULL,
+    domain VARCHAR(253) NOT NULL,
+    recipient VARCHAR(254) NOT NULL,
+    sender VARCHAR(254) NOT NULL DEFAULT '',
+    from_address VARCHAR(254) NOT NULL DEFAULT '',
+    replyto VARCHAR(254) NOT NULL DEFAULT '',
+    result VARCHAR(254) NOT NULL DEFAULT '',
+    provider_status VARCHAR(12) NOT NULL DEFAULT 'UNKNOWN' CHECK (provider_status IN ('WHITELISTED', 'BLOCKED', 'NONE', 'UNKNOWN')),
+    provider_key VARCHAR(128) NOT NULL,
+    arrival_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    collected_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS spfbl_history_records_domain_idx ON spfbl_history_records (integration_hash, domain, arrival_at DESC);
+CREATE INDEX IF NOT EXISTS spfbl_history_records_arrival_idx ON spfbl_history_records (arrival_at);
+
+CREATE TABLE IF NOT EXISTS spfbl_history_runs (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    integration_hash CHAR(64) NOT NULL,
+    trigger VARCHAR(12) NOT NULL CHECK (trigger IN ('schedule', 'manual', 'query')),
+    status VARCHAR(10) NOT NULL DEFAULT 'running' CHECK (status IN ('running', 'done', 'capped', 'failed')),
+    window_start_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    started_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    finished_at TIMESTAMP WITH TIME ZONE,
+    pages INTEGER NOT NULL DEFAULT 0,
+    rows_seen INTEGER NOT NULL DEFAULT 0,
+    rows_stored INTEGER NOT NULL DEFAULT 0,
+    newest_at TIMESTAMP WITH TIME ZONE,
+    oldest_at TIMESTAMP WITH TIME ZONE,
+    reached_end BOOLEAN NOT NULL DEFAULT FALSE,
+    skipped_rows BOOLEAN NOT NULL DEFAULT FALSE,
+    error_code VARCHAR(60)
+);
+CREATE INDEX IF NOT EXISTS spfbl_history_runs_finished_idx ON spfbl_history_runs (integration_hash, finished_at DESC);
+
+ALTER TABLE spfbl_settings ADD COLUMN IF NOT EXISTS history_interval_hours INTEGER NOT NULL DEFAULT 24 CHECK (history_interval_hours IN (1, 2, 4, 8, 12, 24));
+ALTER TABLE spfbl_settings ADD COLUMN IF NOT EXISTS history_last_run_at TIMESTAMP WITH TIME ZONE;
+ALTER TABLE spfbl_history_runs ADD COLUMN IF NOT EXISTS provider_limit BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE spfbl_history_runs ADD COLUMN IF NOT EXISTS gap BOOLEAN NOT NULL DEFAULT FALSE;
+
 -- Tokens temporários de recuperação de acesso. O token puro existe apenas no
 -- e-mail/navegador; o banco persiste exclusivamente seu hash SHA-256.
 CREATE TABLE IF NOT EXISTS password_reset_tokens (
@@ -297,3 +388,25 @@ VALUES (
 UPDATE groups
 SET can_view = TRUE, can_edit = TRUE, can_add = TRUE, can_delete = TRUE
 WHERE name = 'Administradores';
+
+-- SPFBL: vários servidores WHM, cada um com a sua conexão Matrix (migration 33; a migração dos dados antigos roda na partida do backend).
+CREATE TABLE IF NOT EXISTS spfbl_whm_servers (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name VARCHAR(80) NOT NULL CHECK (length(btrim(name)) >= 1),
+    host VARCHAR(253) NOT NULL,
+    whm_user VARCHAR(32) NOT NULL,
+    encrypted_token TEXT NOT NULL,
+    matrix_user VARCHAR(254) NOT NULL DEFAULT '',
+    encrypted_matrix_password TEXT,
+    sync_at TIMESTAMP WITH TIME ZONE,
+    sync_status VARCHAR(48),
+    history_last_run_at TIMESTAMP WITH TIME ZONE,
+    created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE UNIQUE INDEX IF NOT EXISTS spfbl_whm_servers_name_idx ON spfbl_whm_servers (lower(name));
+CREATE UNIQUE INDEX IF NOT EXISTS spfbl_whm_servers_target_idx ON spfbl_whm_servers (host, whm_user);
+CREATE UNIQUE INDEX IF NOT EXISTS spfbl_whm_servers_matrix_idx ON spfbl_whm_servers (lower(matrix_user)) WHERE matrix_user <> '';
+ALTER TABLE spfbl_domains ADD COLUMN IF NOT EXISTS server_id UUID REFERENCES spfbl_whm_servers(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS spfbl_domains_server_idx ON spfbl_domains (server_id);

@@ -4,6 +4,7 @@ const BACKUP_TABLES = Object.freeze([
   'user_groups',
   'clients',
   'client_group_access',
+  'client_user_access',
   'client_key_shares',
   'vault_items',
   'vault_shares',
@@ -27,20 +28,29 @@ const BACKUP_TABLES = Object.freeze([
   'cloud_backup_providers',
   'system_modules',
   'spfbl_settings',
+  'spfbl_whm_servers',
   'spfbl_domains',
   'spfbl_user_access',
-  'spfbl_user_domains'
+  'spfbl_user_domains',
+  'spfbl_requests',
+  'spfbl_operations',
+  'spfbl_release_events'
 ]);
 
 // Tables added after the first backup format shipped. A backup made before them has no entry for them: restoring it
 // must neither fail nor wipe what is configured here, so they are treated as "not in the backup" and left untouched.
 // (A backup that does list them, even with zero rows, replaces them like every other table.)
 const OPTIONAL_BACKUP_TABLES = Object.freeze(new Set([
+  'client_user_access',
   'system_modules',
   'spfbl_settings',
+  'spfbl_whm_servers',
   'spfbl_domains',
   'spfbl_user_access',
-  'spfbl_user_domains'
+  'spfbl_user_domains',
+  'spfbl_requests',
+  'spfbl_operations',
+  'spfbl_release_events'
 ]));
 
 module.exports = { BACKUP_TABLES, OPTIONAL_BACKUP_TABLES };

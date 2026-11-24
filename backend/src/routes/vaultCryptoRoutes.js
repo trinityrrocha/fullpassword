@@ -11,6 +11,8 @@ router.get('/shared-items',c.listSharedItems);
 router.get('/shared-items/:itemId',c.readSharedItem);
 router.get('/vaults/:id',c.getState);
 router.post('/vaults/:id/recipients',c.getRecipients);
+router.get('/vaults/:id/user-directory',c.userDirectory);
+router.get('/vaults/:id/user-shares',c.userShares);
 router.post('/vaults/:id/stages',c.stageEpoch);
 router.post('/vaults/:id/stages/:stageId/records', c.appendStage);
 router.post('/vaults/:id/stages/:stageId/activate',c.activateEpoch);

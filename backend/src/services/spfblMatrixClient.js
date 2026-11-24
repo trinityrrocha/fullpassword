@@ -1,13 +1,15 @@
 const https = require('node:https');
 
-// Port of the Matrix adapter of sti-spfbl-portal (Matrix.php). Fixed host, TLS verified, no redirects, bounded
+// Port of the Matrix adapter of the original PHP SPFBL portal (Matrix.php). Fixed host, TLS verified, no redirects, bounded
 // response, and only fixed diagnostic tokens ever leave this module: the provider takes the credentials in the
 // query string, so the URL, the query and the response body must never reach logs, errors or the audit trail.
 const MATRIX_HOST = 'matrix.spfbl.net';
 const MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 20000;
-// Phase 1 only checks the connection (history). Extend deliberately in the phase that needs more.
-const ENDPOINTS = new Set(['history']);
+// Read-only endpoints. Mutations (block / white) are added deliberately in the phase that needs them.
+const ENDPOINTS = new Set(['history', 'registry', 'block', 'white']);
+// Mutations: the provider must answer DONE with the exact information, otherwise the outcome is NOT confirmed.
+const MUTATIONS = new Map([['block', 'sender blocked'], ['white', 'sender whitelisted']]);
 
 class MatrixError extends Error {
   constructor(message, code, statusCode = 502, diagnostic = '') {
@@ -28,7 +30,9 @@ const INFORMATION = new Map([
   ['registry not found', 'REGISTRY_NOT_FOUND'],
   ['you cannot define the credential here for security reasons', 'CREDENTIAL_MODE_REFUSED'],
   ['no parameters was provided', 'NO_PARAMETERS'],
-  ['unavailable service', 'UNAVAILABLE_SERVICE']
+  ['unavailable service', 'UNAVAILABLE_SERVICE'],
+  ['sender whitelisted', 'SENDER_WHITELISTED'],
+  ['sender blocked', 'SENDER_BLOCKED']
 ]);
 
 const responseDiagnostic = (data) => {
@@ -111,10 +115,18 @@ const request = async (endpoint, { user, password, params = {} }, { transport = 
   const body = typeof response.body === 'string' ? response.body : '';
   if (Buffer.byteLength(body) > MAX_RESPONSE_BYTES) { diagnostic += ' RESPONSE_TOO_LARGE'; fail('Resposta do Matrix excedeu o limite.', 'MATRIX_RESPONSE_TOO_LARGE'); }
   let data;
-  try { data = JSON.parse(body); } catch { diagnostic += ' INVALID_JSON'; return fail('Resposta JSON inválida do Matrix.', 'MATRIX_INVALID_JSON'); }
+  // Provider keys and cursors may exceed 2^53: keep them lossless as strings (a rounded key would address another record).
+  const lossless = body.replace(/("(?:key|timekey|next)"\s*:\s*)(-?\d+)(?=\s*[,}\]])/g, '$1"$2"');
+  try { data = JSON.parse(lossless); } catch { diagnostic += ' INVALID_JSON'; return fail('Resposta JSON inválida do Matrix.', 'MATRIX_INVALID_JSON'); }
   if (!data || typeof data !== 'object' || Array.isArray(data)) { diagnostic += ' INVALID_JSON_SHAPE'; return fail('Formato JSON inesperado do Matrix.', 'MATRIX_INVALID_SHAPE'); }
   diagnostic += responseDiagnostic(data);
+  if (MUTATIONS.has(endpoint)) {
+    if (data.result !== 'DONE' || data.information !== MUTATIONS.get(endpoint)) fail('O SPFBL não confirmou a operação. Confira o resultado no fornecedor antes de repetir.', 'MATRIX_MUTATION_NOT_CONFIRMED');
+    return { data: { result: 'DONE', information: data.information }, diagnostic };
+  }
   if (data.result !== 'VALID') {
+    if (data.result === 'NOTFOUND') fail('O Matrix não encontrou este registro na consulta individual. Atualize o Histórico; se persistir, encaminhe o código de diagnóstico ao administrador.', 'MATRIX_RECORD_NOT_FOUND', 409);
+    if (data.information === 'invalid key') fail('O Matrix recusou a chave deste registro. Atualize o Histórico e encaminhe o código de diagnóstico ao administrador.', 'MATRIX_KEY_REFUSED', 409);
     if (data.result === 'INVALID' || data.result === 'EXPIRED') fail('O Matrix recusou a autenticação. Revise o usuário e a senha.', 'MATRIX_AUTH_REFUSED', 422);
     fail('O Matrix não confirmou a consulta. Encaminhe o código de diagnóstico ao administrador.', 'MATRIX_NOT_CONFIRMED');
   }
@@ -130,4 +142,31 @@ const testConnection = async (credentials, options) => {
   return { ok: true, diagnostic };
 };
 
-module.exports = { MATRIX_HOST, MatrixError, request, testConnection, defaultTransport };
+const bounded = (key) => {
+  if (typeof key !== 'string' || key === '' || key.length > 128) throw new MatrixError('Chave do registro inválida.', 'MATRIX_KEY_INVALID', 422);
+  return key;
+};
+
+// One page of history. Cursor and keys stay strings; the signature detects a provider that repeats a page.
+const historyPage = async (credentials, cursor, options) => {
+  const params = cursor === null || cursor === undefined ? {} : { begin: String(cursor) };
+  const { data, diagnostic } = await request('history', { ...credentials, params }, options);
+  if (!Array.isArray(data.message)) throw new MatrixError('Estrutura do histórico do Matrix inesperada.', 'MATRIX_INVALID_SHAPE', 502, `${diagnostic} MESSAGE_NOT_LIST`);
+  const next = data.next;
+  if (next !== undefined && next !== null && typeof next !== 'string' && typeof next !== 'number') throw new MatrixError('Cursor do Matrix inválido.', 'MATRIX_INVALID_CURSOR', 503, diagnostic);
+  return { messages: data.message, next: next === undefined || next === null || String(next) === '' ? null : String(next),
+    signature: require('node:crypto').createHash('sha256').update(JSON.stringify(data.message)).digest('hex') };
+};
+
+// Individual lookup of one record (current provider status). Read-only.
+const registry = async (credentials, key, options) => {
+  const { data, diagnostic } = await request('registry', { ...credentials, params: { timekey: bounded(key) } }, options);
+  if (!data.message || typeof data.message !== 'object' || Array.isArray(data.message)) throw new MatrixError('Registro Matrix inválido.', 'MATRIX_INVALID_SHAPE', 502, `${diagnostic} MESSAGE_NOT_OBJECT`);
+  return data.message;
+};
+
+// Mutations never retry and never throw away the diagnostic: callers record the outcome as "uncertain" on any failure.
+const block = async (credentials, key, options) => request('block', { ...credentials, params: { timekey: bounded(key) } }, options);
+const unlock = async (credentials, key, options) => request('white', { ...credentials, params: { timekey: bounded(key) } }, options);
+
+module.exports = { MATRIX_HOST, MatrixError, request, testConnection, historyPage, registry, block, unlock, defaultTransport };

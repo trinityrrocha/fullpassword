@@ -12,7 +12,7 @@ import FormDialog from '../components/FormDialog';
 const formatDate = (value) => {
   if (!value) return 'Não informado';
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? 'Não informado' : new Intl.DateTimeFormat('pt-BR').format(date);
+  return Number.isNaN(date.getTime()) ? 'Não informado' : new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' }).format(date);
 };
 
 const countList = (value) => Array.isArray(value) ? value.length : 0;

@@ -73,7 +73,7 @@ O bootstrap instala a cópia root do agente e confere seu conteúdo antes dos
 pedidos. Timer permanece parado; o ensaio invoca o agente instalado diretamente.
 Evidência aprovada: [CI 37399889906, job images](https://github.com/trinityrrocha/fullpassword/actions/runs/37399889906/job/112064491733)
 e `evidence/release-upgrade-bcd9468.json`, com SHAs/digests exatos. Não é release
-publicada em GHCR nem implantação em pw.sti1.com.br; registry é efêmero/loopback.
+publicada em GHCR nem implantação em pw.example.com; registry é efêmero/loopback.
 Os ciphertexts da fixture Docker verificam preservação; a validade criptográfica
 dos dados/anexos é testada pela suíte nativa de upgrade separada.
 

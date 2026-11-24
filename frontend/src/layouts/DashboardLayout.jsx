@@ -1,4 +1,5 @@
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
+import { SHELL_ROOT, SHELL_MAIN, SHELL_SCROLLER } from './shellClasses';
 import { Users, Settings, Shield, LogOut, Menu, X, Building2, Bug } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
@@ -26,6 +27,12 @@ export default function DashboardLayout() {
     window.addEventListener('keydown', closeOnEscape);
     return () => window.removeEventListener('keydown', closeOnEscape);
   }, [isMobileMenuOpen]);
+  // The app shell scrolls its own content area. The document itself must never scroll: anything that leaks past the shell (a stray
+  // absolutely positioned element, a tooltip, a portal) would otherwise add a second scrollbar and drag the menu away with the wheel.
+  useEffect(() => {
+    document.documentElement.classList.add('app-shell-active');
+    return () => document.documentElement.classList.remove('app-shell-active');
+  }, []);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [isVaultPolicyDialogOpen,setIsVaultPolicyDialogOpen]=useState(false);
   const [notifications, setNotifications] = useState({ unread_count: 0, items: [] });
@@ -173,7 +180,7 @@ export default function DashboardLayout() {
 
   return (
     <ScreenProtection enabled={screenProtectionEnabled}>
-      <div className="flex h-screen bg-gray-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
+      <div className={SHELL_ROOT}>
       {!topNavigation && <DesktopNavigation user={user} navigation={navigation} onProfile={() => setIsProfileModalOpen(true)} onLogout={handleLogout} />}
 
       {/* Mobile Header & Menu */}
@@ -220,7 +227,7 @@ export default function DashboardLayout() {
       )}
 
       {/* Main Content */}
-      <main className="min-w-0 flex-1 flex flex-col overflow-hidden pt-16 md:pt-0">
+      <main className={SHELL_MAIN} data-app-shell="main">
         {topNavigation ? <DesktopNavigation user={user} navigation={navigation} onProfile={() => setIsProfileModalOpen(true)} onLogout={handleLogout}>
           <ThemeToggle />
           {canSeeUpdates && <SecurityNotificationsMenu notifications={combinedNotifications} isOpen={isNotificationsOpen} onToggle={toggleNotifications} onClose={closeNotifications} onNavigate={openNotification} />}
@@ -241,7 +248,7 @@ export default function DashboardLayout() {
             Sua senha está antiga. Recomendamos atualizá-la. Clique aqui para abrir seu perfil.
           </button>
         )}
-        <div className="flex-1 overflow-y-auto p-4 md:p-8">
+        <div className={SHELL_SCROLLER} data-app-shell="scroller">
           {user?.vault_secret_change_required&&!mustChangePassword&&<div role="alert" className="mb-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
             <p>Sua senha dos cofres expirou. Altere-a para continuar usando os cofres.</p>
             <button type="button" onClick={()=>setIsVaultPolicyDialogOpen(true)} className="mt-2 rounded-md border border-amber-400 px-3 py-2 font-medium hover:bg-amber-100 focus-visible:outline dark:hover:bg-amber-900">Alterar senha dos cofres</button>

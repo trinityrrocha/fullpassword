@@ -60,7 +60,7 @@ export default function RecoveryCodesPanel({ codes, userEmail, onSaved, onAcknow
       document.setFontSize(11);
       document.text('Guarde estes códigos em local seguro.', 20, 34);
       document.text('Use-os apenas se você perder acesso ao aplicativo autenticador.', 20, 41);
-      document.text(`Gerado em: ${generatedAt.toLocaleString()}`, 20, 49);
+      document.text(`Gerado em: ${new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }).format(generatedAt).replace(',', '')}`, 20, 49);
       if (safeEmail) document.text(`Usuário: ${safeEmail}`, 20, 57);
 
       const listStart = safeEmail ? 70 : 62;

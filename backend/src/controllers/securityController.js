@@ -30,7 +30,12 @@ const NOTIFICATION_ACTIONS = [
   'password_reset_failed',
   'password_reset_mfa_failed',
   'password_reset_requested',
+  'password_set_by_admin',
   'smtp_test_email_failed',
+  // SPFBL module: a new review request, direct unlocks/blocks by users, and (via the failed status) anything not confirmed.
+  'spfbl_block_done',
+  'spfbl_review_requested',
+  'spfbl_unlock_done',
   'weak_password_rejected'
 ];
 const NOTIFICATION_STATUSES = ['failed', 'denied', 'blocked'];
@@ -62,8 +67,28 @@ const notificationContext = (event) => {
   const context = [maskEmail(event.user_email), maskIp(event.ip_address)].filter(Boolean);
   return context.length ? ` (${context.join(' · ')})` : '';
 };
+// SPFBL events carry the domain in their metadata (never secrets or provider keys); show it, sanitized and bounded.
+const spfblDomain = (event) => {
+  const domain = typeof event.metadata?.domain === 'string' && /^[a-z0-9.-]{1,253}$/.test(event.metadata.domain) ? event.metadata.domain : '';
+  return domain ? ` — ${domain}` : '';
+};
+
 const getNotificationContent = (event) => {
   const context = notificationContext(event);
+  if (String(event.action).startsWith('spfbl_')) {
+    const where = spfblDomain(event);
+    const failed = event.status === 'failed';
+    const spfbl = {
+      spfbl_review_requested: ['Nova solicitação de revisão (SPFBL)', `Uma solicitação aguarda decisão${where}.`],
+      spfbl_unlock_done: failed ? ['Desbloqueio SPFBL não concluído', `O SPFBL não confirmou o desbloqueio${where}.`] : ['Desbloqueio direto (SPFBL)', `Um remetente foi desbloqueado${where}${context}.`],
+      spfbl_block_done: failed ? ['Bloqueio SPFBL não concluído', `O SPFBL não confirmou o bloqueio${where}.`] : ['Remetente bloqueado (SPFBL)', `Um remetente foi bloqueado${where}${context}.`],
+      spfbl_request_release: ['Liberação SPFBL não concluída', `A liberação da solicitação não foi concluída${where}.`],
+      spfbl_request_block: ['Bloqueio SPFBL não concluído', `O novo bloqueio da solicitação não foi concluído${where}.`],
+      spfbl_request_keep: ['Decisão SPFBL não concluída', `A decisão sobre a solicitação não foi concluída${where}.`]
+    };
+    if (spfbl[event.action]) return spfbl[event.action];
+    return failed ? ['Falha no SPFBL', `Uma operação do módulo SPFBL não foi concluída${where}.`] : ['Evento do SPFBL', 'Evento registrado no módulo SPFBL.'];
+  }
   const contentByAction = {
     backup_export_denied: ['Exportação de backup negada', `A tentativa de exportação foi recusada${context}.`],
     backup_export_failed: ['Falha na exportação de backup', 'O backup não pôde ser exportado.'],
@@ -85,6 +110,7 @@ const getNotificationContent = (event) => {
     password_reset_failed: ['Recuperação de acesso falhou', `A recuperação de acesso não foi concluída${context}.`],
     password_reset_mfa_failed: ['Recuperação MFA falhou', `A validação MFA da recuperação de acesso foi recusada${context}.`],
     password_reset_requested: ['Recuperação de acesso solicitada', 'Uma solicitação de recuperação de acesso foi registrada.'],
+    password_set_by_admin: ['Senha de usuário redefinida', `Um Super Admin definiu a senha de login de outra conta${context}.`],
     smtp_test_email_failed: ['Teste SMTP falhou', 'Não foi possível enviar o e-mail de teste.'],
     weak_password_rejected: ['Senha fora da política', `Uma senha que não atende à política foi recusada${context}.`]
   };
@@ -109,7 +135,10 @@ const formatSecurityNotification = (event) => {
     created_at: event.created_at,
     severity,
     status_label: STATUS_LABELS[event.status] || 'Informação',
-    target_url: `/settings?section=audit&audit_action=${encodeURIComponent(event.action)}`
+    // SPFBL events open the module (requests for new requests, audit otherwise); everything else opens the system audit.
+    target_url: String(event.action).startsWith('spfbl_')
+      ? `/spfbl?tab=${event.action === 'spfbl_review_requested' ? 'requests' : 'audit'}`
+      : `/settings?section=audit&audit_action=${encodeURIComponent(event.action)}`
   };
 };
 const parseDate = (value, endOfDay = false) => {
@@ -306,7 +335,7 @@ const getSecurityNotifications = async (req, res) => {
   );
   const lastSeenAt = state.rows[0]?.security_notifications_seen_at || new Date(0).toISOString();
   const result = await db.query(
-    `SELECT id, action, status, user_email, ip_address, created_at,
+    `SELECT id, action, status, user_email, ip_address, metadata, created_at,
             (COUNT(*) FILTER (WHERE created_at > $3::timestamptz) OVER())::integer AS unread_count
      FROM system_audit_events
      WHERE created_at >= CURRENT_TIMESTAMP - INTERVAL '24 hours'

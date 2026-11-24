@@ -592,6 +592,60 @@ const updateMfaPolicy = async (req, res) => {
   }
 };
 
+// Super Admin sets the LOGIN password of another account (the independent unlock secret is untouched, so the admin can never
+// open that account's vaults). The password is temporary: the owner must change it at the next login. Every session of the
+// account ends, pending reset links are consumed, the change is audited (never the password) and the owner is told by e-mail.
+const setUserPassword = async (req, res) => {
+  if (!isSuperAdmin(req.user)) return res.status(403).json({ error: 'Apenas o Super Admin pode definir a senha de outro usuário.', code: 'SUPER_ADMIN_REQUIRED' });
+  const password = req.body?.new_password;
+  if (typeof password !== 'string' || password.length === 0 || password.length > 1024) {
+    return res.status(400).json({ error: 'Informe a nova senha.', code: 'PASSWORD_REQUIRED' });
+  }
+  if (String(req.params.id) === String(req.user.id)) {
+    return res.status(409).json({ error: 'Altere a sua própria senha em Meu Perfil.', code: 'SELF_PASSWORD_USE_PROFILE' });
+  }
+  if (await rejectWeakPassword({ req, res, password, context: 'admin_password_set' })) return;
+  const client = await db.pool.connect();
+  let target;
+  let revoked = 0;
+  try {
+    const hash = await argon2.hash(password, { type: argon2.argon2id });
+    await client.query('BEGIN');
+    await client.query('SELECT pg_advisory_xact_lock($1)', [8142028]);
+    target = (await client.query('SELECT id, email, name, is_super_admin FROM users WHERE id = $1 FOR UPDATE', [req.params.id])).rows[0];
+    if (!target) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Usuário não encontrado' }); }
+    if (target.is_super_admin === true) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'A senha de um Super Admin só é alterada por ele mesmo, em Meu Perfil.', code: 'SUPER_ADMIN_TARGET' });
+    }
+    await client.query('UPDATE users SET hash_senha_login = $1, token_version = token_version + 1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [hash, target.id]);
+    // A trigger clears the flag whenever the hash changes (a self-service change). An administrator-set password is temporary, so set it afterwards.
+    await client.query('UPDATE users SET must_change_password = TRUE WHERE id = $1', [target.id]);
+    revoked = (await client.query("UPDATE user_sessions SET revoked_at = CURRENT_TIMESTAMP, revoke_reason = 'password_set_by_admin' WHERE user_id = $1 AND revoked_at IS NULL", [target.id])).rowCount || 0;
+    await client.query('UPDATE password_reset_tokens SET used_at = CURRENT_TIMESTAMP WHERE user_id = $1 AND used_at IS NULL', [target.id]);
+    await client.query('COMMIT');
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    await recordAuditEvent({ user: req.user, action: 'password_set_by_admin', status: 'failed', req, metadata: { target_user_id: req.params.id, reason: 'internal_error' } });
+    safeLogError('Erro ao definir a senha do usuário.', error);
+    return res.status(500).json({ error: 'Não foi possível definir a senha.' });
+  } finally {
+    client.release();
+  }
+  await recordAuditEvent({ user: req.user, action: 'password_set_by_admin', status: 'success', req, metadata: { target_user_id: target.id, sessions_revoked: revoked, crypto_identity: 'preserved' } });
+  let notification = 'skipped';
+  try {
+    await require('../services/emailService').sendEmail({
+      to: target.email,
+      subject: 'Sua senha do FullPassword foi redefinida por um administrador',
+      text: ['Um administrador definiu uma nova senha de login para a sua conta FullPassword.', '', 'Ela é temporária: você deverá trocá-la no próximo acesso. As sessões abertas foram encerradas.',
+        'O segredo de desbloqueio dos seus cofres não foi alterado.', '', 'Se você não esperava esta mudança, fale com o administrador do sistema.'].join('\n')
+    });
+    notification = 'sent';
+  } catch { /* SMTP off or unavailable: the change stands, the admin is told below */ }
+  return res.status(200).json({ message: 'Senha definida. O usuário deverá trocá-la no próximo acesso.', sessions_revoked: revoked, notification });
+};
+
 const resetMfa = async (req, res) => {
   const client = await db.pool.connect();
   try {
@@ -712,6 +766,7 @@ const updateKeys = async (req, res) => {
 };
 
 module.exports = {
+  setUserPassword,
   getUsers,
   createUser,
   updateProfile,

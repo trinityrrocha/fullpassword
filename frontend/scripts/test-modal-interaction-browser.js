@@ -44,6 +44,7 @@ try{
     if(!url.pathname.startsWith('/api/'))return route.continue();
     if(req.method()==='GET'){
       if(url.pathname==='/api/clients')return route.fulfill({json:clients});
+      if(url.pathname==='/api/system/modules/menu')return route.fulfill({json:{modules:{spfbl:false}}});
       if(url.pathname==='/api/crypto/shared-items')return route.fulfill({json:{items:[]}});
       if(url.pathname==='/api/groups')return route.fulfill({json:groups});
       if(url.pathname==='/api/users')return route.fulfill(failMembers?{status:503,json:{error:'Falha fictícia'}}:{json:users});

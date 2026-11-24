@@ -2,25 +2,29 @@ import { useId, useMemo, useState } from 'react';
 import { Globe } from 'lucide-react';
 import DomainBadge from './DomainBadge';
 import { addDomain, removeDomain } from '../../services/spfblService';
-import { describeError, filterDomains, paginate } from '../../utils/spfbl';
+import PaginationBar from '../PaginationBar';
+import { NO_SERVER_LABEL, describeError, filterDomains, paginate } from '../../utils/spfbl';
 
 const fieldClass = 'w-full rounded-md border border-slate-300 bg-white px-2.5 py-2 text-sm outline-hidden focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 disabled:bg-slate-100 disabled:text-slate-500';
 const primaryButton = 'rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600';
 const linkButton = 'rounded px-2 py-1 text-sm font-medium text-indigo-700 underline hover:bg-slate-100 disabled:opacity-60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600';
 
-// The catalogue may hold thousands of domains: filtered and paginated, never rendered whole.
+const DOMAINS_PER_PAGE = 20;
+
+// The catalogue may hold thousands of domains: filtered and paginated (20 per page), never rendered whole.
 export default function SpfblDomainsPanel({ domains, loadError, onReload }) {
   const id = useId();
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState('all');
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DOMAINS_PER_PAGE);
   const [newName, setNewName] = useState('');
   const [busy, setBusy] = useState(false);
   const [confirmingId, setConfirmingId] = useState(null);
   const [message, setMessage] = useState({ type: '', text: '' });
 
   const filtered = useMemo(() => filterDomains(domains, { query, status }), [domains, query, status]);
-  const view = paginate(filtered, page);
+  const view = paginate(filtered, page, pageSize);
 
   const add = async (event) => {
     event.preventDefault();
@@ -78,6 +82,7 @@ export default function SpfblDomainsPanel({ domains, loadError, onReload }) {
               <option value="active">Ativos</option>
               <option value="inactive">Inativos</option>
               <option value="whm">Importados do WHM</option>
+              <option value="no_server">Sem servidor de consulta</option>
               <option value="manual">Cadastrados à mão</option>
             </select>
           </label>
@@ -92,11 +97,12 @@ export default function SpfblDomainsPanel({ domains, loadError, onReload }) {
             <li key={domain.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
               <div className="min-w-0">
                 <p className="break-all text-sm font-medium text-slate-900">{domain.name}</p>
-                <p className="text-xs text-slate-600">{domain.source === 'whm' ? `WHM${domain.cpanel_user ? ` · conta ${domain.cpanel_user}` : ''}` : 'Cadastrado à mão'}</p>
+                <p className="text-xs text-slate-600">{[domain.source === 'whm' ? `WHM${domain.cpanel_user ? ` · conta ${domain.cpanel_user}` : ''}` : 'Cadastrado à mão', domain.server_name ? `Servidor ${domain.server_name}` : ''].filter(Boolean).join(' · ')}</p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <DomainBadge domain={domain} />
-                {domain.source === 'manual' && (confirmingId === domain.id ? (
+                {domain.no_server && domain.active && <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700" title="Os usuários veem só o histórico deste domínio.">{NO_SERVER_LABEL}</span>}
+                {(domain.source === 'manual' || domain.no_server) && (confirmingId === domain.id ? (
                   <span className="flex items-center gap-1">
                     <span className="text-sm text-slate-700">Remover {domain.name}?</span>
                     <button type="button" disabled={busy} onClick={() => remove(domain)} className={linkButton}>Confirmar</button>
@@ -110,13 +116,7 @@ export default function SpfblDomainsPanel({ domains, loadError, onReload }) {
           ))}
         </ul>
 
-        {view.pages > 1 && (
-          <nav aria-label="Paginação de domínios" className="flex items-center justify-between gap-3">
-            <button type="button" disabled={view.page <= 1} onClick={() => setPage(view.page - 1)} className={linkButton}>Anterior</button>
-            <span className="text-sm text-slate-600">Página {view.page} de {view.pages}</span>
-            <button type="button" disabled={view.page >= view.pages} onClick={() => setPage(view.page + 1)} className={linkButton}>Próxima</button>
-          </nav>
-        )}
+        <PaginationBar label="Paginação de domínios" page={view.page} pages={view.pages} total={view.total} pageSize={pageSize} onPage={setPage} onPageSize={(size) => { setPageSize(size); setPage(1); }} />
 
         {message.text && (
           <p role={message.type === 'error' ? 'alert' : 'status'} className={`rounded-md border px-3 py-2 text-sm ${message.type === 'error' ? 'border-red-200 bg-red-50 text-red-800' : 'border-green-200 bg-green-50 text-green-800'}`}>{message.text}</p>

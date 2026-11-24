@@ -3,8 +3,14 @@ import { ChevronDown, RefreshCw, Save, ShieldCheck } from 'lucide-react';
 import api from '../services/api';
 import { safeLogError } from '../utils/safeLogger';
 import {
+  canPickUser,
   getVaultSharingGroupNames,
+  normalizeUserShare,
   normalizeVaultShare,
+  setUserSharePermission,
+  sharingSummary,
+  toUserSharesPayload,
+  toggleUserShare,
   toggleVaultGroupShare
 } from '../utils/vaultSharingSelection';
 
@@ -102,9 +108,102 @@ function VaultGroupSelector({ groups, selectedGroupIds, onToggle, disabled }) {
   );
 }
 
+const permissionFields = [['can_edit', 'Editar'], ['can_add', 'Adicionar'], ['can_delete', 'Excluir']];
+
+// Users chosen one by one, in addition to groups. The directory only answers a search of 2+ characters and shows a masked address.
+function VaultUserShares({ clientId, userShares, onChange, disabled }) {
+  const id = useId();
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState([]);
+  const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState('');
+  const timer = useRef(null);
+  const ticket = useRef(0);
+
+  const search = (value) => {
+    setQuery(value);
+    clearTimeout(timer.current);
+    const wanted = value.trim();
+    ticket.current += 1;
+    if (wanted.length < 2) { setResults([]); setSearchError(''); setSearching(false); return; }
+    const mine = ticket.current;
+    setSearching(true);
+    timer.current = setTimeout(async () => {
+      try {
+        const response = await api.get(`/crypto/vaults/${clientId}/user-directory`, { params: { q: wanted } });
+        if (mine !== ticket.current) return;
+        setResults(response.data?.users || []); setSearchError('');
+      } catch (err) {
+        if (mine !== ticket.current) return;
+        setResults([]); setSearchError(err.response?.data?.error === 'SEARCH_TOO_SHORT' ? 'Digite ao menos 2 caracteres.' : 'Não foi possível buscar usuários agora.');
+      } finally { if (mine === ticket.current) setSearching(false); }
+    }, 300);
+  };
+  useEffect(() => () => clearTimeout(timer.current), []);
+
+  const chosen = new Set(userShares.map((share) => share.user_id));
+  return (
+    <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+      <label htmlFor={`${id}-search`} className="block text-sm font-medium text-slate-700 mb-2">Usuários para compartilhar</label>
+      <input id={`${id}-search`} type="search" value={query} onChange={(event) => search(event.target.value)} disabled={disabled} maxLength={100} autoComplete="off"
+        placeholder="Buscar por nome ou e-mail (2+ caracteres)" className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm shadow-sm focus:border-indigo-500 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 disabled:opacity-60" />
+      <div aria-live="polite" className="mt-2">
+        {searching && <p className="text-xs text-slate-500">Buscando...</p>}
+        {searchError && <p role="alert" className="text-xs text-red-700">{searchError}</p>}
+        {!searching && !searchError && query.trim().length >= 2 && results.length === 0 && <p className="text-xs text-slate-500">Nenhum usuário encontrado.</p>}
+      </div>
+      {results.length > 0 && (
+        <ul aria-label="Resultado da busca de usuários" className="mt-1 max-h-48 divide-y divide-slate-100 overflow-y-auto rounded-md border border-slate-200 bg-white">
+          {results.map((user) => {
+            const selected = chosen.has(user.id);
+            const pickable = canPickUser(user);
+            return (
+              <li key={user.id}>
+                <label className={`flex items-start gap-2 px-3 py-2 ${pickable || selected ? 'cursor-pointer hover:bg-slate-50' : 'cursor-not-allowed opacity-60'}`}>
+                  <input type="checkbox" checked={selected} disabled={disabled || (!pickable && !selected)} onChange={() => onChange(toggleUserShare(userShares, user))}
+                    className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" />
+                  <span className="min-w-0 text-sm text-slate-700">
+                    <span className="block break-words font-medium">{user.name}</span>
+                    <span className="block break-all text-xs text-slate-500">{user.email_hint}</span>
+                    {!user.has_identity && <span className="block text-xs text-amber-800">Ainda não ativou a chave de acesso: não pode receber o cofre.</span>}
+                  </span>
+                </label>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {userShares.length > 0 ? (
+        <ul aria-label="Usuários com acesso direto" className="mt-3 space-y-2">
+          {userShares.map((share) => (
+            <li key={share.user_id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-slate-200 bg-white px-3 py-2">
+              <span className="min-w-0 text-sm text-slate-700"><span className="font-medium">{share.name || 'Usuário'}</span> <span className="text-xs text-slate-500">{share.email_hint}</span></span>
+              <span className="flex flex-wrap items-center gap-3 text-xs text-slate-700">
+                <span className="text-slate-500">Visualizar</span>
+                {permissionFields.map(([key, label]) => (
+                  <label key={key} className="inline-flex items-center gap-1">
+                    <input type="checkbox" checked={Boolean(share[key])} disabled={disabled} onChange={(event) => onChange(setUserSharePermission(userShares, share.user_id, key, event.target.checked))}
+                      aria-label={`${label} (${share.name || 'usuário'})`} className="h-4 w-4 rounded border-slate-300 text-indigo-600" />
+                    {label}
+                  </label>
+                ))}
+                <button type="button" disabled={disabled} onClick={() => onChange(userShares.filter((item) => item.user_id !== share.user_id))} aria-label={`Remover ${share.name || 'usuário'}`} className="text-red-700 underline">Remover</button>
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mt-2 w-full text-xs leading-relaxed text-slate-500">Nenhum usuário selecionado individualmente.</p>
+      )}
+    </div>
+  );
+}
+
 export default function VaultSharingManager({ clientId, saveCryptoShares, compact = false }) {
   const [groups, setGroups] = useState([]);
   const [shares, setShares] = useState([]);
+  const [userShares, setUserShares] = useState([]);
+  const [userSharesLoaded, setUserSharesLoaded] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -122,6 +221,12 @@ export default function VaultSharingManager({ clientId, saveCryptoShares, compac
 
       setGroups(groupsResponse.data || []);
       setShares((sharesResponse.data || []).map(normalizeVaultShare));
+      // If the direct shares cannot be read, they are NOT sent back on save (the server then keeps them): never overwrite what was not seen.
+      try {
+        const direct = await api.get(`/crypto/vaults/${clientId}/user-shares`);
+        setUserShares((direct.data?.users || []).map((user) => normalizeUserShare({ ...user, user_id: user.id })));
+        setUserSharesLoaded(true);
+      } catch { setUserShares([]); setUserSharesLoaded(false); }
     } catch (err) {
       safeLogError('Erro ao carregar compartilhamento do cofre.', err);
       setError(err.response?.data?.error || 'Você não tem permissão para gerenciar o compartilhamento deste cofre.');
@@ -186,7 +291,7 @@ export default function VaultSharingManager({ clientId, saveCryptoShares, compac
     setIsSaving(true);
     let stage = 'prepare_key_shares';
     try {
-      await saveCryptoShares(cleanedShares);
+      await saveCryptoShares(cleanedShares, userSharesLoaded ? toUserSharesPayload(userShares) : undefined);
       stage = 'reload_group_shares';
       await loadSharingData();
       alert('Compartilhamento do cofre atualizado com sucesso.');
@@ -209,8 +314,10 @@ export default function VaultSharingManager({ clientId, saveCryptoShares, compac
       const sharesResponse = await api.get(`/vault-items/${clientId}/shares`);
       const currentShares = (sharesResponse.data || []).map(normalizeVaultShare);
       setShares(currentShares);
+      let currentUsers;
+      try { currentUsers = ((await api.get(`/crypto/vaults/${clientId}/user-shares`)).data?.users || []).map((user) => normalizeUserShare({ ...user, user_id: user.id })); setUserShares(currentUsers); } catch { currentUsers = undefined; }
       stage = 'prepare_key_shares';
-      await saveCryptoShares(currentShares);
+      await saveCryptoShares(currentShares, currentUsers ? toUserSharesPayload(currentUsers) : undefined);
       alert('Chaves do compartilhamento ressincronizadas com sucesso.');
     } catch (err) {
       safeLogError('Erro ao ressincronizar chaves do compartilhamento.', err, {
@@ -245,7 +352,7 @@ export default function VaultSharingManager({ clientId, saveCryptoShares, compac
               <ShieldCheck className="w-5 h-5 text-indigo-500" /> Compartilhamento do Cofre
             </h3>
             <p className="text-sm text-slate-500 mt-1">
-              Adicione quais grupos terão acesso a este cofre. As permissões são definidas no cadastro do grupo.
+              Escolha grupos e, se precisar, usuários individuais. As permissões do grupo vêm do cadastro do grupo; as do usuário são escolhidas aqui.
             </p>
           </div>
         </div>
@@ -270,6 +377,9 @@ export default function VaultSharingManager({ clientId, saveCryptoShares, compac
           </p>
         )}
       </div>
+
+      {userSharesLoaded && <VaultUserShares clientId={clientId} userShares={userShares} onChange={setUserShares} disabled={isSaving || isSyncing} />}
+      <p className="text-xs text-slate-600" role="status">Compartilhando com: {sharingSummary(shares.length, userShares.length)}. Quem sair da lista perde o acesso na hora; a chave do cofre é renovada ao salvar.</p>
 
       <div className="flex flex-col sm:flex-row justify-end gap-3 pt-2">
         <button type="button" onClick={resyncKeyShares} disabled={isSaving || isSyncing} className="inline-flex items-center justify-center px-4 py-2 border border-indigo-200 rounded-md shadow-sm text-sm font-medium text-indigo-700 bg-white hover:bg-indigo-50 disabled:opacity-50">

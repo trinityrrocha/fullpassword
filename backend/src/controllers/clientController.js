@@ -16,6 +16,8 @@ const getClients = async (req, res) => {
         SELECT 1 FROM client_group_access cga
         JOIN user_groups ug ON ug.group_id = cga.group_id
         WHERE cga.client_id = c.id AND ug.user_id = $1
+      ) OR EXISTS (
+        SELECT 1 FROM client_user_access cua WHERE cua.client_id = c.id AND cua.user_id = $1 AND cua.can_view = TRUE
       ) ORDER BY c.name ASC`, [req.user.id, isSuperAdmin(req.user)]);
     const visible = [];
     for (const row of result.rows) {

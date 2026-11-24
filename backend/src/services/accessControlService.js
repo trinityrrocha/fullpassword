@@ -107,14 +107,24 @@ const getClientPermissions = async (clientId, user = {}, queryable = db) => {
   const row = result.rows[0];
   if (row.created_by && row.created_by === user.id) return fullPermissions('owner');
 
+  // A direct share to this user (set by the owner's key rotation) adds to what the groups give: the effective right is the OR of both paths.
+  const direct = (await queryable.query(
+    'SELECT can_edit, can_add, can_delete FROM client_user_access WHERE client_id = $1 AND user_id = $2 AND can_view = TRUE',
+    [clientId, user.id]
+  )).rows[0];
+  const fromGroup = !!row.can_view;
+  const merged = {
+    can_view: fromGroup || !!direct,
+    can_edit: !!row.can_edit || !!direct?.can_edit,
+    can_add: !!row.can_add || !!direct?.can_add,
+    can_delete: !!row.can_delete || !!direct?.can_delete
+  };
+
   return {
-    can_view: !!row.can_view,
-    can_edit: !!row.can_edit,
-    can_add: !!row.can_add,
-    can_delete: !!row.can_delete,
+    ...merged,
     is_owner: false,
     is_admin: false,
-    source: row.can_view ? 'group' : 'none'
+    source: fromGroup && direct ? 'group+user' : direct ? 'user' : fromGroup ? 'group' : 'none'
   };
 };
 

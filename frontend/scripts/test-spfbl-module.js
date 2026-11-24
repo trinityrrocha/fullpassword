@@ -27,10 +27,10 @@ assert.deepEqual(spfbl.filterDomains([{ id: 'x' }], { query: 'a' }), [], 'rows w
 
 const many = Array.from({ length: 5000 }, (_, i) => i);
 let view = spfbl.paginate(many, 1);
-assert.deepEqual([view.items.length, view.pages, view.total, view.page], [25, 200, 5000, 1]);
-assert.equal(spfbl.paginate(many, 200).items.length, 25); assert.equal(spfbl.paginate(many, 200).items[0], 4975);
+assert.deepEqual([view.items.length, view.pages, view.total, view.page], [20, 250, 5000, 1]);
+assert.equal(spfbl.paginate(many, 250).items.length, 20); assert.equal(spfbl.paginate(many, 250).items[0], 4980); assert.equal(spfbl.paginate(many, 1, 100).items.length, 100);
 for (const page of [0, -3, 'abc', null, undefined, NaN]) assert.equal(spfbl.paginate(many, page).page, 1, String(page));
-assert.equal(spfbl.paginate(many, 9999).page, 200, 'clamped to the last page');
+assert.equal(spfbl.paginate(many, 9999).page, 250, 'clamped to the last page');
 view = spfbl.paginate([], 3);
 assert.deepEqual([view.items, view.pages, view.page, view.total], [[], 1, 1, 0]);
 assert.equal(spfbl.paginate(null, 1).total, 0);
@@ -61,13 +61,15 @@ assert.equal(spfbl.describeError(failure(422, { error: 'Servidor inválido.' }),
 for (const noisy of [new Error('boom'), null, undefined, {}, failure(500, null), failure(500, {})]) assert.equal(spfbl.describeError(noisy, 'fallback'), 'fallback');
 
 // ---- Payloads: each form sends only its own fields; empty secrets are never sent ----
-assert.deepEqual(spfbl.buildMatrixPayload({ user: ' ops@example.com ', password: '' }), { matrix_user: 'ops@example.com' });
-assert.deepEqual(spfbl.buildMatrixPayload({ user: 'ops@example.com', password: ' keep spaces ' }), { matrix_user: 'ops@example.com', matrix_password: ' keep spaces ' }, 'a password is sent exactly as typed');
-assert.deepEqual(spfbl.buildWhmPayload({ host: ' SRV.example.com ', user: ' root ', token: '' }), { whm_host: 'SRV.example.com', whm_user: 'root' });
-assert.deepEqual(spfbl.buildWhmPayload({ host: 'srv.example.com', user: 'root', token: '  TOKEN0123456789ABCDEF ' }), { whm_host: 'srv.example.com', whm_user: 'root', whm_token: 'TOKEN0123456789ABCDEF' });
-assert.equal('matrix_password' in spfbl.buildMatrixPayload({ user: 'a', password: '' }), false);
-assert.equal('whm_token' in spfbl.buildWhmPayload({ host: 'a', user: 'b', token: '' }), false);
-assert.deepEqual(Object.keys(spfbl.buildMatrixPayload({ user: 'a', password: 'p' })).sort(), ['matrix_password', 'matrix_user'], 'the Matrix form never touches the WHM fields');
+const form = { name: ' Servidor 1 ', host: ' SRV.example.com ', user: ' root ', token: '', matrixUser: ' ops@example.com ', matrixPassword: '' };
+assert.deepEqual(spfbl.buildServerPayload(form), { name: 'Servidor 1', host: 'SRV.example.com', whm_user: 'root', matrix_user: 'ops@example.com' }, 'empty secrets are not sent');
+assert.deepEqual(spfbl.buildServerPayload({ ...form, token: '  TOKEN0123456789ABCDEF ', matrixPassword: ' keep spaces ' }), { name: 'Servidor 1', host: 'SRV.example.com', whm_user: 'root', token: 'TOKEN0123456789ABCDEF', matrix_user: 'ops@example.com', matrix_password: ' keep spaces ' }, 'a token is trimmed, a password is sent exactly as typed');
+assert.deepEqual(Object.keys(spfbl.buildServerPayload({ ...form, token: 'T0123456789ABCDEF', matrixPassword: 'p' }, { section: 'matrix' })).sort(), ['matrix_password', 'matrix_user'], 'the Matrix form never touches the WHM fields');
+assert.deepEqual(Object.keys(spfbl.buildServerPayload({ ...form, token: 'T0123456789ABCDEF', matrixPassword: 'p' }, { section: 'whm' })).sort(), ['host', 'name', 'token', 'whm_user'], 'the WHM form never touches the Matrix fields');
+assert.equal(spfbl.removalSummary({ domains_total: 0 }), 'Este servidor não tem domínios vinculados.'); assert.equal(spfbl.removalSummary({ domains_total: 1 }), 'Este servidor tem 1 domínio vinculado.'); assert.equal(spfbl.removalSummary({ domains_total: 7 }), 'Este servidor tem 7 domínios vinculados.');
+assert.deepEqual(spfbl.serverSummary([{ matrix_configured: true }, { matrix_configured: false }]), { total: 2, withMatrix: 1 }); assert.deepEqual(spfbl.serverSummary(undefined), { total: 0, withMatrix: 0 });
+assert.deepEqual(spfbl.filterDomains([{ id: 'a', name: 'a.com', no_server: true }, { id: 'b', name: 'b.com', no_server: false }], { status: 'no_server' }).map((d) => d.id), ['a'], 'domains without a server can be listed on their own');
+assert.equal(spfbl.domainState({ active: false, source: 'whm', no_server: true }).label, 'Sem servidor de consulta');
 
 // ---- Access editor rules mirror the server (1-100 domains, review|direct, active non-Super-Admin accounts) ----
 assert.deepEqual(spfbl.toggleId(['a'], 'b'), ['a', 'b']); assert.deepEqual(spfbl.toggleId(['a', 'b'], 'a'), ['b']);
@@ -108,13 +110,17 @@ for (const file of files) {
   assert.doesNotMatch(source, /\b(alert|confirm|prompt)\(/, `${file}: no native dialogs (UX contract)`);
   assert.doesNotMatch(source, /dangerouslySetInnerHTML|innerHTML/, `${file}: provider and user text is rendered as text`);
 }
-const settingsPanel = read('src/components/spfbl/SpfblSettingsPanel.jsx');
-assert.equal((settingsPanel.match(/type="password"/g) || []).length, 2, 'Matrix password and WHM token');
-for (const match of settingsPanel.matchAll(/<input[^>]*type="password"[^>]*>/g)) {
+// Secret inputs (WHM token, Matrix password) live in the server dialog: uncontrolled, never prefilled, never in React state.
+const serverDialog = read('src/components/spfbl/SpfblServerDialog.jsx');
+assert.equal((serverDialog.match(/type="password"/g) || []).length, 2, 'WHM token and Matrix password');
+for (const match of serverDialog.matchAll(/<input[^>]*type="password"[^>]*>/g)) {
   assert.match(match[0], /ref=\{/, 'secret inputs are uncontrolled'); assert.doesNotMatch(match[0], /\bvalue=/, 'a secret is never put back into a field');
 }
-assert.doesNotMatch(settingsPanel, /useState\([^)]*(password|token)/i, 'secrets never enter React state');
-assert.equal((settingsPanel.match(/clearSecret\(/g) || []).length >= 4, true, 'secret fields are cleared after saving');
+assert.doesNotMatch(serverDialog, /useState\([^)]*(password|token)/i, 'secrets never enter React state');
+assert.match(serverDialog, /tokenRef\.current\.value = ''/); assert.match(serverDialog, /passwordRef\.current\.value = ''/, 'secret fields are cleared after saving');
+// Removing a server asks first and has no default answer.
+const removeDialog = read('src/components/spfbl/SpfblRemoveServerDialog.jsx');
+assert.match(removeDialog, /useState\(''\)/, 'no default choice'); assert.match(removeDialog, /disabled=\{busy \|\| !choice\}/, 'nothing happens until a choice is made');
 const layout = read('src/layouts/DashboardLayout.jsx');
 assert.match(layout, /modules\.spfbl === true \? \[\{ name: 'SPFBL', href: '\/spfbl', icon: Bug \}\]/);
 assert.match(read('src/App.jsx'), /<Route path="\/spfbl" element=\{<Spfbl \/>\} \/>/);

@@ -13,7 +13,7 @@ portas/diretórios/bases descartáveis. Somente dados sintéticos.
 ## Resultado principal
 
 Foram corrigidos riscos encontrados na revisão e executadas validações locais.
-**Não houve implantação nem validação autenticada em pw.sti1.com.br.**
+**Não houve implantação nem validação autenticada em pw.example.com.**
 A exclusividade de homologação e a autorização estão confirmadas pelo responsável.
 A skill computer-use proíbe automação de gerenciadores de senhas e autenticação;
 não foi usada outra via HTTP/browser para contornar isso.
