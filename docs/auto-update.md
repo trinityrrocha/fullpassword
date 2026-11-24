@@ -64,7 +64,7 @@ O rollback automático reverte **imagens**, não o banco; as migrações são ad
 
 ## Publicar uma release (mantenedor)
 
-1. `main` verde → Actions → **Release candidate** → *Run workflow*. Informe o SHA completo revisado em `expected_revision`. Baixe `release-candidate.json` somente após build, pull anônimo e revisão interna de ambas as imagens passarem.
+1. Após um push na `main`, o workflow **Security regression** testa o SHA integrado. Se `regression` e `images` passarem, o job `release-candidate` gera o artefato na mesma execução. Um push que altera apenas `releases/stable.json` não produz outro candidato. **Release candidate → Run workflow** permanece disponível para repetição explícita com o SHA completo. Baixe `release-candidate.json` somente após build, pull anônimo e revisão interna de ambas as imagens passarem. O artefato ainda não é um anúncio.
 2. Offline: `node scripts/release-candidate.js sign release-candidate.json /caminho/FORA/do/checkout/release-private.pem`
 3. PR com `releases/stable.json`. Só então as instalações enxergam a versão.
 
