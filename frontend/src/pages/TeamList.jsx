@@ -4,6 +4,9 @@ import SecurePasswordInput from '../components/SecurePasswordInput';
 import AdminSetPasswordDialog from '../components/AdminSetPasswordDialog';
 import FormDialog from '../components/FormDialog';
 import GroupModal from '../components/GroupModal';
+import SpfblUserAccess from '../components/spfbl/SpfblUserAccess';
+import { getMenuModules, revokeAccess, saveAccess } from '../services/spfblService';
+import { EMPTY_SPFBL_ACCESS, canSaveAccess } from '../utils/spfbl';
 import api from '../services/api';
 import { safeLogError } from '../utils/safeLogger';
 import { useAuth } from '../context/AuthContext';
@@ -146,6 +149,10 @@ export default function TeamList() {
   const [passwordTarget, setPasswordTarget] = useState(null);
   const [deleteUserConfirmation, setDeleteUserConfirmation] = useState('');
   const [activeTab, setActiveTab] = useState('users');
+  // SPFBL access inside the user dialog: only for a Super Admin and only while the module is on.
+  const [spfblActive, setSpfblActive] = useState(false);
+  const [spfbl, setSpfbl] = useState(EMPTY_SPFBL_ACCESS);
+  const [modalTab, setModalTab] = useState('data');
   const [groups, setGroups] = useState([]);
   const [isLoadingGroups, setIsLoadingGroups] = useState(false);
   const [isGroupModalOpen, setIsGroupModalOpen] = useState(false);
@@ -157,6 +164,8 @@ export default function TeamList() {
     setIsEditModalOpen(false);
     setNewUser(defaultNewUser);
     setEditUser(defaultEditUser);
+    setSpfbl(EMPTY_SPFBL_ACCESS);
+    setModalTab('data');
     setDeleteUserConfirmation('');
     setIsGroupModalOpen(false);
     setGroupToEdit(null);
@@ -196,12 +205,36 @@ export default function TeamList() {
     loadGroups();
   }, []);
 
+  useEffect(() => {
+    if (!user?.is_super_admin) return undefined;
+    let active = true;
+    getMenuModules().then((modules) => { if (active) setSpfblActive(modules?.spfbl === true); }).catch(() => { if (active) setSpfblActive(false); });
+    return () => { active = false; };
+  }, [user?.is_super_admin]);
+
+  const showSpfblTab = (editing) => Boolean(user?.is_super_admin && spfblActive && !(editing && editUser.is_super_admin));
+  const resetSpfblDraft = () => { setSpfbl(EMPTY_SPFBL_ACCESS); setModalTab('data'); };
+  // Saved AFTER the user itself (it needs the id); a failure here never undoes the user and is reported by name.
+  const saveSpfblAccess = async (userId) => {
+    if (!spfbl.dirty || !spfbl.loaded) return '';
+    try {
+      if (spfbl.enabled) await saveAccess(userId, { unlock_mode: spfbl.mode, domain_ids: spfbl.domainIds });
+      else if (spfbl.had) await revokeAccess(userId);
+      return '';
+    } catch (error) {
+      return error.response?.data?.error || 'o servidor recusou a alteração';
+    }
+  };
+  const spfblDraftInvalid = (userId) => spfbl.dirty && spfbl.enabled && !canSaveAccess(userId || 'new', spfbl.mode, spfbl.domainIds);
+
   const openCreateUserModal = () => {
+    resetSpfblDraft();
     setFormError('');setNotice('');setNewUser(defaultNewUser);
     setIsModalOpen(true);
   };
 
   const closeCreateUserModal = () => {
+    resetSpfblDraft();
     setIsModalOpen(false);
     setNewUser(defaultNewUser);
   };
@@ -212,13 +245,17 @@ export default function TeamList() {
     setFormError('');
     if(!passwordPolicy||newUser.password.length<passwordPolicy.login_min_length){setFormError(passwordPolicy?`A senha deve ter ao menos ${passwordPolicy.login_min_length} caracteres.`:'Aguarde o carregamento da política de senhas.');return;}
     if(!e.currentTarget.checkValidity()){setFormError('Preencha nome e e-mail válidos e os campos obrigatórios.');e.currentTarget.querySelector(':invalid')?.focus();return;}
+    if (spfblDraftInvalid()) { setFormError('Escolha de 1 a 100 domínios para o acesso ao SPFBL.'); setModalTab('spfbl'); return; }
     savingRef.current=true;setIsSaving(true);
     try {
       const payload = user?.is_super_admin ? newUser : { ...newUser, mfa_required: undefined };
-      await api.post('/users', payload);
-      setNotice('Usuário criado com sucesso!');
+      const created = (await api.post('/users', payload)).data;
+      const accessFailure = created?.id ? await saveSpfblAccess(created.id) : '';
       setIsModalOpen(false);
       setNewUser(defaultNewUser);
+      resetSpfblDraft();
+      if (accessFailure) setFormError(`Usuário criado, mas o acesso ao SPFBL NÃO foi salvo (${accessFailure}). Abra "Editar" e tente de novo.`);
+      else setNotice('Usuário criado com sucesso!');
       await loadUsers();
     } catch (error) {
       safeLogError('Erro ao criar usuário.', error);
@@ -234,6 +271,7 @@ export default function TeamList() {
     if(savingRef.current || isSaving)return;
     setFormError('');
     if(!e.currentTarget.checkValidity()){setFormError('Preencha nome e e-mail válidos e os campos obrigatórios.');e.currentTarget.querySelector(':invalid')?.focus();return;}
+    if (spfblDraftInvalid(editUser.id)) { setFormError('Escolha de 1 a 100 domínios para o acesso ao SPFBL.'); setModalTab('spfbl'); return; }
     savingRef.current=true;setIsSaving(true);
     try {
       const payload = {
@@ -247,11 +285,14 @@ export default function TeamList() {
       if (user?.is_super_admin) payload.mfa_required = editUser.mfa_required;
 
       await api.put(`/users/${editUser.id}`, payload);
+      const accessFailure = await saveSpfblAccess(editUser.id);
+      await loadUsers();
+      if (accessFailure) { setFormError(`Usuário salvo, mas o acesso ao SPFBL NÃO foi salvo: ${accessFailure}.`); setModalTab('spfbl'); return; }
       setNotice('Usuário atualizado com sucesso!');
       setIsEditModalOpen(false);
       setEditUser(defaultEditUser);
       setDeleteUserConfirmation('');
-      await loadUsers();
+      resetSpfblDraft();
     } catch (error) {
       safeLogError('Erro ao atualizar usuário.', error);
       setFormError(error.response?.data?.error || 'Erro ao atualizar usuário.');
@@ -294,6 +335,7 @@ export default function TeamList() {
   };
 
   const closeEditModal = () => {
+    resetSpfblDraft();
     setIsEditModalOpen(false);
     setEditUser(defaultEditUser);
     setDeleteUserConfirmation('');
@@ -316,6 +358,7 @@ export default function TeamList() {
   };
 
   const openEditModal = (member) => {
+    resetSpfblDraft();
     setFormError('');setNotice('');
     setEditUser({
       id: member.id,
@@ -537,8 +580,17 @@ export default function TeamList() {
                 onDeleteConfirmationChange={(event) => setDeleteUserConfirmation(event.target.value)}
                 onDelete={handleDeleteUser}
               />}>
+  {showSpfblTab(true) && (
+    <div role="tablist" aria-label="Seções do usuário" className="-mt-1 mb-3 flex gap-1 border-b border-slate-200">
+      {[['data', 'Dados'], ['spfbl', 'SPFBL']].map(([key, label]) => (
+        <button key={key} type="button" role="tab" id={`editUser-tab-${key}`} aria-selected={modalTab === key} aria-controls={`editUser-panel-${key}`} onClick={() => setModalTab(key)}
+          className={`min-h-9 border-b-2 px-3 text-sm font-medium ${modalTab === key ? 'border-indigo-600 text-indigo-700' : 'border-transparent text-slate-600 hover:text-slate-900'}`}>{label}</button>
+      ))}
+    </div>
+  )}
   <form id="editUserForm" onSubmit={handleEditUser} noValidate className="space-y-4">
           {formError && <p role="alert" className="text-sm text-red-600 dark:text-red-400">{formError}</p>}
+    <div role="tabpanel" id="editUser-panel-data" aria-labelledby="editUser-tab-data" hidden={showSpfblTab(true) && modalTab !== 'data'} className="space-y-4">
     <div>
       <label htmlFor="editUserForm-1" className="block text-sm font-medium text-slate-700 mb-1">Nome Completo</label>
       <input id="editUserForm-1" type="text" required className="h-8 w-full rounded-md border border-slate-300 px-2 py-1 text-sm shadow-sm" value={editUser.name} onChange={e => setEditUser({...editUser, name: e.target.value})} />
@@ -579,6 +631,12 @@ export default function TeamList() {
         <span className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ${editUser.is_active ? 'translate-x-5' : 'translate-x-0'}`} />
       </button>
     </div>
+    </div>
+    {showSpfblTab(true) && (
+      <div role="tabpanel" id="editUser-panel-spfbl" aria-labelledby="editUser-tab-spfbl" hidden={modalTab !== 'spfbl'}>
+        <SpfblUserAccess userId={editUser.id} eligible={editUser.is_active} reason="Ative a conta do usuário (aba Dados) para dar acesso ao SPFBL." value={spfbl} onChange={setSpfbl} />
+      </div>
+    )}
   </form>
         </FormDialog>
       )}
@@ -587,8 +645,17 @@ export default function TeamList() {
 
       {isModalOpen && (
         <FormDialog title="Cadastrar Novo Membro" onClose={closeCreateUserModal} busy={isSaving} footer={<ModalFooter isSaving={isSaving} formId="newUserForm" submitLabel="Salvar Usuário" onCancel={closeCreateUserModal} />}>
+  {showSpfblTab(false) && (
+    <div role="tablist" aria-label="Seções do usuário" className="-mt-1 mb-3 flex gap-1 border-b border-slate-200">
+      {[['data', 'Dados'], ['spfbl', 'SPFBL']].map(([key, label]) => (
+        <button key={key} type="button" role="tab" id={`newUser-tab-${key}`} aria-selected={modalTab === key} aria-controls={`newUser-panel-${key}`} onClick={() => setModalTab(key)}
+          className={`min-h-9 border-b-2 px-3 text-sm font-medium ${modalTab === key ? 'border-indigo-600 text-indigo-700' : 'border-transparent text-slate-600 hover:text-slate-900'}`}>{label}</button>
+      ))}
+    </div>
+  )}
   <form id="newUserForm" onSubmit={handleCreateUser} noValidate className="space-y-4">
           {formError && <p role="alert" className="text-sm text-red-600 dark:text-red-400">{formError}</p>}
+    <div role="tabpanel" id="newUser-panel-data" aria-labelledby="newUser-tab-data" hidden={showSpfblTab(false) && modalTab !== 'data'} className="space-y-4">
     <div>
       <label htmlFor="newUserForm-1" className="block text-sm font-medium text-slate-700 mb-1">Nome Completo</label>
       <input id="newUserForm-1" type="text" required className="h-8 w-full rounded-md border border-slate-300 px-2 py-1 text-sm shadow-sm" value={newUser.name} onChange={e => setNewUser({...newUser, name: e.target.value})} placeholder="Ex: João Silva" />
@@ -614,6 +681,12 @@ export default function TeamList() {
         <input type="checkbox" className="mt-1 h-4 w-4 text-indigo-600 rounded border-slate-300" checked={newUser.mfa_required} onChange={(e) => setNewUser({ ...newUser, mfa_required: e.target.checked })} />
         <span><span className="block text-sm font-medium text-slate-700">Exigir MFA/2FA no próximo login</span><span className="block text-xs text-slate-500">Recomendado para administradores.</span></span>
       </label>
+    )}
+    </div>
+    {showSpfblTab(false) && (
+      <div role="tabpanel" id="newUser-panel-spfbl" aria-labelledby="newUser-tab-spfbl" hidden={modalTab !== 'spfbl'}>
+        <SpfblUserAccess userId={null} eligible reason="" value={spfbl} onChange={setSpfbl} />
+      </div>
     )}
   </form>
         </FormDialog>

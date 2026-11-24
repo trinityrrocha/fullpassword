@@ -6,7 +6,7 @@ import { MODE_LABELS, describeError } from '../../utils/spfbl';
 
 const primaryButton = 'rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600';
 const linkButton = 'rounded px-2 py-1 text-sm font-medium text-indigo-700 underline hover:bg-slate-100 disabled:opacity-60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600';
-const CHIP_LIMIT = 5;
+const CHIP_LIMIT = 2;
 
 export default function SpfblAccessPanel({ grants, users, domains, loadError, onReload }) {
   const id = useId();
@@ -42,32 +42,34 @@ export default function SpfblAccessPanel({ grants, users, domains, loadError, on
         {grants.length === 0 ? (
           <p className="text-sm text-slate-600">Nenhum usuário com acesso além do Super Admin.</p>
         ) : (
-          <ul className="space-y-3" aria-label="Usuários com acesso ao SPFBL">
+          <ul className="space-y-2" aria-label="Usuários com acesso ao SPFBL">
             {grants.map((grant) => (
-              <li key={grant.user_id} className="rounded-md border border-slate-200 p-3">
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold text-slate-900">{grant.name} {!grant.user_active && <span className="text-xs font-medium text-amber-800">(conta inativa: sem acesso)</span>}</p>
-                    <p className="break-all text-xs text-slate-600">{grant.email}</p>
-                    <p className="mt-1 text-xs text-slate-700">{MODE_LABELS[grant.unlock_mode]}</p>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-1">
-                    <button type="button" disabled={busy} onClick={() => setEditor({ grant })} aria-label={`Editar acesso de ${grant.name}`} className={linkButton}>Editar</button>
-                    {confirmingId === grant.user_id ? (
-                      <span className="flex items-center gap-1">
-                        <span className="text-sm text-slate-700">Revogar o acesso de {grant.name}?</span>
-                        <button type="button" disabled={busy} onClick={() => revoke(grant)} className={linkButton}>Confirmar</button>
-                        <button type="button" disabled={busy} onClick={() => setConfirmingId(null)} className={linkButton}>Cancelar</button>
-                      </span>
-                    ) : (
-                      <button type="button" disabled={busy} onClick={() => setConfirmingId(grant.user_id)} aria-label={`Revogar acesso de ${grant.name}`} className={linkButton}>Revogar</button>
-                    )}
-                  </div>
+              <li key={grant.user_id} className="flex h-[45px] items-center justify-between gap-3 overflow-hidden rounded-md border border-slate-200 px-3">
+                <div className="flex min-w-0 flex-1 items-center gap-3">
+                  <p className="min-w-0 max-w-[40%] truncate text-sm font-semibold text-slate-900" title={`${grant.name} <${grant.email}>`}>
+                    {grant.name}{!grant.user_active && <span className="ml-1 text-xs font-medium text-amber-800">(inativa)</span>}
+                  </p>
+                  <p className="hidden min-w-0 truncate text-xs text-slate-600 md:block" title={grant.email}>{grant.email}</p>
+                  <p className="hidden shrink-0 text-xs text-slate-700 lg:block">{MODE_LABELS[grant.unlock_mode]}</p>
+                  <ul className="flex min-w-0 shrink items-center gap-1 overflow-hidden" aria-label={`Domínios de ${grant.name}`}>
+                    {grant.domains.slice(0, CHIP_LIMIT).map((domain) => <li key={domain.id} className="hidden shrink-0 rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-800 xl:block">{domain.name}</li>)}
+                    <li className="shrink-0 rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-800" title={grant.domains.map((domain) => domain.name).join(', ')}>
+                      {grant.domains.length === 1 ? '1 domínio' : `${grant.domains.length} domínios`}
+                    </li>
+                  </ul>
                 </div>
-                <ul className="mt-2 flex flex-wrap gap-1" aria-label={`Domínios de ${grant.name}`}>
-                  {grant.domains.slice(0, CHIP_LIMIT).map((domain) => <li key={domain.id} className="break-all rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-800">{domain.name}</li>)}
-                  {grant.domains.length > CHIP_LIMIT && <li className="rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-800">+{grant.domains.length - CHIP_LIMIT}</li>}
-                </ul>
+                <div className="flex shrink-0 items-center gap-1">
+                  <button type="button" disabled={busy} onClick={() => setEditor({ grant })} aria-label={`Editar acesso de ${grant.name}`} className={linkButton}>Editar</button>
+                  {confirmingId === grant.user_id ? (
+                    <span className="flex items-center gap-1">
+                      <span className="text-sm text-slate-700">Revogar?</span>
+                      <button type="button" disabled={busy} onClick={() => revoke(grant)} className={linkButton}>Confirmar</button>
+                      <button type="button" disabled={busy} onClick={() => setConfirmingId(null)} className={linkButton}>Cancelar</button>
+                    </span>
+                  ) : (
+                    <button type="button" disabled={busy} onClick={() => setConfirmingId(grant.user_id)} aria-label={`Revogar acesso de ${grant.name}`} className={linkButton}>Revogar</button>
+                  )}
+                </div>
               </li>
             ))}
           </ul>

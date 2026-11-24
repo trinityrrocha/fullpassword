@@ -428,11 +428,13 @@ try {
   const grants = page.getByRole('list', { name: 'Usuários com acesso ao SPFBL' });
   await grants.getByText('Ana Souza').waitFor();
   assert.equal(await grants.getByRole('listitem').filter({ hasText: 'Ana Souza' }).getByText('Desbloqueio direto').count(), 1);
+  const anaRow = grants.getByRole('listitem').filter({ hasText: 'Ana Souza' }).first();
+  assert.equal(Math.round((await anaRow.boundingBox()).height), 45, 'one compact row of 45px per account');
   await page.getByRole('button', { name: 'Editar acesso de Ana Souza' }).click();
   assert.equal(await page.getByRole('dialog', { name: 'Editar acesso ao SPFBL' }).getByLabel('Usuário').isDisabled(), true, 'the account cannot be switched while editing');
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: 'Revogar acesso de Ana Souza' }).click();
-  await page.getByText('Revogar o acesso de Ana Souza?').waitFor();
+  await page.getByText('Revogar?', { exact: true }).waitFor();
   state.calls.length = 0;
   await page.getByRole('button', { name: 'Confirmar' }).click();
   await page.getByRole('status').filter({ hasText: 'Acesso de Ana Souza revogado.' }).waitFor();
