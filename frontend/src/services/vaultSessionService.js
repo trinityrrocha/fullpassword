@@ -77,12 +77,12 @@ export class VaultSession {
     }
     return result;
   }
-  async migrateOrRotate(shares) {
+  async migrateOrRotate(shares,userShares) {
     let state=await this.readState();
     if(state.ownerId!==this.user.id) throw new Error('O proprietário precisa migrar ou renovar este cofre.');
     const original=state.epoch ? await this.decode(state.records,await this.openEnvelope(state.envelope,state.epoch)) : await this.legacyRows(state);
     if(!state.stage) {
-      const directory=(await this.api.post(this.path('/recipients'),shares ? {shares} : {})).data;
+      const directory=(await this.api.post(this.path('/recipients'),{...(shares ? {shares} : {}),...(userShares ? {userShares} : {})})).data;
       const next=await createVaultEpoch(this.id,state.epoch+1,directory.recipients);
       const scopedItems=[];
       for(const item of directory.directItems || []) {
@@ -91,7 +91,7 @@ export class VaultSession {
         const scoped=await createVaultEpoch(item.itemId,1,item.recipients);
         scopedItems.push({itemId:item.itemId,envelopes:scoped.envelopes,envelope:await encryptVaultRecord(scoped.key,{vaultId:item.itemId,recordId:item.itemId,category:'legacy-item',epoch:1,revision:1},snapshot)});
       }
-      await this.api.post(this.path('/stages'),{sourceHash:state.sourceHash,recordCount:original.length,records:[],envelopes:next.envelopes,shares:directory.shares,scopedItems});
+      await this.api.post(this.path('/stages'),{sourceHash:state.sourceHash,recordCount:original.length,records:[],envelopes:next.envelopes,shares:directory.shares,userShares:directory.userShares,scopedItems});
       state=await this.readState();
     }
     let stage=state.stage;

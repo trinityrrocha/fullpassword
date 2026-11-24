@@ -38,6 +38,9 @@ jobs:
       - name: SPFBL stored history (native PostgreSQL, collector, retention, schedule)
         run: node scripts/test-spfbl-history-collector-postgres.js
         working-directory: backend
+      - name: Vault shared with a group and selected users (native PostgreSQL)
+        run: node scripts/test-vault-user-sharing-postgres.js
+        working-directory: backend
       - run: node scripts/test-approved-release.js
         working-directory: backend
       - name: Deployment must not recreate database dependency (executed argv regression)
@@ -71,6 +74,9 @@ jobs:
       - name: Team dialog SPFBL access tab browser regression (synthetic localhost only)
         working-directory: frontend
         run: PLAYWRIGHT_MODULE_PATH="$RUNNER_TEMP/modal-browser-tools/node_modules/playwright/index.mjs" npm run test:team-spfbl:browser
+      - name: Vault sharing with selected users browser regression (synthetic localhost only)
+        working-directory: frontend
+        run: PLAYWRIGHT_MODULE_PATH="$RUNNER_TEMP/modal-browser-tools/node_modules/playwright/index.mjs" npm run test:vault-user-share:browser
       - name: Reauth MFA and vault unlock browser regression (synthetic localhost only)
         working-directory: frontend
         run: PLAYWRIGHT_MODULE_PATH="$RUNNER_TEMP/modal-browser-tools/node_modules/playwright/index.mjs" npm run test:reauth-unlock:browser

@@ -46,12 +46,26 @@ const normalizeShares = shares => {
   if(new Set(result.map(row=>row.group_id)).size!==result.length) fail('DUPLICATE_GROUP',400);
   return result.sort((a,b)=>String(a.group_id).localeCompare(String(b.group_id)));
 };
-const recipients = async (client,vault,shares) => {
+const currentUserShares = async (client,id) => (await client.query('SELECT user_id,can_view,can_edit,can_add,can_delete FROM client_user_access WHERE client_id=$1 ORDER BY user_id',[id])).rows;
+// Direct user shares. `undefined` means "unchanged" (an older screen that does not know about them must never wipe them).
+const normalizeUserShares = (shares,vault) => {
+  if(!Array.isArray(shares) || shares.length>2000) fail('INVALID_SHARES',400);
+  const result=shares.map(share=>({user_id:share?.user_id,...normalizePermissionSet(share || {})})).filter(share=>share.can_view);
+  for(const share of result) if(typeof share.user_id!=='string' || !uuid.test(share.user_id)) fail('INVALID_SHARES',400);
+  if(new Set(result.map(row=>row.user_id)).size!==result.length) fail('DUPLICATE_USER',400);
+  // The owner already holds every right and a key; a direct share to them would only be noise.
+  return result.filter(share=>share.user_id!==vault.created_by).sort((a,b)=>String(a.user_id).localeCompare(String(b.user_id)));
+};
+const resolveUserShares = async (client,vault,input) => input===undefined ? currentUserShares(client,vault.id) : normalizeUserShares(input,vault);
+const recipients = async (client,vault,shares,userShares=[]) => {
   const ids=shares.filter(share=>share.can_view).map(share=>share.group_id);
+  const directIds=userShares.filter(share=>share.can_view).map(share=>share.user_id);
   const rows=(await client.query(`SELECT DISTINCT u.id,u.name,u.email,u.crypto_identity
-    FROM users u WHERE u.is_active=TRUE AND (u.id=$1 OR EXISTS(
+    FROM users u WHERE u.is_active=TRUE AND (u.id=$1 OR u.id=ANY($3::uuid[]) OR EXISTS(
       SELECT 1 FROM user_groups ug JOIN groups g ON g.id=ug.group_id
-      WHERE ug.user_id=u.id AND ug.group_id=ANY($2::uuid[]) AND g.can_view=TRUE)) ORDER BY u.id`,[vault.created_by,ids])).rows;
+      WHERE ug.user_id=u.id AND ug.group_id=ANY($2::uuid[]) AND g.can_view=TRUE)) ORDER BY u.id`,[vault.created_by,ids,directIds])).rows;
+  // A user chosen directly must exist and be active: silently dropping them would show "shared" while nobody can open it.
+  if(directIds.some(id=>!rows.some(row=>row.id===id))) fail('SHARE_USER_UNAVAILABLE');
   if(rows.some(row=>!row.crypto_identity)) fail('RECIPIENT_IDENTITY_MIGRATION_REQUIRED');
   return rows.map(row=>({userId:row.id,name:row.name,email:row.email,publicKey:row.crypto_identity.publicKey,fingerprint:row.crypto_identity.fingerprint}));
 };
@@ -149,8 +163,9 @@ const getState = transaction(async(req,client)=>{
 const getRecipients = transaction(async(req,client)=>{
   const vault=await lockVault(client,req.params.id,req.user,true);
   const shares=req.body.shares ? normalizeShares(req.body.shares) : await currentShares(client,vault.id);
-  const targets=await recipients(client,vault,shares);
-  return {recipients:targets,directItems:await directRecipients(client,vault),recipientsHash:digest(targets),shares};
+  const userShares=await resolveUserShares(client,vault,req.body.userShares);
+  const targets=await recipients(client,vault,shares,userShares);
+  return {recipients:targets,directItems:await directRecipients(client,vault),recipientsHash:digest(targets),shares,userShares};
 });
 const stageEpoch = transaction(async(req,client)=>{
   const vault=await lockVault(client,req.params.id,req.user,true);
@@ -158,7 +173,8 @@ const stageEpoch = transaction(async(req,client)=>{
   const data=await source(client,vault);
   if(req.body.sourceHash!==data.hash) fail('SOURCE_CHANGED');
   const shares=normalizeShares(req.body.shares);
-  const targets=await recipients(client,vault,shares);
+  const userShares=await resolveUserShares(client,vault,req.body.userShares);
+  const targets=await recipients(client,vault,shares,userShares);
   const direct=await directRecipients(client,vault);
   const scopedItems=req.body.scopedItems || [];
   validateScopedItems(scopedItems,direct);
@@ -179,7 +195,7 @@ const stageEpoch = transaction(async(req,client)=>{
   if(existing) fail('MIGRATION_ALREADY_STAGED');
   await client.query(`INSERT INTO vault_migration_stages(id,client_id,actor_id,source_revision,source_hash,target_epoch,recipients_hash,shares,records,envelopes,manifest_hash,record_count)
     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,[id,vault.id,req.user.id,vault.crypto_revision,data.hash,epoch,digest({targets,direct}),JSON.stringify(shares),JSON.stringify(req.body.records),JSON.stringify(req.body.envelopes),manifestHash,count]);
-  await client.query('UPDATE vault_migration_stages SET scoped_items=$2 WHERE id=$1',[id,JSON.stringify(scopedItems)]);
+  await client.query('UPDATE vault_migration_stages SET scoped_items=$2,user_shares=$3 WHERE id=$1',[id,JSON.stringify(scopedItems),JSON.stringify(userShares)]);
   return {id,manifestHash};
 });
 const appendStage = transaction(async(req,client)=>{
@@ -207,7 +223,7 @@ const activateEpoch = transaction(async(req,client)=>{
   if(stage.manifest_hash!==req.body.verifiedManifestHash) fail('CLIENT_VERIFICATION_REQUIRED');
   const data=await source(client,vault);
   if(stage.source_hash!==data.hash || String(stage.source_revision)!==String(vault.crypto_revision)) fail('SOURCE_CHANGED');
-  const targets=await recipients(client,vault,stage.shares);
+  const targets=await recipients(client,vault,stage.shares,stage.user_shares || []);
   const direct=await directRecipients(client,vault);
   if(digest({targets,direct})!==stage.recipients_hash) fail('RECIPIENT_SET_CHANGED');
   validateScopedItems(stage.scoped_items,direct);
@@ -226,6 +242,13 @@ const activateEpoch = transaction(async(req,client)=>{
   // ACL and new envelopes activate together; old recipients lose obsolete envelopes.
   await client.query('DELETE FROM client_group_access WHERE client_id=$1',[vault.id]);
   for(const share of stage.shares) await client.query('INSERT INTO client_group_access(client_id,group_id,can_view,can_edit,can_add,can_delete) VALUES($1,$2,$3,$4,$5,$6)',[vault.id,share.group_id,share.can_view,share.can_edit,share.can_add,share.can_delete]);
+  // Direct user shares travel with the group ACL: written here, in the same transaction as the new envelopes, never anywhere else.
+  const previousUsers=await currentUserShares(client,vault.id);
+  await client.query('DELETE FROM client_user_access WHERE client_id=$1',[vault.id]);
+  for(const share of stage.user_shares || []) await client.query('INSERT INTO client_user_access(client_id,user_id,can_view,can_edit,can_add,can_delete,granted_by) VALUES($1,$2,$3,$4,$5,$6,$7)',[vault.id,share.user_id,share.can_view,share.can_edit,share.can_add,share.can_delete,req.user.id]);
+  const before=new Set(previousUsers.map(row=>row.user_id)), after=new Set((stage.user_shares || []).map(row=>row.user_id));
+  for(const userId of after) if(!before.has(userId)) await client.query("INSERT INTO vault_access_audit(client_id,actor_user_id,action,details) VALUES($1,$2,'vault_user_share_granted',$3)",[vault.id,req.user.id,{user_id:userId}]);
+  for(const userId of before) if(!after.has(userId)) await client.query("INSERT INTO vault_access_audit(client_id,actor_user_id,action,details) VALUES($1,$2,'vault_user_share_revoked',$3)",[vault.id,req.user.id,{user_id:userId}]);
   await client.query('DELETE FROM vault_crypto_envelopes WHERE client_id=$1 AND user_id<>$2',[vault.id,vault.created_by]);
   for(const e of stage.envelopes) await client.query('INSERT INTO vault_crypto_envelopes(client_id,epoch,user_id,identity_fingerprint,envelope) VALUES($1,$2,$3,$4,$5)',[vault.id,stage.target_epoch,e.userId,e.fingerprint,e]);
   await client.query('DELETE FROM client_key_shares WHERE client_id=$1',[vault.id]);
@@ -235,7 +258,7 @@ const activateEpoch = transaction(async(req,client)=>{
   }
   await client.query('UPDATE clients SET crypto_epoch=$2,crypto_revision=crypto_revision+1,rotation_required=false WHERE id=$1',[vault.id,stage.target_epoch]);
   await client.query("UPDATE vault_migration_stages SET state='active' WHERE id=$1",[stage.id]);
-  await audit(client,req,'vault_epoch_activated',{client_id:vault.id,epoch:stage.target_epoch,record_count:stage.records.length,recipient_count:targets.length});
+  await audit(client,req,'vault_epoch_activated',{client_id:vault.id,epoch:stage.target_epoch,record_count:stage.records.length,recipient_count:targets.length,user_share_count:(stage.user_shares || []).length});
   return {epoch:stage.target_epoch};
 });
 const mutateRecords = transaction(async(req,client)=>{
@@ -280,6 +303,25 @@ const mutateRecords = transaction(async(req,client)=>{
   await audit(client,req,'vault_records_updated',{client_id:vault.id,epoch:vault.crypto_epoch,count:mutations.length});
   return {saved:mutations.length};
 });
+// Minimal directory for the vault owner/admin: id, name, a masked address and whether the account already has a crypto identity.
+// Never the full e-mail, never a key. Search is required (2+ characters) and capped, so the whole directory cannot be listed.
+const maskEmail = email => { const at=String(email||'').indexOf('@'); return at>1 ? `${email.slice(0,2)}***${email.slice(at)}` : '***'; };
+const publicUser = row => ({id:row.id,name:row.name,email_hint:maskEmail(row.email),has_identity:Boolean(row.crypto_identity),is_active:row.is_active!==false});
+const userDirectory = transaction(async(req,client)=>{
+  const vault=await lockVault(client,req.params.id,req.user,true);
+  const q=String(req.query.q||'').trim().toLowerCase();
+  if(q.length<2 || q.length>100) fail('SEARCH_TOO_SHORT',400);
+  const like='%'+q.replace(/[\\%_]/g,m=>'\\'+m)+'%';
+  const rows=(await client.query(`SELECT id,name,email,crypto_identity,is_active FROM users
+    WHERE is_active=TRUE AND id<>$1 AND (lower(name) LIKE $2 ESCAPE '\\' OR lower(email) LIKE $2 ESCAPE '\\') ORDER BY name LIMIT 20`,[vault.created_by,like])).rows;
+  return {users:rows.map(publicUser)};
+});
+const userShares = transaction(async(req,client)=>{
+  const vault=await lockVault(client,req.params.id,req.user,true);
+  const rows=(await client.query(`SELECT u.id,u.name,u.email,u.crypto_identity,u.is_active,a.can_view,a.can_edit,a.can_add,a.can_delete
+    FROM client_user_access a JOIN users u ON u.id=a.user_id WHERE a.client_id=$1 ORDER BY u.name,u.id`,[vault.id])).rows;
+  return {users:rows.map(row=>({...publicUser(row),can_view:row.can_view,can_edit:row.can_edit,can_add:row.can_add,can_delete:row.can_delete}))};
+});
 const listSharedItems = transaction(async(req,client)=>({items:(await client.query(`SELECT vi.id,vi.category,vi.created_at,vi.client_id,c.name AS client_name,(ic.item_id IS NOT NULL) AS migrated
  FROM vault_shares vs JOIN vault_items vi ON vi.id=vs.vault_item_id JOIN clients c ON c.id=vi.client_id
  LEFT JOIN vault_item_crypto ic ON ic.item_id=vi.id WHERE vs.user_id=$1 ORDER BY vi.created_at DESC`,[req.user.id])).rows}));
@@ -292,4 +334,4 @@ const readSharedItem = transaction(async(req,client)=>{
   if(!item) fail('SHARED_ITEM_UNAVAILABLE',404);
   return item; // never returns other records or a vault envelope
 });
-module.exports={getIdentity,saveIdentity,getState,getRecipients,stageEpoch,appendStage,activateEpoch,abortStage,mutateRecords,listSharedItems,readSharedItem,digest,validateCapacity};
+module.exports={userDirectory,userShares,getIdentity,saveIdentity,getState,getRecipients,stageEpoch,appendStage,activateEpoch,abortStage,mutateRecords,listSharedItems,readSharedItem,digest,validateCapacity};

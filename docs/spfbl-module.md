@@ -29,12 +29,14 @@ destinatários, últimos 10 desbloqueios), *Histórico* (filtros por domínio au
 do mais novo ao mais antigo, e grava no PostgreSQL **só os registros dos domínios cadastrados** (`spfbl_history_records`; cada
 execução fica em `spfbl_history_runs`). A consulta lê do banco, pagina 25 por página e **filtra sempre pelos domínios atuais do
 solicitante** (correspondência exata do destinatário; revogar o acesso ou desativar o domínio vale na próxima requisição). A chave do
-fornecedor nunca vai ao navegador. A coleta roda sozinha **1 vez por dia** na hora definida pelo Super Admin (fuso America/Sao_Paulo; a
-reivindicação do dia é gravada no banco, então reinício ou duas instâncias não repetem a coleta) e as linhas são mantidas por **30, 60 ou
+fornecedor nunca vai ao navegador. A coleta roda sozinha **a cada 1, 2, 4, 8, 12 ou 24 horas** (escolha do Super Admin; a
+reivindicação do turno é gravada no banco, então reinício ou duas instâncias não repetem a coleta) e as linhas são mantidas por **30, 60 ou
 90 dias** (escolha do Super Admin; reduzir a retenção apaga registros e exige confirmação com a contagem). Ao consultar um período que
 a coleta ainda não cobre, o servidor inicia uma coleta e a tela mostra "Coletando…"; quando a cobertura é incerta (limite de páginas,
 falha, linhas ignoradas) aparece "Cobertura parcial". Estas tabelas guardam endereços de terceiros e **ficam fora do backup**; trocar a conta
-Matrix apaga os registros da conta anterior. Parâmetros fixos: até 300 páginas e 100 000 linhas por coleta, 0,75 s entre páginas.
+Matrix apaga os registros da conta anterior. **Limite do Matrix:** o Matrix mostra só os últimos 1024 registros do servidor (todos os domínios juntos). A coleta detecta esse teto e,
+quando duas coletas seguidas não se sobrepõem, avisa "possível perda de registros anteriores a dd/mm/aa"; a tela também diz desde
+quando o histórico é confiável. Quanto menor o intervalo, menos registros se perdem. Parâmetros fixos: até 300 páginas e 100 000 linhas por coleta, 0,75 s entre páginas.
 
 **Modos de tratamento (por usuário):**
 - *Revisão*: o usuário registra a solicitação (com confirmação) e o Super Admin decide: **Manter bloqueio** (nada vai ao SPFBL),

@@ -1,6 +1,6 @@
 # Estudo: compartilhar um cofre direto com usuários (além de grupos)
 
-Estado: **estudo, nada implementado**. Motivação: hoje, para dar acesso por empresa a pessoas diferentes, é preciso um grupo por
+Estado: **fase 1 e 2 implementadas** (usuário + grupo no mesmo cofre, seletor com busca); a fase 3 (lote) segue como estudo. Ver "Implementado" no fim. Motivação: hoje, para dar acesso por empresa a pessoas diferentes, é preciso um grupo por
 empresa (100 empresas = 100 grupos). Meta: compartilhar um cofre com **usuários e grupos selecionados**, sem enfraquecer a segurança atual.
 
 ## Como funciona hoje (resumo verificado no código)
@@ -98,3 +98,18 @@ de interface.
 3. Quer um "break-glass" de recuperação (Super Admin sempre destinatário)? **Não recomendo**: muda o modelo de confiança.
 4. Prioridade: começo pela **fase 1 (usuário no cofre)** ou pela **fase 3 (lote)**? Para "100 empresas" o lote entrega mais valor
    imediato com o modelo atual (um grupo por equipe aplicado a muitos cofres), mas continua exigindo grupos.
+
+## Implementado (branch work/fase5)
+
+- Tabela `client_user_access` (migration 32), escrita **somente** pela ativação da rotação do dono (`activateEpoch`), na mesma transação
+  dos envelopes. `vault_recipient_allowed` e o gatilho de revogação passaram a considerar a concessão direta.
+- Permissão efetiva = **OU** entre o caminho por grupo (interseção atual) e a concessão do usuário (`source`: `group`, `user`, `group+user`).
+- `recipients` = dono + membros dos grupos + usuários escolhidos (ativos e com identidade). Usuário indisponível ou sem identidade é
+  recusado (409), nunca descartado em silêncio. Se `userShares` não vier no corpo, as concessões diretas permanecem como estão.
+- Decisões adotadas (as do estudo): permissões **por usuário** (ver/editar/adicionar/excluir); **só o dono** rotaciona; **sem** break-glass.
+- Diretório mínimo para o dono: `GET /crypto/vaults/:id/user-directory?q=` (2+ caracteres, 20 resultados, e-mail mascarado, sem chaves) e
+  `GET /crypto/vaults/:id/user-shares`. Auditoria: `vault_user_share_granted` / `vault_user_share_revoked`.
+- Backup: `client_user_access` é tabela opcional (backups antigos continuam restaurando).
+- Risco conhecido: o `vault_recipient_allowed` é recriado a cada partida; um backend **anterior** a esta versão, ao subir em modo de
+  migração, voltaria a definição antiga (sem a concessão direta) e as revogações por gatilho ignorariam usuários diretos. O rollback
+  automático de imagens só usa o modo de verificação, que não recria a função.
