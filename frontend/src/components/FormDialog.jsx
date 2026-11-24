@@ -25,7 +25,7 @@ function registerDialog(node) {
 }
 
 // Shared profile/team dialog: positioned panel, bounded body, persistent actions.
-export default function FormDialog({title, description, children, footer, onClose, busy = false, forced = false, child = false, guardChanges = true, saved = false, panelAttribute = {}}) {
+export default function FormDialog({title, description, children, footer, onClose, busy = false, forced = false, child = false, guardChanges = true, saved = false, panelAttribute = {}, size = 'md'}) {
   const id = useId(), panel = useRef(null), overlay = useRef(null), closeRef = useRef(onClose), busyRef = useRef(busy);
   const [dirty, setDirty] = useState(false), [confirmClose, setConfirmClose] = useState(false);
   const requestClose = () => {if (!busy) {if (guardChanges && dirty && !saved) setConfirmClose(true); else onClose?.();}};
@@ -60,7 +60,7 @@ export default function FormDialog({title, description, children, footer, onClos
   return <>{createPortal(<div ref={overlay} data-form-dialog onChangeCapture={() => setDirty(true)} className={`fixed inset-0 flex items-center justify-center p-4 ${child ? 'z-[60]' : 'z-50'}`}>
     <button type="button" tabIndex={-1} aria-hidden="true" data-dialog-backdrop disabled={busy || forced} onClick={requestClose} className="absolute inset-0 z-0 bg-slate-950/70" />
     <section ref={panel} role="dialog" aria-modal="true" aria-labelledby={id} aria-describedby={description ? id+'-description' : undefined} aria-busy={busy} tabIndex={-1} data-modal-panel data-focus-return data-form-dirty={dirty} {...panelAttribute}
-      className="relative z-10 flex max-h-[calc(100dvh-2rem)] w-full max-w-lg flex-col overflow-hidden rounded-lg border border-slate-200 bg-white text-left text-slate-900 shadow-xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
+      className={`relative z-10 flex max-h-[calc(100dvh-2rem)] w-full ${size === 'xl' ? 'max-w-4xl' : 'max-w-lg'} flex-col overflow-hidden rounded-lg border border-slate-200 bg-white text-left text-slate-900 shadow-xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100`}>
       <header className="flex shrink-0 items-start justify-between gap-3 border-b border-slate-200 px-4 py-3 dark:border-slate-700">
         <div className="min-w-0"><h2 id={id} className="text-base font-semibold">{title}</h2>{description && <p id={id+'-description'} className="mt-1 text-sm text-slate-600 dark:text-slate-300">{description}</p>}</div>
         {!forced && <button type="button" disabled={busy} onClick={requestClose} aria-label={`Fechar ${title}`} className="rounded p-1 text-slate-500 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 disabled:cursor-not-allowed dark:text-slate-300 dark:hover:bg-slate-800"><X aria-hidden="true" className="h-5 w-5" /></button>}

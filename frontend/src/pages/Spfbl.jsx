@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Bug } from 'lucide-react';
+import { Bug, Settings as SettingsIcon } from 'lucide-react';
+import FormDialog from '../components/FormDialog';
 import SpfblSettingsPanel from '../components/spfbl/SpfblSettingsPanel';
 import SpfblDomainsPanel from '../components/spfbl/SpfblDomainsPanel';
 import SpfblAccessPanel from '../components/spfbl/SpfblAccessPanel';
@@ -30,7 +31,8 @@ function Summary({ overview }) {
   );
 }
 
-function AdminView({ overview, onOverviewChange }) {
+// Super Admin data (settings, domains, grants, users) is loaded once and shared by the settings modal and the access tab.
+function useAdminData(enabled, onOverviewChange) {
   const [settings, setSettings] = useState(null);
   const [domains, setDomains] = useState([]);
   const [grants, setGrants] = useState([]);
@@ -40,7 +42,6 @@ function AdminView({ overview, onOverviewChange }) {
   const refreshOverview = useCallback(async () => {
     try { onOverviewChange(await getOverview()); } catch { /* the panels keep their own state */ }
   }, [onOverviewChange]);
-
   const loadDomains = useCallback(async () => {
     try { setDomains(await listDomains()); setErrors((e) => ({ ...e, domains: '' })); } catch (error) { setErrors((e) => ({ ...e, domains: describeError(error, 'Não foi possível carregar os domínios.') })); }
     await refreshOverview();
@@ -55,6 +56,7 @@ function AdminView({ overview, onOverviewChange }) {
   }, [refreshOverview]);
 
   useEffect(() => {
+    if (!enabled) return undefined;
     let active = true;
     (async () => {
       const [s, d, g, u] = await Promise.allSettled([getSettings(), listDomains(), listAccess(), listUsers()]);
@@ -70,31 +72,37 @@ function AdminView({ overview, onOverviewChange }) {
       });
     })();
     return () => { active = false; };
-  }, []);
+  }, [enabled]);
 
+  return { settings, setSettings, domains, grants, users, errors, refreshOverview, loadDomains, loadAccess, reloadAfterSync };
+}
+
+// Connection and catalogue settings live behind the gear icon: they are set once and rarely touched.
+function SettingsDialog({ overview, data, onClose }) {
   return (
-    <div className="space-y-6">
-      <Summary overview={overview} />
-      {errors.settings && <p role="alert" className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{errors.settings}</p>}
-      {settings && (
-        <SpfblSettingsPanel
-          settings={settings}
-          onSettingsChange={(next) => { setSettings(next); refreshOverview(); }}
-          onDomainsChanged={reloadAfterSync}
-        />
-      )}
-      <SpfblDomainsPanel domains={domains} loadError={errors.domains} onReload={loadDomains} />
-      <SpfblAccessPanel grants={grants} users={users} domains={domains} loadError={errors.access} onReload={loadAccess} />
-    </div>
+    <FormDialog title="Configurações do SPFBL" description="Conexão Matrix, servidor WHM (cPanel) e catálogo de domínios." onClose={onClose} size="xl" guardChanges={false}
+      footer={<div className="flex justify-end"><button type="button" onClick={onClose} className="min-h-9 rounded-md border border-slate-300 bg-white px-4 text-sm font-medium text-slate-800 hover:bg-slate-50">Fechar</button></div>}>
+      <div className="space-y-6">
+        <Summary overview={overview} />
+        {data.errors.settings && <p role="alert" className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{data.errors.settings}</p>}
+        {data.settings && (
+          <SpfblSettingsPanel settings={data.settings} onSettingsChange={(next) => { data.setSettings(next); data.refreshOverview(); }} onDomainsChanged={data.reloadAfterSync} />
+        )}
+        <SpfblDomainsPanel domains={data.domains} loadError={data.errors.domains} onReload={data.loadDomains} />
+      </div>
+    </FormDialog>
   );
 }
 
-const TABS = { dashboard: 'Dashboard', history: 'Histórico', requests: 'Solicitações', audit: 'Auditoria', settings: 'Configuração', access: 'Meu acesso' };
-const tabsFor = (role) => Object.keys(TABS).filter((key) => (role === 'super_admin' ? key !== 'access' : !['settings', 'audit'].includes(key)));
+const TABS = { dashboard: 'Dashboard', history: 'Histórico', requests: 'Solicitações', audit: 'Auditoria', access: 'Acessos' };
+const tabsFor = (role) => Object.keys(TABS).filter((key) => (role === 'super_admin' || !['audit'].includes(key)));
+const tabLabel = (role, key) => (key === 'access' && role !== 'super_admin' ? 'Meu acesso' : TABS[key]);
 
 export default function Spfbl() {
   const [overview, setOverview] = useState(null);
   const [error, setError] = useState('');
+  const [showSettings, setShowSettings] = useState(false);
+  const adminData = useAdminData(overview?.role === 'super_admin', setOverview);
   const [tab, setTab] = useState(() => { const wanted = new URLSearchParams(window.location.search).get('tab'); return TABS[wanted] ? wanted : 'dashboard'; });
 
   useEffect(() => {
@@ -108,8 +116,17 @@ export default function Spfbl() {
   return (
     <div className="mx-auto max-w-7xl space-y-5 p-4 md:p-6">
       <header>
-        <h1 className="flex items-center text-2xl font-bold text-slate-900"><Bug className="mr-2 h-6 w-6 text-indigo-500" aria-hidden="true" />SPFBL</h1>
-        <p className="mt-1 text-sm text-slate-600">Consulta e gestão de bloqueios de e-mail do Matrix SPFBL.</p>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h1 className="flex items-center text-2xl font-bold text-slate-900"><Bug className="mr-2 h-6 w-6 text-slate-500" aria-hidden="true" />SPFBL</h1>
+            <p className="mt-1 text-sm text-slate-600">Consulta e gestão de bloqueios de e-mail do Matrix SPFBL.</p>
+          </div>
+          {overview?.role === 'super_admin' && (
+            <button type="button" onClick={() => setShowSettings(true)} aria-label="Configurações do SPFBL" title="Configurações do SPFBL" className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-50">
+              <SettingsIcon className="h-4 w-4" aria-hidden="true" />
+            </button>
+          )}
+        </div>
       </header>
       {error && <p role="alert" className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>}
       {!overview && !error && <p role="status" className="text-sm text-slate-600">Carregando...</p>}
@@ -117,7 +134,7 @@ export default function Spfbl() {
         <nav aria-label="Seções do SPFBL" className="flex flex-wrap gap-1 border-b border-slate-200">
           {tabsFor(overview.role).map((key) => (
             <button key={key} type="button" onClick={() => setTab(key)} aria-current={tab === key ? 'page' : undefined}
-              className={`min-h-9 border-b-2 px-3 text-sm font-medium ${tab === key ? 'border-blue-800 text-blue-800' : 'border-transparent text-slate-700 hover:text-slate-900'}`}>{TABS[key]}</button>
+              className={`min-h-9 border-b-2 px-3 text-sm font-medium ${tab === key ? 'border-blue-800 text-blue-800' : 'border-transparent text-slate-700 hover:text-slate-900'}`}>{tabLabel(overview.role, key)}</button>
           ))}
         </nav>
       )}
@@ -125,8 +142,11 @@ export default function Spfbl() {
       {overview && tab === 'history' && <SpfblHistory />}
       {overview && tab === 'requests' && <SpfblRequests />}
       {overview?.role === 'super_admin' && tab === 'audit' && <SpfblAudit />}
-      {overview?.role === 'super_admin' && tab === 'settings' && <AdminView overview={overview} onOverviewChange={setOverview} />}
+      {overview?.role === 'super_admin' && tab === 'access' && (
+        <SpfblAccessPanel grants={adminData.grants} users={adminData.users} domains={adminData.domains} loadError={adminData.errors.access} onReload={adminData.loadAccess} />
+      )}
       {overview?.role === 'user' && tab === 'access' && <SpfblOwnScope overview={overview} />}
+      {showSettings && overview?.role === 'super_admin' && <SettingsDialog overview={overview} data={adminData} onClose={() => setShowSettings(false)} />}
     </div>
   );
 }

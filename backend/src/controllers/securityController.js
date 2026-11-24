@@ -30,6 +30,7 @@ const NOTIFICATION_ACTIONS = [
   'password_reset_failed',
   'password_reset_mfa_failed',
   'password_reset_requested',
+  'password_set_by_admin',
   'smtp_test_email_failed',
   // SPFBL module: a new review request, direct unlocks/blocks by users, and (via the failed status) anything not confirmed.
   'spfbl_block_done',
@@ -109,6 +110,7 @@ const getNotificationContent = (event) => {
     password_reset_failed: ['Recuperação de acesso falhou', `A recuperação de acesso não foi concluída${context}.`],
     password_reset_mfa_failed: ['Recuperação MFA falhou', `A validação MFA da recuperação de acesso foi recusada${context}.`],
     password_reset_requested: ['Recuperação de acesso solicitada', 'Uma solicitação de recuperação de acesso foi registrada.'],
+    password_set_by_admin: ['Senha de usuário redefinida', `Um Super Admin definiu a senha de login de outra conta${context}.`],
     smtp_test_email_failed: ['Teste SMTP falhou', 'Não foi possível enviar o e-mail de teste.'],
     weak_password_rejected: ['Senha fora da política', `Uma senha que não atende à política foi recusada${context}.`]
   };

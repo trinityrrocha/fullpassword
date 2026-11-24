@@ -261,9 +261,13 @@ try {
   state = newState(); state.enabled = true;
   await open('page');
   await page.getByRole('heading', { level: 1, name: 'SPFBL' }).waitFor();
-  await page.getByRole('button', { name: 'Configuração' }).click();
+  assert.equal(await page.getByText('Conexão Matrix SPFBL').count(), 0, 'connection settings are hidden until the gear is used');
+  assert.equal(await page.getByRole('button', { name: 'Configuração', exact: true }).count(), 0, 'no settings tab any more');
+  await page.getByRole('button', { name: 'Configurações do SPFBL' }).click();
+  await page.getByRole('dialog', { name: 'Configurações do SPFBL' }).waitFor();
   await page.getByRole('heading', { name: 'Conexão Matrix SPFBL' }).waitFor();
-  const summary = await page.locator('dl').innerText();
+  await shot('settings-dialog-1280');
+  const summary = await page.getByRole('dialog', { name: 'Configurações do SPFBL' }).locator('dl').innerText();
   assert.match(summary, /Matrix\s+Configurado/); assert.match(summary, /Domínios ativos\s+109 de 121/); assert.match(summary, /Usuários com acesso\s+1/);
   // Secrets: never prefilled, kept when blank, cleared after saving, absent from DOM and storage.
   const matrixPassword = page.getByLabel('Senha Matrix'); const whmToken = page.getByLabel('Token WHM');
@@ -311,15 +315,15 @@ try {
 
   // ================= 4. Domains: 121 rows, filtered and paginated =================
   const list = page.getByRole('list', { name: 'Domínios do catálogo' });
-  assert.equal(await list.getByRole('listitem').count(), 25, 'at most one page is rendered');
-  await page.getByText(/121 de 121 domínios · página 1 de 5/).waitFor();
+  assert.equal(await list.getByRole('listitem').count(), 20, 'at most 20 domains per page');
+  await page.getByText(/121 de 121 domínios · página 1 de 7/).waitFor();
   await page.getByRole('navigation', { name: 'Paginação de domínios' }).getByRole('button', { name: 'Próxima' }).click();
-  await page.getByText(/página 2 de 5/).waitFor();
-  assert.equal(await list.getByRole('listitem').first().getByText('site025.example.com').count(), 1);
+  await page.getByText(/página 2 de 7/).waitFor();
+  assert.equal(await list.getByRole('listitem').first().getByText('site020.example.com').count(), 1);
   await page.getByLabel('Buscar por domínio ou conta cPanel').fill('acct3');
   await page.getByText(/página 1 de 1|de 121 domínios\./).first().waitFor();
   const filtered = await list.getByRole('listitem').count();
-  assert.ok(filtered > 0 && filtered < 25, `filter result ${filtered}`);
+  assert.ok(filtered > 0 && filtered <= 20, `filter result ${filtered}`);
   await page.getByLabel('Buscar por domínio ou conta cPanel').fill('');
   await page.getByLabel('Situação').selectOption('inactive');
   await page.getByText(/12 de 121 domínios/).waitFor();
@@ -340,6 +344,10 @@ try {
 
   // ================= 5. Access: dialog, keyboard, scoped candidates, reauthentication per target =================
   await page.getByLabel('Buscar por domínio ou conta cPanel').fill('');
+  await page.keyboard.press('Escape');
+  await page.getByRole('dialog', { name: 'Configurações do SPFBL' }).waitFor({ state: 'detached' });
+  assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')), 'Configurações do SPFBL', 'focus returns to the gear');
+  await page.getByRole('button', { name: 'Acessos' }).click();
   const give = page.getByRole('button', { name: 'Dar acesso' });
   await give.click();
   const dialog = page.getByRole('dialog', { name: 'Dar acesso ao SPFBL' });
@@ -561,6 +569,8 @@ try {
   const firstDate = await page.locator('tbody tr td').first().innerText();
   assert.match(firstDate, /^\d{2}\/\d{2}\/\d{2} \d{2}:\d{2}$/, 'dates are dd/mm/aa hh:mm');
   await noOverflow('history 1280 compact');
+  assert.equal(await page.locator('table').first().evaluate((table) => table.parentElement.scrollWidth <= table.parentElement.clientWidth), true, 'no horizontal scrollbar on the history table at 1280 px');
+  assert.match(await page.locator('tbody tr td:nth-child(3)').first().innerText(), /^[^@\s]+@…$/, 'the recipient is shown as local@…');
   await shot('history-compact-1280');
   // audit page
   await page.getByRole('button', { name: 'Auditoria' }).click();

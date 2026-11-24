@@ -20,6 +20,8 @@ router.put('/profile', userController.updateProfile);
 router.put('/keys', (_req,res)=>res.status(409).json({code:'IDENTITY_V2_REQUIRED',error:'Use a configuração de identidade independente.'}));
 router.patch('/:id/mfa-policy', require('../services/reauthService').guard('admin_mfa_policy'), userController.updateMfaPolicy);
 router.post('/:id/mfa-reset', require('../services/reauthService').guard('admin_mfa_reset'), userController.resetMfa);
+// Super Admin sets another account's LOGIN password (single-use reauthentication bound to the target account).
+router.post('/:id/password', require('../services/reauthService').guard('admin_password_set'), userController.setUserPassword);
 router.put('/:id', userController.updateUser);
 router.delete('/:id', require('../services/reauthService').guard('admin_user_delete'), userController.deleteUser);
 

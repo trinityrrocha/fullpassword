@@ -138,3 +138,6 @@ export const formatEpochShort = (seconds) => formatEpoch(seconds).replace(/:\d{2
 export const formatIsoShort = (iso) => (iso ? formatEpochShort(Math.floor(Date.parse(iso) / 1000)) : '');
 
 export const REASON_SHORT = { banned: 'Banimento', security: 'Segurança', inexistent: 'Inexistência', '': 'Aceita' };
+
+// The recipient's domain is already the selected domain: show "local@…" (full address in the tooltip) so rows never need a scrollbar.
+export const shortAddress = (email) => { const at = String(email || '').indexOf('@'); return at > 0 ? `${email.slice(0, at + 1)}…` : email || '—'; };

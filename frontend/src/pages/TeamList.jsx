@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useId } from 'react';
 import { Users, Plus, Shield, Star, UserRound, Loader2, FolderKey, Trash2, ChevronDown } from 'lucide-react';
 import SecurePasswordInput from '../components/SecurePasswordInput';
+import AdminSetPasswordDialog from '../components/AdminSetPasswordDialog';
 import FormDialog from '../components/FormDialog';
 import GroupModal from '../components/GroupModal';
 import api from '../services/api';
@@ -142,6 +143,7 @@ export default function TeamList() {
   const [teamMembers, setTeamMembers] = useState([]);
   const [newUser, setNewUser] = useState(defaultNewUser);
   const [editUser, setEditUser] = useState(defaultEditUser);
+  const [passwordTarget, setPasswordTarget] = useState(null);
   const [deleteUserConfirmation, setDeleteUserConfirmation] = useState('');
   const [activeTab, setActiveTab] = useState('users');
   const [groups, setGroups] = useState([]);
@@ -547,6 +549,9 @@ export default function TeamList() {
     </div>
     <p className="rounded-md border border-indigo-200 bg-indigo-50 p-2 text-xs text-indigo-800">
       Para redefinir o acesso com segurança, o usuário deve usar “Esqueceu a senha?” na tela de login.
+      {user?.is_super_admin && !editUser.is_super_admin && String(editUser.id) !== String(user.id) && (
+        <> Como Super Admin, você também pode <button type="button" onClick={() => setPasswordTarget({ id: editUser.id, name: editUser.name, email: editUser.email })} className="font-semibold underline">definir uma nova senha de login</button> (temporária, com confirmação de identidade).</>
+      )}
     </p>
     <div>
       <label htmlFor="editUserForm-3" className="block text-sm font-medium text-slate-700 mb-1">Nível de Acesso</label>
@@ -577,6 +582,8 @@ export default function TeamList() {
   </form>
         </FormDialog>
       )}
+
+      {passwordTarget && <AdminSetPasswordDialog member={passwordTarget} minLength={passwordPolicy?.login_min_length} onClose={() => setPasswordTarget(null)} onDone={() => setNotice('Senha definida. O usuário deverá trocá-la no próximo acesso.')} />}
 
       {isModalOpen && (
         <FormDialog title="Cadastrar Novo Membro" onClose={closeCreateUserModal} busy={isSaving} footer={<ModalFooter isSaving={isSaving} formId="newUserForm" submitLabel="Salvar Usuário" onCancel={closeCreateUserModal} />}>

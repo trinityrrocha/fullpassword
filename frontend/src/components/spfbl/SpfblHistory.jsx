@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import SpfblStatusBar from './SpfblStatusBar';
 import SpfblRecord from './SpfblRecord';
 import { getHistory, refreshHistory } from '../../services/spfblService';
-import { COVERAGE_NOTE, REASON_ICONS, REASON_SHORT, describeError, describeRelease, formatEpochShort, formatIsoShort, formatNumber } from '../../utils/spfbl';
+import { COVERAGE_NOTE, REASON_ICONS, REASON_SHORT, shortAddress, describeError, describeRelease, formatEpochShort, formatIsoShort, formatNumber } from '../../utils/spfbl';
 
 const POLL_MS = 3000;
 const field = 'mt-1 w-full min-h-9 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900';
@@ -82,8 +82,9 @@ export default function SpfblHistory() {
       <p role="status" className="text-sm text-slate-700"><strong>{formatNumber(data.filtered_total)}</strong> registros/tentativas com os filtros · <strong>{formatNumber(data.period_total)}</strong> do domínio no período recuperado. {data.state.partial || data.state.loading ? COVERAGE_NOTE : ''}</p>
 
       <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
-        <table className="min-w-full whitespace-nowrap text-left text-[13px]">
+        <table className="w-full table-fixed min-w-[44rem] whitespace-nowrap text-left text-[13px]">
           <caption className="sr-only">Registros do domínio {data.domain}</caption>
+          <colgroup><col className="w-[8.5rem]" /><col /><col className="w-[10rem]" /><col className="w-[17rem]" /><col className="w-[5.5rem]" /></colgroup>
           <thead className="text-[11px] uppercase tracking-wide text-slate-500"><tr className="border-b border-slate-200">{['Data', 'Remetente', 'Destinatário', 'Situação', ''].map((h) => <th key={h || 'acoes'} scope="col" className="px-3 py-2 font-medium">{h || <span className="sr-only">Ações</span>}</th>)}</tr></thead>
           <tbody className="divide-y divide-slate-100">
             {data.rows.length === 0 && <tr><td colSpan={5} className="px-3 py-6 text-center text-slate-600">Nenhum registro com estes filtros.</td></tr>}
@@ -92,10 +93,10 @@ export default function SpfblHistory() {
               return (
                 <tr key={row.id} className="hover:bg-slate-50">
                   <td className="px-3 py-2 tabular-nums text-slate-700">{formatEpochShort(row.timestamp)}</td>
-                  <td className="max-w-[22rem] truncate px-3 py-2 text-slate-900" title={row.sender || row.from}>{row.sender || row.from || '—'}</td>
-                  <td className="max-w-[18rem] truncate px-3 py-2 text-slate-900" title={row.recipient}>{row.recipient}</td>
-                  <td className="px-3 py-2">
-                    <span className="inline-flex items-center gap-2">
+                  <td className="truncate px-3 py-2 text-slate-900" title={row.sender || row.from}>{row.sender || row.from || '—'}</td>
+                  <td className="truncate px-3 py-2 text-slate-900" title={row.recipient}>{shortAddress(row.recipient)}</td>
+                  <td className="overflow-hidden px-3 py-2">
+                    <span className="inline-flex max-w-full items-center gap-2 overflow-hidden">
                       <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${row.status === 'Bloqueados' ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-700'}`} title={row.reason}><span aria-hidden="true">{REASON_ICONS[row.icon]}</span>{REASON_SHORT[row.icon] || row.reason}</span>
                       {release && <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${release.state === 'unlocked' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-700'}`} title={release.line}>{release.badge}{row.release.at ? <span className="ml-1 font-normal text-slate-600">{formatIsoShort(row.release.at)}{row.release.by ? ` · ${row.release.by}` : ''}</span> : null}</span>}
                     </span>

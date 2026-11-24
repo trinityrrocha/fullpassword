@@ -8,7 +8,9 @@ const fieldClass = 'w-full rounded-md border border-slate-300 bg-white px-2.5 py
 const primaryButton = 'rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600';
 const linkButton = 'rounded px-2 py-1 text-sm font-medium text-indigo-700 underline hover:bg-slate-100 disabled:opacity-60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600';
 
-// The catalogue may hold thousands of domains: filtered and paginated, never rendered whole.
+const DOMAINS_PER_PAGE = 20;
+
+// The catalogue may hold thousands of domains: filtered and paginated (20 per page), never rendered whole.
 export default function SpfblDomainsPanel({ domains, loadError, onReload }) {
   const id = useId();
   const [query, setQuery] = useState('');
@@ -20,7 +22,7 @@ export default function SpfblDomainsPanel({ domains, loadError, onReload }) {
   const [message, setMessage] = useState({ type: '', text: '' });
 
   const filtered = useMemo(() => filterDomains(domains, { query, status }), [domains, query, status]);
-  const view = paginate(filtered, page);
+  const view = paginate(filtered, page, DOMAINS_PER_PAGE);
 
   const add = async (event) => {
     event.preventDefault();

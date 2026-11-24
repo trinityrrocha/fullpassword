@@ -39,6 +39,7 @@ const AUDIT_ACTION_OPTIONS = [
   ['smtp_test_email_sent', 'E-mail SMTP de teste enviado'],
   ['smtp_test_email_failed', 'Falha no teste SMTP'],
   ['password_reset_requested', 'Recuperação de acesso solicitada'],
+  ['password_set_by_admin', 'Senha de login definida pelo Super Admin'],
   ['password_reset_email_sent', 'E-mail de recuperação enviado'],
   ['password_reset_email_failed', 'Falha no e-mail de recuperação'],
   ['password_reset_token_validated', 'Link de recuperação validado'],

@@ -96,7 +96,7 @@ export default function SpfblRequests() {
       {error && <p role="alert" className="text-sm text-red-800">{error}</p>}
       {open && <ReviewPanel id={open} onDone={() => load(filter)} onClose={() => setOpen(null)} />}
       <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
-        <table className="min-w-full whitespace-nowrap text-left text-[13px]">
+        <table className="w-full table-fixed min-w-[44rem] whitespace-nowrap text-left text-[13px]">
           <caption className="sr-only">{admin ? 'Solicitações de revisão' : 'Minhas solicitações'}</caption>
           <thead className="text-[11px] uppercase tracking-wide text-slate-500"><tr className="border-b border-slate-200">{['Data', ...(admin ? ['Solicitante'] : []), 'Destinatário', 'Remetente', 'Motivo', 'Situação', ...(admin ? [''] : [])].map((h) => <th key={h || 'acoes'} scope="col" className="px-3 py-2 font-medium">{h || <span className="sr-only">Ações</span>}</th>)}</tr></thead>
           <tbody className="divide-y divide-slate-100">
@@ -104,10 +104,10 @@ export default function SpfblRequests() {
             {data.requests.map((r) => (
               <tr key={r.id} className="hover:bg-slate-50">
                 <td className="px-3 py-2 tabular-nums text-slate-700">{formatIsoShort(r.requested_at)}</td>
-                {admin && <td className="max-w-[12rem] truncate px-3 py-2" title={r.actor_name || ''}>{r.actor_name || '—'}</td>}
-                <td className="max-w-[18rem] truncate px-3 py-2" title={r.recipient}>{r.recipient}</td>
-                <td className="max-w-[22rem] truncate px-3 py-2" title={r.sender}>{r.sender || '—'}</td>
-                <td className="px-3 py-2 text-slate-700">{r.reason}</td>
+                {admin && <td className="truncate px-3 py-2" title={r.actor_name || ''}>{r.actor_name || '—'}</td>}
+                <td className="truncate px-3 py-2" title={r.recipient}>{r.recipient}</td>
+                <td className="truncate px-3 py-2" title={r.sender}>{r.sender || '—'}</td>
+                <td className="truncate px-3 py-2 text-slate-700" title={r.reason}>{r.reason}</td>
                 <td className="px-3 py-2"><Badge request={r} /></td>
                 {admin && <td className="px-3 py-2 text-right"><button type="button" onClick={() => setOpen(r.id)} className="text-blue-800 underline">Revisar<span className="sr-only"> {r.recipient}</span></button></td>}
               </tr>
