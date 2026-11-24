@@ -138,7 +138,8 @@ async function main() {
   const configFile = '/etc/fullpassword/auto-update.json';
   const config = JSON.parse(fs.readFileSync(configFile, 'utf8'));
   assert.equal(config.origin, 'https://audit.example.invalid');
-  fs.writeFileSync(configFile, JSON.stringify({ ...config, channelUrl, imageRegistry: registry }));
+  assert.equal(config.releaseSource, 'github-main-ci');
+  fs.writeFileSync(configFile, JSON.stringify({ ...config, releaseSource: 'signed-test', channelUrl, imageRegistry: registry }));
   fs.writeFileSync(config.publicKeyFile, publicKey.export({ type: 'spki', format: 'pem' }));
   assert.equal(sql("SELECT rolcanlogin::text||rolsuper::text FROM pg_roles WHERE rolname='fullpassword_runtime'"), 'truefalse');
   const agent = (...args) => run(path.join(nodeDir, 'node'), ['/usr/local/lib/fullpassword-release/auto-update-agent.js', ...args], { env, allowFailure: true });
@@ -183,7 +184,7 @@ async function main() {
   assert.ok(beforeRole && roleFingerprint() === beforeRole, 'setup must preserve the existing role verifier');
   assert.equal(compose('ps', '-q', 'db'), databaseBeforeSetup);
   assert.equal(runningRevision(), B);
-  fs.writeFileSync(configFile, JSON.stringify({ ...config, channelUrl, imageRegistry: registry }));
+  fs.writeFileSync(configFile, JSON.stringify({ ...config, releaseSource: 'signed-test', channelUrl, imageRegistry: registry }));
   fs.writeFileSync(config.publicKeyFile, publicKey.export({ type: 'spki', format: 'pem' }));
 
   // 3) a release whose frontend does not match: update fails, previous version restored, backup taken, click consumed

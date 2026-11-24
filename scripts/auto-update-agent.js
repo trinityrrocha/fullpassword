@@ -215,6 +215,17 @@ const writeStatus = (config, base, phase) => atomic(path.join(config.publicDirec
 // Chooses the release a click may install: the signed channel head, only when the installation descends from it.
 const candidate = async (ctx, installedRevision) => {
   const { config } = ctx;
+  if (config.releaseSource === 'github-main-ci') {
+    const { discover, TTL } = require('./mainCiRelease');
+    const file = path.join(config.stateDirectory, 'main-ci-cache.json');
+    let entry = readJsonIfPresent(file);
+    if (!entry || entry.installed !== installedRevision || ctx.now() >= entry.until) {
+      const value = await discover(installedRevision, ctx.fetcher, ctx.now()).catch(() => ({state:'unavailable'}));
+      entry = { installed: installedRevision, until: ctx.now() + (value.state === 'unavailable' ? 300000 : TTL), value };
+      atomic(file, entry);
+    }
+    return entry.value.state === 'available' ? { ...entry.value, eligible: true } : null;
+  }
   const cacheFile = path.join(config.stateDirectory, 'channel.json');
   let cached = readJsonIfPresent(cacheFile);
   const publicKey = ctx.read(config.publicKeyFile);
@@ -317,7 +328,7 @@ const tick = async (ctx, { adopt = false } = {}) => {
       request = readRequest(requestFile);
       fs.rmSync(requestFile, { force: true }); // one click = one attempt; a retry needs a new click
       if (request.approvalId !== catalog.approvalId || request.revision !== catalog.revision || request.manifestHash !== catalog.manifestHash) return { rejected: true };
-    } else if (adopt || (!isAdopted(readReleaseEnv(ctx)) && fs.existsSync(path.join(config.stateDirectory, 'adopt.consent')))) {
+    } else if (config.releaseSource !== 'github-main-ci' && (adopt || (!isAdopted(readReleaseEnv(ctx)) && fs.existsSync(path.join(config.stateDirectory, 'adopt.consent'))))) {
       // First adoption was consented to by running setup: it proceeds on the first eligible stable release.
       request = { approvalId: catalog.approvalId, revision: catalog.revision, manifestHash: catalog.manifestHash, requestId: crypto.randomUUID() };
     }

@@ -1,0 +1,6 @@
+# First-install transport only. No Docker socket, runtime credentials or image override.
+services:
+  backend:
+    volumes:
+      - /var/lib/fullpassword-release-public:/var/lib/fullpassword-release-public:ro
+      - /var/lib/fullpassword-release-queue:/var/lib/fullpassword-release-queue:rw

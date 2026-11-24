@@ -84,11 +84,17 @@ main() {
   install -d -o root -g root -m 0755 "$ETC" "$LIB"
   install -d -o root -g root -m 0700 "$AUTO"
   install -o root -g root -m 0644 "$PROJECT/docker-compose.yml" "$AUTO/docker-compose.yml"
+  local initial_mounts=no
+  if grep -Fxq 'COMPOSE_FILE=docker-compose.yml:docker-compose.webupdate-mounts.yml' "$PROJECT/.env"; then
+    install -o root -g root -m 0644 "$HERE/docker-compose.webupdate-mounts.yml" "$AUTO/webupdate-mounts.yml"
+    initial_mounts=yes
+  fi
   install -o root -g root -m 0644 "$HERE/docker-compose.release-agent.yml" "$AUTO/docker-compose.release-agent.yml"
   install -o root -g root -m 0600 "$PROJECT/.env" "$AUTO/app.env"
   install -o root -g root -m 0644 "$HERE/backend/src/config/release-public.pem" "$ETC/release-public.pem"
   chmod 0755 "$AUTO"
   install -o root -g root -m 0644 "$HERE/scripts/auto-update-agent.js" "$LIB/auto-update-agent.js"
+  install -o root -g root -m 0644 "$HERE/backend/src/services/mainCiRelease.js" "$LIB/mainCiRelease.js"
   install -o root -g root -m 0644 "$HERE/scripts/deploy-approved-release.js" "$LIB/deploy-approved-release.js"
   install -d -o root -g root -m 0700 "$STATE" "$BACKUPS"
   install -d -o root -g root -m 0755 "$PUBLIC"
@@ -141,20 +147,16 @@ SQL
   "$NODE" -e '
     const fs=require("fs");const [project,origin]=process.argv.slice(1);
     fs.writeFileSync("/etc/fullpassword/auto-update.json",JSON.stringify({projectDir:project,envFile:"/etc/fullpassword/auto-update/app.env",
-      baseFiles:["/etc/fullpassword/auto-update/docker-compose.yml"],overlayFile:"/etc/fullpassword/auto-update/docker-compose.release-agent.yml",
-      origin,publicKeyFile:"/etc/fullpassword/release-public.pem",stateDirectory:"'$STATE'",publicDirectory:"'$PUBLIC'",
-      queueDirectory:"'$QUEUE'",backupDirectory:"'$BACKUPS'",backupKeep:3},null,1)+"\n",{mode:0o644});' "$PROJECT" "$ORIGIN"
+      baseFiles:["/etc/fullpassword/auto-update/docker-compose.yml",...(process.argv[3]==="yes"?["/etc/fullpassword/auto-update/webupdate-mounts.yml"]:[])],overlayFile:"/etc/fullpassword/auto-update/docker-compose.release-agent.yml",
+      releaseSource:"github-main-ci",origin,publicKeyFile:"/etc/fullpassword/release-public.pem",stateDirectory:"'$STATE'",publicDirectory:"'$PUBLIC'",
+      queueDirectory:"'$QUEUE'",backupDirectory:"'$BACKUPS'",backupKeep:3},null,1)+"\n",{mode:0o644});' "$PROJECT" "$ORIGIN" "$initial_mounts"
 
   umask 022
   printf '[Unit]\nDescription=FullPassword automatic updater (signed releases)\n[Service]\nType=oneshot\nExecStart=%s %s/auto-update-agent.js\nUser=root\nUMask=0077\nTimeoutStartSec=30min\n' "$NODE" "$LIB" > /etc/systemd/system/fullpassword-auto-update.service
   printf '[Unit]\nDescription=Poll FullPassword update requests\n[Timer]\nOnBootSec=30s\nOnUnitInactiveSec=10s\nUnit=fullpassword-auto-update.service\n[Install]\nWantedBy=timers.target\n' > /etc/systemd/system/fullpassword-auto-update.timer
   local SYSTEMD=0; [[ -d /run/systemd/system ]] && command -v systemctl >/dev/null && SYSTEMD=1
   (( SYSTEMD )) && systemctl daemon-reload
-  echo 'Agente instalado. Adotando a release estável atual (backup, migração, verificação e rollback automáticos)...'
-  if (( ADOPT )); then
-    : > "$STATE/adopt.consent"   # also covers installs ahead of the stable channel: adopt on the first eligible release
-    "$NODE" "$LIB/auto-update-agent.js" --adopt || die 'A adoção falhou e foi revertida; veja o painel/estado e rode de novo.'
-  fi
+  echo 'Agente instalado. A descoberta da main é automática; a instalação de uma atualização exige clique no painel.'
   if (( SYSTEMD )); then systemctl enable --now fullpassword-auto-update.timer
   else echo 'AVISO: systemd ausente; agende "node '"$LIB"'/auto-update-agent.js" a cada 10 s manualmente.'; fi
   echo 'Pronto. A atualização pelo painel (Super Admin) está ligada. Para desligar: sudo bash scripts/setup-auto-update.sh --disable'

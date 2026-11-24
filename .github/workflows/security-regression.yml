@@ -38,6 +38,7 @@ jobs:
         working-directory: frontend
       - run: npm test
         working-directory: backend
+      - run: node backend/scripts/test-main-ci-release.js
       - run: node scripts/test-audit-postgres.js
         working-directory: backend
       - name: Trusted Client IP unit and real PostgreSQL isolation

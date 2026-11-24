@@ -23,7 +23,7 @@ O projeto reúne gestão de usuários e grupos, permissões granulares, comparti
 - Backup e restauração criptografados nos formatos V1 e V2.
 - Backup Nuvem com Google Drive, Backblaze B2, MEGA S4 e FTP/FTPS.
 - Alertas de vencimento de domínio por e-mail.
-- WebUpdate por release assinada e approval de uso único, restrito ao Super Admin.
+- WebUpdate da main protegida com CI aprovada, imagens por digest e clique restrito ao Super Admin.
 - Descoberta de releases pelo canal público assinado, igual para todas as instalações; implantação continua protegida pelo agente externo.
 - Instalação automatizada em dois modos:
   - **IP público + Let's Encrypt**.
@@ -335,25 +335,16 @@ Quando MFA está ativo, a recuperação também exige TOTP válido ou código de
 
 ## 🔔 Atualizações e WebUpdater
 
-O painel solicita somente uma release previamente aprovada, restrita ao Super Admin
-autenticado e com CSRF válido, sem reauth/MFA adicional nesse botão. O painel não
-aprova releases: solicita uma approval criada externamente. O backend não possui
-Docker socket nem autoridade de deploy.
+O Super Admin autenticado solicita uma atualização com CSRF válido. O backend não
+possui Docker socket nem autoridade de deploy. O agente valida o pedido no host.
 
 ### Descoberta automática de novas versões
 
-Todas as instalações com o novo leitor consultam o mesmo canal público assinado
-`releases/stable.json`, sem token GitHub e sem vínculo com um domínio específico.
-Uma release publicada aparece mesmo sem approval local. Notas e revisão vêm de
-metadados verificados; falha de consulta não é apresentada como sistema atualizado.
-
-A implantação é uma etapa distinta: o agente externo publica o catálogo protegido
-da approval local. Manifesto assinado fixa SHA e imagens por digest; a fila aceita
-apenas IDs/SHA/checksum, nunca URL, comando, branch ou credencial. Consultar
-atualização não faz deploy nem git pull de main. Approval tem expiração e uso único,
-com ledger antes dos efeitos. Releases precisam publicar imagens **e** atualizar o
-canal. Instalações antigas precisam receber uma vez a versão com essa descoberta.
-Ver [publicação, segurança e adoção do canal público](docs/public-release-channel.md).
+O novo leitor usa o SHA da main e sua execução aprovada no GitHub Actions, sem
+token e sem segundo PR de anúncio. O SHA instalado precisa ser ancestral; as
+imagens são fixadas por digest. A fila aceita apenas IDs/SHA/checksum e uma
+consulta não inicia deploy. Instalações no protocolo assinado precisam receber
+uma vez o novo leitor/agente. Ver [ativação, publicação e limites](docs/auto-update.md).
 
 ### Versão instalada
 
