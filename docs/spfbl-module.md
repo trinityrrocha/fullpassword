@@ -9,12 +9,22 @@ revisão**, **desbloqueio direto**, fila do administrador, novo bloqueio e **not
 
 1. Configurações do Sistema → **Módulos** → ativar **SPFBL** (Super Admin; pede reautenticação). O ícone aparece no menu
    do Super Admin e dos usuários com acesso. Desativar o módulo encerra o acesso de todos na hora.
-2. Página **SPFBL** → **Conexão Matrix**: usuário e senha da conta Matrix; *Testar conexão salva*.
-3. **Servidor WHM**: hostname (sem https/porta/IP), usuário WHM (root ou revendedor) e token; *Testar conexão* (não grava
-   nada) e *Sincronizar domínios*.
-4. **Domínios**: catálogo importado do WHM ou digitado. **Ativo** = domínio de conta **não suspensa** no WHM (inclui os
-   subdomínios que o `get_domain_info` retorna; filtre pela conta ou pelo nome); domínios que
-   saem do servidor ficam inativos (não são apagados). Domínios digitados à mão podem ser removidos.
+2. Página **SPFBL** → aba **Configurações do SPFBL** → **Servidor WHM**: lista de servidores. *Adicionar servidor* pede nome, hostname
+   (sem https/porta/IP), usuário WHM (root ou revendedor), token e, se quiser coletar o histórico, o usuário e a senha **Matrix** desse
+   servidor. Cada servidor tem **a sua** conexão Matrix (o Matrix mostra só 1024 registros por servidor). Depois de cadastrado dá para
+   *Editar* (nome, token; trocar host ou usuário pede o token de novo), *Testar* (não grava nada), *Sincronizar* (ou *Sincronizar todos*) e
+   *Remover*.
+3. **Conexão Matrix**: uma conexão por servidor WHM (usuário, senha, *Testar conexão*); a retenção (30/60/90 dias) e a frequência da coleta
+   (1, 2, 4, 8, 12 ou 24 h) valem para todos.
+4. **Domínios**: catálogo importado dos servidores WHM ou digitado; cada domínio mostra de qual servidor veio. **Ativo** = domínio de conta
+   **não suspensa** no WHM (inclui os subdomínios que o `get_domain_info` retorna; filtre pela conta ou pelo nome); domínios que saem do
+   servidor ficam inativos (não são apagados). Domínios digitados à mão podem ser removidos. A sincronização de um servidor só mexe nos
+   domínios **dele**; um domínio listado por outro servidor passa para esse.
+   **Remover um servidor** pergunta o que fazer com os domínios vinculados (sem resposta padrão): *remover* (apaga os importados e os acessos
+   a eles; os digitados à mão ficam) ou *manter*. Os mantidos ficam **sem servidor de consulta**: continuam ativos e com o **histórico já
+   coletado**, mas sem ações no Matrix (consultar status, solicitar, desbloquear ou bloquear são recusadas). A conexão Matrix do servidor
+   removido sai junto; o histórico coletado por ela continua até o fim da retenção. Um domínio sem servidor volta a ter conexão quando algum
+   servidor o listar numa sincronização. O servidor WHM e a conexão Matrix únicos de versões anteriores são movidos para a lista, uma vez.
 5. **Acessos de usuários**: contas do FullPassword com 1 a 100 domínios e o modo de tratamento dos bloqueios (revisão
    pelo administrador ou desbloqueio direto). Não existe uma segunda senha: valem o login, o MFA e a auditoria do
    FullPassword. O acesso é avaliado a cada requisição.

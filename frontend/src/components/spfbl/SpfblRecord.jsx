@@ -46,11 +46,12 @@ export default function SpfblRecord({ id, domain, onBack }) {
             </dl>
             <p className="mt-4 text-xs text-slate-600">O código original é mantido. A categoria segue a regra de compatibilidade do produto e não comprova entrega na caixa postal.</p>
           </section>
+          {state?.read_only && <p role="status" className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">{state.read_only_message || 'Só o histórico está disponível para este registro.'}</p>}
           {state && <SpfblRecordActions record={record} domain={domain} state={state} onChanged={load} />}
           <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm" aria-labelledby="spfbl-status-title">
             <h3 id="spfbl-status-title" className="text-lg font-semibold text-slate-900">Situação atual no SPFBL</h3>
             <p className="mt-1 text-sm text-slate-600">A consulta verifica a regra atual do registro no fornecedor. O motivo original do e-mail continua preservado.</p>
-            <button type="button" onClick={check} disabled={busy} className="mt-3 min-h-9 rounded-md border border-slate-300 bg-white px-4 text-sm font-medium text-blue-800 hover:bg-slate-50 disabled:opacity-60">{busy ? 'Consultando…' : 'Consultar status atual'}</button>
+            <button type="button" onClick={check} disabled={busy || Boolean(state?.read_only)} className="mt-3 min-h-9 rounded-md border border-slate-300 bg-white px-4 text-sm font-medium text-blue-800 hover:bg-slate-50 disabled:opacity-60">{busy ? 'Consultando…' : 'Consultar status atual'}</button>
             <div role="status" className="mt-3 text-sm text-slate-900">
               {status?.ok && <p><strong>{status.ok.label}.</strong>{status.ok.changed_reason ? ' O motivo no fornecedor mudou desde o histórico; atualize a consulta.' : ''}</p>}
               {status?.error && <p role="alert" className="text-red-800">{status.error}</p>}

@@ -20,6 +20,7 @@ export const filterDomains = (domains, { query = '', status = 'all' } = {}) => {
     if (status === 'active') return domain.active === true;
     if (status === 'inactive') return domain.active !== true;
     if (status === 'manual' || status === 'whm') return domain.source === status;
+    if (status === 'no_server') return Boolean(domain.no_server);
     return true;
   });
 };
@@ -34,6 +35,7 @@ export const paginate = (items, page, size = PAGE_SIZE) => {
 export const domainState = (domain) => {
   if (domain.active) return { label: 'Ativo', tone: 'green' };
   if (domain.source === 'whm' && domain.suspended) return { label: 'Conta suspensa', tone: 'amber' };
+  if (domain.no_server) return { label: NO_SERVER_LABEL, tone: 'slate' };
   if (domain.source === 'whm') return { label: 'Fora do servidor', tone: 'slate' };
   return { label: 'Inativo', tone: 'slate' };
 };
@@ -53,6 +55,7 @@ export const describeSync = (at, status) => {
 
 const SPECIFIC_MESSAGES = Object.freeze({
   SPFBL_SECRET_REENTRY_REQUIRED: 'Você alterou o usuário ou o servidor. Por segurança, digite novamente a senha ou o token correspondente.',
+  SPFBL_REMOVE_CHOICE_REQUIRED: 'Escolha o que fazer com os domínios vinculados antes de remover o servidor.',
   SPFBL_SYNC_EMPTY: 'O WHM não retornou nenhum domínio, então nada foi alterado. Confira as permissões do token.',
   MODULE_DISABLED: 'O módulo SPFBL está desativado. Ative-o em Configurações → Módulos.',
   CONFIG_ENCRYPTION_KEY_MISSING: 'A chave de criptografia das configurações não está configurada no servidor (CONFIG_ENCRYPTION_KEY).',
@@ -73,19 +76,30 @@ export const describeError = (error, fallback) => {
   return SPECIFIC_MESSAGES[data.code] || data.error || fallback;
 };
 
-// Each form sends only its own fields (the server keeps the rest). Empty secret fields mean "keep the saved
-// secret": they are simply not sent.
-export const buildMatrixPayload = ({ user, password }) => {
-  const payload = { matrix_user: String(user ?? '').trim() };
-  if (password) payload.matrix_password = password;
+// A server form sends only what the person typed: an empty secret means "keep the saved one" and is simply not sent.
+export const buildServerPayload = ({ name, host, user, token, matrixUser, matrixPassword }, { section = 'all' } = {}) => {
+  const payload = {};
+  if (section !== 'matrix') {
+    payload.name = String(name ?? '').trim(); payload.host = String(host ?? '').trim(); payload.whm_user = String(user ?? '').trim();
+    if (token) payload.token = String(token).trim();
+  }
+  if (section !== 'whm') {
+    payload.matrix_user = String(matrixUser ?? '').trim();
+    if (matrixPassword) payload.matrix_password = matrixPassword;
+  }
   return payload;
 };
 
-export const buildWhmPayload = ({ host, user, token }) => {
-  const payload = { whm_host: String(host ?? '').trim(), whm_user: String(user ?? '').trim() };
-  if (token) payload.whm_token = String(token).trim();
-  return payload;
+// The wording of the "remove server" choice, from the counts the list already has.
+export const removalSummary = (server) => {
+  const n = Number(server?.domains_total || 0);
+  return n === 0 ? 'Este servidor não tem domínios vinculados.' : n === 1 ? 'Este servidor tem 1 domínio vinculado.' : `Este servidor tem ${n} domínios vinculados.`;
 };
+export const serverSummary = (servers) => {
+  const list = Array.isArray(servers) ? servers : [];
+  return { total: list.length, withMatrix: list.filter((server) => server.matrix_configured).length };
+};
+export const NO_SERVER_LABEL = 'Sem servidor de consulta';
 
 export const syncSummary = (result) => {
   const parts = [`${result.domains} domínios (${result.active} ativos, ${result.suspended} de contas suspensas)`];

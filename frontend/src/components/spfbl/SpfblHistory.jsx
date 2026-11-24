@@ -79,6 +79,7 @@ export default function SpfblHistory() {
       </form>
 
       <h2 className="text-base font-semibold text-slate-900">Registros do domínio</h2>
+      {data.domain_no_server && <p role="status" className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">Este domínio está sem servidor de consulta: só o histórico já coletado fica disponível (sem desbloquear, bloquear ou consultar o Matrix).</p>}
       <SpfblStatusBar state={data.state} busy={busy} onRefresh={refresh} />
       {error && <p role="alert" className="text-sm text-red-800">{error}</p>}
       <p role="status" className="text-sm text-slate-700"><strong>{formatNumber(data.filtered_total)}</strong> registros/tentativas com os filtros · <strong>{formatNumber(data.period_total)}</strong> do domínio no período recuperado. {data.state.partial || data.state.loading ? COVERAGE_NOTE : ''}</p>

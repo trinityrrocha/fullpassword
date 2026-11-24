@@ -6,10 +6,14 @@ export const listModules = async () => (await api.get('/system/modules')).data.m
 export const setModuleEnabled = async (key, enabled) => (await api.put(`/system/modules/${encodeURIComponent(key)}`, { enabled })).data.module;
 
 export const getOverview = async () => (await api.get('/spfbl/overview')).data;
-export const getSettings = async () => (await api.get('/spfbl/settings')).data;
-export const saveSettings = async (payload) => (await api.put('/spfbl/settings', payload)).data;
-export const testMatrix = async () => (await api.post('/spfbl/matrix/test', {})).data;
-export const testWhm = async () => (await api.post('/spfbl/whm/test', {})).data;
+// WHM servers, each with its Matrix connection. Secrets travel only on create/edit and are never returned.
+export const listWhmServers = async () => (await api.get('/spfbl/whm-servers')).data.servers || [];
+export const createWhmServer = async (payload) => (await api.post('/spfbl/whm-servers', payload)).data.server;
+export const updateWhmServer = async (id, payload) => (await api.put(`/spfbl/whm-servers/${encodeURIComponent(id)}`, payload)).data.server;
+export const removeWhmServer = async (id, removeDomains) => (await api.delete(`/spfbl/whm-servers/${encodeURIComponent(id)}`, { data: { remove_domains: removeDomains } })).data;
+export const testWhmServer = async (id) => (await api.post(`/spfbl/whm-servers/${encodeURIComponent(id)}/test`, {})).data;
+export const syncWhmServer = async (id) => (await api.post(`/spfbl/whm-servers/${encodeURIComponent(id)}/sync`, {})).data;
+export const testMatrixServer = async (id) => (await api.post(`/spfbl/whm-servers/${encodeURIComponent(id)}/matrix/test`, {})).data;
 export const syncDomains = async () => (await api.post('/spfbl/domains/sync', {})).data;
 
 export const listDomains = async () => (await api.get('/spfbl/domains')).data.domains || [];
@@ -40,7 +44,7 @@ export const blockSender = async (id, domain, proof) => (await api.post(`/spfbl/
 
 export const getHistorySettings = async () => (await api.get('/spfbl/history-settings')).data;
 export const saveHistorySettings = async (payload) => (await api.put('/spfbl/history-settings', payload)).data;
-export const collectHistoryNow = async () => (await api.post('/spfbl/history/collect', {})).data;
+export const collectHistoryNow = async (serverId) => (await api.post('/spfbl/history/collect', serverId ? { server_id: serverId } : {})).data;
 
 export const getAdminDomains = async () => (await api.get('/spfbl/dashboard/domains')).data;
 export const getAudit = async (params) => (await api.get('/spfbl/audit', { params })).data;

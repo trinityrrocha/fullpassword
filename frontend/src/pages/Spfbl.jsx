@@ -7,12 +7,12 @@ import SpfblDashboard from '../components/spfbl/SpfblDashboard';
 import SpfblHistory from '../components/spfbl/SpfblHistory';
 import SpfblRequests from '../components/spfbl/SpfblRequests';
 import SpfblAudit from '../components/spfbl/SpfblAudit';
-import { getOverview, getSettings, listAccess, listDomains, listUsers } from '../services/spfblService';
+import { getOverview, listAccess, listDomains, listUsers, listWhmServers } from '../services/spfblService';
 import { describeError } from '../utils/spfbl';
 
-// Super Admin data (settings, domains, grants, users) is loaded once and shared by the settings tab and the access tab.
+// Super Admin data (WHM servers, domains, grants, users) is loaded once and shared by the settings tab and the access tab.
 function useAdminData(enabled, onOverviewChange) {
-  const [settings, setSettings] = useState(null);
+  const [servers, setServers] = useState([]);
   const [domains, setDomains] = useState([]);
   const [grants, setGrants] = useState([]);
   const [users, setUsers] = useState([]);
@@ -25,10 +25,10 @@ function useAdminData(enabled, onOverviewChange) {
     try { setDomains(await listDomains()); setErrors((e) => ({ ...e, domains: '' })); } catch (error) { setErrors((e) => ({ ...e, domains: describeError(error, 'Não foi possível carregar os domínios.') })); }
     await refreshOverview();
   }, [refreshOverview]);
-  const loadSettings = useCallback(async () => {
-    try { setSettings(await getSettings()); } catch { /* the previous values stay on screen */ }
+  const loadServers = useCallback(async () => {
+    try { setServers(await listWhmServers()); setErrors((e) => ({ ...e, servers: '' })); } catch (error) { setErrors((e) => ({ ...e, servers: describeError(error, 'Não foi possível carregar os servidores.') })); }
   }, []);
-  const reloadAfterSync = useCallback(async () => { await Promise.all([loadDomains(), loadSettings()]); }, [loadDomains, loadSettings]);
+  const reloadAfterSync = useCallback(async () => { await Promise.all([loadDomains(), loadServers()]); }, [loadDomains, loadServers]);
   const loadAccess = useCallback(async () => {
     try { setGrants(await listAccess()); setErrors((e) => ({ ...e, access: '' })); } catch (error) { setErrors((e) => ({ ...e, access: describeError(error, 'Não foi possível carregar os acessos.') })); }
     await refreshOverview();
@@ -38,14 +38,14 @@ function useAdminData(enabled, onOverviewChange) {
     if (!enabled) return undefined;
     let active = true;
     (async () => {
-      const [s, d, g, u] = await Promise.allSettled([getSettings(), listDomains(), listAccess(), listUsers()]);
+      const [s, d, g, u] = await Promise.allSettled([listWhmServers(), listDomains(), listAccess(), listUsers()]);
       if (!active) return;
-      if (s.status === 'fulfilled') setSettings(s.value);
+      if (s.status === 'fulfilled') setServers(s.value);
       if (d.status === 'fulfilled') setDomains(d.value);
       if (g.status === 'fulfilled') setGrants(g.value);
       if (u.status === 'fulfilled') setUsers(u.value);
       setErrors({
-        settings: s.status === 'rejected' ? describeError(s.reason, 'Não foi possível carregar a configuração.') : '',
+        servers: s.status === 'rejected' ? describeError(s.reason, 'Não foi possível carregar os servidores.') : '',
         domains: d.status === 'rejected' ? describeError(d.reason, 'Não foi possível carregar os domínios.') : '',
         access: g.status === 'rejected' ? describeError(g.reason, 'Não foi possível carregar os acessos.') : ''
       });
@@ -53,7 +53,7 @@ function useAdminData(enabled, onOverviewChange) {
     return () => { active = false; };
   }, [enabled]);
 
-  return { settings, setSettings, domains, grants, users, errors, refreshOverview, loadDomains, loadAccess, reloadAfterSync };
+  return { servers, domains, grants, users, errors, refreshOverview, loadDomains, loadAccess, reloadAfterSync };
 }
 
 const TABS = { dashboard: 'Dashboard', history: 'Histórico', requests: 'Solicitações', audit: 'Auditoria', access: 'Acessos', settings: 'Configurações do SPFBL' };

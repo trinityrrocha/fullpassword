@@ -75,8 +75,15 @@ export default function SpfblHistorySettings() {
             </div>
             <p className="text-xs text-slate-600">
               {formatNumber(data.stored.rows)} registros armazenados{data.stored.oldest_at ? ` (desde ${formatIsoShort(data.stored.oldest_at)})` : ''}.
-              {' '}Última coleta agendada: {data.last_run_at ? formatIsoShort(data.last_run_at) : 'nenhuma ainda'}.{data.running ? ' Há uma coleta em andamento.' : ''}
+              {data.running ? ' Há uma coleta em andamento.' : ''}
             </p>
+            {data.servers?.length > 0 && (
+              <ul aria-label="Última coleta por servidor" className="space-y-1 text-xs text-slate-600">
+                {data.servers.map((server) => (
+                  <li key={server.id}>{server.name}: {server.matrix ? (server.last_run_at ? `última coleta em ${formatIsoShort(server.last_run_at)}` : 'ainda não coletou') : 'sem conexão Matrix (não coleta)'}.</li>
+                ))}
+              </ul>
+            )}
             {confirm && (
               <p role="alert" className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
                 Reduzir a retenção apagará {formatNumber(confirm.rows_to_delete)} registros do histórico armazenado. Isso não pode ser desfeito.
