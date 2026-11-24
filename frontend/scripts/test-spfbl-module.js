@@ -27,10 +27,10 @@ assert.deepEqual(spfbl.filterDomains([{ id: 'x' }], { query: 'a' }), [], 'rows w
 
 const many = Array.from({ length: 5000 }, (_, i) => i);
 let view = spfbl.paginate(many, 1);
-assert.deepEqual([view.items.length, view.pages, view.total, view.page], [25, 200, 5000, 1]);
-assert.equal(spfbl.paginate(many, 200).items.length, 25); assert.equal(spfbl.paginate(many, 200).items[0], 4975);
+assert.deepEqual([view.items.length, view.pages, view.total, view.page], [20, 250, 5000, 1]);
+assert.equal(spfbl.paginate(many, 250).items.length, 20); assert.equal(spfbl.paginate(many, 250).items[0], 4980); assert.equal(spfbl.paginate(many, 1, 100).items.length, 100);
 for (const page of [0, -3, 'abc', null, undefined, NaN]) assert.equal(spfbl.paginate(many, page).page, 1, String(page));
-assert.equal(spfbl.paginate(many, 9999).page, 200, 'clamped to the last page');
+assert.equal(spfbl.paginate(many, 9999).page, 250, 'clamped to the last page');
 view = spfbl.paginate([], 3);
 assert.deepEqual([view.items, view.pages, view.page, view.total], [[], 1, 1, 0]);
 assert.equal(spfbl.paginate(null, 1).total, 0);

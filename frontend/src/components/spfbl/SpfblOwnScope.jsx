@@ -1,13 +1,15 @@
 import { useMemo, useState } from 'react';
 import DomainBadge from './DomainBadge';
+import PaginationBar from '../PaginationBar';
 import { MODE_LABELS, filterDomains, paginate } from '../../utils/spfbl';
 
 // What a granted (non-Super-Admin) account sees: only its own scope, read-only.
 export default function SpfblOwnScope({ overview }) {
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
   const filtered = useMemo(() => filterDomains(overview.domains, { query }), [overview.domains, query]);
-  const view = paginate(filtered, page);
+  const view = paginate(filtered, page, pageSize);
   return (
     <section className="rounded-lg border border-slate-200 bg-white shadow-sm" aria-labelledby="spfbl-own-title">
       <header className="border-b border-slate-200 px-4 py-3">
@@ -32,13 +34,7 @@ export default function SpfblOwnScope({ overview }) {
                 </li>
               ))}
             </ul>
-            {view.pages > 1 && (
-              <nav aria-label="Paginação de domínios" className="flex items-center justify-between gap-3">
-                <button type="button" disabled={view.page <= 1} onClick={() => setPage(view.page - 1)} className="rounded px-2 py-1 text-sm font-medium text-indigo-700 underline disabled:opacity-60">Anterior</button>
-                <span className="text-sm text-slate-600">Página {view.page} de {view.pages}</span>
-                <button type="button" disabled={view.page >= view.pages} onClick={() => setPage(view.page + 1)} className="rounded px-2 py-1 text-sm font-medium text-indigo-700 underline disabled:opacity-60">Próxima</button>
-              </nav>
-            )}
+            <PaginationBar label="Paginação dos domínios" page={view.page} pages={view.pages} total={view.total} pageSize={pageSize} onPage={setPage} onPageSize={(size) => { setPageSize(size); setPage(1); }} />
           </>
         )}
       </div>

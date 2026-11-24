@@ -22,7 +22,8 @@ const ACTION_LABELS = {
   spfbl_history_settings_updated: 'Retenção do histórico alterada'
 };
 const STATUS_LABELS = { success: 'Sucesso', failed: 'Falha', denied: 'Negado', blocked: 'Bloqueado' };
-const PAGE_SIZE = 25;
+const PAGE_SIZES = Object.freeze([20, 40, 100]);
+const PAGE_SIZE = 20;
 const DOMAIN_RE = /^[a-z0-9.-]{1,253}$/;
 const UUID_RE = /^[0-9a-f-]{36}$/;
 const REASON_RE = /^[A-Za-z0-9_:. -]{1,80}$/;
@@ -40,14 +41,17 @@ const safeMetadata = (metadata) => {
   if (['direct', 'review'].includes(m.mode)) out.mode = m.mode;
   if (['WHITELISTED', 'BLOCKED', 'NONE', 'UNKNOWN'].includes(m.provider_status)) out.provider_status = m.provider_status;
   if (['sent', 'smtp_skipped', 'none'].includes(m.notification)) out.notification = m.notification;
-  for (const key of ['pages', 'rows', 'retention_days', 'schedule_hour', 'deleted']) if (Number.isInteger(m[key]) && m[key] >= 0 && m[key] < 1e7) out[key] = m[key];
+  for (const key of ['pages', 'rows', 'retention_days', 'interval_hours', 'deleted']) if (Number.isInteger(m[key]) && m[key] >= 0 && m[key] < 1e7) out[key] = m[key];
   if (typeof m.capped === 'boolean') out.capped = m.capped;
+  if (typeof m.gap === 'boolean') out.gap = m.gap;
   if (['schedule', 'manual', 'query'].includes(m.run)) out.run = m.run;
   if (typeof m.diagnostic === 'string' && /^[A-Za-z0-9_= .]{1,120}$/.test(m.diagnostic)) out.diagnostic = m.diagnostic;
   return out;
 };
 
-const list = async ({ action, status, domain, start, end, page } = {}) => {
+const list = async ({ action, status, domain, start, end, page, page_size: rawSize } = {}) => {
+  const pageSize = rawSize === undefined || rawSize === '' ? PAGE_SIZE : Number(rawSize);
+  if (!PAGE_SIZES.includes(pageSize)) throw new AuditError('Escolha 20, 40 ou 100 resultados por página.', 'SPFBL_AUDIT_FILTER');
   const where = ["action LIKE 'spfbl\\_%' ESCAPE '\\'"];
   const params = [];
   if (action) {
@@ -71,14 +75,14 @@ const list = async ({ action, status, domain, start, end, page } = {}) => {
   }
   const clause = `WHERE ${where.join(' AND ')}`;
   const total = Number((await db.query(`SELECT COUNT(*)::integer AS n FROM system_audit_events ${clause}`, params)).rows[0].n);
-  const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const pages = Math.max(1, Math.ceil(total / pageSize));
   const current = Math.min(Math.max(1, Number.parseInt(page, 10) || 1), pages);
   const rows = (await db.query(`SELECT id, created_at, action, status, user_email, metadata FROM system_audit_events ${clause}
-    ORDER BY created_at DESC, id DESC LIMIT ${PAGE_SIZE} OFFSET ${(current - 1) * PAGE_SIZE}`, params)).rows;
+    ORDER BY created_at DESC, id DESC LIMIT ${pageSize} OFFSET ${(current - 1) * pageSize}`, params)).rows;
   return {
     events: rows.map((r) => ({ id: r.id, at: r.created_at, action: r.action, label: ACTION_LABELS[r.action] || 'Evento do SPFBL', status: r.status,
       status_label: STATUS_LABELS[r.status] || r.status, user: r.user_email || null, details: safeMetadata(r.metadata) })),
-    total, page: current, pages,
+    total, page: current, pages, page_size: pageSize,
     actions: Object.entries(ACTION_LABELS).map(([value, label]) => ({ value, label }))
   };
 };

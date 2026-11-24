@@ -80,7 +80,10 @@ async function run() {
   sel = history.selectRows(rows, 'one.example.com', history.parseFilters({ status: 'Todos', email: 'spam@x.example' }, Date.now()), 1); assert.equal(sel.filtered, 1, 'sender match is case-insensitive');
   sel = history.selectRows(rows, 'one.example.com', history.parseFilters({ status: 'Todos', by: 'recipient', email: 'b@one.example.com' }, Date.now()), 1); assert.equal(sel.filtered, 1);
   const big = Array.from({ length: 60 }, (_, i) => history.normalizeRecord(raw(`b${i}`, `u${i}@one.example.com`, 'BLOCK', 10 + i), integration));
-  assert.equal(history.selectRows(big, 'one.example.com', filters, 3).rows.length, 10); assert.equal(history.selectRows(big, 'one.example.com', filters, 99).page, 3);
+  assert.equal(history.selectRows(big, 'one.example.com', filters, 3).rows.length, 20); assert.equal(history.selectRows(big, 'one.example.com', filters, 99).page, 3);
+  assert.equal(history.selectRows(big, 'one.example.com', filters, 2, { pageSize: 40 }).rows.length, 20); assert.equal(history.selectRows(big, 'one.example.com', filters, 1, { pageSize: 100 }).pages, 1);
+  assert.deepEqual([history.parsePageSize(undefined), history.parsePageSize('40'), history.parsePageSize('100')], [20, 40, 100]);
+  for (const bad of ['25', '0', '-1', 'x', '1000']) assert.throws(() => history.parsePageSize(bad), { code: 'SPFBL_FILTER_PAGE_SIZE' });
   const overview = history.buildOverview(rows, ['one.example.com']);
   assert.equal(overview.total, 3); assert.equal(overview.blocked, 2); assert.deepEqual(overview.domains, [{ name: 'one.example.com', count: 2 }]);
 

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import PaginationBar from '../PaginationBar';
 import { getAudit } from '../../services/spfblService';
 import { describeError, formatIsoShort } from '../../utils/spfbl';
 
@@ -18,12 +19,13 @@ export default function SpfblAudit() {
   const [draft, setDraft] = useState({ action: '', status: '', domain: '', start: '', end: '' });
   const [applied, setApplied] = useState({});
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
 
   const load = useCallback(async () => {
-    try { setData(await getAudit({ ...applied, page })); setError(''); } catch (failure) { setError(describeError(failure, 'Não foi possível carregar a auditoria.')); }
-  }, [applied, page]);
+    try { setData(await getAudit({ ...applied, page, page_size: pageSize })); setError(''); } catch (failure) { setError(describeError(failure, 'Não foi possível carregar a auditoria.')); }
+  }, [applied, page, pageSize]);
   useEffect(() => { load(); }, [load]);
 
   const set = (key) => (event) => setDraft((current) => ({ ...current, [key]: event.target.value }));
@@ -71,13 +73,7 @@ export default function SpfblAudit() {
               </tbody>
             </table>
           </div>
-          {data.pages > 1 && (
-            <nav aria-label="Paginação da auditoria" className="flex items-center justify-between gap-3">
-              <button type="button" disabled={data.page <= 1} onClick={() => setPage(data.page - 1)} className="rounded px-2 py-1 text-sm font-medium text-blue-800 underline disabled:opacity-60">Anterior</button>
-              <span className="text-xs text-slate-600">Página {data.page} de {data.pages}</span>
-              <button type="button" disabled={data.page >= data.pages} onClick={() => setPage(data.page + 1)} className="rounded px-2 py-1 text-sm font-medium text-blue-800 underline disabled:opacity-60">Próxima</button>
-            </nav>
-          )}
+          <PaginationBar label="Paginação da auditoria" page={data.page} pages={data.pages} total={data.total} pageSize={pageSize} onPage={setPage} onPageSize={(size) => { setPageSize(size); setPage(1); }} />
         </>
       )}
     </div>

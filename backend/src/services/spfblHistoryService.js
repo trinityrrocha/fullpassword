@@ -4,7 +4,8 @@ const crypto = require('node:crypto');
 // The provider history is kept ONLY in memory (never persisted): it holds every domain of the Matrix account, so every
 // read is filtered by the caller's current domains (exact match) before anything leaves this module.
 const TIMEZONE = 'America/Sao_Paulo';
-const PAGE_SIZE = 25;
+const PAGE_SIZES = Object.freeze([20, 40, 100]);
+const PAGE_SIZE = 20;
 const MAX_PERIOD_DAYS = 90;
 const EXTRA_PAGES = 10;            // first page + 10 more, like the original portal
 const MAX_ROWS = 20000;
@@ -107,6 +108,14 @@ const addDays = (value, days) => { const [y, m, d] = value.split('-').map(Number
 const midnightOf = (value) => { const [y, m, d] = value.split('-').map(Number); return zonedMidnight(y, m, d); };
 const validYmd = (value) => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) && new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value;
 
+// Rows per page chosen by the person (20 by default, 40 or 100); anything else is refused, never clamped silently.
+const parsePageSize = (value) => {
+  if (value === undefined || value === '') return PAGE_SIZE;
+  const size = Number(value);
+  if (!PAGE_SIZES.includes(size)) throw new HistoryError('Escolha 20, 40 ou 100 resultados por página.', 'SPFBL_FILTER_PAGE_SIZE', 422);
+  return size;
+};
+
 const parseFilters = (input = {}, now = Date.now()) => {
   const today = ymd(Math.floor(now / 1000));
   const f = { status: 'Bloqueados', by: 'sender', email: '', start: addDays(today, -6), end: today };
@@ -123,7 +132,7 @@ const parseFilters = (input = {}, now = Date.now()) => {
 };
 
 // Rows of ONE authorized domain (exact recipient domain match), filtered, newest first, 25 per page.
-const selectRows = (rows, domain, filters, page = 1, { unlocked = new Set() } = {}) => {
+const selectRows = (rows, domain, filters, page = 1, { unlocked = new Set(), pageSize = PAGE_SIZE } = {}) => {
   const period = rows.filter((r) => belongs(r.recipient, domain) && r.timestamp >= filters.start_ts && r.timestamp < filters.end_ts);
   const wanted = filters.email ? normalizeEmail(filters.email) : '';
   const fields = filters.by === 'recipient' ? ['recipient'] : ['sender', 'from', 'replyto'];
@@ -133,9 +142,9 @@ const selectRows = (rows, domain, filters, page = 1, { unlocked = new Set() } = 
     else if (filters.status !== 'Todos' && classify(r.result).status !== filters.status) return false;
     return !wanted || fields.some((field) => normalizeEmail(r[field]) === wanted);
   }).sort((a, b) => (b.timestamp - a.timestamp) || (a.id < b.id ? -1 : 1));
-  const pages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const pages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const current = Math.min(Math.max(1, Number.parseInt(page, 10) || 1), pages);
-  return { rows: filtered.slice((current - 1) * PAGE_SIZE, current * PAGE_SIZE), period: period.length, filtered: filtered.length, page: current, pages };
+  return { rows: filtered.slice((current - 1) * pageSize, current * pageSize), period: period.length, filtered: filtered.length, page: current, pages };
 };
 
 // What leaves the server: no provider key, only what the screens show.
@@ -256,5 +265,5 @@ const createHistoryStore = ({ fetchPage, now = Date.now } = {}) => {
 const stateView = (state, now = Date.now()) => ({ loading: !state.done, pages: state.pages, partial: state.partial, error: state.error || '',
   updated_at: state.updated ? new Date(state.updated).toISOString() : null, rows: state.rows.length, now });
 
-module.exports = { HistoryError, TIMEZONE, PAGE_SIZE, classify, normalizeDomain, normalizeEmail, emailDomain, belongs, parseArrival, normalizeRecord,
+module.exports = { HistoryError, TIMEZONE, PAGE_SIZE, PAGE_SIZES, parsePageSize, classify, normalizeDomain, normalizeEmail, emailDomain, belongs, parseArrival, normalizeRecord,
   zonedMidnight, parseFilters, selectRows, publicRow, buildOverview, buildDomainsOverview, merge, createHistoryStore, stateView, emptyState };

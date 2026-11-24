@@ -4,10 +4,10 @@ const { isModuleEnabled } = require('./modulesService');
 const { recordAuditEvent } = require('./auditService');
 const { safeLogError } = require('../utils/safeLogger');
 
-// Daily collection at the configured hour (America/Sao_Paulo). The schedule lives in the database, not in a timer:
-//   - "today's run" is CLAIMED with a conditional UPDATE, so a restart (the auto-updater recreates the backend) or a second
-//     instance cannot run it twice, and a restart after the hour still catches up the same day;
-//   - a failed run releases the claim, and the next attempt waits RETRY_MS.
+// Collection every N hours (1, 2, 4, 8, 12 or 24; set by the Super Admin). The schedule lives in the database, not in a timer:
+//   - the turn is CLAIMED with a conditional UPDATE, so a restart (the auto-updater recreates the backend) or a second
+//     instance cannot run it twice, and a restart simply catches up;
+//   - a failed run gives the claim back, and the next attempt waits RETRY_MS.
 const TICK_MS = 60 * 1000;
 const RETRY_MS = 15 * 60 * 1000;
 let timer = null;
@@ -23,10 +23,13 @@ const tick = async ({ collector, now = Date.now, queryable = db } = {}) => {
   if (collector.isRunning() || now() - lastFailureAt < RETRY_MS) return { skipped: 'busy' };
   if (!(await isModuleEnabled('spfbl', queryable))) return { skipped: 'module_off' };
   const config = await settings.read(queryable);
-  const local = localParts(now());
-  if (local.hour < Number(config.history_schedule_hour)) return { skipped: 'before_hour' };
-  const claim = await queryable.query('UPDATE spfbl_settings SET history_last_run_date = $1::date WHERE id = 1 AND history_last_run_date IS DISTINCT FROM $1::date RETURNING id', [local.date]);
-  if (!claim.rows[0]) return { skipped: 'already_ran' };
+  const hours = Number(config.history_interval_hours);
+  // The turn is CLAIMED with a conditional UPDATE (a restart or a second instance cannot run it twice); `prev` lets a failure give it back.
+  const claim = await queryable.query(`UPDATE spfbl_settings s SET history_last_run_at = to_timestamp($1)
+      FROM (SELECT history_last_run_at AS prev FROM spfbl_settings WHERE id = 1 FOR UPDATE) p
+      WHERE s.id = 1 AND (p.prev IS NULL OR p.prev <= to_timestamp($1) - ($2::integer * INTERVAL '1 hour')) RETURNING p.prev`, [now() / 1000, hours]);
+  if (!claim.rows[0]) return { skipped: 'not_due' };
+  const previous = claim.rows[0].prev;
   const retention = Number(config.history_retention_days);
   let outcome;
   try {
@@ -37,10 +40,10 @@ const tick = async ({ collector, now = Date.now, queryable = db } = {}) => {
   }
   if (outcome.status === 'failed') {
     lastFailureAt = now();
-    await queryable.query('UPDATE spfbl_settings SET history_last_run_date = NULL WHERE id = 1').catch(() => {});
+    await queryable.query('UPDATE spfbl_settings SET history_last_run_at = $1 WHERE id = 1', [previous]).catch(() => {});
   }
   await recordAuditEvent({ action: 'spfbl_history_collected', status: outcome.status === 'failed' ? 'failed' : 'success',
-    metadata: { run: 'schedule', pages: outcome.pages, rows: outcome.stored, capped: outcome.status === 'capped', ...(outcome.error ? { reason: String(outcome.error) } : {}) }, queryable });
+    metadata: { run: 'schedule', pages: outcome.pages, rows: outcome.stored, capped: outcome.status === 'capped', gap: Boolean(outcome.gap), ...(outcome.error ? { reason: String(outcome.error) } : {}) }, queryable });
   return { ran: true, outcome };
 };
 

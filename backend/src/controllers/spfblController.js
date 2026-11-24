@@ -247,8 +247,8 @@ const loadHistory = async (windowStartTs, force = false) => {
   return { integration, state, view: stateView(state) };
 };
 const stateView = (state) => ({ loading: state.loading, partial: !state.complete, complete: state.complete, capped: state.capped, error: state.error,
-  updated_at: state.updated_at, oldest_at: state.oldest_at, pages: 0, rows: 0, now: Date.now() });
-const emptyView = () => ({ loading: false, partial: false, complete: true, capped: false, error: '', updated_at: null, oldest_at: null, pages: 0, rows: 0, now: Date.now() });
+  updated_at: state.updated_at, oldest_at: state.oldest_at, since: state.since, gap_before: state.gap_before, provider_limit: state.provider_limit, pages: 0, rows: 0, now: Date.now() });
+const emptyView = () => ({ loading: false, partial: false, complete: true, capped: false, error: '', updated_at: null, oldest_at: null, since: null, gap_before: null, provider_limit: false, pages: 0, rows: 0, now: Date.now() });
 const retentionStart = async () => (Date.now() / 1000) - Number((await historySettings.read()).history_retention_days) * DAY;
 
 const dashboard = guarded('dashboard', async (req, res) => {
@@ -277,11 +277,12 @@ const historyList = guarded('histórico', async (req, res) => {
   }
   const { integration, view } = await loadHistory(filters.start_ts);
   const unlockedIds = filters.status === 'Desbloqueados' ? [...await release.unlockedRecordIds(domain)] : [];
-  const selected = await repository.selectPage({ integration, domain, filters, page: req.query.page, unlockedIds });
+  const pageSize = history.parsePageSize(req.query.page_size);
+  const selected = await repository.selectPage({ integration, domain, filters, page: req.query.page, pageSize, unlockedIds });
   const info = await release.releaseInfo(selected.rows.map((r) => r.id));
   res.setHeader('Cache-Control', 'no-store');
   return res.status(200).json({ domain, domains_scope: scope, filters: { status: filters.status, by: filters.by, email: filters.email, start: filters.start, end: filters.end },
-    rows: selected.rows.map((r) => history.publicRow(r, info.get(r.id) || null)), period_total: selected.period, filtered_total: selected.filtered, page: selected.page, pages: selected.pages,
+    rows: selected.rows.map((r) => history.publicRow(r, info.get(r.id) || null)), period_total: selected.period, filtered_total: selected.filtered, page: selected.page, pages: selected.pages, page_size: pageSize,
     state: view });
 });
 
@@ -412,7 +413,7 @@ const getHistorySettings = guarded('configuração do histórico', async (_req, 
 const saveHistorySettings = guarded('configuração do histórico', async (req, res) => {
   try {
     const result = await historySettings.update(req.body, await currentIntegration());
-    await audit(req, 'spfbl_history_settings_updated', 'success', { retention_days: result.retention_days, schedule_hour: result.schedule_hour, deleted: result.deleted });
+    await audit(req, 'spfbl_history_settings_updated', 'success', { retention_days: result.retention_days, interval_hours: result.interval_hours, deleted: result.deleted });
     return res.status(200).json(result);
   } catch (error) {
     if (error instanceof historySettings.HistorySettingsError) {
@@ -432,7 +433,7 @@ const collectNow = guarded('coleta do histórico', async (req, res) => {
   const retention = Number((await historySettings.read()).history_retention_days);
   const started = await collector.start({ trigger: 'manual', windowStartTs: Date.now() / 1000 - retention * DAY, retentionDays: retention });
   started.done.then((outcome) => recordAuditEvent({ user: req.user, action: 'spfbl_history_collected', status: outcome.status === 'failed' ? 'failed' : 'success', req,
-    metadata: { run: 'manual', pages: outcome.pages, rows: outcome.stored, capped: outcome.status === 'capped', ...(outcome.error ? { reason: String(outcome.error) } : {}) } })).catch(() => {});
+    metadata: { run: 'manual', pages: outcome.pages, rows: outcome.stored, capped: outcome.status === 'capped', gap: Boolean(outcome.gap), ...(outcome.error ? { reason: String(outcome.error) } : {}) } })).catch(() => {});
   return res.status(202).json({ started: started.started });
 });
 

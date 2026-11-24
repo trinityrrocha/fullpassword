@@ -2,7 +2,8 @@ import { useId, useState } from 'react';
 import { Users } from 'lucide-react';
 import AccessEditorDialog from './AccessEditorDialog';
 import { revokeAccess } from '../../services/spfblService';
-import { MODE_LABELS, describeError } from '../../utils/spfbl';
+import PaginationBar from '../PaginationBar';
+import { MODE_LABELS, describeError, paginate } from '../../utils/spfbl';
 
 const primaryButton = 'rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600';
 const linkButton = 'rounded px-2 py-1 text-sm font-medium text-indigo-700 underline hover:bg-slate-100 disabled:opacity-60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600';
@@ -13,6 +14,8 @@ export default function SpfblAccessPanel({ grants, users, domains, loadError, on
   const [editor, setEditor] = useState(null); // { grant } while open
   const [confirmingId, setConfirmingId] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
   const [message, setMessage] = useState({ type: '', text: '' });
 
   const revoke = async (grant) => {
@@ -28,6 +31,7 @@ export default function SpfblAccessPanel({ grants, users, domains, loadError, on
     } finally { setBusy(false); }
   };
 
+  const view = paginate(grants, page, pageSize);
   return (
     <section className="rounded-lg border border-slate-200 bg-white shadow-sm" aria-labelledby={`${id}-title`}>
       <header className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 px-4 py-3">
@@ -43,7 +47,7 @@ export default function SpfblAccessPanel({ grants, users, domains, loadError, on
           <p className="text-sm text-slate-600">Nenhum usuário com acesso além do Super Admin.</p>
         ) : (
           <ul className="space-y-2" aria-label="Usuários com acesso ao SPFBL">
-            {grants.map((grant) => (
+            {view.items.map((grant) => (
               <li key={grant.user_id} className="flex h-[45px] items-center justify-between gap-3 overflow-hidden rounded-md border border-slate-200 px-3">
                 <div className="flex min-w-0 flex-1 items-center gap-3">
                   <p className="min-w-0 max-w-[40%] truncate text-sm font-semibold text-slate-900" title={`${grant.name} <${grant.email}>`}>
@@ -74,6 +78,7 @@ export default function SpfblAccessPanel({ grants, users, domains, loadError, on
             ))}
           </ul>
         )}
+        {grants.length > 0 && <PaginationBar label="Paginação dos acessos" page={view.page} pages={view.pages} total={view.total} pageSize={pageSize} onPage={setPage} onPageSize={(size) => { setPageSize(size); setPage(1); }} />}
         {message.text && (
           <p role={message.type === 'error' ? 'alert' : 'status'} className={`rounded-md border px-3 py-2 text-sm ${message.type === 'error' ? 'border-red-200 bg-red-50 text-red-800' : 'border-green-200 bg-green-50 text-green-800'}`}>{message.text}</p>
         )}

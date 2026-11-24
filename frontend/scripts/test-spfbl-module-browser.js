@@ -52,7 +52,7 @@ const vite = await createServer({ root, server: { host: '127.0.0.1', port: 0 }, 
 const SECRETS = ['MATRIX_PASSWORD_SENTINEL_x1', 'WHMTOKENSENTINEL0123456789ABCDEF'];
 const uid = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const newState = () => ({
-  history: { retention_days: 30, schedule_hour: 3, retention_options: [30, 60, 90], timezone: 'America/Sao_Paulo', last_run_date: '2026-11-23', stored: { rows: 4321, oldest_at: '2026-10-25T10:00:00Z', newest_at: '2026-11-24T10:00:00Z' }, running: false },
+  history: { retention_days: 30, interval_hours: 4, retention_options: [30, 60, 90], interval_options: [1, 2, 4, 8, 12, 24], timezone: 'America/Sao_Paulo', last_run_at: '2026-11-24T09:00:00Z', stored: { rows: 4321, oldest_at: '2026-10-25T10:00:00Z', newest_at: '2026-11-24T10:00:00Z' }, running: false },
   enabled: false, role: 'super_admin', failToggle: false, calls: [], whmCooldown: false,
   settings: { matrix_user: 'ops@example.com', has_matrix_password: true, whm_host: 'srv.example.com', whm_user: 'root', has_whm_token: true, domain_sync_at: null, domain_sync_status: null, updated_at: '2026-11-21T00:00:00Z' },
   domains: [
@@ -117,7 +117,7 @@ try {
       if (![30, 60, 90].includes(body.retention_days)) return json({ code: 'SPFBL_HISTORY_RETENTION_INVALID', error: 'Escolha 30, 60 ou 90 dias de retenção.' }, 422);
       if (body.retention_days < state.history.retention_days && !body.confirm_shrink) return json({ code: 'SPFBL_HISTORY_SHRINK_CONFIRM', error: 'x', rows_to_delete: 1234 }, 409);
       const deleted = body.retention_days < state.history.retention_days ? 1234 : 0;
-      state.history = { ...state.history, retention_days: body.retention_days, schedule_hour: body.schedule_hour };
+      state.history = { ...state.history, retention_days: body.retention_days, interval_hours: body.interval_hours };
       return json({ ...state.history, deleted });
     }
     if (api === '/spfbl/history/collect' && method === 'POST') { state.history.running = true; return json({ started: true }, 202); }
@@ -196,9 +196,9 @@ try {
       const all = Array.from({ length: 60 }, (_, i) => ({ id: String(i).padStart(64, '0'), timestamp: 1795476025 - i * 600, sender: `s${i}@out.example`, from: '', replyto: '', recipient: `u${i}@${q.domain || 'manual.example.org'}`,
         release: i === 1 ? { state: 'unlocked', at: '2026-11-24T01:10:00Z', by: 'Ana Souza' } : null, status: i % 5 === 0 ? 'Livres' : 'Bloqueados', reason: i % 5 === 0 ? 'Aceita pelo filtro' : (i % 2 ? 'Rejeitada por segurança' : 'Rejeitada por inexistência'), icon: i % 5 === 0 ? '' : (i % 2 ? 'security' : 'inexistent'), result: i % 2 ? 'BLOCK' : 'INEXISTENT' }));
       const wanted = all.filter((r) => (q.status || 'Bloqueados') === 'Todos' || r.status === (q.status || 'Bloqueados'));
-      const page = Math.max(1, Number(q.page) || 1);
-      return json({ domain: q.domain || 'manual.example.org', domains_scope: ['manual.example.org', 'two.example.org'], filters: { status: q.status || 'Bloqueados', by: q.by || 'sender', email: q.email || '', start: q.start || '2026-11-17', end: q.end || '2026-11-23' },
-        rows: wanted.slice((page - 1) * 25, page * 25), period_total: 60, filtered_total: wanted.length, page, pages: Math.ceil(wanted.length / 25), state: { loading: false, pages: 2, partial: true, error: '', updated_at: '2026-11-23T23:14:51Z', rows: 60 } });
+      const page = Math.max(1, Number(q.page) || 1); const size = Number(q.page_size) || 20;
+      return json({ page_size: size, domain: q.domain || 'manual.example.org', domains_scope: ['manual.example.org', 'two.example.org'], filters: { status: q.status || 'Bloqueados', by: q.by || 'sender', email: q.email || '', start: q.start || '2026-11-17', end: q.end || '2026-11-23' },
+        rows: wanted.slice((page - 1) * size, page * size), period_total: 60, filtered_total: wanted.length, page, pages: Math.ceil(wanted.length / size), state: { loading: false, pages: 2, partial: true, error: '', updated_at: '2026-11-23T23:14:51Z', rows: 60 } });
     }
     if (api === '/spfbl/history/refresh') return json({ state: { loading: false, pages: 1, partial: false, error: '', updated_at: '2026-11-23T23:20:00Z', rows: 60 } });
     const recordMatch = /^\/spfbl\/records\/([0-9a-f]{64})(\/status)?$/.exec(api);
@@ -296,10 +296,11 @@ try {
   await shot('settings-dialog-1280');
   // History retention (30/60/90) and daily hour live next to the Matrix connection.
   assert.deepEqual(await page.getByLabel('Guardar por').locator('option').allInnerTexts(), ['30 dias', '60 dias', '90 dias']);
-  await page.getByLabel('Guardar por').selectOption('90'); await page.getByLabel('Coletar todo dia às').selectOption('5');
+  await page.getByLabel('Guardar por').selectOption('90'); assert.deepEqual(await page.getByLabel('Coletar a cada').locator('option').allInnerTexts(), ['1 hora', '2 horas', '4 horas', '8 horas', '12 horas', '24 horas']);
+  await page.getByLabel('Coletar a cada').selectOption('2');
   await page.getByRole('button', { name: 'Salvar' }).nth(1).click();
   await page.getByRole('status').filter({ hasText: 'Configuração do histórico salva.' }).waitFor();
-  assert.deepEqual([state.history.retention_days, state.history.schedule_hour], [90, 5]);
+  assert.deepEqual([state.history.retention_days, state.history.interval_hours], [90, 2]);
   await page.getByLabel('Guardar por').selectOption('30');
   await page.getByRole('button', { name: 'Salvar' }).nth(1).click();
   await page.getByRole('alert').filter({ hasText: 'apagará 1.234 registros' }).waitFor();
@@ -482,10 +483,16 @@ try {
   await page.getByRole('button', { name: 'Histórico' }).click();
   await page.getByRole('heading', { name: 'Registros do domínio' }).waitFor();
   assert.deepEqual(await page.getByLabel('Domínio autorizado').locator('option').allInnerTexts(), ['manual.example.org', 'two.example.org']);
-  assert.equal(await page.locator('tbody tr').count(), 25, '25 rows per page');
+  assert.equal(await page.locator('tbody tr').count(), 20, '20 rows per page by default');
   assert.equal(await page.getByText(/48 registros\/tentativas com os filtros/).count(), 1);
   await page.getByRole('button', { name: 'Próxima' }).click();
-  await page.getByText('Página 2 de 2').waitFor();
+  await page.getByText(/Página 2 de 3/).waitFor();
+  await page.getByLabel('Paginação do histórico: resultados por página').selectOption('40');
+  await page.getByText(/Página 1 de 2/).waitFor();
+  assert.equal(await page.locator('tbody tr').count(), 40, 'the page size can be 40');
+  assert.equal(state.historyQueries.at(-1).page_size, '40');
+  await page.getByLabel('Paginação do histórico: resultados por página').selectOption('20');
+  await page.getByText(/Página 1 de 3/).waitFor();
   await page.getByLabel('Situação').selectOption('Todos');
   await page.getByLabel('Até').fill('2026-11-22');
   await page.getByRole('button', { name: 'Consultar' }).click();

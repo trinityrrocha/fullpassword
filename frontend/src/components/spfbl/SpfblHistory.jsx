@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import SpfblStatusBar from './SpfblStatusBar';
 import SpfblRecord from './SpfblRecord';
+import PaginationBar from '../PaginationBar';
 import { getHistory, refreshHistory } from '../../services/spfblService';
 import { COVERAGE_NOTE, REASON_ICONS, REASON_SHORT, shortAddress, describeError, describeRelease, formatEpochShort, formatIsoShort, formatNumber } from '../../utils/spfbl';
 
@@ -11,6 +12,7 @@ export default function SpfblHistory() {
   const [applied, setApplied] = useState({});            // what the server last answered with (defaults come from the server)
   const [draft, setDraft] = useState(null);
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   const [fieldError, setFieldError] = useState('');
@@ -36,13 +38,13 @@ export default function SpfblHistory() {
       if (failure?.response?.status === 422 && hasData.current) setFieldError(message); else setError(message); // a rejected FIRST load must not leave the screen on "Carregando"
     }
   }, []);
-  useEffect(() => { load({ ...applied, page }); return () => { clearTimeout(timer.current); request.current += 1; }; }, [applied, page, load]);
+  useEffect(() => { load({ ...applied, page, page_size: pageSize }); return () => { clearTimeout(timer.current); request.current += 1; }; }, [applied, page, pageSize, load]);
 
   const submit = (event) => { event.preventDefault(); setPage(1); setApplied({ ...draft }); };
   const clear = () => { setDraft(null); setPage(1); setApplied({}); };
   const refresh = async () => {
     setBusy(true);
-    try { await refreshHistory(applied); await load({ ...applied, page }); } catch (failure) { setError(describeError(failure, 'Não foi possível atualizar agora.')); } finally { setBusy(false); }
+    try { await refreshHistory(applied); await load({ ...applied, page, page_size: pageSize }); } catch (failure) { setError(describeError(failure, 'Não foi possível atualizar agora.')); } finally { setBusy(false); }
   };
   const set = (key) => (event) => setDraft((current) => ({ ...current, [key]: event.target.value }));
 
@@ -108,13 +110,7 @@ export default function SpfblHistory() {
           </tbody>
         </table>
       </div>
-      {data.pages > 1 && (
-        <nav aria-label="Paginação do histórico" className="flex items-center justify-between gap-3">
-          <button type="button" disabled={data.page <= 1} onClick={() => setPage(data.page - 1)} className="rounded px-2 py-1 text-sm font-medium text-blue-800 underline disabled:opacity-60">Anterior</button>
-          <span className="text-sm text-slate-600">Página {data.page} de {data.pages}</span>
-          <button type="button" disabled={data.page >= data.pages} onClick={() => setPage(data.page + 1)} className="rounded px-2 py-1 text-sm font-medium text-blue-800 underline disabled:opacity-60">Próxima</button>
-        </nav>
-      )}
+      <PaginationBar label="Paginação do histórico" page={data.page} pages={data.pages} total={data.filtered_total} pageSize={pageSize} onPage={setPage} onPageSize={(size) => { setPageSize(size); setPage(1); }} />
     </div>
   );
 }

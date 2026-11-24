@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { getAdminDomains } from '../../services/spfblService';
+import PaginationBar from '../PaginationBar';
 import { describeError, formatDay, formatNumber, paginate } from '../../utils/spfbl';
 
 const Num = ({ value, tone = '' }) => <td className={`px-3 py-2 text-right tabular-nums ${value ? tone : 'text-slate-400'}`}>{formatNumber(value)}</td>;
@@ -11,6 +12,7 @@ export default function SpfblAdminDomains() {
   const [query, setQuery] = useState('');
   const [onlyBlocked, setOnlyBlocked] = useState(false);
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
 
   useEffect(() => {
     let active = true;
@@ -19,7 +21,7 @@ export default function SpfblAdminDomains() {
   }, []);
 
   const filtered = useMemo(() => (data?.domains || []).filter((d) => d.domain.includes(query.trim().toLowerCase()) && (!onlyBlocked || d.blocked > 0)), [data, query, onlyBlocked]);
-  const view = paginate(filtered, page);
+  const view = paginate(filtered, page, pageSize);
   if (error) return <p role="alert" className="text-sm text-red-800">{error}</p>;
   if (!data) return <p role="status" className="text-sm text-slate-600">Carregando domínios...</p>;
 
@@ -57,13 +59,7 @@ export default function SpfblAdminDomains() {
           </tbody>
         </table>
       </div>
-      {view.pages > 1 && (
-        <nav aria-label="Paginação dos domínios" className="flex items-center justify-between gap-3">
-          <button type="button" disabled={view.page <= 1} onClick={() => setPage(view.page - 1)} className="rounded px-2 py-1 text-sm font-medium text-blue-800 underline disabled:opacity-60">Anterior</button>
-          <span className="text-xs text-slate-600">Página {view.page} de {view.pages}</span>
-          <button type="button" disabled={view.page >= view.pages} onClick={() => setPage(view.page + 1)} className="rounded px-2 py-1 text-sm font-medium text-blue-800 underline disabled:opacity-60">Próxima</button>
-        </nav>
-      )}
+      <PaginationBar label="Paginação dos domínios" page={view.page} pages={view.pages} total={view.total} pageSize={pageSize} onPage={setPage} onPageSize={(size) => { setPageSize(size); setPage(1); }} />
     </section>
   );
 }

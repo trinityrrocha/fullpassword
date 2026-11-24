@@ -6,7 +6,8 @@ import FormDialog from '../components/FormDialog';
 import GroupModal from '../components/GroupModal';
 import SpfblUserAccess from '../components/spfbl/SpfblUserAccess';
 import { getMenuModules, revokeAccess, saveAccess } from '../services/spfblService';
-import { EMPTY_SPFBL_ACCESS, canSaveAccess } from '../utils/spfbl';
+import PaginationBar from '../components/PaginationBar';
+import { EMPTY_SPFBL_ACCESS, canSaveAccess, paginate } from '../utils/spfbl';
 import api from '../services/api';
 import { safeLogError } from '../utils/safeLogger';
 import { useAuth } from '../context/AuthContext';
@@ -153,6 +154,10 @@ export default function TeamList() {
   const [spfblActive, setSpfblActive] = useState(false);
   const [spfbl, setSpfbl] = useState(EMPTY_SPFBL_ACCESS);
   const [modalTab, setModalTab] = useState('data');
+  const [memberPage, setMemberPage] = useState(1);
+  const [memberPageSize, setMemberPageSize] = useState(20);
+  const [groupPage, setGroupPage] = useState(1);
+  const [groupPageSize, setGroupPageSize] = useState(20);
   const [groups, setGroups] = useState([]);
   const [isLoadingGroups, setIsLoadingGroups] = useState(false);
   const [isGroupModalOpen, setIsGroupModalOpen] = useState(false);
@@ -212,6 +217,8 @@ export default function TeamList() {
     return () => { active = false; };
   }, [user?.is_super_admin]);
 
+  const memberView = paginate(teamMembers, memberPage, memberPageSize);
+  const groupView = paginate(groups, groupPage, groupPageSize);
   const showSpfblTab = (editing) => Boolean(user?.is_super_admin && spfblActive && !(editing && editUser.is_super_admin));
   const resetSpfblDraft = () => { setSpfbl(EMPTY_SPFBL_ACCESS); setModalTab('data'); };
   // Saved AFTER the user itself (it needs the id); a failure here never undoes the user and is reported by name.
@@ -459,7 +466,7 @@ export default function TeamList() {
                   <tr>
                     <td colSpan="5" className="px-6 py-4 text-center text-sm text-slate-500">Nenhum usuário encontrado.</td>
                   </tr>
-                ) : teamMembers.map((member) => (
+                ) : memberView.items.map((member) => (
                   <tr key={member.id} className="h-10 hover:bg-slate-50">
                     <td className="whitespace-nowrap px-3 py-1">
                       <div className="flex min-w-0 items-center gap-2">
@@ -510,6 +517,7 @@ export default function TeamList() {
               </tbody>
             </table>
           </div>
+          <div className="border-t border-slate-200 px-3 py-2"><PaginationBar label="Paginação dos usuários" page={memberView.page} pages={memberView.pages} total={memberView.total} pageSize={memberPageSize} onPage={setMemberPage} onPageSize={(size) => { setMemberPageSize(size); setMemberPage(1); }} /></div>
         </div>
       )}
 
@@ -535,7 +543,7 @@ export default function TeamList() {
                   </tr>
                 ) : groups.length === 0 ? (
                   <tr><td colSpan="5" className="px-6 py-4 text-center text-sm text-slate-500">Nenhum grupo encontrado.</td></tr>
-                ) : groups.map((group) => (
+                ) : groupView.items.map((group) => (
                   <tr key={group.id} className="h-10 hover:bg-slate-50">
                     <td className="whitespace-nowrap px-3 py-1">
                       <div className="flex min-w-0 items-center gap-2">
@@ -563,6 +571,7 @@ export default function TeamList() {
               </tbody>
             </table>
           </div>
+          <div className="border-t border-slate-200 px-3 py-2"><PaginationBar label="Paginação dos grupos" page={groupView.page} pages={groupView.pages} total={groupView.total} pageSize={groupPageSize} onPage={setGroupPage} onPageSize={(size) => { setGroupPageSize(size); setGroupPage(1); }} /></div>
         </div>
       )}
 

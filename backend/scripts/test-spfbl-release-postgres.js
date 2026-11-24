@@ -247,6 +247,10 @@ async function main() {
     assert.ok((await call(controller.auditList, 'admin', { query: { start: today, end: today } })).body.total >= 5, 'a same-day period includes today');
     assert.equal((await call(controller.auditList, 'admin', { query: { start: '2000-01-01', end: '2000-01-02' } })).body.total, 0);
     assert.equal((await call(controller.auditList, 'admin', { query: { page: '9999' } })).body.page, auditRes.body.pages > 1 ? (await call(controller.auditList, 'admin', { query: { page: '9999' } })).body.pages : 1);
+    assert.equal((await call(controller.auditList, 'admin', { query: { page_size: '40' } })).body.page_size, 40); assert.equal((await call(controller.auditList, 'admin', {})).body.page_size, 20);
+    assert.equal((await call(controller.auditList, 'admin', { query: { page_size: '25' } })).code, 422, 'only 20, 40 or 100 per page');
+    assert.equal((await call(controller.historyList, 'admin', { query: { domain: 'one.example.com', page_size: '7' } })).code, 422);
+    assert.equal((await call(controller.historyList, 'admin', { query: { domain: 'one.example.com', status: 'Todos', page_size: '100' } })).body.page_size, 100);
 
     matrix.historyPage = async () => ({ messages: [
       { key: 'A1', recipient: 'a@one.example.com', sender: 's@out.example', result: 'BANNED', arrival: new Date((nowS - 100) * 1000).toISOString(), status: 'NONE' },

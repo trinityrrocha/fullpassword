@@ -1,5 +1,5 @@
 // Pure helpers of the SPFBL module UI: no React, no network, testable in Node.
-export const PAGE_SIZE = 25;
+export const PAGE_SIZE = 20;
 export const MAX_DOMAINS_PER_USER = 100;
 // Draft of one account's SPFBL access while the user dialog (Gestão de Equipe) is open.
 export const EMPTY_SPFBL_ACCESS = Object.freeze({ loaded: false, had: false, enabled: false, mode: 'review', domainIds: [], domains: [], dirty: false, error: '' });

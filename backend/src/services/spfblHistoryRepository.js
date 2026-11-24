@@ -44,7 +44,7 @@ const filterClause = (integration, domain, filters, unlockedIds = []) => {
 };
 
 // One page (25) of one authorized domain, newest first, filtered and counted in SQL.
-const selectPage = async ({ integration, domain, filters, page = 1, pageSize = 25, unlockedIds = [] }, queryable = db) => {
+const selectPage = async ({ integration, domain, filters, page = 1, pageSize = 20, unlockedIds = [] }, queryable = db) => {
   const { where, params } = filterClause(integration, domain, filters, unlockedIds);
   const periodWhere = 'integration_hash = $1 AND domain = $2 AND arrival_at >= to_timestamp($3) AND arrival_at < to_timestamp($4)';
   const period = Number((await queryable.query(`SELECT COUNT(*)::integer AS n FROM spfbl_history_records WHERE ${periodWhere}`, params.slice(0, 4))).rows[0].n);

@@ -2,6 +2,7 @@ import { useId, useMemo, useState } from 'react';
 import { Globe } from 'lucide-react';
 import DomainBadge from './DomainBadge';
 import { addDomain, removeDomain } from '../../services/spfblService';
+import PaginationBar from '../PaginationBar';
 import { describeError, filterDomains, paginate } from '../../utils/spfbl';
 
 const fieldClass = 'w-full rounded-md border border-slate-300 bg-white px-2.5 py-2 text-sm outline-hidden focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 disabled:bg-slate-100 disabled:text-slate-500';
@@ -16,13 +17,14 @@ export default function SpfblDomainsPanel({ domains, loadError, onReload }) {
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState('all');
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DOMAINS_PER_PAGE);
   const [newName, setNewName] = useState('');
   const [busy, setBusy] = useState(false);
   const [confirmingId, setConfirmingId] = useState(null);
   const [message, setMessage] = useState({ type: '', text: '' });
 
   const filtered = useMemo(() => filterDomains(domains, { query, status }), [domains, query, status]);
-  const view = paginate(filtered, page, DOMAINS_PER_PAGE);
+  const view = paginate(filtered, page, pageSize);
 
   const add = async (event) => {
     event.preventDefault();
@@ -112,13 +114,7 @@ export default function SpfblDomainsPanel({ domains, loadError, onReload }) {
           ))}
         </ul>
 
-        {view.pages > 1 && (
-          <nav aria-label="Paginação de domínios" className="flex items-center justify-between gap-3">
-            <button type="button" disabled={view.page <= 1} onClick={() => setPage(view.page - 1)} className={linkButton}>Anterior</button>
-            <span className="text-sm text-slate-600">Página {view.page} de {view.pages}</span>
-            <button type="button" disabled={view.page >= view.pages} onClick={() => setPage(view.page + 1)} className={linkButton}>Próxima</button>
-          </nav>
-        )}
+        <PaginationBar label="Paginação de domínios" page={view.page} pages={view.pages} total={view.total} pageSize={pageSize} onPage={setPage} onPageSize={(size) => { setPageSize(size); setPage(1); }} />
 
         {message.text && (
           <p role={message.type === 'error' ? 'alert' : 'status'} className={`rounded-md border px-3 py-2 text-sm ${message.type === 'error' ? 'border-red-200 bg-red-50 text-red-800' : 'border-green-200 bg-green-50 text-green-800'}`}>{message.text}</p>

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { blockRequest, getRequestDetail, keepRequest, listRequests, releaseRequest } from '../../services/spfblService';
-import { REQUEST_FILTERS, REQUEST_STATUS_TONE, describeError, formatIsoDateTime, formatIsoShort } from '../../utils/spfbl';
+import PaginationBar from '../PaginationBar';
+import { REQUEST_FILTERS, REQUEST_STATUS_TONE, describeError, formatIsoDateTime, formatIsoShort, paginate } from '../../utils/spfbl';
 
 const Badge = ({ request }) => <span className={`inline-block rounded-full border px-2 py-0.5 text-xs font-medium ${REQUEST_STATUS_TONE[request.status] || 'text-slate-800 border-slate-400'}`}>{request.status_label}</span>;
 
@@ -77,20 +78,24 @@ export default function SpfblRequests() {
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   const [open, setOpen] = useState(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
   const load = useCallback(async (status) => {
     try { setData(await listRequests(status)); setError(''); } catch (failure) { setError(describeError(failure, 'Não foi possível carregar as solicitações.')); }
   }, []);
   useEffect(() => { load(filter); }, [filter, load]);
 
+
   if (error && !data) return <p role="alert" className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>;
   if (!data) return <p role="status" className="text-sm text-slate-600">Carregando...</p>;
   const admin = data.is_admin;
+  const view = paginate(data.requests, page, pageSize);
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <h2 className="text-base font-semibold text-slate-900">{admin ? 'Solicitações de revisão' : 'Minhas solicitações'}</h2>
         <label className="text-sm font-medium text-slate-800">Situação
-          <select value={filter} onChange={(event) => setFilter(event.target.value)} className="ml-2 min-h-9 rounded-md border border-slate-300 bg-white px-3 text-sm">{REQUEST_FILTERS.map(([value, text]) => <option key={value} value={value}>{text}</option>)}</select>
+          <select value={filter} onChange={(event) => { setFilter(event.target.value); setPage(1); }} className="ml-2 min-h-9 rounded-md border border-slate-300 bg-white px-3 text-sm">{REQUEST_FILTERS.map(([value, text]) => <option key={value} value={value}>{text}</option>)}</select>
         </label>
       </div>
       {error && <p role="alert" className="text-sm text-red-800">{error}</p>}
@@ -101,7 +106,7 @@ export default function SpfblRequests() {
           <thead className="text-[11px] uppercase tracking-wide text-slate-500"><tr className="border-b border-slate-200">{['Data', ...(admin ? ['Solicitante'] : []), 'Destinatário', 'Remetente', 'Motivo', 'Situação', ...(admin ? [''] : [])].map((h) => <th key={h || 'acoes'} scope="col" className="px-3 py-2 font-medium">{h || <span className="sr-only">Ações</span>}</th>)}</tr></thead>
           <tbody className="divide-y divide-slate-100">
             {data.requests.length === 0 && <tr><td colSpan={admin ? 7 : 5} className="px-3 py-6 text-center text-slate-600">Nenhuma solicitação.</td></tr>}
-            {data.requests.map((r) => (
+            {view.items.map((r) => (
               <tr key={r.id} className="hover:bg-slate-50">
                 <td className="px-3 py-2 tabular-nums text-slate-700">{formatIsoShort(r.requested_at)}</td>
                 {admin && <td className="truncate px-3 py-2" title={r.actor_name || ''}>{r.actor_name || '—'}</td>}
@@ -115,6 +120,7 @@ export default function SpfblRequests() {
           </tbody>
         </table>
       </div>
+      <PaginationBar label="Paginação das solicitações" page={view.page} pages={view.pages} total={view.total} pageSize={pageSize} onPage={setPage} onPageSize={(size) => { setPageSize(size); setPage(1); }} />
     </div>
   );
 }
