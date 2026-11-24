@@ -115,7 +115,7 @@ async function run() {
       await leastPrivilege.query('SELECT crypto_identity FROM users LIMIT 0');
       const verifyRuntimeSchema=require('../src/config/verifyRuntimeSchema').verifyRuntimeSchema;
       await verifyRuntimeSchema(leastPrivilege);
-      for(const table of ['system_modules','spfbl_settings','spfbl_domains','spfbl_user_access','spfbl_user_domains','spfbl_requests','spfbl_operations','spfbl_release_events']) {
+      for(const table of ['system_modules','spfbl_settings','spfbl_whm_servers','spfbl_domains','spfbl_user_access','spfbl_user_domains','spfbl_requests','spfbl_operations','spfbl_release_events']) {
         assert.equal((await leastPrivilege.query("SELECT has_table_privilege(current_user,$1,'SELECT,INSERT,UPDATE,DELETE') AS ok",[table])).rows[0].ok,true,'runtime role must read and write '+table);
         await leastPrivilege.query(`SELECT * FROM ${table} LIMIT 0`);
       }
@@ -363,7 +363,7 @@ async function run() {
       const anonymous=browserClient();
       await denies(anonymous.get('/spfbl/overview'),401);
       // Module off: nobody gets in, not even the Super Admin; the toggle itself is Super Admin only.
-      await denies(sa1.api.get('/spfbl/settings'),404,'MODULE_DISABLED');
+      await denies(sa1.api.get('/spfbl/whm-servers'),404,'MODULE_DISABLED');
       await denies(directApi.get('/spfbl/overview'),404,'MODULE_DISABLED');
       assert.deepEqual((await sa1.api.get('/system/modules/menu')).data,{modules:{spfbl:false}});
       assert.deepEqual((await sa1.api.get('/system/modules')).data.modules.map(m=>[m.key,m.enabled]),[['spfbl',false]]);
@@ -384,23 +384,26 @@ async function run() {
       assert.deepEqual((await directApi.get('/system/modules/menu')).data,{modules:{spfbl:false}});
 
       // Configuration: Super Admin only, secrets encrypted and never returned.
-      await denies(ordinaryAdminApi.get('/spfbl/settings'),403,'SUPER_ADMIN_REQUIRED');
-      await denies(directApi.get('/spfbl/settings'),403,'SUPER_ADMIN_REQUIRED');
-      assert.equal((await sa1.api.get('/spfbl/settings')).data.has_matrix_password,false);
-      await denies(sa1.api.post('/spfbl/matrix/test',{}),422,'MATRIX_NOT_CONFIGURED');
-      await denies(sa1.api.post('/spfbl/whm/test',{}),422,'WHM_NOT_CONFIGURED');
-      const settingsBody={matrix_user:'ops@example.com',matrix_password:'MATRIX_SENTINEL_pw',whm_host:'srv.example.com',whm_user:'root',whm_token:'WHMTOKENSENTINEL0123456789ABCDEF'};
-      const settingsDenied=await sa1.api.put('/spfbl/settings',settingsBody).catch(e=>e);
-      assert.equal(settingsDenied.response.data.code,'REAUTH_REQUIRED'); assert.equal(settingsDenied.response.data.purpose,'spfbl_settings');
-      await denies(ordinaryAdminApi.put('/spfbl/settings',settingsBody),403,'SUPER_ADMIN_REQUIRED');
-      const settingsToken=await reauthToken(sa1.api,'spfbl_settings',settingsBody);
-      await denies(sa1.api.put('/spfbl/settings',{...settingsBody,matrix_user:'attacker@example.net',_reauth_token:settingsToken}),403,'REAUTH_REQUIRED');
-      const saved=(await sa1.api.put('/spfbl/settings',{...settingsBody,_reauth_token:settingsToken})).data;
-      assert.deepEqual([saved.matrix_user,saved.has_matrix_password,saved.whm_host,saved.has_whm_token],['ops@example.com',true,'srv.example.com',true]);
-      assert.equal(leaked(saved),false); assert.equal(leaked((await sa1.api.get('/spfbl/settings')).data),false);
-      const row=(await database.query('SELECT * FROM spfbl_settings WHERE id=1')).rows[0];
-      assert.equal(leaked(row),false,'secrets are stored encrypted'); assert.match(row.encrypted_whm_token,/^[^:]+:[^:]+:[^:]+:[^:]+$/);
-      await denies(sa1.api.put('/spfbl/settings',{whm_host:'other.example.com',_reauth_token:await reauthToken(sa1.api,'spfbl_settings',{whm_host:'other.example.com'})}),400,'SPFBL_SECRET_REENTRY_REQUIRED');
+      await denies(ordinaryAdminApi.get('/spfbl/whm-servers'),403,'SUPER_ADMIN_REQUIRED');
+      await denies(directApi.get('/spfbl/whm-servers'),403,'SUPER_ADMIN_REQUIRED');
+      assert.deepEqual((await sa1.api.get('/spfbl/whm-servers')).data.servers,[]);
+      const zeroServer='00000000-0000-0000-0000-00000000dead';
+      await denies(sa1.api.post('/spfbl/whm-servers/'+zeroServer+'/matrix/test',{}),404,'SPFBL_SERVER_NOT_FOUND');
+      await denies(sa1.api.post('/spfbl/whm-servers/'+zeroServer+'/test',{}),404,'SPFBL_SERVER_NOT_FOUND');
+      const serverBody={name:'Servidor 1',host:'srv.example.com',whm_user:'root',token:'WHMTOKENSENTINEL0123456789ABCDEF',matrix_user:'ops@example.com',matrix_password:'MATRIX_SENTINEL_pw'};
+      const serverDenied=await sa1.api.post('/spfbl/whm-servers',serverBody).catch(e=>e);
+      assert.equal(serverDenied.response.data.code,'REAUTH_REQUIRED'); assert.equal(serverDenied.response.data.purpose,'spfbl_settings');
+      await denies(ordinaryAdminApi.post('/spfbl/whm-servers',serverBody),403,'SUPER_ADMIN_REQUIRED');
+      const serverToken=await reauthToken(sa1.api,'spfbl_settings',serverBody);
+      await denies(sa1.api.post('/spfbl/whm-servers',{...serverBody,host:'attacker.example.net',_reauth_token:serverToken}),403,'REAUTH_REQUIRED');
+      const saved=(await sa1.api.post('/spfbl/whm-servers',{...serverBody,_reauth_token:serverToken})).data.server;
+      assert.deepEqual([saved.name,saved.host,saved.has_token,saved.matrix_user,saved.has_matrix_password],['Servidor 1','srv.example.com',true,'ops@example.com',true]);
+      assert.equal(leaked(saved),false); assert.equal(leaked((await sa1.api.get('/spfbl/whm-servers')).data),false);
+      const row=(await database.query('SELECT * FROM spfbl_whm_servers WHERE id=$1',[saved.id])).rows[0];
+      assert.equal(leaked(row),false,'secrets are stored encrypted'); assert.match(row.encrypted_token,/^[^:]+:[^:]+:[^:]+:[^:]+$/);
+      await denies(sa1.api.put('/spfbl/whm-servers/'+saved.id,{host:'other.example.com',_reauth_token:await reauthToken(sa1.api,'spfbl_settings',{host:'other.example.com'})}),400,'SPFBL_SECRET_REENTRY_REQUIRED');
+      // removing needs an explicit answer about the domains
+      await denies(sa1.api.delete('/spfbl/whm-servers/'+saved.id,{data:{_reauth_token:await reauthToken(sa1.api,'spfbl_settings',{})}}),422,'SPFBL_REMOVE_CHOICE_REQUIRED');
 
       // Domain catalogue: Super Admin only.
       await denies(ordinaryAdminApi.post('/spfbl/domains',{name:'x.example.com'}),403,'SUPER_ADMIN_REQUIRED');
@@ -430,9 +433,9 @@ async function run() {
       const own=(await directApi.get('/spfbl/overview')).data;
       assert.deepEqual([own.role,own.unlock_mode,own.domains.map(d=>d.name)],['user','review',['one.example.com']]);
       assert.equal(JSON.stringify(own).includes('two.example.com'),false);
-      for(const url of ['/spfbl/settings','/spfbl/domains','/spfbl/access']) await denies(directApi.get(url),403,'SUPER_ADMIN_REQUIRED');
+      for(const url of ['/spfbl/whm-servers','/spfbl/domains','/spfbl/access']) await denies(directApi.get(url),403,'SUPER_ADMIN_REQUIRED');
       await denies(directApi.post('/spfbl/domains',{name:'mine.example.com'}),403,'SUPER_ADMIN_REQUIRED');
-      await denies(directApi.put('/spfbl/settings',{matrix_user:'x'}),403,'SUPER_ADMIN_REQUIRED');
+      await denies(directApi.put('/spfbl/whm-servers/'+zeroServer,{name:'x'}),403,'SUPER_ADMIN_REQUIRED');
       await denies(directApi.put('/system/modules/spfbl',{enabled:false}),403,'SUPER_ADMIN_REQUIRED');
       await denies(ordinaryAdminApi.get('/spfbl/overview'),403,'SPFBL_ACCESS_DENIED');
       // Phase 2 routes through the real router (nothing here reaches the provider: every request is refused before any Matrix call).
@@ -446,7 +449,7 @@ async function run() {
       for(const action of ['keep','release','block']) await denies(directApi.post('/spfbl/requests/'+zeroUuid+'/'+action,{revision:0}),403,'SUPER_ADMIN_REQUIRED');
       assert.deepEqual((await directApi.get('/spfbl/requests')).data,{requests:[],is_admin:false});
       const adminView=(await sa2.api.get('/spfbl/overview')).data;
-      assert.deepEqual([adminView.role,adminView.matrix_configured,adminView.whm_configured,adminView.domains,adminView.users_with_access],['super_admin',true,true,{total:2,active:2},1]);
+      assert.deepEqual([adminView.role,adminView.matrix_configured,adminView.whm_configured,adminView.domains,adminView.users_with_access],['super_admin',true,true,{total:2,active:2,without_server:0},1]);
       assert.equal(leaked(adminView),false);
 
       // Revoking takes effect at once; the DELETE token is bound to the target as well.
@@ -463,14 +466,14 @@ async function run() {
       const offToken=await reauthToken(sa1.api,'modules_settings:spfbl',{enabled:false});
       assert.equal((await sa1.api.put('/system/modules/spfbl',{enabled:false,_reauth_token:offToken})).data.module.enabled,false);
       await denies(directApi.get('/spfbl/overview'),404,'MODULE_DISABLED');
-      await denies(sa1.api.get('/spfbl/settings'),404,'MODULE_DISABLED');
+      await denies(sa1.api.get('/spfbl/whm-servers'),404,'MODULE_DISABLED');
       assert.deepEqual((await directApi.get('/system/modules/menu')).data,{modules:{spfbl:false}});
       for(const url of ['/spfbl/dashboard','/spfbl/history','/spfbl/requests','/spfbl/records/'+'a'.repeat(64)]) await denies(directApi.get(url),404,'MODULE_DISABLED');
       await denies(sa1.api.get('/spfbl/requests'),404,'MODULE_DISABLED');
       // Audit trail: what happened, never secrets.
       const audit=(await database.query("SELECT action,status,metadata FROM system_audit_events WHERE action LIKE 'spfbl_%' OR action='system_module_toggled' ORDER BY created_at,id")).rows;
       assert.ok(audit.some(e=>e.action==='system_module_toggled'&&e.status==='success'&&e.metadata.enabled===true));
-      assert.ok(audit.some(e=>e.action==='spfbl_settings_updated'&&e.status==='success'&&e.metadata.whm_token_changed===true));
+      assert.ok(audit.some(e=>e.action==='spfbl_whm_server_added'&&e.status==='success'&&e.metadata.whm_token_changed===true));
       assert.ok(audit.some(e=>e.action==='spfbl_access_revoked'&&e.status==='success'));
       assert.equal(leaked(audit),false,'no secrets in the audit trail');
       assert.equal(audit.some(e=>JSON.stringify(e.metadata).includes('srv.example.com')),false,'no WHM host in the audit trail');
