@@ -146,12 +146,12 @@ async function run() {
     assert.ok(routes.includes(line), line);
   }
   const routeLines = routes.split('\n').filter((line) => /^router\.(get|put|post|delete|patch)\(/.test(line));
-  assert.equal(routeLines.length, 24);
+  assert.equal(routeLines.length, 25);
   const open = routeLines.filter((line) => !line.includes('requireSuperAdmin'));
   // Open to granted users: the overview and the read-only history views. Each one resolves the caller's CURRENT scope per request
   // (test-spfbl-history.js); everything else is Super Admin only.
   const openPaths = open.map((line) => /^router\.(\w+)\('([^']+)'/.exec(line).slice(1).join(' '));
-  assert.deepEqual(openPaths.sort(), ['get /dashboard', 'get /history', 'get /overview', 'get /records/:id', 'get /requests', 'post /history/refresh', 'post /records/:id/request', 'post /records/:id/status', 'post /records/:id/unlock'].sort());
+  assert.deepEqual(openPaths.sort(), ['get /dashboard', 'get /history', 'get /overview', 'get /records/:id', 'get /requests', 'post /history/refresh', 'post /records/:id/block', 'post /records/:id/request', 'post /records/:id/status', 'post /records/:id/unlock'].sort());
   assert.match(read('backend/src/services/reauthService.js'), /\|spfbl_access\):\[0-9a-f-\]\{36\}\$/, 'access reauth is bound to the target account');
   assert.match(read('backend/src/controllers/modulesController.js'), /require\('\.\.\/services\/spfblAccessService'\)/);
   console.log('PASS spfbl access: FK-ordered schema, validated grants (1-100 domains, no Super Admin/inactive), live menu check, scoped overview, cascades, audit without e-mails.');

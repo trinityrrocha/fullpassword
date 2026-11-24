@@ -23,7 +23,7 @@ const STALE_MS = 10 * 60 * 1000;
 const ACTIVE_FOR_RELEASE = ['pending', 'failed'];
 const LABELS = {
   pending: 'Aguardando revisão', processing: 'Liberação em processamento', unlocked: 'Desbloqueado pelo SPFBL',
-  reopened: 'Bloqueado novamente; nova solicitação disponível', reblocked: 'Bloqueado novamente pelo administrador', kept: 'Bloqueio mantido',
+  reopened: 'Bloqueado novamente; nova solicitação disponível', reblocked: 'Bloqueio enviado ao SPFBL', kept: 'Bloqueio mantido',
   failed: 'Falha antes do envio', uncertain: 'Resultado não confirmado'
 };
 const label = (status) => LABELS[status] || 'Situação desconhecida';
@@ -80,9 +80,9 @@ const withContext = async (row) => ({ ...row, operation_revision: (await readOpe
 
 // ---- authorization -----------------------------------------------------------------------------------------------
 // actor = { user, isSuperAdmin, scope: [active domains], unlockMode: 'review'|'direct' } resolved per request by the controller.
-const assertRecord = (actor, row, domain) => {
+const assertRecord = (actor, row, domain, { requireBlocked = true } = {}) => {
   if (!actor.scope.includes(domain) || !row.recipient.endsWith(`@${domain}`)) throw new ReleaseError('Registro fora do domínio autorizado.', 'SPFBL_DOMAIN_FORBIDDEN', 403);
-  if (classify(row.result).status !== 'Bloqueados') throw new ReleaseError('Este registro não está classificado como bloqueado.', 'SPFBL_RECORD_NOT_BLOCKED', 409);
+  if (requireBlocked && classify(row.result).status !== 'Bloqueados') throw new ReleaseError('Este registro não está classificado como bloqueado.', 'SPFBL_RECORD_NOT_BLOCKED', 409);
 };
 const assertDirect = (actor) => {
   if (!actor.isSuperAdmin && actor.unlockMode !== 'direct') throw new ReleaseError('Sua conta deve solicitar revisão ao administrador.', 'SPFBL_REVIEW_REQUIRED', 403);
@@ -153,6 +153,23 @@ const keep = async (actor, id, revision) => {
   });
 };
 
+
+// The caller's own request row for a record (created when it acts directly), race-safe under concurrent submits.
+const ensureDirectRequest = (actor, row, domain, credentials) => transaction(async (client) => {
+  const existing = (await client.query('SELECT * FROM spfbl_requests WHERE record_id = $1 AND actor_id = $2 FOR UPDATE', [row.id, actor.user.id])).rows[0];
+  if (existing) {
+    if (!['pending', 'failed', 'reopened', 'reblocked', 'unlocked', 'kept'].includes(existing.status)) throw new ReleaseError('Este registro já tem uma decisão em andamento. Consulte o histórico de solicitações.', 'SPFBL_ALREADY_HANDLED', 409);
+    return existing;
+  }
+  const insert = await client.query(`INSERT INTO spfbl_requests (record_id, actor_id, domain, recipient, sender, provider_key, integration_hash, reason, source)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'direct') ON CONFLICT (record_id, actor_id) WHERE actor_id IS NOT NULL DO NOTHING RETURNING *`,
+  [row.id, actor.user.id, domain, row.recipient, row.sender, row.provider_key, integrationHash(credentials.user), row.result]);
+  if (insert.rows[0]) return insert.rows[0];
+  const raced = (await client.query('SELECT * FROM spfbl_requests WHERE record_id = $1 AND actor_id = $2 FOR UPDATE', [row.id, actor.user.id])).rows[0];
+  if (!['pending', 'failed', 'reopened', 'reblocked', 'unlocked', 'kept'].includes(raced.status)) throw new ReleaseError('Este registro já tem uma decisão em andamento. Consulte o histórico de solicitações.', 'SPFBL_ALREADY_HANDLED', 409);
+  return raced;
+});
+
 // ---- the unlock itself -----------------------------------------------------------------------------------------------
 // requestId === null: direct unlock by the caller. Otherwise an admin releasing a request.
 const execute = async (actor, { row, domain, requestId = null, revision, proof }, credentials, matrix = matrixClient) => {
@@ -174,20 +191,7 @@ const execute = async (actor, { row, domain, requestId = null, revision, proof }
   if (op.revision !== context.operation_revision) throw new ReleaseError('A situação mudou. Reabra o registro.', 'SPFBL_OPERATION_CHANGED', 409);
 
   // The request row exists before anything leaves for the provider, so a failure leaves a durable trail.
-  const requestRow = request || (await transaction(async (client) => {
-    const existing = (await client.query('SELECT * FROM spfbl_requests WHERE record_id = $1 AND actor_id = $2 FOR UPDATE', [row.id, actor.user.id])).rows[0];
-    if (existing) {
-      if (!['pending', 'failed', 'reopened', 'reblocked'].includes(existing.status)) throw new ReleaseError('Este registro já tem uma decisão. Consulte o histórico de solicitações.', 'SPFBL_ALREADY_HANDLED', 409);
-      return existing;
-    }
-    const insert = await client.query(`INSERT INTO spfbl_requests (record_id, actor_id, domain, recipient, sender, provider_key, integration_hash, reason, source)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'direct') ON CONFLICT (record_id, actor_id) WHERE actor_id IS NOT NULL DO NOTHING RETURNING *`,
-    [row.id, actor.user.id, domain, row.recipient, row.sender, row.provider_key, integrationHash(credentials.user), row.result]);
-    if (insert.rows[0]) return insert.rows[0];
-    const raced = (await client.query('SELECT * FROM spfbl_requests WHERE record_id = $1 AND actor_id = $2 FOR UPDATE', [row.id, actor.user.id])).rows[0];
-    if (!['pending', 'failed', 'reopened', 'reblocked'].includes(raced.status)) throw new ReleaseError('Este registro já tem uma decisão. Consulte o histórico de solicitações.', 'SPFBL_ALREADY_HANDLED', 409);
-    return raced;
-  }));
+  const requestRow = request || await ensureDirectRequest(actor, row, domain, credentials);
 
   const failBeforeSend = async (message, code, status) => {
     await db.query("UPDATE spfbl_requests SET status = 'failed', result_info = $2 WHERE id = $1", [requestRow.id, 'Sem envio; nada foi enviado ao SPFBL']);
@@ -225,6 +229,45 @@ const execute = async (actor, { row, domain, requestId = null, revision, proof }
     return (await client.query('SELECT * FROM spfbl_requests WHERE id = $1', [requestRow.id])).rows[0];
   });
   return { request: done, diagnostic };
+};
+
+// ---- block a sender directly (any listed record that the provider does not already report as BLOCKED) --------------------------
+const blockRecord = async (actor, { row, domain, proof }, credentials, matrix = matrixClient) => {
+  assertRecord(actor, row, domain, { requireBlocked: false });
+  assertDirect(actor);
+  await reconcileStale();
+  const context = await withContext(row);
+  checkConfirmation(actor.user.id, context, proof);
+  const op = await readOperation(row.id);
+  if (['processing', 'uncertain'].includes(op.status)) throw new ReleaseError('Há uma tentativa com resultado não confirmado. Confira no SPFBL antes de qualquer nova operação.', 'SPFBL_OPERATION_UNCERTAIN', 409);
+  if (op.revision !== context.operation_revision) throw new ReleaseError('A situação mudou. Reabra o registro.', 'SPFBL_OPERATION_CHANGED', 409);
+  const live = normalizeLive(await matrix.registry(credentials, row.provider_key), row.provider_key, integrationHash(credentials.user));
+  if (!live || live.id !== row.id || live.recipient !== row.recipient || live.sender !== row.sender) throw new ReleaseError('O SPFBL retornou um registro diferente. Nenhuma alteração foi enviada.', 'SPFBL_RECORD_MISMATCH', 409);
+  if (live.provider_status === 'UNKNOWN') throw new ReleaseError('Situação atual não informada pelo SPFBL. Nenhum bloqueio enviado.', 'SPFBL_STATUS_UNKNOWN', 503);
+  if (live.provider_status === 'BLOCKED') throw new ReleaseError('O SPFBL já informa BLOCKED para este registro. Use Consultar status atual para sincronizar a situação.', 'SPFBL_ALREADY_BLOCKED', 409);
+  const requestRow = await ensureDirectRequest(actor, row, domain, credentials);
+  await transaction(async (client) => {
+    await client.query("INSERT INTO spfbl_operations (record_id, status, actor_id) VALUES ($1, 'blocked', $2) ON CONFLICT (record_id) DO NOTHING", [row.id, actor.user.id]);
+    const locked = (await client.query('SELECT status, revision FROM spfbl_operations WHERE record_id = $1 FOR UPDATE', [row.id])).rows[0];
+    if (!['blocked', 'done'].includes(locked.status) || Number(locked.revision) !== context.operation_revision) throw new ReleaseError('Outra operação está em andamento ou a situação mudou. Reabra o registro.', 'SPFBL_OPERATION_CHANGED', 409);
+    await client.query("UPDATE spfbl_operations SET status = 'processing', actor_id = $2, updated_at = CURRENT_TIMESTAMP WHERE record_id = $1", [row.id, actor.user.id]);
+    await client.query("UPDATE spfbl_requests SET status = 'processing', revision = revision + 1, reviewed_by = $2, reviewed_at = CURRENT_TIMESTAMP, result_info = 'Bloqueio enviado; aguardando confirmação' WHERE id = $1", [requestRow.id, actor.user.id]);
+  });
+  try { await matrix.block(credentials, row.provider_key); } catch (error) {
+    await transaction(async (client) => {
+      await client.query("UPDATE spfbl_operations SET status = 'uncertain', updated_at = CURRENT_TIMESTAMP WHERE record_id = $1", [row.id]);
+      await client.query("UPDATE spfbl_requests SET status = 'uncertain', revision = revision + 1, result_info = 'Bloqueio sem confirmação; conferir no fornecedor' WHERE id = $1", [requestRow.id]);
+    });
+    throw new ReleaseError(`O SPFBL não confirmou o bloqueio. A tentativa foi registrada e não será repetida automaticamente. Confira no SPFBL.${error.diagnostic ? ` [${error.diagnostic}]` : ''}`, 'SPFBL_UNCERTAIN', 503, { diagnostic: error.diagnostic });
+  }
+  return transaction(async (client) => {
+    const current = (await client.query('SELECT * FROM spfbl_requests WHERE id = $1', [requestRow.id])).rows[0];
+    await event(client, actor.user.id, current, 'reblocked');
+    await client.query("UPDATE spfbl_operations SET status = 'blocked', revision = revision + 1, updated_at = CURRENT_TIMESTAMP WHERE record_id = $1", [row.id]);
+    await client.query("UPDATE spfbl_requests SET status = 'reblocked', revision = revision + 1, reviewed_by = $2, reviewed_at = CURRENT_TIMESTAMP, result_info = 'DONE: sender blocked' WHERE id = $1", [requestRow.id, actor.user.id]);
+    await client.query("UPDATE spfbl_requests SET status = 'reblocked', revision = revision + 1 WHERE record_id = $1 AND id <> $2 AND status = 'unlocked'", [row.id, requestRow.id]);
+    return (await client.query('SELECT * FROM spfbl_requests WHERE id = $1', [requestRow.id])).rows[0];
+  });
 };
 
 // ---- current status lookup: a confirmed BLOCKED after a completed unlock re-opens it -------------------------------------
@@ -319,6 +362,32 @@ const requestDetail = async (actor, id) => {
   return { request: publicRequest(request, { admin: true }), confirmation: confirmation(actor.user.id, row), events };
 };
 
+
+// What happened to records through this portal: the latest unlock/block event per record (who, when), used by the list and the detail.
+const EVENT_STATE = { unlocked: 'unlocked', reblocked: 'blocked', reopened: 'blocked' };
+const releaseInfo = async (recordIds) => {
+  const ids = [...new Set(recordIds)];
+  const info = new Map();
+  if (!ids.length) return info;
+  const events = (await db.query(`SELECT r.record_id, e.action, e.created_at, u.name AS actor_name
+    FROM spfbl_release_events e JOIN spfbl_requests r ON r.id = e.request_id LEFT JOIN users u ON u.id = e.actor_id
+    WHERE r.record_id = ANY($1::char(64)[]) AND e.action IN ('unlocked', 'reblocked', 'reopened') ORDER BY e.created_at DESC, e.id DESC`, [ids])).rows;
+  for (const e of events) {
+    const entry = info.get(e.record_id) || { state: EVENT_STATE[e.action], at: e.created_at, by: e.actor_name || null, unlocked_at: null, unlocked_by: null };
+    if (e.action === 'unlocked' && !entry.unlocked_at) { entry.unlocked_at = e.created_at; entry.unlocked_by = e.actor_name || null; }
+    info.set(e.record_id, entry);
+  }
+  return info;
+};
+// Ids of the records of one domain whose latest portal event is an unlock (for the "Desbloqueados" filter).
+const unlockedRecordIds = async (domain) => {
+  const result = await db.query(`SELECT DISTINCT ON (r.record_id) r.record_id, e.action FROM spfbl_release_events e JOIN spfbl_requests r ON r.id = e.request_id
+    WHERE r.domain = $1 AND e.action IN ('unlocked', 'reblocked', 'reopened') ORDER BY r.record_id, e.created_at DESC, e.id DESC`, [domain]);
+  return new Set(result.rows.filter((r) => r.action === 'unlocked').map((r) => r.record_id));
+};
+const recordEvents = async (recordId) => (await db.query(`SELECT e.action, e.created_at, u.name AS actor_name FROM spfbl_release_events e JOIN spfbl_requests r ON r.id = e.request_id
+  LEFT JOIN users u ON u.id = e.actor_id WHERE r.record_id = $1 ORDER BY e.created_at DESC, e.id DESC LIMIT 20`, [recordId])).rows;
+
 // State of one record for the detail page of whoever opened it.
 const recordState = async (actor, row) => {
   await reconcileStale();
@@ -327,11 +396,19 @@ const recordState = async (actor, row) => {
   const own = (await db.query('SELECT id, status, revision FROM spfbl_requests WHERE record_id = $1 AND actor_id = $2', [row.id, actor.user.id])).rows[0] || null;
   const blocked = classify(row.result).status === 'Bloqueados';
   const open = blocked && !['done', 'processing', 'uncertain'].includes(op.status);
+  const info = (await releaseInfo([row.id])).get(row.id) || null;
+  const direct = actor.isSuperAdmin || actor.unlockMode === 'direct';
+  const busy = ['processing', 'uncertain'].includes(op.status);
+  const providerSaysBlocked = row.provider_status === 'BLOCKED' || info?.state === 'blocked';
   return {
-    operation: { status: op.status, uncertain: ['processing', 'uncertain'].includes(op.status), done: op.status === 'done' },
+    operation: { status: op.status, uncertain: busy, done: op.status === 'done' },
+    release: info ? { state: info.state, at: info.at, by: info.by, unlocked_at: info.unlocked_at, unlocked_by: info.unlocked_by } : (row.provider_status === 'WHITELISTED' ? { state: 'unlocked', at: null, by: null, unlocked_at: null, unlocked_by: null } : null),
+    events: (await recordEvents(row.id)).map((e) => ({ action: e.action, at: e.created_at, by: e.actor_name || null })),
+    provider_status: row.provider_status,
     request: own ? { id: own.id, status: own.status, status_label: label(own.status) } : null,
     can_request: open && !actor.isSuperAdmin && actor.unlockMode === 'review' && (!own || ['reopened', 'reblocked'].includes(own.status)),
-    can_unlock: open && (actor.isSuperAdmin || actor.unlockMode === 'direct') && (!own || ['pending', 'failed', 'reopened', 'reblocked'].includes(own.status)),
+    can_unlock: open && direct && (!own || ['pending', 'failed', 'reopened', 'reblocked'].includes(own.status)),
+    can_block: direct && !busy && !providerSaysBlocked,
     confirmation: confirmation(actor.user.id, context)
   };
 };
@@ -344,5 +421,5 @@ const latestUnlocks = async (scope) => {
   return result.rows;
 };
 
-module.exports = { ReleaseError, STALE_MS, LABELS, label, confirmation, checkConfirmation, integrationHash, reconcileStale, requestReview, keep, execute, checkCurrent, blockAgain,
+module.exports = { blockRecord, releaseInfo, unlockedRecordIds, ReleaseError, STALE_MS, LABELS, label, confirmation, checkConfirmation, integrationHash, reconcileStale, requestReview, keep, execute, checkCurrent, blockAgain,
   listRequests, requestDetail, recordState, latestUnlocks, publicRequest, getRequest };

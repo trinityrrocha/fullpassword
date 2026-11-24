@@ -36,3 +36,4 @@ export const getRequestDetail = async (id) => (await api.get(`/spfbl/requests/${
 export const keepRequest = async (id, { revision, notify }) => (await api.post(`/spfbl/requests/${encodeURIComponent(id)}/keep`, { revision, notify })).data;
 export const releaseRequest = async (id, { revision, notify, proof }) => (await api.post(`/spfbl/requests/${encodeURIComponent(id)}/release`, { revision, notify, proof })).data;
 export const blockRequest = async (id, { revision, notify, proof }) => (await api.post(`/spfbl/requests/${encodeURIComponent(id)}/block`, { revision, notify, proof })).data;
+export const blockSender = async (id, domain, proof) => (await api.post(`/spfbl/records/${encodeURIComponent(id)}/block`, { domain, proof, confirm: true })).data.request;

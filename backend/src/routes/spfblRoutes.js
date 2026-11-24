@@ -27,6 +27,7 @@ router.post('/records/:id/status', spfblActionLimiter, asyncRoute(controller.rec
 // record state (no per-action reauthentication: the 5-per-15-minutes grant limiter would make a review session unusable).
 router.post('/records/:id/request', spfblActionLimiter, asyncRoute(controller.requestReview));
 router.post('/records/:id/unlock', spfblActionLimiter, asyncRoute(controller.unlockRecord));
+router.post('/records/:id/block', spfblActionLimiter, asyncRoute(controller.blockSender));
 router.get('/requests', asyncRoute(controller.listRequests));
 router.get('/requests/:id', requireSuperAdmin, uuidParam('id'), asyncRoute(controller.requestDetail));
 router.post('/requests/:id/keep', requireSuperAdmin, uuidParam('id'), spfblActionLimiter, asyncRoute(controller.keepRequest));

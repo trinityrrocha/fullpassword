@@ -78,7 +78,7 @@ async function main() {
     const stub = {
       registry: async (_c, key) => provider.live.get(key),
       unlock: async (_c, key) => { provider.whites.push(key); await new Promise((r) => setTimeout(r, provider.delay)); if (provider.failWhite) { const e = new Error('x'); e.diagnostic = 'white HTTP=200 result=FAIL'; throw e; } return { diagnostic: 'ok' }; },
-      block: async (_c, key) => { provider.blocks.push(key); }
+      block: async (_c, key) => { provider.blocks.push(key); const l = provider.live.get(key); if (l) provider.live.set(key, { ...l, status: 'BLOCKED' }); }
     };
     const register = (row, status) => provider.live.set(row.provider_key, liveOf(row, status));
     const proofFor = async (user, row) => release.confirmation(users[user], { ...row, operation_revision: Number((await database.query('SELECT revision FROM spfbl_operations WHERE record_id = $1', [row.id])).rows[0]?.revision || 0) });
@@ -188,6 +188,43 @@ async function main() {
     const after = await call(controller.recordDetail, 'direct', { params: { id: d1.id }, query: { domain: 'one.example.com' } });
     assert.equal(after.code, 200, 'the open record screen is still served after the cache reset'); assert.equal(after.body.operation.done, true); assert.equal(after.body.can_unlock, false);
     assert.equal(controller.historyStore.snapshot(integration).rows.length, 0, 'but the next list reloads from the provider');
+
+    // ---- what the person sees afterwards: "was blocked, now unlocked", who and when; filter; then a direct block ----
+    const listAfter = await call(controller.historyList, 'direct', { query: { domain: 'one.example.com', status: 'Todos' } });
+    const d1Row = listAfter.body.rows.find((r) => r.recipient === 'direct@one.example.com');
+    assert.equal(d1Row.status, 'Bloqueados', 'the original classification is kept');
+    assert.equal(d1Row.release.state, 'unlocked'); assert.equal(d1Row.release.by, 'direct'); assert.ok(d1Row.release.at, 'the list shows who unlocked and when');
+    const onlyUnlocked = await call(controller.historyList, 'direct', { query: { domain: 'one.example.com', status: 'Desbloqueados' } });
+    assert.deepEqual(onlyUnlocked.body.rows.map((r) => r.recipient), ['direct@one.example.com'], 'the "Desbloqueados" filter lists released records only');
+    const blockedOnly = await call(controller.historyList, 'direct', { query: { domain: 'one.example.com', status: 'Bloqueados' } });
+    assert.ok(blockedOnly.body.rows.some((r) => r.recipient === 'direct@one.example.com' && r.release.state === 'unlocked'), 'a released record still lists as blocked-by-origin but carries the release badge');
+    const detailAfter = await call(controller.recordDetail, 'direct', { params: { id: d1.id }, query: { domain: 'one.example.com' } });
+    assert.equal(detailAfter.body.release.state, 'unlocked'); assert.equal(detailAfter.body.release.unlocked_by, 'direct'); assert.equal(detailAfter.body.events[0].action, 'unlocked'); assert.equal(detailAfter.body.events[0].by, 'direct');
+    assert.equal(detailAfter.body.can_block, true, 'an unlocked record can be blocked again');
+    // direct block through the handler: refuses without confirmation / stale proof, refuses review-mode accounts, one provider call, no second block
+    matrix.block = stub.block; provider.blocks.length = 0;
+    let blockRes = await call(controller.blockSender, 'direct', { params: { id: d1.id }, body: { domain: 'one.example.com', proof: detailAfter.body.confirmation } }); assert.equal(blockRes.code, 422);
+    blockRes = await call(controller.blockSender, 'direct', { params: { id: d1.id }, body: { domain: 'one.example.com', confirm: true, proof: 'a'.repeat(64) } }); assert.equal(blockRes.code, 409);
+    blockRes = await call(controller.blockSender, 'review', { params: { id: d1.id }, body: { domain: 'one.example.com', confirm: true, proof: detailAfter.body.confirmation } }); assert.equal(blockRes.code, 403, 'review-mode accounts cannot block directly');
+    provider.live.set('D1', { ...provider.live.get('D1'), status: 'WHITELISTED' });
+    blockRes = await call(controller.blockSender, 'direct', { params: { id: d1.id }, body: { domain: 'one.example.com', confirm: true, proof: detailAfter.body.confirmation } });
+    assert.equal(blockRes.code, 200, JSON.stringify(blockRes.body)); assert.deepEqual(provider.blocks, ['D1']);
+    const afterBlock = await call(controller.recordDetail, 'direct', { params: { id: d1.id }, query: { domain: 'one.example.com' } });
+    assert.equal(afterBlock.body.release.state, 'blocked'); assert.equal(afterBlock.body.can_block, false, 'a blocked record offers no second block'); assert.equal(afterBlock.body.can_unlock, true, 'and can be unlocked again');
+    assert.equal(afterBlock.body.events.map((e) => e.action).join(), 'reblocked,unlocked');
+    blockRes = await call(controller.blockSender, 'direct', { params: { id: d1.id }, body: { domain: 'one.example.com', confirm: true, proof: afterBlock.body.confirmation } }); assert.equal(blockRes.code, 409, 'blocking twice is refused'); assert.equal(provider.blocks.length, 1);
+    // a record the provider already reports as BLOCKED is refused before anything is sent
+    provider.live.set('D1', { ...provider.live.get('D1'), status: 'BLOCKED' });
+    const freshState = await call(controller.recordDetail, 'direct', { params: { id: d1.id }, query: { domain: 'one.example.com' } });
+    assert.equal((await call(controller.blockSender, 'direct', { params: { id: d1.id }, body: { domain: 'one.example.com', confirm: true, proof: freshState.body.confirmation } })).code, 409); assert.equal(provider.blocks.length, 1);
+    // an accepted (Livres) record can also be blocked: the sender is blocked, not only released
+    const free = history.normalizeRecord({ key: 'L1', recipient: 'free@one.example.com', sender: 'spam@out.example', result: 'ACCEPT', arrival: new Date((nowS - 20) * 1000).toISOString(), status: 'NONE' }, integration);
+    provider.live.set('L1', { key: 'L1', recipient: 'free@one.example.com', sender: 'spam@out.example', result: 'ACCEPT', arrival: new Date(free.timestamp * 1000).toISOString(), status: 'NONE' });
+    const freeOp = release.confirmation(users.direct, { ...free, operation_revision: 0 });
+    await release.blockRecord(actorOf('direct', 'direct'), { row: free, domain: 'one.example.com', proof: freeOp }, credentials, stub);
+    assert.deepEqual(provider.blocks, ['D1', 'L1'].slice(0, 1).concat(['L1']), 'a listed accepted sender can be blocked');
+    assert.equal((await database.query("SELECT status FROM spfbl_operations WHERE record_id = $1", [free.id])).rows[0].status, 'blocked');
+    provider.blocks.length = 0;
 
     // ---- first run: nothing authorized, wrong credentials ----
     await access.saveAccess(users.outsider, { unlock_mode: 'review', domain_ids: [dom.two] }, users.admin);

@@ -257,10 +257,11 @@ const historyList = guarded('histórico', async (req, res) => {
   const domain = requireDomain(scope, req.query.domain ?? scope[0]);
   const filters = history.parseFilters(req.query);
   const { state } = await loadHistory(false);
-  const selected = history.selectRows(state.rows, domain, filters, req.query.page);
+  const selected = history.selectRows(state.rows, domain, filters, req.query.page, { unlocked: filters.status === 'Desbloqueados' ? await release.unlockedRecordIds(domain) : new Set() });
+  const info = await release.releaseInfo(selected.rows.map((r) => r.id));
   res.setHeader('Cache-Control', 'no-store');
   return res.status(200).json({ domain, domains_scope: scope, filters: { status: filters.status, by: filters.by, email: filters.email, start: filters.start, end: filters.end },
-    rows: selected.rows.map(history.publicRow), period_total: selected.period, filtered_total: selected.filtered, page: selected.page, pages: selected.pages,
+    rows: selected.rows.map((r) => history.publicRow(r, info.get(r.id) || null)), period_total: selected.period, filtered_total: selected.filtered, page: selected.page, pages: selected.pages,
     state: history.stateView(state) });
 });
 
@@ -294,7 +295,7 @@ const recordDetail = guarded('detalhe do registro', async (req, res) => {
   const { row, domain } = await findRecord(req);
   const state = await release.recordState(await actorOf(req), row);
   res.setHeader('Cache-Control', 'no-store');
-  return res.status(200).json({ domain, record: history.publicRow(row), ...state });
+  return res.status(200).json({ domain, record: history.publicRow(row, state.release), ...state });
 });
 
 // Current provider status of one record: one at a time per account with a short cool-down.
@@ -337,6 +338,20 @@ const unlockRecord = guarded('desbloqueio', async (req, res) => {
     return res.status(200).json({ request: release.publicRequest(result.request) });
   } catch (error) {
     await audit(req, 'spfbl_unlock_done', 'failed', { domain, reason: error?.code || 'internal_error', ...(error?.diagnostic ? { diagnostic: error.diagnostic } : {}) });
+    throw error;
+  }
+});
+
+const blockSender = guarded('bloqueio do remetente', async (req, res) => {
+  requireConfirmed(req);
+  const { row, domain, credentials } = await findRecord(req);
+  try {
+    const request = await release.blockRecord(await actorOf(req), { row, domain, proof: req.body?.proof }, credentials);
+    historyStore.reset({ keepRetired: true });
+    await audit(req, 'spfbl_block_done', 'success', { domain, request_id: request.id });
+    return res.status(200).json({ request: release.publicRequest(request) });
+  } catch (error) {
+    await audit(req, 'spfbl_block_done', 'failed', { domain, reason: error?.code || 'internal_error', ...(error?.diagnostic ? { diagnostic: error.diagnostic } : {}) });
     throw error;
   }
 });
@@ -386,7 +401,7 @@ const releaseRequest = decide('release', async (actor, req, input) => {
 const blockRequest = decide('block', async (actor, req, input) => release.blockAgain(actor, req.params.id, input, await getMatrixCredentials()));
 
 module.exports = {
-  dashboard, historyList, refreshHistory, recordDetail, recordStatus, requestReview, unlockRecord, listRequests, requestDetail, keepRequest, releaseRequest, blockRequest, resetStatusState, historyStore, STATUS_COOLDOWN_MS,
+  dashboard, historyList, refreshHistory, recordDetail, recordStatus, requestReview, unlockRecord, blockSender, listRequests, requestDetail, keepRequest, releaseRequest, blockRequest, resetStatusState, historyStore, STATUS_COOLDOWN_MS,
   getSettings: getSettingsHandler, saveSettings, testMatrix, resetTestState, TEST_COOLDOWN_MS,
   testWhm, syncDomains, listDomains, addDomain, removeDomain, resetWhmState, WHM_COOLDOWN_MS,
   listAccess, saveAccess, revokeAccess, overview

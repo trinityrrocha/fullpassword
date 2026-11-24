@@ -122,3 +122,13 @@ export const DEFAULT_FILTERS = { status: 'Bloqueados', by: 'sender', email: '' }
 export const REQUEST_STATUS_TONE = { pending: 'text-amber-800 border-amber-700', processing: 'text-blue-800 border-blue-700', unlocked: 'text-emerald-800 border-emerald-700', kept: 'text-slate-800 border-slate-500',
   failed: 'text-red-800 border-red-700', uncertain: 'text-red-800 border-red-700', reopened: 'text-amber-800 border-amber-700', reblocked: 'text-slate-800 border-slate-500' };
 export const REQUEST_FILTERS = [['', 'Todas'], ['pending', 'Aguardando revisão'], ['unlocked', 'Desbloqueadas'], ['kept', 'Mantidas'], ['failed', 'Falha antes do envio'], ['uncertain', 'Resultado não confirmado'], ['reopened', 'Bloqueadas novamente']];
+
+export const EVENT_LABELS = { unlocked: 'Desbloqueado', reblocked: 'Bloqueado', reopened: 'Voltou a bloquear (confirmado no SPFBL)', kept: 'Bloqueio mantido' };
+// "Estava bloqueado e agora está desbloqueado": the portal's own record of what was done, or the provider's WHITELISTED status.
+export const describeRelease = (release) => {
+  if (!release) return null;
+  const when = release.at ? ` em ${formatIsoDateTime(release.at)}` : '';
+  const who = release.by ? ` por ${release.by}` : '';
+  if (release.state === 'unlocked') return { tone: 'text-emerald-800 border-emerald-700', badge: 'Desbloqueado', line: release.at ? `Desbloqueado${when}${who}` : 'Liberado no SPFBL (fora do portal)' };
+  return { tone: 'text-slate-800 border-slate-500', badge: 'Bloqueado novamente', line: `Bloqueado novamente${when}${who}` };
+};

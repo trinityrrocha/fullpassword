@@ -112,7 +112,7 @@ const parseFilters = (input = {}, now = Date.now()) => {
   const f = { status: 'Bloqueados', by: 'sender', email: '', start: addDays(today, -6), end: today };
   for (const key of Object.keys(f)) if (input[key] !== undefined && input[key] !== '') f[key] = input[key];
   if (Object.values(f).some((v) => typeof v !== 'string')) throw new HistoryError('Filtro inválido.', 'SPFBL_FILTER_INVALID');
-  if (!['Todos', 'Livres', 'Bloqueados'].includes(f.status) || !['sender', 'recipient'].includes(f.by)) throw new HistoryError('Filtro inválido.', 'SPFBL_FILTER_INVALID');
+  if (!['Todos', 'Livres', 'Bloqueados', 'Desbloqueados'].includes(f.status) || !['sender', 'recipient'].includes(f.by)) throw new HistoryError('Filtro inválido.', 'SPFBL_FILTER_INVALID');
   f.email = f.email.trim();
   if (f.email !== '' && normalizeEmail(f.email) === '') throw new HistoryError('Informe um endereço de e-mail completo.', 'SPFBL_FILTER_EMAIL', 422, 'email');
   for (const key of ['start', 'end']) if (!validYmd(f[key])) throw new HistoryError('Informe uma data válida.', 'SPFBL_FILTER_DATE', 422, key);
@@ -123,12 +123,14 @@ const parseFilters = (input = {}, now = Date.now()) => {
 };
 
 // Rows of ONE authorized domain (exact recipient domain match), filtered, newest first, 25 per page.
-const selectRows = (rows, domain, filters, page = 1) => {
+const selectRows = (rows, domain, filters, page = 1, { unlocked = new Set() } = {}) => {
   const period = rows.filter((r) => belongs(r.recipient, domain) && r.timestamp >= filters.start_ts && r.timestamp < filters.end_ts);
   const wanted = filters.email ? normalizeEmail(filters.email) : '';
   const fields = filters.by === 'recipient' ? ['recipient'] : ['sender', 'from', 'replyto'];
   const filtered = period.filter((r) => {
-    if (filters.status !== 'Todos' && classify(r.result).status !== filters.status) return false;
+    // "Desbloqueados": released through this portal (latest event is an unlock) or reported WHITELISTED by the provider.
+    if (filters.status === 'Desbloqueados') { if (!(unlocked.has(r.id) || r.provider_status === 'WHITELISTED')) return false; }
+    else if (filters.status !== 'Todos' && classify(r.result).status !== filters.status) return false;
     return !wanted || fields.some((field) => normalizeEmail(r[field]) === wanted);
   }).sort((a, b) => (b.timestamp - a.timestamp) || (a.id < b.id ? -1 : 1));
   const pages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
@@ -137,9 +139,10 @@ const selectRows = (rows, domain, filters, page = 1) => {
 };
 
 // What leaves the server: no provider key, only what the screens show.
-const publicRow = (row) => {
+const publicRow = (row, release = null) => {
   const c = classify(row.result);
-  return { id: row.id, timestamp: row.timestamp, sender: row.sender, from: row.from, replyto: row.replyto, recipient: row.recipient,
+  const current = release || (row.provider_status === 'WHITELISTED' ? { state: 'unlocked', at: null, by: null } : null);
+  return { release: current ? { state: current.state, at: current.at, by: current.by } : null, provider_status: row.provider_status, id: row.id, timestamp: row.timestamp, sender: row.sender, from: row.from, replyto: row.replyto, recipient: row.recipient,
     status: c.status, reason: c.reason, icon: c.icon, result: row.result };
 };
 

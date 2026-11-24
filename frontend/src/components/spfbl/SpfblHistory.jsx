@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import SpfblStatusBar from './SpfblStatusBar';
 import SpfblRecord from './SpfblRecord';
 import { getHistory, refreshHistory } from '../../services/spfblService';
-import { COVERAGE_NOTE, REASON_ICONS, describeError, formatEpoch, formatNumber } from '../../utils/spfbl';
+import { COVERAGE_NOTE, REASON_ICONS, describeError, describeRelease, formatEpoch, formatNumber } from '../../utils/spfbl';
 
 const POLL_MS = 3000;
 const field = 'mt-1 w-full min-h-9 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900';
@@ -64,7 +64,7 @@ export default function SpfblHistory() {
           <input type="email" inputMode="email" value={draft.email} onChange={set('email')} maxLength={254} autoComplete="off" aria-invalid={fieldError ? 'true' : undefined} className={field} />
         </label>
         <label className="block text-sm font-medium text-slate-800">Situação
-          <select value={draft.status} onChange={set('status')} className={field}><option>Bloqueados</option><option>Livres</option><option>Todos</option></select>
+          <select value={draft.status} onChange={set('status')} className={field}><option>Bloqueados</option><option>Desbloqueados</option><option>Livres</option><option>Todos</option></select>
         </label>
         <label className="block text-sm font-medium text-slate-800">De<input type="date" value={draft.start} onChange={set('start')} className={field} /></label>
         <label className="block text-sm font-medium text-slate-800">Até<input type="date" value={draft.end} onChange={set('end')} className={field} /></label>
@@ -92,7 +92,10 @@ export default function SpfblHistory() {
                 <td className="whitespace-nowrap px-3 py-3 text-slate-900">{formatEpoch(row.timestamp)}</td>
                 <td className="break-all px-3 py-3 text-slate-900">{row.sender || row.from || '—'}</td>
                 <td className="break-all px-3 py-3 text-slate-900">{row.recipient}</td>
-                <td className="px-3 py-3"><span className={`rounded border px-2 py-1 text-xs font-medium ${row.status === 'Bloqueados' ? 'border-red-700 text-red-800' : 'border-emerald-700 text-emerald-800'}`}>{row.status}</span></td>
+                <td className="px-3 py-3">
+                  <span className={`rounded border px-2 py-1 text-xs font-medium ${row.status === 'Bloqueados' ? 'border-red-700 text-red-800' : 'border-emerald-700 text-emerald-800'}`}>{row.status}</span>
+                  {describeRelease(row.release) && (<div className="mt-1"><span className={`rounded border px-2 py-1 text-xs font-medium ${describeRelease(row.release).tone}`}>{describeRelease(row.release).badge}</span><div className="mt-1 text-xs text-slate-600">{describeRelease(row.release).line}</div></div>)}
+                </td>
                 <td className="px-3 py-3 text-slate-900"><span aria-hidden="true">{REASON_ICONS[row.icon]} </span>{row.reason}</td>
                 <td className="px-3 py-3"><button type="button" onClick={() => setSelected(row.id)} className="text-sm text-blue-800 underline">Ver detalhes<span className="sr-only"> de {row.recipient}</span></button></td>
               </tr>

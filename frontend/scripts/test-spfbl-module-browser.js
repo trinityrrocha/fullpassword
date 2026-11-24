@@ -157,7 +157,7 @@ try {
       state.historyQueries = [...(state.historyQueries || []), q];
       if (q.start === 'garbage') return json({ code: 'SPFBL_FILTER_DATE', error: 'Informe uma data válida.' }, 422);
       const all = Array.from({ length: 60 }, (_, i) => ({ id: String(i).padStart(64, '0'), timestamp: 1795476025 - i * 600, sender: `s${i}@out.example`, from: '', replyto: '', recipient: `u${i}@${q.domain || 'manual.example.org'}`,
-        status: i % 5 === 0 ? 'Livres' : 'Bloqueados', reason: i % 5 === 0 ? 'Aceita pelo filtro' : (i % 2 ? 'Rejeitada por segurança' : 'Rejeitada por inexistência'), icon: i % 5 === 0 ? '' : (i % 2 ? 'security' : 'inexistent'), result: i % 2 ? 'BLOCK' : 'INEXISTENT' }));
+        release: i === 1 ? { state: 'unlocked', at: '2026-11-24T01:10:00Z', by: 'Ana Souza' } : null, status: i % 5 === 0 ? 'Livres' : 'Bloqueados', reason: i % 5 === 0 ? 'Aceita pelo filtro' : (i % 2 ? 'Rejeitada por segurança' : 'Rejeitada por inexistência'), icon: i % 5 === 0 ? '' : (i % 2 ? 'security' : 'inexistent'), result: i % 2 ? 'BLOCK' : 'INEXISTENT' }));
       const wanted = all.filter((r) => (q.status || 'Bloqueados') === 'Todos' || r.status === (q.status || 'Bloqueados'));
       const page = Math.max(1, Number(q.page) || 1);
       return json({ domain: q.domain || 'manual.example.org', domains_scope: ['manual.example.org', 'two.example.org'], filters: { status: q.status || 'Bloqueados', by: q.by || 'sender', email: q.email || '', start: q.start || '2026-11-17', end: q.end || '2026-11-23' },
@@ -166,13 +166,17 @@ try {
     if (api === '/spfbl/history/refresh') return json({ state: { loading: false, pages: 1, partial: false, error: '', updated_at: '2026-11-23T23:20:00Z', rows: 60 } });
     const recordMatch = /^\/spfbl\/records\/([0-9a-f]{64})(\/status)?$/.exec(api);
     const stateOfRecord = () => ({ operation: { status: state.opStatus || null, uncertain: state.opStatus === 'uncertain', done: state.opStatus === 'done' }, request: state.myRequest || null,
+      release: state.opStatus === 'done' ? { state: 'unlocked', at: '2026-11-24T01:10:00Z', by: 'Ana Souza', unlocked_at: '2026-11-24T01:10:00Z', unlocked_by: 'Ana Souza' } : (state.blockedAgain ? { state: 'blocked', at: '2026-11-24T02:00:00Z', by: 'Ana Souza', unlocked_at: '2026-11-24T01:10:00Z', unlocked_by: 'Ana Souza' } : null),
+      events: state.opStatus === 'done' ? [{ action: 'unlocked', at: '2026-11-24T01:10:00Z', by: 'Ana Souza' }] : [],
+      can_block: (state.role === 'super_admin' || state.mode === 'direct') && !state.blockedAgain && !state.opStatus || (state.opStatus === 'done' && state.mode === 'direct'),
       can_request: state.role === 'user' && state.mode !== 'direct' && !state.myRequest && !state.opStatus, can_unlock: (state.role === 'super_admin' || state.mode === 'direct') && !state.opStatus, confirmation: 'a'.repeat(64) });
     if (recordMatch && !recordMatch[2]) return json({ domain: 'manual.example.org', record: { id: recordMatch[1], timestamp: 1795476025, sender: 'mirandacredito@out.example', from: '', replyto: '', recipient: 'daniel@manual.example.org', status: 'Bloqueados', reason: 'Rejeitada por segurança', icon: 'security', result: 'BLOCK' }, ...stateOfRecord() });
     if (recordMatch && recordMatch[2]) { state.statusChecks = (state.statusChecks || 0) + 1; return state.statusChecks === 1 ? json({ code: 'SPFBL_STATUS_COOLDOWN', error: 'Aguarde alguns segundos antes de consultar de novo.' }, 429) : json({ provider_status: 'NONE', label: 'Sem regra no SPFBL', changed_reason: false }); }
-    const recordAction = /^\/spfbl\/records\/([0-9a-f]{64})\/(request|unlock)$/.exec(api);
+    const recordAction = /^\/spfbl\/records\/([0-9a-f]{64})\/(request|unlock|block)$/.exec(api);
     if (recordAction && method === 'POST') {
       if (body.confirm !== true) return json({ code: 'SPFBL_CONFIRM_REQUIRED', error: 'Confirme a solicitação antes de enviar.' }, 422);
       if (recordAction[2] === 'request') { state.myRequest = { id: uid(700), status: 'pending', status_label: 'Aguardando revisão' }; state.requestCalls = (state.requestCalls || 0) + 1; return json({ request: state.myRequest }, 201); }
+      if (recordAction[2] === 'block') { state.blockBodies = [...(state.blockBodies || []), body]; state.blockedAgain = true; state.opStatus = null; return json({ request: { id: uid(702), status: 'reblocked' } }); }
       state.unlockBodies = [...(state.unlockBodies || []), body];
       if (state.failUnlock) { state.opStatus = 'uncertain'; return json({ code: 'SPFBL_UNCERTAIN', error: 'O SPFBL não confirmou o resultado. A tentativa foi registrada e não será repetida automaticamente. Consulte o administrador.' }, 503); }
       state.opStatus = 'done'; return json({ request: { id: uid(701), status: 'unlocked' } });
@@ -475,6 +479,25 @@ try {
   await shot('record-uncertain-1280');
   state.failUnlock = false; state.opStatus = null;
   await page.getByRole('button', { name: 'Consultar status atual' }).click().catch(() => {});
+  // success path: the same screen immediately shows "was blocked, now unlocked", who and when, and offers blocking again
+  await page.getByRole('button', { name: '← Voltar ao histórico' }).click();
+  await page.getByRole('button', { name: /Ver detalhes de u1@manual.example.org/ }).click();
+  await page.getByLabel('Entendo o alcance e confirmo o desbloqueio deste remetente.').check();
+  await page.getByRole('button', { name: 'Desbloquear', exact: true }).click();
+  await page.getByRole('heading', { name: 'Remetente desbloqueado' }).waitFor();
+  await page.getByText('agora está desbloqueado').waitFor(); await page.getByText(/por Ana Souza/).first().waitFor();
+  await page.getByRole('heading', { name: 'Histórico de ações' }).waitFor();
+  await shot('record-unlocked-1280');
+  await page.getByLabel('Entendo o alcance e confirmo o bloqueio deste remetente.').check();
+  await page.getByRole('button', { name: 'Bloquear remetente' }).click();
+  await page.getByRole('heading', { name: 'Remetente bloqueado novamente' }).waitFor();
+  assert.deepEqual(state.blockBodies.map((b) => [b.proof, b.confirm]), [['a'.repeat(64), true]], 'the block carries the server proof and the confirmation');
+  assert.equal(await page.getByRole('heading', { name: 'Bloquear remetente', exact: true }).count(), 0, 'no second block offered');
+  await page.getByRole('button', { name: '← Voltar ao histórico' }).click();
+  await page.getByText('Desbloqueado', { exact: true }).first().waitFor();
+  await page.getByText(/Desbloqueado em .* por Ana Souza/).first().waitFor();
+  assert.ok((await page.getByLabel('Situação').locator('option').allInnerTexts()).includes('Desbloqueados'), 'filter option for released records');
+  await shot('history-unlocked-1280');
 
   // 9c. The Super Admin queue: review, keep, release, block again, stale decision refused with a clear message.
   state = newState(); state.enabled = true; state.role = 'super_admin';

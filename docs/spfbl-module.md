@@ -36,6 +36,14 @@ fornecedor nunca vai ao navegador. Quando a cobertura é incerta a tela diz "Cob
 - *Desbloqueio direto*: o usuário (e o Super Admin) libera o remetente na hora, com confirmação.
 - O alcance é avisado nas telas: a operação `white` do fornecedor **pode afetar outros destinatários da mesma integração**.
 
+**Depois do desbloqueio.** A lista e os detalhes mostram que o registro **estava bloqueado e agora está desbloqueado**, com **quando e por quem**
+(vindo do registro do portal; se o SPFBL informar `WHITELISTED` sem registro do portal, aparece "Liberado no SPFBL (fora do portal)"). O
+filtro **Desbloqueados** lista só os liberados; o motivo original continua visível. Os detalhes trazem o histórico de ações do registro.
+
+**Bloquear remetente.** Contas em modo *desbloqueio direto* e o Super Admin podem enviar o **bloqueio** de qualquer registro listado (inclusive
+aceito pelo filtro) que o SPFBL ainda não informe como `BLOCKED`, com a mesma confirmação, aviso de alcance, trava por registro e regra de
+"resultado não confirmado". Depois do bloqueio o registro pode ser desbloqueado de novo.
+
 **Garantias.** Uma operação por registro, reservada com trava de linha no PostgreSQL; a intenção ("processando") é gravada
 **antes** da chamada ao SPFBL; qualquer dúvida depois da chamada (erro, tempo, resposta que não é exatamente `DONE`) vira **resultado
 não confirmado** e **nunca é repetida automaticamente**; uma intenção "processando" esquecida por mais de 10 minutos (queda no meio)
