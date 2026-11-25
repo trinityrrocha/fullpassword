@@ -5,7 +5,9 @@ services:
     # Older installations may not have these safeguards in their base Compose.
     read_only: true
     cap_drop: [ALL]
-    security_opt: [no-new-privileges:true]
+    # Compose 5.1 rejects identical security_opt strings across layers.
+    # Equivalent Docker spelling; keep other base security options intact.
+    security_opt: [no-new-privileges=true]
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=512m
     image: ${RELEASE_BACKEND_IMAGE:?RELEASE_BACKEND_IMAGE por digest obrigatória}

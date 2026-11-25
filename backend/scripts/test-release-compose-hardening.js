@@ -28,7 +28,7 @@ for (const input of [base,legacy]) {
   const model = render(['-',overlay],input);
   const b = model.services.backend;
   assert.equal(b.read_only,true);
-  assert.ok(b.cap_drop.includes('ALL') && b.security_opt.includes('no-new-privileges:true'));
+  assert.ok(b.cap_drop.includes('ALL') && b.security_opt.includes('no-new-privileges=true'));
   assert.ok(b.tmpfs.includes('/tmp:rw,noexec,nosuid,size=512m'));
   const check = m => validateReleaseCompose(m,{origin,migrateSchema:true});
   check(model);
