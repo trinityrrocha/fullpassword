@@ -11,6 +11,9 @@ export const listWhmServers = async () => (await api.get('/spfbl/whm-servers')).
 export const createWhmServer = async (payload) => (await api.post('/spfbl/whm-servers', payload)).data.server;
 export const updateWhmServer = async (id, payload) => (await api.put(`/spfbl/whm-servers/${encodeURIComponent(id)}`, payload)).data.server;
 export const removeWhmServer = async (id, removeDomains) => (await api.delete(`/spfbl/whm-servers/${encodeURIComponent(id)}`, { data: { remove_domains: removeDomains } })).data;
+// Validate credentials typed in the form (nothing is stored). A blank secret + the server's id means "the saved one".
+export const validateWhmCredentials = async (payload) => (await api.post('/spfbl/whm-servers/validate/whm', payload)).data;
+export const validateMatrixCredentials = async (payload) => (await api.post('/spfbl/whm-servers/validate/matrix', payload)).data;
 export const testWhmServer = async (id) => (await api.post(`/spfbl/whm-servers/${encodeURIComponent(id)}/test`, {})).data;
 export const syncWhmServer = async (id) => (await api.post(`/spfbl/whm-servers/${encodeURIComponent(id)}/sync`, {})).data;
 export const testMatrixServer = async (id) => (await api.post(`/spfbl/whm-servers/${encodeURIComponent(id)}/matrix/test`, {})).data;

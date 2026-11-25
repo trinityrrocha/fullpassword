@@ -76,19 +76,19 @@ export const describeError = (error, fallback) => {
   return SPECIFIC_MESSAGES[data.code] || data.error || fallback;
 };
 
+export const SERVER_KINDS = Object.freeze([{ value: 'cpanel', label: 'cPanel (WHM)' }]);
+export const kindLabel = (kind) => SERVER_KINDS.find((item) => item.value === kind)?.label || 'cPanel (WHM)';
+
 // A server form sends only what the person typed: an empty secret means "keep the saved one" and is simply not sent.
-export const buildServerPayload = ({ name, host, user, token, matrixUser, matrixPassword }, { section = 'all' } = {}) => {
-  const payload = {};
-  if (section !== 'matrix') {
-    payload.name = String(name ?? '').trim(); payload.host = String(host ?? '').trim(); payload.whm_user = String(user ?? '').trim();
-    if (token) payload.token = String(token).trim();
-  }
-  if (section !== 'whm') {
-    payload.matrix_user = String(matrixUser ?? '').trim();
-    if (matrixPassword) payload.matrix_password = matrixPassword;
-  }
+export const buildServerPayload = ({ name, kind, host, user, token, matrixUser, matrixPassword }) => {
+  const payload = { name: String(name ?? '').trim(), kind: kind || 'cpanel', host: String(host ?? '').trim(), whm_user: String(user ?? '').trim(), matrix_user: String(matrixUser ?? '').trim() };
+  if (token) payload.token = String(token).trim();
+  if (matrixPassword) payload.matrix_password = matrixPassword;
   return payload;
 };
+// What the validation buttons send (the same fields, only the ones that credential needs; the id lets a blank secret mean "the saved one").
+export const buildWhmValidation = ({ id, host, user, token }) => ({ ...(id ? { id } : {}), host: String(host ?? '').trim(), whm_user: String(user ?? '').trim(), ...(token ? { token: String(token).trim() } : {}) });
+export const buildMatrixValidation = ({ id, matrixUser, matrixPassword }) => ({ ...(id ? { id } : {}), matrix_user: String(matrixUser ?? '').trim(), ...(matrixPassword ? { matrix_password: matrixPassword } : {}) });
 
 // The wording of the "remove server" choice, from the counts the list already has.
 export const removalSummary = (server) => {

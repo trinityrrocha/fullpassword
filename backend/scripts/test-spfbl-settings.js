@@ -39,6 +39,9 @@ async function run() {
   await ensureSecuritySchema();
   const migration = read('database/migrations/33_spfbl_whm_servers.sql');
   await pg.exec(migration); await pg.exec(migration); // idempotent
+  const kindMigration = read('database/migrations/34_spfbl_server_kind.sql');
+  await pg.exec(kindMigration); await pg.exec(kindMigration); // idempotent
+  await assert.rejects(pg.query("INSERT INTO spfbl_whm_servers(name,server_kind,host,whm_user,encrypted_token) VALUES ('x','windows','x.example.com','root','t')"), /./, 'only known types are accepted by the database');
   assert.deepEqual(await servers.listServers(), []);
   assert.ok(BACKUP_TABLES.includes('spfbl_whm_servers') && BACKUP_TABLES.indexOf('spfbl_whm_servers') < BACKUP_TABLES.indexOf('spfbl_domains'), 'servers are restored before the domains that point to them');
 
@@ -58,7 +61,11 @@ async function run() {
   let created = await servers.createServer({ ...good, host: ' SRV.Example.COM ', token: ` ${WHM_SECRET} ` }, adminId);
   const srv1 = created.server;
   assert.equal(created.whm_token_changed, true); assert.equal(created.matrix_password_changed, true);
-  assert.deepEqual(Object.keys(srv1).sort(), ['domains_active', 'domains_total', 'has_matrix_password', 'has_token', 'history_last_run_at', 'host', 'id', 'matrix_configured', 'matrix_user', 'name', 'sync_at', 'sync_status', 'updated_at', 'whm_user']);
+  assert.deepEqual(Object.keys(srv1).sort(), ['domains_active', 'domains_total', 'has_matrix_password', 'has_token', 'history_last_run_at', 'host', 'id', 'kind', 'matrix_configured', 'matrix_user', 'name', 'sync_at', 'sync_status', 'updated_at', 'whm_user']);
+  assert.equal(srv1.kind, 'cpanel', 'the default type is cPanel');
+  await bad({ ...good, name: 'Outro tipo', host: 'k.example.com', matrix_user: 'k@example.com', kind: 'outro' }, 'SPFBL_SERVER_KIND_INVALID');
+  const typed = (await servers.createServer({ ...good, name: 'Tipo explícito', host: 'k.example.com', matrix_user: 'k@example.com', kind: 'cpanel' }, adminId)).server;
+  assert.equal(typed.kind, 'cpanel'); await servers.removeServer(typed.id, true);
   assert.equal(srv1.host, 'srv.example.com'); assert.equal(srv1.has_token, true); assert.equal(srv1.matrix_configured, true); assert.equal(leaks(srv1), false);
   const stored = await serverRow(srv1.id);
   for (const column of ['encrypted_token', 'encrypted_matrix_password']) assert.match(stored[column], /^[^:]+:[A-Za-z0-9+/=]+:[A-Za-z0-9+/=]+:[A-Za-z0-9+/=]+$/);
@@ -175,6 +182,23 @@ async function run() {
   assert.equal((await matrix.request('white', creds, { transport: answer(200, { result: 'DONE', information: 'sender whitelisted' }) })).data.information, 'sender whitelisted');
   await assert.rejects(matrix.testConnection({ user: '', password: 'x' }, { transport: answer(200, {}) }), { code: 'MATRIX_NOT_CONFIGURED', statusCode: 422 });
 
+  // Credentials typed in the form: resolved WITHOUT storing; a blank secret means the saved one, only for the same target.
+  const rows0 = (await pg.query('SELECT count(*)::int AS n FROM spfbl_whm_servers')).rows[0].n;
+  assert.deepEqual(await servers.credentialsToValidate({ host: ' SRV.example.com ', whm_user: 'root', token: ` ${WHM_SECRET} ` }), { host: 'srv.example.com', user: 'root', token: WHM_SECRET });
+  assert.deepEqual(await servers.credentialsToValidate({ id: A, host: 'srv.example.com', whm_user: 'root' }), { host: 'srv.example.com', user: 'root', token: WHM_SECRET }, 'blank token + same target = the saved token');
+  await assert.rejects(servers.credentialsToValidate({ id: A, host: 'other.example.com', whm_user: 'root' }), { code: 'SPFBL_SECRET_REENTRY_REQUIRED' });
+  await assert.rejects(servers.credentialsToValidate({ host: 'srv.example.com', whm_user: 'root' }), { code: 'SPFBL_WHM_TOKEN_INVALID' });
+  await assert.rejects(servers.credentialsToValidate({ host: 'https://x.example.com', whm_user: 'root', token: WHM_SECRET }), { code: 'SPFBL_WHM_HOST_INVALID' });
+  await assert.rejects(servers.credentialsToValidate({ host: '', whm_user: '' }), { code: 'SPFBL_WHM_INCOMPLETE' });
+  await assert.rejects(servers.credentialsToValidate(null), { code: 'SPFBL_SERVER_INVALID' });
+  await assert.rejects(servers.credentialsToValidate({ id: '00000000-0000-0000-0000-00000000dead', host: 'srv.example.com', whm_user: 'root' }), { code: 'SPFBL_SERVER_NOT_FOUND' });
+  assert.deepEqual(await servers.matrixCredentialsToValidate({ matrix_user: 'a@example.com', matrix_password: ` ${MATRIX_SECRET} ` }), { user: 'a@example.com', password: ` ${MATRIX_SECRET} ` }, 'a password is kept exactly as typed');
+  assert.deepEqual(await servers.matrixCredentialsToValidate({ id: A, matrix_user: 'ops@example.com' }), { user: 'ops@example.com', password: MATRIX_SECRET });
+  await assert.rejects(servers.matrixCredentialsToValidate({ id: A, matrix_user: 'other@example.com' }), { code: 'SPFBL_SECRET_REENTRY_REQUIRED' });
+  await assert.rejects(servers.matrixCredentialsToValidate({ matrix_user: 'a@example.com' }), { code: 'SPFBL_MATRIX_INCOMPLETE' });
+  await assert.rejects(servers.matrixCredentialsToValidate({ matrix_password: 'x' }), { code: 'SPFBL_MATRIX_INCOMPLETE' });
+  assert.equal((await pg.query('SELECT count(*)::int AS n FROM spfbl_whm_servers')).rows[0].n, rows0, 'validating stores nothing');
+
   // Controller: audit trail holds no secrets, hosts or users; responses never carry credentials.
   const user = admin;
   let res = response();
@@ -231,13 +255,44 @@ async function run() {
   assert.deepEqual(testAudit[1].metadata, { reason: 'MATRIX_AUTH_REFUSED', diagnostic: 'history HTTP=200 result=INVALID info=INVALID_CREDENTIAL' });
   assert.equal(leaks(testAudit), false);
 
+  // Validation endpoints (typed credentials, nothing stored): single-flight, short cool-down per kind, audited with fixed tokens only.
+  const domainsService = require('../src/services/spfblDomainsService');
+  const realCreate = domainsService.internals.createClient;
+  const countServers = async () => (await pg.query('SELECT count(*)::int AS n FROM spfbl_whm_servers')).rows[0].n;
+  const serversBefore = await countServers();
+  controller.resetValidateState();
+  matrix.testConnection = async (c) => { assert.equal(c.password, MATRIX_SECRET); return { ok: true, diagnostic: 'history HTTP=200 result=VALID info=VALID_CREDENTIAL' }; };
+  res = response(); await controller.validateMatrix(request(user, { body: { matrix_user: 'typed@example.com', matrix_password: MATRIX_SECRET } }), res);
+  assert.equal(res.code, 200); assert.deepEqual(res.body, { ok: true, message: 'Conexão com o Matrix confirmada.' });
+  res = response(); await controller.validateMatrix(request(user, { body: { matrix_user: 'typed@example.com', matrix_password: MATRIX_SECRET } }), res);
+  assert.equal(res.code, 429); assert.equal(res.body.code, 'SPFBL_TEST_COOLDOWN'); assert.ok(res.body.retry_after_seconds >= 1 && res.body.retry_after_seconds <= 5, 'a short cool-down, not the 30 s of the saved-connection test');
+  controller.resetValidateState();
+  res = response(); await controller.validateMatrix(request(user, { body: { matrix_user: 'typed@example.com' } }), res);
+  assert.equal(res.code, 400); assert.equal(res.body.code, 'SPFBL_MATRIX_INCOMPLETE'); assert.equal(leaks(res.body), false);
+  controller.resetValidateState();
+  matrix.testConnection = async () => { throw new matrix.MatrixError('O Matrix recusou a autenticação. Revise o usuário e a senha.', 'MATRIX_AUTH_REFUSED', 422, 'history HTTP=200 result=INVALID info=INVALID_CREDENTIAL'); };
+  res = response(); await controller.validateMatrix(request(user, { body: { matrix_user: 'typed@example.com', matrix_password: MATRIX_SECRET } }), res);
+  assert.equal(res.code, 422); assert.equal(res.body.code, 'MATRIX_AUTH_REFUSED'); assert.equal(leaks(res.body), false);
+  controller.resetValidateState();
+  domainsService.internals.createClient = (c) => { assert.deepEqual([c.host, c.user, c.token], ['typed.example.com', 'root', WHM_SECRET]); return { listDomains: async () => ({ accounts: 2, domains: [{ suspended: false }, { suspended: true }], skipped: 0 }) }; };
+  res = response(); await controller.validateWhm(request(user, { body: { host: 'typed.example.com', whm_user: 'root', token: WHM_SECRET } }), res);
+  assert.equal(res.code, 200); assert.deepEqual(res.body, { accounts: 2, domains: 2, active: 1, suspended: 1, skipped: 0 });
+  controller.resetValidateState();
+  res = response(); await controller.validateWhm(request(user, { body: { host: 'typed.example.com', whm_user: 'root' } }), res);
+  assert.equal(res.code, 400); assert.equal(res.body.code, 'SPFBL_WHM_TOKEN_INVALID');
+  domainsService.internals.createClient = realCreate; matrix.testConnection = realTest;
+  assert.equal(await countServers(), serversBefore, 'validating never stores a server or a secret');
+  const validateAudit = (await pg.query("SELECT action, status, metadata FROM system_audit_events WHERE action IN ('spfbl_whm_test','spfbl_matrix_test') AND created_at > now() - interval '1 minute' ORDER BY created_at, id")).rows;
+  assert.equal(leaks(validateAudit), false); assert.equal(JSON.stringify(validateAudit).includes('typed'), false, 'no typed host or user in the audit trail');
+
   // Wiring: authenticate, then module toggle, then Super Admin (+ reauth for writes, limiter for the test).
   const routes = read('backend/src/routes/spfblRoutes.js');
   assert.ok(routes.indexOf('router.use(verifyToken)') < routes.indexOf("router.use(requireModuleEnabled('spfbl'))") && routes.indexOf("router.use(requireModuleEnabled('spfbl'))") < routes.indexOf("router.get('/whm-servers'"));
   assert.match(routes, /router\.get\('\/whm-servers', requireSuperAdmin,/);
+  for (const line of ["router.post('/whm-servers/validate/whm', requireSuperAdmin, spfblTestLimiter,", "router.post('/whm-servers/validate/matrix', requireSuperAdmin, spfblTestLimiter,"]) assert.ok(routes.includes(line), line);
   for (const line of ["router.post('/whm-servers', requireSuperAdmin, guardFixed('spfbl_settings')", "router.put('/whm-servers/:id', requireSuperAdmin, uuidParam('id'), guardFixed('spfbl_settings')", "router.delete('/whm-servers/:id', requireSuperAdmin, uuidParam('id'), guardFixed('spfbl_settings')"]) assert.ok(routes.includes(line), `${line} needs the reauthentication grant`);
   assert.match(routes, /router\.post\('\/whm-servers\/:id\/matrix\/test', requireSuperAdmin, uuidParam\('id'\), spfblTestLimiter,/);
-  assert.equal((routes.match(/router\.(get|put|post|delete|patch)\(/g) || []).length, 33, 'every route must be reviewed here (domains: test-spfbl-whm.js, access: test-spfbl-access.js)');
+  assert.equal((routes.match(/router\.(get|put|post|delete|patch)\(/g) || []).length, 35, 'every route must be reviewed here (domains: test-spfbl-whm.js, access: test-spfbl-access.js)');
   const server = read('backend/src/server.js');
   assert.ok(server.indexOf("app.use('/api/spfbl', require('./routes/spfblRoutes'))") < server.indexOf("function apiNotFound"));
   // sensitiveOperationLimiter allows 5 mutations per 15 min (sized for backup export): wrong for routine admin work.

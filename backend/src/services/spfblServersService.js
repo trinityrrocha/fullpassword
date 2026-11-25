@@ -6,6 +6,7 @@ const {
 // A WHM server (lists the domains) with ITS Matrix connection (the SPFBL history of those domains). Credentials are sealed with their
 // target inside the ciphertext, exactly like before; a ciphertext copied to another server, host or user never opens.
 const SERVER_LIMIT = 50;
+const KINDS = Object.freeze(['cpanel']); // the select in the UI; more types can be added here and in the CHECK constraint
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const fail = (message, code, statusCode = 400) => { throw new SpfblSettingsError(message, code, statusCode); };
@@ -15,11 +16,17 @@ const normalizeName = (value) => {
   if (!text || text.length > 80 || /[\u0000-\u001f\u007f<>]/.test(text)) fail('Informe um nome de 1 a 80 caracteres para o servidor.', 'SPFBL_SERVER_NAME_INVALID');
   return text;
 };
+const normalizeKind = (value) => {
+  if (value === undefined || value === null || value === '') return 'cpanel';
+  if (!KINDS.includes(value)) fail('Tipo de servidor inválido.', 'SPFBL_SERVER_KIND_INVALID');
+  return value;
+};
 const requireId = (id) => { if (typeof id !== 'string' || !UUID_PATTERN.test(id)) fail('Servidor não encontrado.', 'SPFBL_SERVER_NOT_FOUND', 404); return id; };
 
 const sanitize = (row) => ({
   id: row.id,
   name: row.name,
+  kind: row.server_kind || 'cpanel',
   host: row.host,
   whm_user: row.whm_user,
   has_token: Boolean(row.encrypted_token),
@@ -60,6 +67,7 @@ const checkInput = (input) => {
 const createServer = async (input, actorId) => {
   checkInput(input);
   const name = normalizeName(input.name);
+  const kind = normalizeKind(input.kind);
   const host = normalizeHost(typeof input.host === 'string' ? input.host : '');
   const whmUser = normalizeWhmUser(typeof input.whm_user === 'string' ? input.whm_user : '');
   if (!host || !whmUser) fail('Informe o servidor e o usuário WHM.', 'SPFBL_WHM_INCOMPLETE');
@@ -72,9 +80,9 @@ const createServer = async (input, actorId) => {
   if (count >= SERVER_LIMIT) fail('O limite de servidores foi atingido.', 'SPFBL_SERVER_LIMIT', 422);
   try {
     const row = (await db.query(
-      `INSERT INTO spfbl_whm_servers (name, host, whm_user, encrypted_token, matrix_user, encrypted_matrix_password, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
-      [name, host, whmUser, sealSecret(PURPOSES.whm, `${whmUser}@${host}`, token), matrixUser, matrixSecret ? sealSecret(PURPOSES.matrix, matrixUser, matrixSecret) : null, actorId])).rows[0];
+      `INSERT INTO spfbl_whm_servers (name, server_kind, host, whm_user, encrypted_token, matrix_user, encrypted_matrix_password, created_by)
+       VALUES ($1, $8, $2, $3, $4, $5, $6, $7) RETURNING *`,
+      [name, host, whmUser, sealSecret(PURPOSES.whm, `${whmUser}@${host}`, token), matrixUser, matrixSecret ? sealSecret(PURPOSES.matrix, matrixUser, matrixSecret) : null, actorId, kind])).rows[0];
     return { server: sanitize(row), whm_token_changed: true, matrix_password_changed: Boolean(matrixSecret) };
   } catch (error) { throw mapUnique(error); }
 };
@@ -86,6 +94,7 @@ const updateServer = async (id, input, actorId) => {
     await client.query('BEGIN');
     const current = await getRow(id, client, { forUpdate: true });
     const name = input.name !== undefined ? normalizeName(input.name) : current.name;
+    const kind = input.kind !== undefined ? normalizeKind(input.kind) : current.server_kind;
     const host = input.host !== undefined ? normalizeHost(input.host) : current.host;
     const whmUser = input.whm_user !== undefined ? normalizeWhmUser(input.whm_user) : current.whm_user;
     if (!host || !whmUser) fail('Informe o servidor e o usuário WHM.', 'SPFBL_WHM_INCOMPLETE');
@@ -108,8 +117,8 @@ const updateServer = async (id, input, actorId) => {
     }
     const row = (await client.query(
       `UPDATE spfbl_whm_servers SET name = $2, host = $3, whm_user = $4, encrypted_token = $5, matrix_user = $6, encrypted_matrix_password = $7,
-              updated_at = CURRENT_TIMESTAMP WHERE id = $1 RETURNING *`,
-      [current.id, name, host, whmUser, encryptedToken, matrixUser, encryptedMatrix])).rows[0];
+              server_kind = $8, updated_at = CURRENT_TIMESTAMP WHERE id = $1 RETURNING *`,
+      [current.id, name, host, whmUser, encryptedToken, matrixUser, encryptedMatrix, kind])).rows[0];
     await client.query('COMMIT');
     return { server: sanitize(row), previous_matrix_user: current.matrix_user, whm_token_changed: newToken !== null, matrix_password_changed: newMatrixSecret !== null,
       matrix_user_changed: matrixUser !== current.matrix_user };
@@ -161,4 +170,34 @@ const credentialsForDomain = async (domain, queryable = db) => {
 const matrixServers = async (queryable = db) => (await queryable.query(
   "SELECT id, name, matrix_user FROM spfbl_whm_servers WHERE matrix_user <> '' AND encrypted_matrix_password IS NOT NULL ORDER BY lower(name)")).rows;
 
-module.exports = { SERVER_LIMIT, listServers, createServer, updateServer, removeServer, getWhmCredentials, getMatrixCredentials, credentialsForDomain, serverIdOfDomain, matrixServers };
+// Credentials typed in the form, checked WITHOUT storing anything. A blank secret means "the saved one" and is only honoured for the
+// same target (host+user / Matrix user) of an existing server: otherwise the person must type it again.
+const credentialsToValidate = async (input, queryable = db) => {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) fail('Dados inválidos.', 'SPFBL_SERVER_INVALID');
+  const host = normalizeHost(typeof input.host === 'string' ? input.host : '');
+  const user = normalizeWhmUser(typeof input.whm_user === 'string' ? input.whm_user : '');
+  if (!host || !user) fail('Informe o servidor e o usuário WHM.', 'SPFBL_WHM_INCOMPLETE');
+  if (given(input, 'token')) return { host, user, token: normalizeSecret(input.token, 'Token WHM', WHM_TOKEN_PATTERN) };
+  if (input.id) {
+    const row = await getRow(input.id, queryable);
+    if (row.host === host && row.whm_user === user) return { host, user, token: openSecret(row.encrypted_token, PURPOSES.whm, `${user}@${host}`) };
+    fail('Informe novamente o token WHM ao alterar o servidor ou o usuário.', 'SPFBL_SECRET_REENTRY_REQUIRED');
+  }
+  fail('Informe o token WHM.', 'SPFBL_WHM_TOKEN_INVALID');
+  return null;
+};
+const matrixCredentialsToValidate = async (input, queryable = db) => {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) fail('Dados inválidos.', 'SPFBL_SERVER_INVALID');
+  const user = given(input, 'matrix_user') ? normalizeMatrixUser(input.matrix_user) : '';
+  if (!user) fail('Informe o usuário do Matrix.', 'SPFBL_MATRIX_INCOMPLETE');
+  if (given(input, 'matrix_password')) return { user, password: normalizeSecret(input.matrix_password, 'Senha Matrix') };
+  if (input.id) {
+    const row = await getRow(input.id, queryable);
+    if (row.matrix_user === user && row.encrypted_matrix_password) return { user, password: openSecret(row.encrypted_matrix_password, PURPOSES.matrix, user) };
+    fail('Informe novamente a senha do Matrix ao alterar o usuário.', 'SPFBL_SECRET_REENTRY_REQUIRED');
+  }
+  fail('Informe a senha do Matrix.', 'SPFBL_MATRIX_INCOMPLETE');
+  return null;
+};
+
+module.exports = { KINDS, credentialsToValidate, matrixCredentialsToValidate, SERVER_LIMIT, listServers, createServer, updateServer, removeServer, getWhmCredentials, getMatrixCredentials, credentialsForDomain, serverIdOfDomain, matrixServers };

@@ -410,3 +410,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS spfbl_whm_servers_target_idx ON spfbl_whm_serv
 CREATE UNIQUE INDEX IF NOT EXISTS spfbl_whm_servers_matrix_idx ON spfbl_whm_servers (lower(matrix_user)) WHERE matrix_user <> '';
 ALTER TABLE spfbl_domains ADD COLUMN IF NOT EXISTS server_id UUID REFERENCES spfbl_whm_servers(id) ON DELETE SET NULL;
 CREATE INDEX IF NOT EXISTS spfbl_domains_server_idx ON spfbl_domains (server_id);
+
+-- SPFBL: tipo de servidor (migration 34).
+ALTER TABLE spfbl_whm_servers ADD COLUMN IF NOT EXISTS server_kind VARCHAR(16) NOT NULL DEFAULT 'cpanel' CHECK (server_kind IN ('cpanel'));

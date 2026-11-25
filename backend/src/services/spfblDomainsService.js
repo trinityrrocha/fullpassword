@@ -67,6 +67,9 @@ const summarize = (listing) => ({
 // Connection test: reads from WHM and writes nothing.
 const testWhm = async (serverId) => summarize(await internals.createClient(await getWhmCredentials(serverId)).listDomains());
 
+// Validation of credentials typed in the form: reads from WHM, writes nothing, stores nothing.
+const validateWhmCredentials = async (credentials) => summarize(await internals.createClient(credentials).listDomains());
+
 const recordSyncStatus = async (serverId, status) => {
   await db.query('UPDATE spfbl_whm_servers SET sync_at = CURRENT_TIMESTAMP, sync_status = $2 WHERE id = $1', [serverId, status]).catch(() => {});
 };
@@ -142,4 +145,4 @@ const syncAll = async (actorId) => {
   return { servers: results, ok: results.filter((r) => r.ok).length, failed: results.filter((r) => !r.ok).length };
 };
 
-module.exports = { DomainError, internals, normalizeDomainName, listDomains, addManualDomain, removeDomain, testWhm, syncFromWhm, syncAll };
+module.exports = { DomainError, internals, normalizeDomainName, listDomains, addManualDomain, removeDomain, testWhm, validateWhmCredentials, syncFromWhm, syncAll };
