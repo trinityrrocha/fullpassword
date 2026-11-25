@@ -179,6 +179,7 @@ jobs:
           trusted_node_dir=$(sudo mktemp -d /usr/local/lib/fp-ci-node-XXXXXX)
           trap 'sudo rm -rf "$trusted_node_dir"' EXIT
           sudo install -m 0755 "$(command -v node)" "$trusted_node_dir/node"
+          node backend/scripts/test-release-compose-hardening.js
           sudo "$trusted_node_dir/node" backend/scripts/test-auto-update-docker.js
       - name: Signed forward and rollback must not recreate or restart database dependency (isolated)
         run: |

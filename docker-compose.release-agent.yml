@@ -2,6 +2,12 @@
 # DB_USER/DB_PASSWORD remain the PostgreSQL owner, never the backend runtime.
 services:
   backend:
+    # Older installations may not have these safeguards in their base Compose.
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=512m
     image: ${RELEASE_BACKEND_IMAGE:?RELEASE_BACKEND_IMAGE por digest obrigatória}
     environment:
       DB_USER: ${RUNTIME_DB_USER:-fullpassword_runtime}
