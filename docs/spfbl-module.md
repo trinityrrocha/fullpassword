@@ -9,13 +9,15 @@ revisão**, **desbloqueio direto**, fila do administrador, novo bloqueio e **not
 
 1. Configurações do Sistema → **Módulos** → ativar **SPFBL** (Super Admin; pede reautenticação). O ícone aparece no menu
    do Super Admin e dos usuários com acesso. Desativar o módulo encerra o acesso de todos na hora.
-2. Página **SPFBL** → aba **Configurações do SPFBL** → **Servidor WHM**: lista de servidores. *Adicionar servidor* pede nome, hostname
-   (sem https/porta/IP), usuário WHM (root ou revendedor), token e, se quiser coletar o histórico, o usuário e a senha **Matrix** desse
-   servidor. Cada servidor tem **a sua** conexão Matrix (o Matrix mostra só 1024 registros por servidor). Depois de cadastrado dá para
-   *Editar* (nome, token; trocar host ou usuário pede o token de novo), *Testar* (não grava nada), *Sincronizar* (ou *Sincronizar todos*) e
-   *Remover*.
-3. **Conexão Matrix**: uma conexão por servidor WHM (usuário, senha, *Testar conexão*); a retenção (30/60/90 dias) e a frequência da coleta
-   (1, 2, 4, 8, 12 ou 24 h) valem para todos.
+2. Página **SPFBL** → aba **Configurações do SPFBL** → card **Servidores** (um só modal para o servidor e a sua conexão Matrix).
+   *Adicionar servidor* pede o nome, o **tipo de servidor** (hoje só cPanel/WHM), o endereço (hostname, sem https/porta/IP), o usuário e o
+   token do WHM e, se quiser coletar o histórico, o usuário e a senha **Matrix** desse servidor. Cada servidor tem **a sua** conexão Matrix
+   (o Matrix mostra só 1024 registros por servidor). Cada credencial tem o seu botão **Validar credenciais** (o servidor e o Matrix):
+   confere o que foi digitado **sem gravar nada**; um campo de segredo em branco, ao editar, valida com o segredo salvo (só se o endereço/usuário
+   não mudou). Digitar de novo em um campo apaga o resultado da validação anterior. A validação não é obrigatória para salvar. Na lista,
+   cada servidor tem *Sincronizar domínios* (há também *Sincronizar todos os servidores*), *Editar* e *Remover*.
+3. Card **Retenção do histórico** (parâmetros globais, valem para todos os servidores): retenção (30/60/90 dias), frequência da coleta
+   (1, 2, 4, 8, 12 ou 24 h), última coleta de cada servidor e *Coletar agora*.
 4. **Domínios**: catálogo importado dos servidores WHM ou digitado; cada domínio mostra de qual servidor veio. **Ativo** = domínio de conta
    **não suspensa** no WHM (inclui os subdomínios que o `get_domain_info` retorna; filtre pela conta ou pelo nome); domínios que saem do
    servidor ficam inativos (não são apagados). Domínios digitados à mão podem ser removidos. A sincronização de um servidor só mexe nos

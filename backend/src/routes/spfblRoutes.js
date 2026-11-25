@@ -41,6 +41,8 @@ router.post('/history/collect', requireSuperAdmin, spfblTestLimiter, asyncRoute(
 router.get('/audit', requireSuperAdmin, asyncRoute(controller.auditList));
 
 router.get('/whm-servers', requireSuperAdmin, asyncRoute(controller.listWhmServers));
+router.post('/whm-servers/validate/whm', requireSuperAdmin, spfblTestLimiter, asyncRoute(controller.validateWhm));
+router.post('/whm-servers/validate/matrix', requireSuperAdmin, spfblTestLimiter, asyncRoute(controller.validateMatrix));
 router.post('/whm-servers', requireSuperAdmin, guardFixed('spfbl_settings'), asyncRoute(controller.createWhmServer));
 router.put('/whm-servers/:id', requireSuperAdmin, uuidParam('id'), guardFixed('spfbl_settings'), asyncRoute(controller.updateWhmServer));
 router.delete('/whm-servers/:id', requireSuperAdmin, uuidParam('id'), guardFixed('spfbl_settings'), asyncRoute(controller.removeWhmServer));

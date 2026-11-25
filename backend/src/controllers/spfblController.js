@@ -111,6 +111,38 @@ const testMatrix = async (req, res) => {
   }
 };
 
+// Validation of credentials typed in the server form (nothing is stored). One at a time, a short cool-down per kind, audited with fixed
+// tokens only. The WHM client keeps every network guard (public IPv4 only, pinned connection, read-only allow-list).
+const VALIDATE_COOLDOWN_MS = 5000;
+const validateState = { inFlight: false, last: new Map() };
+const resetValidateState = () => { validateState.inFlight = false; validateState.last.clear(); };
+const withValidation = (kind, auditAction, run) => async (req, res) => {
+  const now = Date.now();
+  if (validateState.inFlight) return res.status(429).json({ code: 'SPFBL_VALIDATE_BUSY', error: 'Já há uma validação em andamento. Aguarde alguns segundos.' });
+  const wait = (validateState.last.get(kind) || 0) + VALIDATE_COOLDOWN_MS - now;
+  if (wait > 0) return res.status(429).json({ code: 'SPFBL_TEST_COOLDOWN', error: 'Aguarde alguns segundos antes de validar de novo.', retry_after_seconds: Math.ceil(wait / 1000) });
+  validateState.inFlight = true; validateState.last.set(kind, now);
+  try {
+    const result = await run(req);
+    await recordAuditEvent({ user: req.user, action: auditAction, status: 'success', req, metadata: result.audit });
+    return res.status(200).json(result.body);
+  } catch (error) {
+    await recordAuditEvent({ user: req.user, action: auditAction, status: 'failed', req, metadata: { reason: error?.code || 'internal_error', ...(error?.diagnostic ? { diagnostic: error.diagnostic } : {}) } });
+    const handled = mapKnownError(res, error);
+    if (handled) return handled;
+    safeLogError(`Falha inesperada na validação (${kind}).`, error, { includeStack: false });
+    return res.status(500).json({ error: 'Não foi possível validar as credenciais.' });
+  } finally { validateState.inFlight = false; }
+};
+const validateWhm = withValidation('whm', 'spfbl_whm_test', async (req) => {
+  const result = await domains.validateWhmCredentials(await servers.credentialsToValidate(req.body));
+  return { body: result, audit: result };
+});
+const validateMatrix = withValidation('matrix', 'spfbl_matrix_test', async (req) => {
+  const result = await matrix.testConnection(await servers.matrixCredentialsToValidate(req.body));
+  return { body: { ok: true, message: 'Conexão com o Matrix confirmada.' }, audit: { diagnostic: result.diagnostic } };
+});
+
 // WHM calls (test and sync) share one lock and a cool-down: a whole server listing is heavy for the provider.
 const WHM_COOLDOWN_MS = 30000;
 const whmState = { inFlight: false, last: new Map() };
@@ -560,7 +592,7 @@ const blockRequest = decide('block', async (actor, req, input) => {
 
 module.exports = {
   dashboard, historyList, refreshHistory, recordDetail, recordStatus, requestReview, unlockRecord, blockSender, adminDomains, auditList, listRequests, requestDetail, keepRequest, releaseRequest, blockRequest, resetStatusState, getHistorySettings, saveHistorySettings, collectNow, resetCollectState, STATUS_COOLDOWN_MS,
-  listWhmServers, createWhmServer, updateWhmServer, removeWhmServer, testMatrix, resetTestState, TEST_COOLDOWN_MS,
+  validateWhm, validateMatrix, resetValidateState, listWhmServers, createWhmServer, updateWhmServer, removeWhmServer, testMatrix, resetTestState, TEST_COOLDOWN_MS,
   testWhm, syncWhmServer, syncDomains, listDomains, addDomain, removeDomain, resetWhmState, WHM_COOLDOWN_MS,
   listAccess, saveAccess, revokeAccess, overview
 };

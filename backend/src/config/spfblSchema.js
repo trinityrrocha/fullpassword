@@ -176,6 +176,11 @@ ON CONFLICT DO NOTHING`,
  WHERE id = 1 AND EXISTS (SELECT 1 FROM spfbl_whm_servers s WHERE s.host = spfbl_settings.whm_host AND s.whm_user = spfbl_settings.whm_user)`
 ];
 
+// Server type (migration 34).
+const SPFBL_SERVER_KIND_STATEMENTS = [
+  `ALTER TABLE spfbl_whm_servers ADD COLUMN IF NOT EXISTS server_kind VARCHAR(16) NOT NULL DEFAULT 'cpanel' CHECK (server_kind IN ('cpanel'))`
+];
+
 const ensureSpfblSchema = async (client) => {
   await client.query(CREATE_SPFBL_SETTINGS_SQL);
   await client.query(SEED_SPFBL_SETTINGS_SQL);
@@ -186,6 +191,7 @@ const ensureSpfblSchema = async (client) => {
   for (const statement of SPFBL_REQUEST_STATEMENTS) await client.query(statement);
   for (const statement of SPFBL_HISTORY_STATEMENTS) await client.query(statement);
   for (const statement of SPFBL_SERVER_STATEMENTS) await client.query(statement);
+  for (const statement of SPFBL_SERVER_KIND_STATEMENTS) await client.query(statement);
 };
 
-module.exports = { SPFBL_SERVER_STATEMENTS, SPFBL_HISTORY_STATEMENTS, SPFBL_REQUEST_STATEMENTS, CREATE_SPFBL_SETTINGS_SQL, SEED_SPFBL_SETTINGS_SQL, ADD_SYNC_COLUMNS_SQL, CREATE_SPFBL_DOMAINS_SQL, CREATE_SPFBL_USER_ACCESS_SQL, CREATE_SPFBL_USER_DOMAINS_SQL, ensureSpfblSchema };
+module.exports = { SPFBL_SERVER_KIND_STATEMENTS, SPFBL_SERVER_STATEMENTS, SPFBL_HISTORY_STATEMENTS, SPFBL_REQUEST_STATEMENTS, CREATE_SPFBL_SETTINGS_SQL, SEED_SPFBL_SETTINGS_SQL, ADD_SYNC_COLUMNS_SQL, CREATE_SPFBL_DOMAINS_SQL, CREATE_SPFBL_USER_ACCESS_SQL, CREATE_SPFBL_USER_DOMAINS_SQL, ensureSpfblSchema };
