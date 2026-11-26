@@ -11,6 +11,7 @@ import ClientVault from './pages/ClientVault';
 import TeamList from './pages/TeamList';
 import Settings from './pages/Settings';
 import DomainManager from './pages/DomainManager';
+import Dashboard from './pages/Dashboard';
 import Spfbl from './pages/Spfbl';
 import ProtectedRoute from './components/ProtectedRoute';
 import { useAuth } from './context/AuthContext';
@@ -58,6 +59,11 @@ function App() {
             <Route path="/settings" element={<Settings />} />
             <Route path="/spfbl" element={<Spfbl />} />
             <Route path="/domains" element={<DomainManager />} />
+          </Route>
+
+          {/* Dashboard: só o Super Admin */}
+          <Route element={<ProtectedRoute requireSuperAdmin />}>
+            <Route path="/dashboard" element={<Dashboard />} />
           </Route>
 
           {/* Rotas apenas para administradores */}

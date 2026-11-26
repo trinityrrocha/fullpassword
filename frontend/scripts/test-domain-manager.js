@@ -127,3 +127,29 @@ const heavy = gen.buildSpf({ a: true, providers: gen.SPF_PROVIDERS.map((p) => p.
 assert.equal(heavy.lookups, 12); assert.equal(heavy.valid, false, 'more than 10 DNS lookups is refused');
 assert.equal(gen.buildSpf({ mx: false, a: false, providers: ['google'], includes: '_spf.google.com' }).lookups, 1, 'a repeated include counts once');
 console.log('record generator tests passed');
+
+// ---------- dashboard helpers ----------
+const dash = await import('../src/utils/dashboard.js');
+assert.deepEqual(dash.normalizeLayout(null), { order: dash.CARD_IDS, hidden: [] });
+assert.deepEqual(dash.normalizeLayout({ order: ['last_backup', 'x', 'last_backup'], hidden: ['spam_senders', 'y'] }).order.slice(0, 2), ['last_backup', 'domains_health']);
+assert.deepEqual(dash.normalizeLayout({ order: ['last_backup'], hidden: ['spam_senders', 'y', 'spam_senders'] }).hidden, ['spam_senders']);
+assert.equal(dash.normalizeLayout({ order: ['last_backup'] }).order.length, dash.CARD_IDS.length, 'cards missing from a saved layout are appended');
+assert.deepEqual(dash.moveBefore(['a', 'b', 'c', 'd'], 'd', 'b'), ['a', 'd', 'b', 'c']);
+assert.deepEqual(dash.moveBefore(['a', 'b', 'c', 'd'], 'a', 'c'), ['b', 'a', 'c', 'd']);
+assert.deepEqual(dash.moveBefore(['a', 'b'], 'a', 'a'), ['a', 'b']); assert.deepEqual(dash.moveBefore(['a', 'b'], 'x', 'a'), ['a', 'b']);
+const lay = { order: ['a', 'b', 'c', 'd'], hidden: ['b'] };
+assert.deepEqual(dash.moveStep(lay, 'c', -1).order, ['c', 'a', 'b', 'd'], 'one step among the visible cards jumps over a hidden one');
+assert.deepEqual(dash.moveStep(lay, 'a', 1).order, ['b', 'c', 'a', 'd']);
+assert.deepEqual(dash.moveStep(lay, 'a', -1), lay); assert.deepEqual(dash.moveStep(lay, 'd', 1), lay); assert.deepEqual(dash.moveStep(lay, 'b', 1), lay, 'a hidden card has no visible position');
+const now = Date.parse('2026-11-26T12:00:00Z');
+assert.equal(dash.ago('2026-11-26T11:59:40Z', now), 'agora há pouco'); assert.equal(dash.ago('2026-11-26T11:30:00Z', now), 'há 30 min');
+assert.equal(dash.ago('2026-11-26T09:00:00Z', now), 'há 3 h'); assert.equal(dash.ago('2026-11-25T11:00:00Z', now), 'há 1 dia'); assert.equal(dash.ago('2026-11-20T12:00:00Z', now), 'há 6 dias'); assert.equal(dash.ago('lixo', now), '');
+assert.equal(dash.seenFor('2026-11-20T00:00:00Z', '2026-11-20T05:00:00Z'), '1 dia'); assert.equal(dash.seenFor('2026-11-10T00:00:00Z', '2026-11-20T00:00:00Z'), '10 dias');
+assert.equal(dash.formatBytes(512), '512 B'); assert.equal(dash.formatBytes(2048), '2,0 KB'); assert.equal(dash.formatBytes(5 * 1024 * 1024), '5,0 MB'); assert.equal(dash.formatBytes(null), '');
+assert.equal(dash.backupTone(null, now), 'danger');
+assert.equal(dash.backupTone({ last_success: { at: '2026-11-26T03:00:00Z' }, last_run: { status: 'success', at: '2026-11-26T03:00:00Z' } }, now), 'ok');
+assert.equal(dash.backupTone({ last_success: { at: '2026-11-22T03:00:00Z' }, last_run: { status: 'success', at: '2026-11-22T03:00:00Z' } }, now), 'warning', 'older than two days');
+assert.equal(dash.backupTone({ last_success: { at: '2026-11-26T03:00:00Z' }, last_run: { status: 'failed', at: '2026-11-26T09:00:00Z' } }, now), 'warning', 'a newer failed run');
+assert.equal(dash.healthPercent({ total: 4, healthy: 3 }), 75); assert.equal(dash.healthPercent({ total: 0, healthy: 0 }), 0);
+assert.deepEqual(dash.mailSegments({ ok: 3, warning: 1, not_found: 1, fail: 1, absent: 1 }, 8), { ok: 3, warning: 2, bad: 2, unknown: 1 });
+console.log('dashboard helper tests passed');

@@ -1,6 +1,6 @@
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import { SHELL_ROOT, SHELL_MAIN, SHELL_SCROLLER } from './shellClasses';
-import { Users, Settings, Shield, LogOut, Menu, X, Building2, Bug, Globe } from 'lucide-react';
+import { Users, Settings, Shield, LogOut, Menu, X, Building2, Bug, Globe, LayoutDashboard } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import UserProfileModal from '../components/UserProfileModal';
@@ -172,6 +172,7 @@ export default function DashboardLayout() {
   // Optional modules: the server decides who sees which (booleans only); a failed call simply shows none.
   const { modules } = useModulesMenu(user?.id);
   const navigation = [
+    ...(canSeeUpdates ? [{ name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard }] : []),
     { name: 'Clientes / Cofre', href: '/', icon: Building2 },
     ...(user?.role === 'admin' ? [{ name: 'Gestão de Equipe', href: '/team', icon: Users }] : []),
     ...(modules.spfbl === true ? [{ name: 'SPFBL', href: '/spfbl', icon: Bug }] : []),

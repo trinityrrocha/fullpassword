@@ -456,6 +456,7 @@ const ensureSecuritySchema = async () => {
     await require('./modulesSchema').ensureModulesSchema(client);
     await require('./spfblSchema').ensureSpfblSchema(client);
     await require('./domainManagerSchema').ensureDomainManagerSchema(client);
+    await require('./dashboardSchema').ensureDashboardSchema(client);
     await client.query('COMMIT');
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {});

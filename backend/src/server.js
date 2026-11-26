@@ -130,7 +130,7 @@ app.use('/api', csrfProtection);
 app.use('/api/system/backup', sensitiveOperationLimiter);
 app.use('/api/system/update', systemUpdateLimiter);
 app.use('/api/integrations/google-drive', sensitiveOperationLimiter);
-app.use(['/api/clients', '/api/users', '/api/system', '/api/groups', '/api/spfbl', '/api/domain-manager'], generalWriteLimiter);
+app.use(['/api/clients', '/api/users', '/api/system', '/api/groups', '/api/spfbl', '/api/domain-manager', '/api/dashboard'], generalWriteLimiter);
 
 // O vault transporta anexos já criptografados no navegador e precisa de uma
 // exceção controlada. Todas as demais rotas JSON permanecem no limite padrão.
@@ -155,6 +155,7 @@ app.use('/api/integrations', integrationRoutes);
 app.use('/api/cloud-backup', cloudBackupRoutes);
 app.use('/api/spfbl', require('./routes/spfblRoutes'));
 app.use('/api/domain-manager', require('./routes/domainManagerRoutes'));
+app.use('/api/dashboard', require('./routes/dashboardRoutes'));
 // JSON 404 instead of Express's HTML page, which names the framework.
 app.use('/api', function apiNotFound(_req, res) { res.status(404).json({ error: 'Rota não encontrada' }); });
 

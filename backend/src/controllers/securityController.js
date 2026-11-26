@@ -391,6 +391,9 @@ const markSecurityNotificationsSeen = async (req, res) => {
 };
 
 module.exports = {
+  NOTIFICATION_ACTIONS,
+  NOTIFICATION_STATUSES,
+  formatSecurityNotification,
   getPolicy,
   updatePolicy,
   getScreenProtection,

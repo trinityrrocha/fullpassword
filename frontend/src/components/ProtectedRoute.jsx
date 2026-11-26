@@ -1,7 +1,7 @@
 import { Navigate, Outlet } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
-export default function ProtectedRoute({ requiredRole }) {
+export default function ProtectedRoute({ requiredRole, requireSuperAdmin = false }) {
   const { isAuthenticated, loading, user } = useAuth();
 
   if (loading) {
@@ -19,6 +19,10 @@ export default function ProtectedRoute({ requiredRole }) {
 
   // Se a rota exige um papel específico e o usuário não tem, redireciona para o dashboard
   if (requiredRole && user?.role !== requiredRole) {
+    return <Navigate to="/" replace />;
+  }
+
+  if (requireSuperAdmin && !(user?.role === 'admin' && user?.is_super_admin === true)) {
     return <Navigate to="/" replace />;
   }
 
