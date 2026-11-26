@@ -163,28 +163,41 @@ export function AlertsDialog({ domain, onClose, onSaved }) {
     return () => { active = false; };
   }, [domain.id]);
 
-  const addEmail = () => {
+  // Returns the list with the typed address included, or null (and shows why) when it cannot be added.
+  const withDraft = ({ forSave = false } = {}) => {
     const value = draft.trim().toLowerCase();
-    if (!value) return;
-    if (!isValidEmail(value)) { setFieldError('Informe um e-mail válido.'); return; }
-    if (form.emails.includes(value)) { setFieldError('Este e-mail já está na lista.'); return; }
-    if (form.emails.length >= MAX_ALERT_EMAILS) { setFieldError(`O máximo é ${MAX_ALERT_EMAILS} e-mails.`); return; }
-    setForm({ ...form, emails: [...form.emails, value] });
+    if (!value) return form.emails;
+    if (!isValidEmail(value)) { setFieldError('Informe um e-mail válido.'); return null; }
+    if (form.emails.includes(value)) {
+      if (forSave) return form.emails; // already in the list: nothing to add, nothing to complain about
+      setFieldError('Este e-mail já está na lista.');
+      return null;
+    }
+    if (form.emails.length >= MAX_ALERT_EMAILS) { setFieldError(`O máximo é ${MAX_ALERT_EMAILS} e-mails.`); return null; }
+    return [...form.emails, value];
+  };
+  const addEmail = () => {
+    const emails = withDraft();
+    if (!emails) return;
+    setForm({ ...form, emails });
     setDraft(''); setFieldError('');
   };
   const removeEmail = (email) => setForm({ ...form, emails: form.emails.filter((item) => item !== email) });
 
   const save = async (event) => {
     event.preventDefault();
+    // An address typed but not yet added is not lost: it is included (or the reason it cannot be is shown).
+    const emails = withDraft({ forSave: true });
+    if (!emails) return;
     setBusy(true); setError('');
-    try { await saveDomainAlerts(domain.id, form); await onSaved(); onClose(); } catch (failure) { setError(describeError(failure, 'Não foi possível salvar os alertas.')); } finally { setBusy(false); }
+    try { await saveDomainAlerts(domain.id, { ...form, emails }); await onSaved(); onClose(); } catch (failure) { setError(describeError(failure, 'Não foi possível salvar os alertas.')); } finally { setBusy(false); }
   };
 
   return (
     <FormDialog title={`Alertas — ${domain.name}`} description="Avisos de vencimento deste domínio." onClose={onClose} busy={busy}
       footer={<div className="flex flex-wrap justify-end gap-2">
         <button type="button" data-dialog-cancel disabled={busy} className={secondaryButton}>Cancelar</button>
-        <button type="submit" form="dm-alerts-form" disabled={busy || !form || !canSaveAlerts(form)} className={primaryButton}>{busy ? 'Salvando…' : 'Salvar'}</button>
+        <button type="submit" form="dm-alerts-form" disabled={busy || !form || !canSaveAlerts({ ...form, emails: draft.trim() ? [...form.emails, draft.trim()] : form.emails })} className={primaryButton}>{busy ? 'Salvando…' : 'Salvar'}</button>
       </div>}>
       {!form && !error && <p className="text-sm text-slate-600">Carregando…</p>}
       {error && <p role="alert" className={errorBox}>{error}</p>}
@@ -222,7 +235,7 @@ export function AlertsDialog({ domain, onClose, onSaved }) {
                 <input type="checkbox" checked={form.notify_admins} onChange={(event) => setForm({ ...form, notify_admins: event.target.checked })} className="mt-0.5 h-4 w-4 rounded border-slate-300" />
                 <span>Notificar os administradores<span className="block text-xs text-slate-600">Eles recebem o e-mail e o aviso no sino sem precisar digitar o endereço aqui.</span></span>
               </label>
-              {!canSaveAlerts(form) && <p role="alert" className="text-sm text-amber-800">Adicione ao menos um e-mail ou marque "Notificar os administradores".</p>}
+              {!canSaveAlerts({ ...form, emails: draft.trim() ? [...form.emails, draft.trim()] : form.emails }) && <p role="alert" className="text-sm text-amber-800">Adicione ao menos um e-mail ou marque "Notificar os administradores".</p>}
               <p className="text-xs text-slate-600">O aviso é enviado quando faltarem 30, 15 e 5 dias, no dia do vencimento e diariamente até 10 dias depois. Cada aviso é enviado uma vez por data de vencimento; ao renovar, a sequência recomeça.</p>
             </>
           )}

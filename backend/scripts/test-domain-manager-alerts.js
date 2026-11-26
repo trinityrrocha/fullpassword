@@ -168,6 +168,32 @@ async function run() {
   assert.equal((await alerts.processDue()).sent, 1);
   assert.deepEqual(sent.map((m) => m.to), ['novo@x.com'], 'the address of the vault notice is left to the vault notice');
 
+  // --- Review fixes: a failed bell record is retried; one broken domain never stops the others.
+  const domain4 = await service.addDomain('sino.com', adminId);
+  const domain5 = await service.addDomain('irmao.com', adminId);
+  for (const [item, who] of [[domain4, 'sino@x.com'], [domain5, 'irmao@x.com']]) {
+    await alerts.saveAlerts(item.id, { enabled: true, notify_admins: true, emails: [who] }, adminId);
+    await setExpiry(item.id, dayFrom(2));
+  }
+  await pg.query('UPDATE dm_alert_settings SET enabled = FALSE WHERE domain_id NOT IN ($1, $2)', [domain4.id, domain5.id]);
+  let auditCalls = 0;
+  const flaky = alertsModule.createAlertService({ send, now: () => now, audit: async (args) => { auditCalls += 1; if (auditCalls === 1) { assert.equal(args.throwOnError, true, 'the bell record must report its own failure'); throw new Error('db down'); } return require('../src/services/auditService').recordAuditEvent(args); } });
+  sent.length = 0;
+  const firstPass = await flaky.processDue();
+  assert.equal(firstPass.failed, 1, 'the failed bell record is counted');
+  assert.equal(firstPass.bells, 1, 'the other domain still got its bell');
+  const retryPass = await flaky.processDue();
+  assert.equal(retryPass.bells, 1, 'the failed bell is retried on the next pass (its claim was released)');
+  assert.equal(retryPass.sent, 0, 'mails already sent are not repeated');
+  // A query that blows up for one domain: the rest of the pass continues.
+  await setExpiry(domain4.id, dayFrom(1)); await setExpiry(domain5.id, dayFrom(1));
+  const broken = { query: (sql, params) => (/INSERT INTO dm_notifications_sent/.test(sql) && params[0] === domain4.id ? Promise.reject(new Error('fk')) : db.query(sql, params)) };
+  const isolated = alertsModule.createAlertService({ queryable: broken, send, now: () => now });
+  sent.length = 0;
+  const isolatedResult = await isolated.processDue();
+  assert.ok(isolatedResult.failed >= 1);
+  assert.ok(sent.some((mail) => mail.to === 'irmao@x.com'), 'the healthy domain was still processed');
+
   // --- Removing a domain removes its alert settings and history.
   await service.removeDomain(domain3.id);
   assert.equal((await pg.query('SELECT count(*)::int AS n FROM dm_alert_settings WHERE domain_id = $1', [domain3.id])).rows[0].n, 0);

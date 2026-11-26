@@ -93,34 +93,46 @@ const createAlertService = ({ queryable = db, send = sendEmail, audit = recordAu
     const result = { sent: 0, bells: 0, failed: 0 };
     let admins = null;
     for (const row of rows) {
-      const daysLeft = daysBetween(day, row.expires_on);
-      const event = eventFor(daysLeft);
-      if (!event) continue;
-      if (row.notify_admins && admins === null) admins = (await queryable.query('SELECT email FROM users WHERE is_super_admin = TRUE AND is_active = TRUE')).rows.map((admin) => admin.email.toLowerCase());
-      const covered = await coveredByVaultNotice(row.name);
-      const recipients = [...new Set([...(Array.isArray(row.emails) ? row.emails : []), ...(row.notify_admins ? admins : [])].map((email) => String(email).toLowerCase()))]
-        .filter((email) => !covered.has(email));
-      const mail = buildEmail({ domain: row.name, expiresOn: row.expires_on, daysLeft, expired: event.expired });
-      for (const email of recipients) {
-        const recipient = hash(email);
-        const retryKey = `${row.id}:${row.expires_on}:${event.key}:${recipient}`;
-        if ((retryAt.get(retryKey) || 0) > now()) continue;
-        if (!(await claim(row.id, row.expires_on, event.key, recipient))) continue;
-        try {
-          await send({ to: email, ...mail });
-          retryAt.delete(retryKey);
-          result.sent += 1;
-        } catch (error) {
-          await release(row.id, row.expires_on, event.key, recipient);
-          retryAt.set(retryKey, now() + RETRY_AFTER_MS);
-          result.failed += 1;
-          safeLogError('Falha segura ao enviar alerta de vencimento do Domain Manager.', { name: error?.name, code: error?.code }, { includeStack: false });
+      // One domain's trouble (a removed row, a failed query) never stops the others; they are retried on the next pass.
+      try {
+        const daysLeft = daysBetween(day, row.expires_on);
+        const event = eventFor(daysLeft);
+        if (!event) continue;
+        if (row.notify_admins && admins === null) admins = (await queryable.query('SELECT email FROM users WHERE is_super_admin = TRUE AND is_active = TRUE')).rows.map((admin) => admin.email.toLowerCase());
+        const covered = await coveredByVaultNotice(row.name);
+        const recipients = [...new Set([...(Array.isArray(row.emails) ? row.emails : []), ...(row.notify_admins ? admins : [])].map((email) => String(email).toLowerCase()))]
+          .filter((email) => !covered.has(email));
+        const mail = buildEmail({ domain: row.name, expiresOn: row.expires_on, daysLeft, expired: event.expired });
+        for (const email of recipients) {
+          const recipient = hash(email);
+          const retryKey = `${row.id}:${row.expires_on}:${event.key}:${recipient}`;
+          if ((retryAt.get(retryKey) || 0) > now()) continue;
+          if (!(await claim(row.id, row.expires_on, event.key, recipient))) continue;
+          try {
+            await send({ to: email, ...mail });
+            retryAt.delete(retryKey);
+            result.sent += 1;
+          } catch (error) {
+            retryAt.set(retryKey, now() + RETRY_AFTER_MS);
+            result.failed += 1;
+            safeLogError('Falha segura ao enviar alerta de vencimento do Domain Manager.', { name: error?.name, code: error?.code }, { includeStack: false });
+            await release(row.id, row.expires_on, event.key, recipient).catch(() => {});
+          }
         }
-      }
-      // The bell (Super Admins) is part of "notify the administrators", whether or not the mail could be sent.
-      if (row.notify_admins && await claim(row.id, row.expires_on, event.key, 'bell')) {
-        await audit({ action: 'domain_manager_expiry_alert', status: 'success', metadata: { domain: row.name, days_left: daysLeft, event: event.key }, queryable });
-        result.bells += 1;
+        // The bell (Super Admins) is part of "notify the administrators", whether or not the mail could be sent. The claim is kept only
+        // when the event was really recorded: if recording fails, the claim is released and the next pass tries again.
+        if (row.notify_admins && await claim(row.id, row.expires_on, event.key, 'bell')) {
+          try {
+            await audit({ action: 'domain_manager_expiry_alert', status: 'success', metadata: { domain: row.name, days_left: daysLeft, event: event.key }, queryable, throwOnError: true });
+            result.bells += 1;
+          } catch {
+            result.failed += 1;
+            await release(row.id, row.expires_on, event.key, 'bell').catch(() => {});
+          }
+        }
+      } catch (error) {
+        result.failed += 1;
+        safeLogError('Falha segura ao processar alertas de um domínio.', { name: error?.name, code: error?.code }, { includeStack: false });
       }
     }
     return result;

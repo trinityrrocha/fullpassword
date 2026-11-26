@@ -193,6 +193,27 @@ try {
   await alertsDialog.waitFor({ state: 'detached' });
   await page.waitForFunction(() => ![...document.querySelectorAll('[aria-label="Domínios"] > li')].some((li) => li.innerText.includes('Alertas ativos')));
 
+  // An address typed but not added is kept when saving; an invalid one blocks saving and says why.
+  await page.getByRole('button', { name: 'Alertas de extra00.com' }).click();
+  const pendingDialog = page.getByRole('dialog', { name: 'Alertas — extra00.com' });
+  await pendingDialog.getByRole('switch', { name: 'Alertas de vencimento' }).click();
+  const pendingField = pendingDialog.getByLabel('E-mails para notificação');
+  await pendingField.fill('digitado@empresa.com');
+  assert.equal(await pendingDialog.getByRole('button', { name: 'Salvar' }).isDisabled(), false, 'a typed address counts as a recipient');
+  await pendingDialog.getByRole('button', { name: 'Salvar' }).click();
+  await pendingDialog.waitFor({ state: 'detached' });
+  assert.deepEqual(state.calls.filter((c) => c.method === 'PUT' && c.api.endsWith('/alerts')).at(-1).body.emails, ['digitado@empresa.com']);
+  await page.getByRole('button', { name: 'Alertas de extra01.com' }).click();
+  const badDialog = page.getByRole('dialog', { name: 'Alertas — extra01.com' });
+  await badDialog.getByRole('switch', { name: 'Alertas de vencimento' }).click();
+  await badDialog.getByLabel('E-mails para notificação').fill('nao-e-email');
+  await badDialog.getByRole('button', { name: 'Salvar' }).click();
+  assert.match(await badDialog.getByRole('alert').first().innerText(), /e-mail válido/);
+  assert.equal(await page.getByRole('dialog', { name: 'Alertas — extra01.com' }).count(), 1, 'the dialog stays open');
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Descartar', exact: true }).click();
+  await badDialog.waitFor({ state: 'detached' });
+
   // Interval setting.
   await page.getByRole('button', { name: 'Consultas automáticas' }).click();
   await page.getByLabel(/Intervalo entre consultas/).fill('14');
