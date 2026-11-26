@@ -11,6 +11,7 @@
     "test:system-update": "node scripts/test-system-update-panel.js",
     "test:spfbl:browser": "node scripts/test-spfbl-module-browser.js",
     "test:domain-manager:browser": "node scripts/test-domain-manager-browser.js",
+    "test:team-domain-manager:browser": "node scripts/test-team-domain-manager-access-browser.js",
     "test:vault-user-share:browser": "node scripts/test-vault-user-share-browser.js",
     "test:team-spfbl:browser": "node scripts/test-team-spfbl-access-browser.js",
     "test:system-update:browser": "node scripts/test-system-update-panel-browser.js",

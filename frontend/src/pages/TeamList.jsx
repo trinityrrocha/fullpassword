@@ -5,6 +5,9 @@ import AdminSetPasswordDialog from '../components/AdminSetPasswordDialog';
 import FormDialog from '../components/FormDialog';
 import GroupModal from '../components/GroupModal';
 import SpfblUserAccess from '../components/spfbl/SpfblUserAccess';
+import DomainManagerUserAccess from '../components/domainManager/DomainManagerUserAccess';
+import { revokeDomainAccess, saveDomainAccess } from '../services/domainManagerService';
+import { EMPTY_DM_ACCESS, canSaveDmAccess } from '../utils/domainManager';
 import { getMenuModules, revokeAccess, saveAccess } from '../services/spfblService';
 import PaginationBar from '../components/PaginationBar';
 import { EMPTY_SPFBL_ACCESS, canSaveAccess, paginate } from '../utils/spfbl';
@@ -153,6 +156,9 @@ export default function TeamList() {
   // SPFBL access inside the user dialog: only for a Super Admin and only while the module is on.
   const [spfblActive, setSpfblActive] = useState(false);
   const [spfbl, setSpfbl] = useState(EMPTY_SPFBL_ACCESS);
+  // Domain Manager access (read only) inside the same dialog: same rules, own tab.
+  const [dmActive, setDmActive] = useState(false);
+  const [dmAccess, setDmAccess] = useState(EMPTY_DM_ACCESS);
   const [modalTab, setModalTab] = useState('data');
   const [memberPage, setMemberPage] = useState(1);
   const [memberPageSize, setMemberPageSize] = useState(20);
@@ -170,6 +176,7 @@ export default function TeamList() {
     setNewUser(defaultNewUser);
     setEditUser(defaultEditUser);
     setSpfbl(EMPTY_SPFBL_ACCESS);
+    setDmAccess(EMPTY_DM_ACCESS);
     setModalTab('data');
     setDeleteUserConfirmation('');
     setIsGroupModalOpen(false);
@@ -213,14 +220,17 @@ export default function TeamList() {
   useEffect(() => {
     if (!user?.is_super_admin) return undefined;
     let active = true;
-    getMenuModules().then((modules) => { if (active) setSpfblActive(modules?.spfbl === true); }).catch(() => { if (active) setSpfblActive(false); });
+    getMenuModules().then((modules) => { if (active) { setSpfblActive(modules?.spfbl === true); setDmActive(modules?.domain_manager === true); } }).catch(() => { if (active) { setSpfblActive(false); setDmActive(false); } });
     return () => { active = false; };
   }, [user?.is_super_admin]);
 
   const memberView = paginate(teamMembers, memberPage, memberPageSize);
   const groupView = paginate(groups, groupPage, groupPageSize);
   const showSpfblTab = (editing) => Boolean(user?.is_super_admin && spfblActive && !(editing && editUser.is_super_admin));
-  const resetSpfblDraft = () => { setSpfbl(EMPTY_SPFBL_ACCESS); setModalTab('data'); };
+  const showDmTab = (editing) => Boolean(user?.is_super_admin && dmActive && !(editing && editUser.is_super_admin));
+  const hasAccessTabs = (editing) => showSpfblTab(editing) || showDmTab(editing);
+  const accessTabs = (editing) => [['data', 'Dados'], ...(showSpfblTab(editing) ? [['spfbl', 'SPFBL']] : []), ...(showDmTab(editing) ? [['dm', 'Domain Manager']] : [])];
+  const resetSpfblDraft = () => { setSpfbl(EMPTY_SPFBL_ACCESS); setDmAccess(EMPTY_DM_ACCESS); setModalTab('data'); };
   // Saved AFTER the user itself (it needs the id); a failure here never undoes the user and is reported by name.
   const saveSpfblAccess = async (userId) => {
     if (!spfbl.dirty || !spfbl.loaded) return '';
@@ -232,6 +242,23 @@ export default function TeamList() {
       return error.response?.data?.error || 'o servidor recusou a alteração';
     }
   };
+  // `eligible` is false for an account being deactivated in the same save: its access draft is left alone (the server would refuse it).
+  const saveDmAccessDraft = async (userId, eligible = true) => {
+    if (!eligible || !dmAccess.dirty || !dmAccess.loaded) return '';
+    try {
+      if (dmAccess.enabled) await saveDomainAccess(userId, dmAccess.domainIds);
+      else if (dmAccess.had) {
+        // Already gone (a retry after another part of the save failed) is the outcome that was asked for.
+        try { await revokeDomainAccess(userId); } catch (error) { if (error.response?.status !== 404) throw error; }
+      }
+      // Saved: the draft now matches the server, so a retry of the rest of the dialog does not repeat (or fail on) this part.
+      setDmAccess((current) => ({ ...current, had: current.enabled, dirty: false }));
+      return '';
+    } catch (error) {
+      return error.response?.data?.error || 'o servidor recusou a alteração';
+    }
+  };
+  const dmDraftInvalid = (eligible = true) => eligible && dmAccess.dirty && !canSaveDmAccess(dmAccess);
   const spfblDraftInvalid = (userId) => spfbl.dirty && spfbl.enabled && !canSaveAccess(userId || 'new', spfbl.mode, spfbl.domainIds);
 
   const openCreateUserModal = () => {
@@ -253,15 +280,18 @@ export default function TeamList() {
     if(!passwordPolicy||newUser.password.length<passwordPolicy.login_min_length){setFormError(passwordPolicy?`A senha deve ter ao menos ${passwordPolicy.login_min_length} caracteres.`:'Aguarde o carregamento da política de senhas.');return;}
     if(!e.currentTarget.checkValidity()){setFormError('Preencha nome e e-mail válidos e os campos obrigatórios.');e.currentTarget.querySelector(':invalid')?.focus();return;}
     if (spfblDraftInvalid()) { setFormError('Escolha de 1 a 100 domínios para o acesso ao SPFBL.'); setModalTab('spfbl'); return; }
+    if (dmDraftInvalid()) { setFormError('Escolha de 1 a 100 domínios para o acesso ao Domain Manager.'); setModalTab('dm'); return; }
     savingRef.current=true;setIsSaving(true);
     try {
       const payload = user?.is_super_admin ? newUser : { ...newUser, mfa_required: undefined };
       const created = (await api.post('/users', payload)).data;
       const accessFailure = created?.id ? await saveSpfblAccess(created.id) : '';
+      const dmFailure = created?.id ? await saveDmAccessDraft(created.id) : '';
       setIsModalOpen(false);
       setNewUser(defaultNewUser);
       resetSpfblDraft();
       if (accessFailure) setFormError(`Usuário criado, mas o acesso ao SPFBL NÃO foi salvo (${accessFailure}). Abra "Editar" e tente de novo.`);
+      else if (dmFailure) setFormError(`Usuário criado, mas o acesso ao Domain Manager NÃO foi salvo (${dmFailure}). Abra "Editar" e tente de novo.`);
       else setNotice('Usuário criado com sucesso!');
       await loadUsers();
     } catch (error) {
@@ -279,6 +309,7 @@ export default function TeamList() {
     setFormError('');
     if(!e.currentTarget.checkValidity()){setFormError('Preencha nome e e-mail válidos e os campos obrigatórios.');e.currentTarget.querySelector(':invalid')?.focus();return;}
     if (spfblDraftInvalid(editUser.id)) { setFormError('Escolha de 1 a 100 domínios para o acesso ao SPFBL.'); setModalTab('spfbl'); return; }
+    if (dmDraftInvalid(editUser.is_active)) { setFormError('Escolha de 1 a 100 domínios para o acesso ao Domain Manager.'); setModalTab('dm'); return; }
     savingRef.current=true;setIsSaving(true);
     try {
       const payload = {
@@ -293,8 +324,10 @@ export default function TeamList() {
 
       await api.put(`/users/${editUser.id}`, payload);
       const accessFailure = await saveSpfblAccess(editUser.id);
+      const dmFailure = await saveDmAccessDraft(editUser.id, editUser.is_active);
       await loadUsers();
       if (accessFailure) { setFormError(`Usuário salvo, mas o acesso ao SPFBL NÃO foi salvo: ${accessFailure}.`); setModalTab('spfbl'); return; }
+      if (dmFailure) { setFormError(`Usuário salvo, mas o acesso ao Domain Manager NÃO foi salvo: ${dmFailure}.`); setModalTab('dm'); return; }
       setNotice('Usuário atualizado com sucesso!');
       setIsEditModalOpen(false);
       setEditUser(defaultEditUser);
@@ -589,9 +622,9 @@ export default function TeamList() {
                 onDeleteConfirmationChange={(event) => setDeleteUserConfirmation(event.target.value)}
                 onDelete={handleDeleteUser}
               />}>
-  {showSpfblTab(true) && (
+  {hasAccessTabs(true) && (
     <div role="tablist" aria-label="Seções do usuário" className="-mt-1 mb-3 flex gap-1 border-b border-slate-200">
-      {[['data', 'Dados'], ['spfbl', 'SPFBL']].map(([key, label]) => (
+      {accessTabs(true).map(([key, label]) => (
         <button key={key} type="button" role="tab" id={`editUser-tab-${key}`} aria-selected={modalTab === key} aria-controls={`editUser-panel-${key}`} onClick={() => setModalTab(key)}
           className={`min-h-9 border-b-2 px-3 text-sm font-medium ${modalTab === key ? 'border-indigo-600 text-indigo-700' : 'border-transparent text-slate-600 hover:text-slate-900'}`}>{label}</button>
       ))}
@@ -599,7 +632,7 @@ export default function TeamList() {
   )}
   <form id="editUserForm" onSubmit={handleEditUser} noValidate className="space-y-4">
           {formError && <p role="alert" className="text-sm text-red-600 dark:text-red-400">{formError}</p>}
-    <div role="tabpanel" id="editUser-panel-data" aria-labelledby="editUser-tab-data" hidden={showSpfblTab(true) && modalTab !== 'data'} className="space-y-4">
+    <div role="tabpanel" id="editUser-panel-data" aria-labelledby="editUser-tab-data" hidden={hasAccessTabs(true) && modalTab !== 'data'} className="space-y-4">
     <div>
       <label htmlFor="editUserForm-1" className="block text-sm font-medium text-slate-700 mb-1">Nome Completo</label>
       <input id="editUserForm-1" type="text" required className="h-8 w-full rounded-md border border-slate-300 px-2 py-1 text-sm shadow-sm" value={editUser.name} onChange={e => setEditUser({...editUser, name: e.target.value})} />
@@ -646,6 +679,11 @@ export default function TeamList() {
         <SpfblUserAccess userId={editUser.id} eligible={editUser.is_active} reason="Ative a conta do usuário (aba Dados) para dar acesso ao SPFBL." value={spfbl} onChange={setSpfbl} />
       </div>
     )}
+    {showDmTab(true) && (
+      <div role="tabpanel" id="editUser-panel-dm" aria-labelledby="editUser-tab-dm" hidden={modalTab !== 'dm'}>
+        <DomainManagerUserAccess userId={editUser.id} eligible={editUser.is_active} reason="Ative a conta do usuário (aba Dados) para dar acesso ao Domain Manager." value={dmAccess} onChange={setDmAccess} />
+      </div>
+    )}
   </form>
         </FormDialog>
       )}
@@ -654,9 +692,9 @@ export default function TeamList() {
 
       {isModalOpen && (
         <FormDialog title="Cadastrar Novo Membro" onClose={closeCreateUserModal} busy={isSaving} footer={<ModalFooter isSaving={isSaving} formId="newUserForm" submitLabel="Salvar Usuário" onCancel={closeCreateUserModal} />}>
-  {showSpfblTab(false) && (
+  {hasAccessTabs(false) && (
     <div role="tablist" aria-label="Seções do usuário" className="-mt-1 mb-3 flex gap-1 border-b border-slate-200">
-      {[['data', 'Dados'], ['spfbl', 'SPFBL']].map(([key, label]) => (
+      {accessTabs(false).map(([key, label]) => (
         <button key={key} type="button" role="tab" id={`newUser-tab-${key}`} aria-selected={modalTab === key} aria-controls={`newUser-panel-${key}`} onClick={() => setModalTab(key)}
           className={`min-h-9 border-b-2 px-3 text-sm font-medium ${modalTab === key ? 'border-indigo-600 text-indigo-700' : 'border-transparent text-slate-600 hover:text-slate-900'}`}>{label}</button>
       ))}
@@ -664,7 +702,7 @@ export default function TeamList() {
   )}
   <form id="newUserForm" onSubmit={handleCreateUser} noValidate className="space-y-4">
           {formError && <p role="alert" className="text-sm text-red-600 dark:text-red-400">{formError}</p>}
-    <div role="tabpanel" id="newUser-panel-data" aria-labelledby="newUser-tab-data" hidden={showSpfblTab(false) && modalTab !== 'data'} className="space-y-4">
+    <div role="tabpanel" id="newUser-panel-data" aria-labelledby="newUser-tab-data" hidden={hasAccessTabs(false) && modalTab !== 'data'} className="space-y-4">
     <div>
       <label htmlFor="newUserForm-1" className="block text-sm font-medium text-slate-700 mb-1">Nome Completo</label>
       <input id="newUserForm-1" type="text" required className="h-8 w-full rounded-md border border-slate-300 px-2 py-1 text-sm shadow-sm" value={newUser.name} onChange={e => setNewUser({...newUser, name: e.target.value})} placeholder="Ex: João Silva" />
@@ -695,6 +733,11 @@ export default function TeamList() {
     {showSpfblTab(false) && (
       <div role="tabpanel" id="newUser-panel-spfbl" aria-labelledby="newUser-tab-spfbl" hidden={modalTab !== 'spfbl'}>
         <SpfblUserAccess userId={null} eligible reason="" value={spfbl} onChange={setSpfbl} />
+      </div>
+    )}
+    {showDmTab(false) && (
+      <div role="tabpanel" id="newUser-panel-dm" aria-labelledby="newUser-tab-dm" hidden={modalTab !== 'dm'}>
+        <DomainManagerUserAccess userId={null} eligible reason="" value={dmAccess} onChange={setDmAccess} />
       </div>
     )}
   </form>

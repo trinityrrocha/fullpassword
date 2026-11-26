@@ -1,5 +1,7 @@
 const { getService, DomainError, UUID_PATTERN } = require('../services/domainManagerService');
 const { getAlertService } = require('../services/domainManagerAlerts');
+const access = require('../services/domainManagerAccessService');
+const { isSuperAdmin } = require('../config/security');
 const { recordAuditEvent } = require('../services/auditService');
 const { safeLogError } = require('../utils/safeLogger');
 
@@ -19,12 +21,28 @@ const requireId = (req) => {
   return req.params.id;
 };
 
+// Ordinary accounts see only what they were granted, and never the administration details (alert recipients, settings). A domain
+// outside the grant answers "not found", never "forbidden": it must not reveal that the domain exists.
+const publicRow = (domain) => { const { alerts, ...rest } = domain; return rest; };
+const inScope = (req, id) => {
+  const key = id.toLowerCase();
+  if (req.dmScope && !req.dmScope.includes(key)) throw new DomainError('Domínio não encontrado.', 'DM_NOT_FOUND', 404);
+  return key;
+};
+
 const list = handle(async (req, res, service) => {
-  await service.syncFromSpfbl();
   const { page, size, search, sort } = req.query;
-  return res.status(200).json({ ...(await service.list({ page, size, search, sort })), settings: await service.getSettings() });
+  if (req.dmScope) {
+    const result = await service.list({ page, size, search, sort, ids: req.dmScope });
+    return res.status(200).json({ ...result, domains: result.domains.map(publicRow), role: 'user' });
+  }
+  await service.syncFromSpfbl();
+  return res.status(200).json({ ...(await service.list({ page, size, search, sort })), settings: await service.getSettings(), role: 'super_admin' });
 });
-const detail = handle(async (req, res, service) => res.status(200).json(await service.detail(requireId(req))));
+const detail = handle(async (req, res, service) => {
+  const result = await service.detail(inScope(req, requireId(req)));
+  return res.status(200).json(req.dmScope ? { ...result, domain: publicRow(result.domain) } : result);
+});
 const add = handle(async (req, res, service) => {
   const domain = await service.addDomain(req.body?.name, req.user.id);
   await audit(req, 'domain_manager_domain_added', { domain: domain.name });
@@ -43,9 +61,10 @@ const remove = handle(async (req, res, service) => {
   return res.status(200).json({ ok: true });
 });
 const check = handle(async (req, res, service) => {
-  const domain = await service.checkDomain(requireId(req), { manual: true });
+  const domain = await service.checkDomain(inScope(req, requireId(req)), { manual: true });
   await audit(req, 'domain_manager_domain_checked', { domain: domain.name, result: domain.snapshot?.lookup_status });
-  return res.status(200).json({ domain, changes: (await service.detail(domain.id)).changes });
+  const changes = (await service.detail(domain.id)).changes;
+  return res.status(200).json({ domain: req.dmScope ? publicRow(domain) : domain, changes });
 });
 const getSettings = handle(async (_req, res, service) => res.status(200).json(await service.getSettings()));
 const saveSettings = handle(async (req, res, service) => {
@@ -63,4 +82,46 @@ const saveAlerts = handle(async (req, res, service) => {
   return res.status(200).json(alerts);
 });
 
-module.exports = { getAlerts, saveAlerts, list, detail, add, importList, remove, check, getSettings, saveSettings };
+const mapAccessError = (res, error) => (error instanceof access.AccessError ? res.status(error.statusCode).json({ code: error.code, error: error.message }) : null);
+const listAccess = async (_req, res) => res.status(200).json({ access: await access.listAccess() });
+const listAccessDomains = handle(async (_req, res, service) => res.status(200).json({ domains: await service.listNames() }));
+const saveAccess = async (req, res) => {
+  try {
+    const saved = await access.saveAccess(req.params.userId, req.body, req.user.id);
+    await audit(req, 'domain_manager_access_saved', { target_user_id: saved.user_id, domains: saved.domains.length });
+    return res.status(200).json({ access: saved });
+  } catch (error) {
+    await audit(req, 'domain_manager_access_saved', { reason: error?.code || 'internal_error' }, 'failed');
+    if (mapAccessError(res, error)) return undefined;
+    safeLogError('Falha ao salvar acesso ao Domain Manager.', { name: error?.name, code: error?.code }, { includeStack: false });
+    return res.status(500).json({ error: 'Não foi possível salvar o acesso.' });
+  }
+};
+const revokeAccess = async (req, res) => {
+  try {
+    const revoked = await access.revokeAccess(req.params.userId);
+    await audit(req, 'domain_manager_access_revoked', { target_user_id: revoked.user_id });
+    return res.status(200).json({ revoked: true });
+  } catch (error) {
+    await audit(req, 'domain_manager_access_revoked', { reason: error?.code || 'internal_error' }, 'failed');
+    if (mapAccessError(res, error)) return undefined;
+    safeLogError('Falha ao revogar acesso ao Domain Manager.', { name: error?.name, code: error?.code }, { includeStack: false });
+    return res.status(500).json({ error: 'Não foi possível revogar o acesso.' });
+  }
+};
+
+// Runs before the per-route handlers: the Super Admin sees everything (scope null), an account with a grant sees its domains,
+// everyone else is refused.
+const requireDomainAccess = async (req, res, next) => {
+  try {
+    if (isSuperAdmin(req.user)) { req.dmScope = null; return next(); }
+    const scope = await access.getScope(req.user);
+    if (!scope) return res.status(403).json({ code: 'DM_ACCESS_DENIED', error: 'Você não tem acesso ao Domain Manager.' });
+    req.dmScope = scope;
+    return next();
+  } catch (error) {
+    return next(error);
+  }
+};
+
+module.exports = { requireDomainAccess, listAccess, listAccessDomains, saveAccess, revokeAccess, getAlerts, saveAlerts, list, detail, add, importList, remove, check, getSettings, saveSettings };

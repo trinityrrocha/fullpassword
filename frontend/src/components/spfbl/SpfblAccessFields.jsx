@@ -6,13 +6,13 @@ const VISIBLE_LIMIT = 50;
 
 // The mode and the domains of an SPFBL grant. Shared by the access dialog and the user dialog (Gestão de Equipe).
 // Native controls on purpose (UX contract): radios for the mode, checkboxes for domains.
-export default function SpfblAccessFields({ idPrefix, mode, onModeChange, selected, onSelectedChange, domains, busy = false }) {
+export default function SpfblAccessFields({ idPrefix, mode, onModeChange, selected, onSelectedChange, domains, busy = false, showMode = true, legend = '' }) {
   const [query, setQuery] = useState('');
   const matching = useMemo(() => filterDomains(domains, { query }), [domains, query]);
   const visible = matching.slice(0, VISIBLE_LIMIT);
   return (
     <>
-      <fieldset>
+      {showMode && <fieldset>
         <legend className="mb-1 text-sm font-medium text-slate-700">Tratamento dos bloqueios</legend>
         <div className="space-y-1">
           {Object.entries(MODE_LABELS).map(([value, label]) => (
@@ -22,10 +22,10 @@ export default function SpfblAccessFields({ idPrefix, mode, onModeChange, select
             </label>
           ))}
         </div>
-      </fieldset>
+      </fieldset>}
 
       <fieldset>
-        <legend className="mb-1 text-sm font-medium text-slate-700">Domínios permitidos (de 1 a {MAX_DOMAINS_PER_USER})</legend>
+        <legend className="mb-1 text-sm font-medium text-slate-700">{legend || `Domínios permitidos (de 1 a ${MAX_DOMAINS_PER_USER})`}</legend>
         <label className="block text-sm text-slate-700">
           <span className="sr-only">Filtrar domínios</span>
           <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Filtrar domínios" maxLength={100} autoComplete="off" className={fieldClass} />

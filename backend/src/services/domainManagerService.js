@@ -130,12 +130,16 @@ const createService = ({ queryable = db, rdap = createRdapClient(), ssl = sslPro
   };
 
   const SORTS = { name: 'd.name ASC', expiry: 's.expires_on ASC NULLS LAST, d.name ASC', checked: 's.checked_at DESC NULLS LAST, d.name ASC' };
-  const list = async ({ page = 1, size = 20, search = '', sort = 'name' } = {}) => {
+  // `ids` limits the list to those domains (an ordinary account's grant); null means everything (Super Admin).
+  const list = async ({ page = 1, size = 20, search = '', sort = 'name', ids = null } = {}) => {
     const pageSize = PAGE_SIZES.has(Number(size)) ? Number(size) : 20;
     const pageNumber = Math.max(1, Number.parseInt(page, 10) || 1);
     const term = typeof search === 'string' ? search.trim().toLowerCase().slice(0, 100) : '';
-    const where = term ? 'WHERE d.name LIKE $1' : '';
-    const params = term ? [`%${term.replace(/[\\%_]/g, '\\$&')}%`] : [];
+    const conditions = [];
+    const params = [];
+    if (term) { params.push(`%${term.replace(/[\\%_]/g, '\\$&')}%`); conditions.push(`d.name LIKE $${params.length}`); }
+    if (ids !== null) { params.push(ids); conditions.push(`d.id = ANY($${params.length}::uuid[])`); }
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
     const total = (await queryable.query(`SELECT count(*)::int AS n FROM dm_domains d ${where}`, params)).rows[0].n;
     const rows = (await queryable.query(
       `${SELECT_ROW} ${where} ORDER BY ${SORTS[sort] || SORTS.name} LIMIT ${pageSize} OFFSET ${(pageNumber - 1) * pageSize}`, params)).rows;
@@ -200,7 +204,10 @@ const createService = ({ queryable = db, rdap = createRdapClient(), ssl = sslPro
     }
   };
 
-  return { getSettings, saveSettings, syncFromSpfbl, addDomain, importDomains, removeDomain, getDomain, detail, list, checkDomain };
+  // Names only, for the picker of the user dialog (Super Admin). Bounded: the grant itself is limited to 100 domains.
+  const listNames = async () => (await queryable.query('SELECT id, name FROM dm_domains ORDER BY name LIMIT 5000')).rows;
+
+  return { listNames, getSettings, saveSettings, syncFromSpfbl, addDomain, importDomains, removeDomain, getDomain, detail, list, checkDomain };
 };
 
 let shared = null;
