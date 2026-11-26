@@ -9,6 +9,17 @@ const TONE = Object.freeze({
   info: { text: 'text-sky-700', chip: 'bg-sky-50 text-sky-800 ring-sky-200', dot: 'bg-sky-500', bar: 'bg-sky-500' },
   muted: { text: 'text-slate-600', chip: 'bg-slate-100 text-slate-700 ring-slate-200', dot: 'bg-slate-400', bar: 'bg-slate-300' }
 });
+// Horizontal bars are drawn in SVG (widths are attributes): the CSP forbids inline style attributes.
+const FILL = Object.freeze({ ok: 'fill-emerald-500', warning: 'fill-amber-500', danger: 'fill-red-500', bad: 'fill-red-400' });
+const Bar = ({ segments, total }) => {
+  const shown = segments.filter(([, n]) => n > 0);
+  const widths = shown.map(([, n]) => (n / Math.max(1, total)) * 100);
+  return (
+    <svg viewBox="0 0 100 1" preserveAspectRatio="none" className="h-full w-full" aria-hidden="true">
+      {shown.map(([tone], index) => <rect key={tone} x={widths.slice(0, index).reduce((sum, width) => sum + width, 0)} y="0" width={widths[index]} height="1" className={FILL[tone]} />)}
+    </svg>
+  );
+};
 const Chip = ({ tone = 'muted', children }) => <span className={`inline-flex shrink-0 items-center whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${TONE[tone].chip}`}>{children}</span>;
 const Stat = ({ label, value, tone = 'muted', hint }) => (
   <div className="rounded-lg bg-slate-50 px-3 py-2 dark:bg-slate-800/60" title={hint}>
@@ -51,7 +62,7 @@ function DomainsHealth({ data }) {
             <div key={kind} className="flex items-center gap-2 text-xs" title={`${label}: ${seg.ok} válidos, ${seg.warning} com aviso, ${seg.bad} com falha ou ausentes, ${seg.unknown} sem verificação`}>
               <span className="w-12 font-medium text-slate-700 dark:text-slate-300">{label}</span>
               <span className="flex h-2 flex-1 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800" aria-hidden="true">
-                {[['ok', seg.ok], ['warning', seg.warning], ['danger', seg.bad]].map(([tn, n]) => n > 0 && <span key={tn} className={TONE[tn].bar} style={{ width: `${(n / total) * 100}%` }} />)}
+                <Bar segments={[['ok', seg.ok], ['warning', seg.warning], ['danger', seg.bad]]} total={total} />
               </span>
               <span className="w-24 text-right tabular-nums text-slate-600 dark:text-slate-400">{seg.ok} ok · {seg.warning + seg.bad} atenção</span>
             </div>
@@ -122,7 +133,7 @@ function SpamSenders({ data }) {
             <span className="shrink-0 tabular-nums text-slate-700 dark:text-slate-300">{item.blocked} <span className="text-xs text-slate-500">bloqueios</span></span>
           </div>
           <div className="mt-1 flex items-center gap-2">
-            <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800" aria-hidden="true"><span className="block h-full rounded-full bg-red-400" style={{ width: `${Math.max(4, (item.blocked / max) * 100)}%` }} /></span>
+            <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800" aria-hidden="true"><Bar segments={[['bad', Math.max(item.blocked, max * 0.04)]]} total={max} /></span>
             <span className="shrink-0 text-xs text-slate-500" title={`Primeiro: ${formatDateTime(item.first_at)} · Último: ${formatDateTime(item.last_at)}`}>há {seenFor(item.first_at, item.last_at)} · {item.targets} {item.targets === 1 ? 'domínio' : 'domínios'}</span>
           </div>
         </li>
