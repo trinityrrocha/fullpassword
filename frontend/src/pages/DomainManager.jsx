@@ -13,7 +13,7 @@ const fieldClass = 'rounded-md border border-slate-300 bg-white px-2.5 py-2 text
 const SORTS = Object.freeze([['name', 'Nome'], ['expiry', 'Vencimento'], ['checked', 'Última consulta']]);
 
 export default function DomainManager() {
-  const [data, setData] = useState({ domains: [], total: 0, page: 1, size: 20, settings: { check_interval_days: 7 } });
+  const [data, setData] = useState({ domains: [], total: 0, page: 1, size: 20, role: null, settings: { check_interval_days: 7 } });
   const [page, setPage] = useState(1);
   const [size, setSize] = useState(20);
   const [search, setSearch] = useState('');
@@ -63,6 +63,9 @@ export default function DomainManager() {
   };
 
   const pages = Math.max(1, Math.ceil(data.total / data.size));
+  // Only the Super Admin administers. An account with a grant reads, opens details and runs lookups on its own domains. Until the first
+  // answer the role is unknown and no administration control is shown.
+  const isAdmin = data.role === 'super_admin';
 
   return (
     <div className="space-y-4">
@@ -71,11 +74,13 @@ export default function DomainManager() {
           <h1 className="flex items-center text-xl font-semibold text-slate-900"><Globe className="mr-2 h-6 w-6 text-indigo-500" aria-hidden="true" />Domain Manager</h1>
           <p className="mt-1 text-sm text-slate-600">Vencimento, DNS e certificado SSL dos domínios, consultados automaticamente por RDAP.</p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        {isAdmin && <div className="flex flex-wrap gap-2">
           <button type="button" onClick={() => setDialog({ kind: 'settings' })} className={secondaryButton}><SlidersHorizontal className="mr-1.5 h-4 w-4" aria-hidden="true" />Consultas automáticas</button>
           <button type="button" onClick={() => setDialog({ kind: 'add' })} className={primaryButton}><Plus className="mr-1.5 h-4 w-4" aria-hidden="true" />Adicionar domínios</button>
-        </div>
+        </div>}
       </header>
+
+      {data.role === 'user' && <p className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">Você tem acesso somente leitura aos domínios liberados para a sua conta: pode ver os detalhes e consultar cada um.</p>}
 
       <div className="flex flex-wrap items-end gap-3">
         <label className="min-w-56 flex-1 text-sm font-medium text-slate-700">Buscar domínio
@@ -93,7 +98,7 @@ export default function DomainManager() {
       )}
 
       <p role="status" className="text-sm text-slate-600">
-        {loading ? 'Carregando…' : data.total === 0 ? (term ? 'Nenhum domínio encontrado.' : 'Nenhum domínio na lista. Adicione um domínio ou ative o SPFBL para importar os dele.') : `${data.total} ${data.total === 1 ? 'domínio' : 'domínios'}.`}
+        {loading ? 'Carregando…' : data.total === 0 ? (term ? 'Nenhum domínio encontrado.' : isAdmin ? 'Nenhum domínio na lista. Adicione um domínio ou ative o SPFBL para importar os dele.' : 'Nenhum domínio foi liberado para a sua conta.') : `${data.total} ${data.total === 1 ? 'domínio' : 'domínios'}.`}
       </p>
 
       <ul className="divide-y divide-slate-200 rounded-md border border-slate-200 bg-white" aria-label="Domínios">
@@ -113,9 +118,9 @@ export default function DomainManager() {
               </div>
               <div className="w-24 text-sm text-slate-700"><span className="sr-only">Certificado SSL: </span>{sslLabel(domain.snapshot?.ssl?.state)}</div>
               <div className="flex items-center gap-1">
-                <button type="button" onClick={() => setDialog({ kind: 'alerts', domain })} title="Alertas de vencimento" aria-label={`Alertas de ${domain.name}`} className={iconButton}><Settings className="h-5 w-5" aria-hidden="true" /></button>
+                {isAdmin && <button type="button" onClick={() => setDialog({ kind: 'alerts', domain })} title="Alertas de vencimento" aria-label={`Alertas de ${domain.name}`} className={iconButton}><Settings className="h-5 w-5" aria-hidden="true" /></button>}
                 <button type="button" disabled={busy} onClick={() => check(domain)} title="Consultar agora" aria-label={`Consultar ${domain.name} agora`} className={iconButton}><SearchAlert className="h-5 w-5" aria-hidden="true" /></button>
-                {domain.source === 'manual' && (confirmId === domain.id ? (
+                {isAdmin && domain.source === 'manual' && (confirmId === domain.id ? (
                   <span className="flex items-center gap-1 text-sm">
                     <button type="button" disabled={busy} onClick={() => remove(domain)} className="rounded px-2 py-1 font-medium text-red-800 underline">Remover</button>
                     <button type="button" disabled={busy} onClick={() => setConfirmId(null)} className="rounded px-2 py-1 font-medium text-slate-700 underline">Cancelar</button>

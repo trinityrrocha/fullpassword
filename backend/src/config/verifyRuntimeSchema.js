@@ -10,7 +10,7 @@ const verifyRuntimeSchema=async(queryable=db)=>{
   await queryable.query('SELECT s.encrypted_token,s.server_kind,s.matrix_user,s.encrypted_matrix_password,s.history_last_run_at,d.server_id FROM spfbl_whm_servers s CROSS JOIN spfbl_domains d LIMIT 0');
   await queryable.query('SELECT user_id,can_view,can_edit,can_add,can_delete FROM client_user_access LIMIT 0');
   await queryable.query('SELECT user_shares FROM vault_migration_stages LIMIT 0');
-  const tables=['vault_crypto_epochs','vault_crypto_envelopes','vault_records','vault_record_history','vault_migration_stages','sensitive_auth_grants','sensitive_auth_attempts','email_change_requests','mfa_login_challenges','system_modules','spfbl_settings','spfbl_domains','spfbl_user_access','spfbl_user_domains','spfbl_requests','spfbl_operations','spfbl_release_events','spfbl_history_records','spfbl_history_runs','spfbl_whm_servers','dm_settings','dm_domains','dm_snapshots','dm_changes','dm_alert_settings','dm_notifications_sent'];
+  const tables=['vault_crypto_epochs','vault_crypto_envelopes','vault_records','vault_record_history','vault_migration_stages','sensitive_auth_grants','sensitive_auth_attempts','email_change_requests','mfa_login_challenges','system_modules','spfbl_settings','spfbl_domains','spfbl_user_access','spfbl_user_domains','spfbl_requests','spfbl_operations','spfbl_release_events','spfbl_history_records','spfbl_history_runs','spfbl_whm_servers','dm_settings','dm_domains','dm_snapshots','dm_changes','dm_alert_settings','dm_notifications_sent','dm_user_access','dm_user_domains'];
   for(const table of tables) {
     if(!(await queryable.query('SELECT to_regclass($1) AS present',[table])).rows[0].present) throw new Error('DATABASE_SCHEMA_OUTDATED');
   }

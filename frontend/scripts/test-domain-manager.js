@@ -42,10 +42,20 @@ assert.equal(dm.canSaveAlerts({ enabled: true, notify_admins: false, emails: [] 
 assert.equal(dm.canSaveAlerts({ enabled: true, notify_admins: true, emails: [] }), true);
 assert.equal(dm.canSaveAlerts({ enabled: true, notify_admins: false, emails: ['a@b.co'] }), true);
 
+assert.equal(dm.MAX_DOMAINS_PER_USER, 100);
+assert.deepEqual(dm.EMPTY_DM_ACCESS, { loaded: false, had: false, enabled: false, domainIds: [], domains: [], dirty: false, error: '' });
+assert.equal(dm.canSaveDmAccess({ enabled: false, domainIds: [] }), true, 'access off: nothing to validate');
+assert.equal(dm.canSaveDmAccess({ enabled: true, domainIds: [] }), false);
+assert.equal(dm.canSaveDmAccess({ enabled: true, domainIds: ['a'] }), true);
+assert.equal(dm.canSaveDmAccess({ enabled: true, domainIds: Array.from({ length: 101 }, (_, i) => String(i)) }), false);
+assert.equal(dm.canSaveDmAccess({ enabled: true, domainIds: Array.from({ length: 100 }, (_, i) => String(i)) }), true);
+
 // Wiring: route, menu entry (module-gated) and the module card link exist.
 assert.match(read('src/App.jsx'), /path="\/domains" element=\{<DomainManager \/>\}/);
 assert.match(read('src/layouts/DashboardLayout.jsx'), /modules\.domain_manager === true/);
 assert.match(read('src/components/ModulesCard.jsx'), /domain_manager: \{ href: '\/domains'/);
 assert.match(read('src/pages/DomainManager.jsx'), /SearchAlert/);
+assert.match(read('src/pages/DomainManager.jsx'), /const isAdmin = data\.role === 'super_admin'/, 'administration controls depend on the role the server reports');
+assert.match(read('src/pages/TeamList.jsx'), /DomainManagerUserAccess/, 'the user dialog has the Domain Manager tab');
 assert.match(read('src/pages/DomainManager.jsx'), /<Settings className="h-5 w-5"/, 'the per-domain gear is the lucide Settings icon');
 console.log('domain manager frontend tests passed');

@@ -63,3 +63,8 @@ export const alertsLabel = (alerts) => {
 };
 // The form is valid when the alerts are off, or when someone will receive them.
 export const canSaveAlerts = ({ enabled, notify_admins: notifyAdmins, emails }) => !enabled || notifyAdmins || emails.length > 0;
+
+export const MAX_DOMAINS_PER_USER = 100;
+export const EMPTY_DM_ACCESS = Object.freeze({ loaded: false, had: false, enabled: false, domainIds: [], domains: [], dirty: false, error: '' });
+// A grant needs 1 to 100 domains; with the access off there is nothing to validate.
+export const canSaveDmAccess = (value) => !value.enabled || (value.domainIds.length >= 1 && value.domainIds.length <= MAX_DOMAINS_PER_USER);

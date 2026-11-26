@@ -34,7 +34,7 @@ const vite = await createServer({ root, server: { host: '127.0.0.1', port: 0 }, 
 const uid = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const snap = (extra = {}) => ({ checked_at: '2026-11-26T15:00:00Z', lookup_status: 'ok', error_code: null, registrar: 'Registrador Exemplo', expires_on: '2027-02-10', days_left: 76, registered_on: '2020-02-10', rdap_statuses: ['active'], nameservers: ['ns1.exemplo.net', 'ns2.exemplo.net'], dnssec: true, ssl: { state: 'valid', not_after: '2027-01-10T00:00:00Z', issuer: 'CA Exemplo', protocol: 'TLSv1.3', error: null }, ...extra });
 const state = {
-  calls: [], interval: 7, rateLimited: false, alerts: {},
+  calls: [], interval: 7, rateLimited: false, alerts: {}, role: 'super_admin', userIds: [],
   domains: [
     { id: uid(1), name: 'exemplo.com.br', source: 'manual', active: true, snapshot: snap() },
     { id: uid(2), name: 'vencido.com', source: 'spfbl', active: true, snapshot: snap({ expires_on: '2026-11-20', days_left: -6, ssl: { state: 'expired', not_after: null, issuer: null, protocol: null, error: null } }) },
@@ -65,9 +65,10 @@ try {
     if (api === '/domain-manager/domains' && method === 'GET') {
       const size = Number(url.searchParams.get('size') || 20); const pageNo = Number(url.searchParams.get('page') || 1);
       const term = (url.searchParams.get('search') || '').toLowerCase();
-      const all = state.domains.filter((d) => d.name.includes(term));
+      const all = state.domains.filter((d) => d.name.includes(term) && (state.role === 'super_admin' || state.userIds.includes(d.id)));
       const withAlerts = (d) => { const a = state.alerts[d.id]; return { ...d, alerts: a ? { enabled: a.enabled, notify_admins: a.notify_admins, emails: a.emails.length } : { enabled: false, notify_admins: false, emails: 0 } }; };
-      return json({ domains: all.slice((pageNo - 1) * size, pageNo * size).map(withAlerts), total: all.length, page: pageNo, size, settings: { check_interval_days: state.interval } });
+      if (state.role === 'user') return json({ domains: all.slice((pageNo - 1) * size, pageNo * size).map((d) => ({ ...d })), total: all.length, page: pageNo, size, role: 'user' });
+      return json({ domains: all.slice((pageNo - 1) * size, pageNo * size).map(withAlerts), total: all.length, page: pageNo, size, role: 'super_admin', settings: { check_interval_days: state.interval } });
     }
     if (api === '/domain-manager/domains' && method === 'POST') {
       const domain = { id: uid(500), name: body.name, source: 'manual', active: true, snapshot: null };
@@ -220,6 +221,29 @@ try {
   await page.getByRole('button', { name: 'Salvar' }).click();
   await page.getByRole('dialog').waitFor({ state: 'detached' });
   assert.equal(state.interval, 14);
+
+  // An account with a grant: read only. Sees just its domains, no administration control, and can still open details and look up.
+  state.role = 'user'; state.userIds = [uid(2), uid(3)];
+  await page.goto(`${origin}/__dm_fixture`);
+  const userRows = page.getByRole('list', { name: 'Domínios' }).getByRole('listitem');
+  await userRows.first().waitFor();
+  assert.equal(await userRows.count(), 2, 'only the granted domains');
+  assert.match(await page.getByText(/acesso somente leitura aos domínios liberados/).innerText(), /pode ver os detalhes e consultar/);
+  for (const name of ['Adicionar domínios', 'Consultas automáticas']) assert.equal(await page.getByRole('button', { name }).count(), 0, `${name} is Super Admin only`);
+  assert.equal(await page.getByRole('button', { name: /^Alertas de / }).count(), 0, 'no alert gear for an ordinary account');
+  assert.equal(await page.getByRole('button', { name: /^Remover / }).count(), 0, 'no removal for an ordinary account');
+  assert.equal(await page.getByText(/Alertas ativos/).count(), 0);
+  await page.getByRole('button', { name: 'Consultar vencido.com agora' }).click();
+  const userDialog = page.getByRole('dialog', { name: 'vencido.com' });
+  await userDialog.waitFor();
+  assert.match(await userDialog.innerText(), /Mudanças detectadas/);
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'vencido.com', exact: true }).click();
+  await page.getByRole('dialog', { name: 'vencido.com' }).waitFor();
+  await page.keyboard.press('Escape');
+  state.userIds = [];
+  await page.goto(`${origin}/__dm_fixture`);
+  await page.getByText('Nenhum domínio foi liberado para a sua conta.').waitFor();
 
   assert.deepEqual(pageErrors, []);
   console.log('domain manager browser tests passed');

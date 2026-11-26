@@ -279,7 +279,7 @@ async function run() {
   assert.equal(layers.length, 3);
   assert.equal(layers[0], 'verifyToken');
   const routes = router.stack.filter((layer) => layer.route).map((layer) => `${Object.keys(layer.route.methods)[0].toUpperCase()} ${layer.route.path}`).sort();
-  assert.deepEqual(routes, ['DELETE /domains/:id', 'GET /domains', 'GET /domains/:id', 'GET /domains/:id/alerts', 'GET /settings', 'POST /domains', 'POST /domains/:id/check', 'POST /domains/import', 'PUT /domains/:id/alerts', 'PUT /settings']);
+  assert.deepEqual(routes, ['DELETE /access/:userId', 'DELETE /domains/:id', 'GET /access', 'GET /access/domains', 'GET /domains', 'GET /domains/:id', 'GET /domains/:id/alerts', 'GET /settings', 'POST /domains', 'POST /domains/:id/check', 'POST /domains/import', 'PUT /access/:userId', 'PUT /domains/:id/alerts', 'PUT /settings']);
   assert.match(read('backend/src/server.js'), /'\/api\/domain-manager'\], generalWriteLimiter/);
 
   console.log('domain manager tests passed');

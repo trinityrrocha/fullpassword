@@ -11,3 +11,8 @@ export const getDomainSettings = async () => (await api.get('/domain-manager/set
 export const saveDomainSettings = async (payload) => (await api.put('/domain-manager/settings', payload)).data;
 export const getDomainAlerts = async (id) => (await api.get(`/domain-manager/domains/${encodeURIComponent(id)}/alerts`)).data;
 export const saveDomainAlerts = async (id, payload) => (await api.put(`/domain-manager/domains/${encodeURIComponent(id)}/alerts`, payload)).data;
+// Access of ordinary accounts (Super Admin): who sees which domains, read only.
+export const listDomainAccess = async () => (await api.get('/domain-manager/access')).data.access || [];
+export const listAccessDomains = async () => (await api.get('/domain-manager/access/domains')).data.domains || [];
+export const saveDomainAccess = async (userId, domainIds) => (await api.put(`/domain-manager/access/${encodeURIComponent(userId)}`, { domain_ids: domainIds })).data.access;
+export const revokeDomainAccess = async (userId) => (await api.delete(`/domain-manager/access/${encodeURIComponent(userId)}`)).data;

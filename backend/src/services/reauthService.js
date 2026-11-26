@@ -37,7 +37,7 @@ const issue=async(req,res)=>{
  try {
   await client.query('BEGIN');
   const purpose=req.body.purpose;
-  if(!/^profile_change$|^crypto_unlock_secret_change$|^system_release$|^backup_(?:export|restore|settings)$|^smtp_settings$|^spfbl_settings$|^group_create$|^(?:admin_(?:user_change|mfa_policy|mfa_reset|password_set|user_delete)|client_delete|group_(?:change|delete)|spfbl_access):[0-9a-f-]{36}$|^modules_settings:[a-z][a-z0-9_]{1,31}$/.test(purpose || '')) throw denied(purpose);
+  if(!/^profile_change$|^crypto_unlock_secret_change$|^system_release$|^backup_(?:export|restore|settings)$|^smtp_settings$|^spfbl_settings$|^group_create$|^(?:admin_(?:user_change|mfa_policy|mfa_reset|password_set|user_delete)|client_delete|group_(?:change|delete)|spfbl_access|domain_manager_access):[0-9a-f-]{36}$|^modules_settings:[a-z][a-z0-9_]{1,31}$/.test(purpose || '')) throw denied(purpose);
   if(purpose==='system_release' && !require('../config/security').isSuperAdmin(req.user)) throw denied(purpose);
   const user=(await client.query('SELECT hash_senha_login,token_version FROM users WHERE id=$1 FOR UPDATE',[req.user.id])).rows[0];
   if(typeof req.body.current_password!=='string' || !(await argon2.verify(user.hash_senha_login,req.body.current_password))) throw denied(purpose);
