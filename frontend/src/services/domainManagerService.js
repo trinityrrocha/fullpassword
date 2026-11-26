@@ -16,3 +16,5 @@ export const listDomainAccess = async () => (await api.get('/domain-manager/acce
 export const listAccessDomains = async () => (await api.get('/domain-manager/access/domains')).data.domains || [];
 export const saveDomainAccess = async (userId, domainIds) => (await api.put(`/domain-manager/access/${encodeURIComponent(userId)}`, { domain_ids: domainIds })).data.access;
 export const revokeDomainAccess = async (userId) => (await api.delete(`/domain-manager/access/${encodeURIComponent(userId)}`)).data;
+export const getDomainMailSettings = async (id) => (await api.get(`/domain-manager/domains/${encodeURIComponent(id)}/mail-settings`)).data;
+export const saveDomainMailSettings = async (id, payload) => (await api.put(`/domain-manager/domains/${encodeURIComponent(id)}/mail-settings`, payload)).data;

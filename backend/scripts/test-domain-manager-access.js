@@ -109,6 +109,12 @@ async function run() {
   assert.ok(!('settings' in own.body), 'no administration settings for an ordinary account');
   assert.ok(own.body.domains.every((d) => !('alerts' in d)), 'no alert configuration for an ordinary account');
   assert.equal(own.body.domains[0].snapshot.expires_on, '2027-04-01');
+  await pg.query("INSERT INTO dm_mail_checks (domain_id, checked_at, spf_status, dmarc_status, dkim_status, spf, dmarc, dkim) VALUES ($1, now(), 'ok', 'warning', 'not_found', $2::jsonb, $3::jsonb, $4::jsonb)", [created['beta.com.br'], JSON.stringify({ status: 'ok', all: '-all', record: 'v=spf1 -all' }), JSON.stringify({ status: 'warning', policy: 'none' }), JSON.stringify({ status: 'not_found', found: [], tested: 15 })]);
+  const withMail = await call('GET', '/domains', ALICE);
+  assert.deepEqual(withMail.body.domains[0].mail.spf, { status: 'ok', all: '-all' }, 'a granted account reads the e-mail results of its domains');
+  const detailMail = await call('GET', `/domains/${created['beta.com.br']}`, ALICE);
+  assert.equal(detailMail.body.mail.dmarc.policy, 'none');
+  assert.ok(!JSON.stringify(detailMail.body).includes('extra_selectors'), 'the per-domain selector settings stay with the Super Admin');
   assert.equal((await call('GET', '/domains?search=alfa', ALICE)).body.total, 0, 'search never reaches outside the grant');
   assert.equal((await call('GET', '/domains?search=%25', ALICE)).body.total, 0);
 
@@ -138,6 +144,7 @@ async function run() {
     ['POST', '/domains', { name: 'novo.com' }], ['POST', '/domains/import', { names: ['x1.com'] }], ['DELETE', `/domains/${created['gama.org']}`],
     ['GET', `/domains/${created['beta.com.br']}/alerts`], ['PUT', `/domains/${created['beta.com.br']}/alerts`, { enabled: false, notify_admins: false, emails: [] }],
     ['GET', '/settings'], ['PUT', '/settings', { check_interval_days: 3 }],
+    ['GET', `/domains/${created['beta.com.br']}/mail-settings`], ['PUT', `/domains/${created['beta.com.br']}/mail-settings`, { enabled: true, extra_selectors: ['x1'] }],
     ['GET', '/access'], ['GET', '/access/domains'], ['PUT', `/access/${BOB}`, { domain_ids: [created['alfa.com']] }], ['DELETE', `/access/${ALICE}`]
   ];
   for (const [method, url, body] of adminOnly) {
@@ -188,7 +195,7 @@ async function run() {
   assert.ok(!stack[0].route && !stack[1].route, 'authentication and the module gate are the first two layers, before any route');
   assert.ok(stack[0].handle === authMiddleware.verifyToken, 'the first layer is the authentication middleware');
   assert.equal(adminGate > routeIndex('post', '/domains/:id/check'), true, 'the three read routes come before the Super Admin gate');
-  for (const [method, routePath] of [['post', '/domains'], ['post', '/domains/import'], ['delete', '/domains/:id'], ['get', '/access'], ['put', '/access/:userId'], ['delete', '/access/:userId'], ['get', '/settings'], ['put', '/settings'], ['get', '/domains/:id/alerts'], ['put', '/domains/:id/alerts']]) {
+  for (const [method, routePath] of [['post', '/domains'], ['post', '/domains/import'], ['delete', '/domains/:id'], ['get', '/access'], ['put', '/access/:userId'], ['delete', '/access/:userId'], ['get', '/settings'], ['put', '/settings'], ['get', '/domains/:id/alerts'], ['put', '/domains/:id/alerts'], ['get', '/domains/:id/mail-settings'], ['put', '/domains/:id/mail-settings']]) {
     assert.ok(routeIndex(method, routePath) > adminGate, `${method} ${routePath} sits behind the Super Admin gate`);
   }
   server.close();

@@ -1,9 +1,9 @@
 import { useEffect, useId, useState } from 'react';
 import { X } from 'lucide-react';
 import FormDialog from '../FormDialog';
-import { addDomain, getDomainAlerts, getDomainDetail, importDomains, saveDomainAlerts, saveDomainSettings } from '../../services/domainManagerService';
+import { addDomain, getDomainAlerts, getDomainDetail, getDomainMailSettings, importDomains, saveDomainAlerts, saveDomainMailSettings, saveDomainSettings } from '../../services/domainManagerService';
 import { describeError, formatDateTime, formatDay, formatIsoDateTime } from '../../utils/spfbl';
-import { MAX_ALERT_EMAILS, MAX_IMPORT, SOURCE_LABELS, canSaveAlerts, isValidEmail, changeValue, dnssecLabel, errorLabel, expiryInfo, fieldLabel, lookupLabel, parseDomainList, sslLabel, TONE_CLASSES } from '../../utils/domainManager';
+import { DKIM_SELECTOR_LIMIT, DOMAIN_SELECTOR_LIMIT, MAX_ALERT_EMAILS, MAX_IMPORT, mailMarker, mailMessages, mailStatusLabel, parseSelectorList, parseServerList, selectorProblems, serverProblems, SOURCE_LABELS, canSaveAlerts, isValidEmail, changeValue, dnssecLabel, errorLabel, expiryInfo, fieldLabel, lookupLabel, parseDomainList, sslLabel, TONE_CLASSES } from '../../utils/domainManager';
 
 const fieldClass = 'w-full rounded-md border border-slate-300 bg-white px-2.5 py-2 text-sm outline-hidden focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200';
 const primaryButton = 'rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-60';
@@ -66,26 +66,77 @@ export function AddDomainDialog({ onClose, onDone }) {
   );
 }
 
+const Switch = ({ id, labelId, checked, onChange }) => (
+  <button id={id} type="button" role="switch" aria-checked={checked} aria-labelledby={labelId} onClick={() => onChange(!checked)}
+    className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border border-transparent transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 ${checked ? 'bg-indigo-600' : 'bg-slate-300'}`}>
+    <span aria-hidden="true" className={`inline-block h-5 w-5 rounded-full bg-white shadow transition-transform ${checked ? 'translate-x-5' : 'translate-x-0.5'}`} />
+  </button>
+);
+const validDays = (value) => Number.isInteger(Number(value)) && Number(value) >= 1 && Number(value) <= 30 && String(value).trim() !== '';
+
+// The one settings card of the Domain Manager (opened by the icon in the page header).
 export function SettingsDialog({ settings, onClose, onSaved }) {
+  const id = useId();
   const [days, setDays] = useState(String(settings.check_interval_days));
+  const [mailOn, setMailOn] = useState(settings.mail_check_enabled !== false);
+  const [mailDays, setMailDays] = useState(String(settings.mail_check_interval_days ?? 7));
+  const [selectors, setSelectors] = useState((settings.dkim_selectors || []).join('\n'));
+  const [servers, setServers] = useState((settings.dns_servers || []).join('\n'));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const save = async (event) => {
     event.preventDefault();
+    const selectorList = parseSelectorList(selectors);
+    const serverList = parseServerList(servers);
+    const problem = (!validDays(days) && 'Informe o intervalo das consultas de vencimento de 1 a 30 dias.')
+      || (!validDays(mailDays) && 'Informe o intervalo da verificação de e-mail de 1 a 30 dias.')
+      || selectorProblems(selectorList, DKIM_SELECTOR_LIMIT) || serverProblems(serverList);
+    if (problem) { setError(problem); return; }
     setBusy(true); setError('');
-    try { await saveDomainSettings({ check_interval_days: Number(days) }); await onSaved(); onClose(); } catch (failure) { setError(describeError(failure, 'Não foi possível salvar.')); } finally { setBusy(false); }
+    try {
+      await saveDomainSettings({ check_interval_days: Number(days), mail_check_enabled: mailOn, mail_check_interval_days: Number(mailDays), dkim_selectors: selectorList, dns_servers: serverList });
+      await onSaved(); onClose();
+    } catch (failure) { setError(describeError(failure, 'Não foi possível salvar.')); } finally { setBusy(false); }
   };
   return (
-    <FormDialog title="Consultas automáticas" description="Todos os domínios da lista são consultados sozinhos." onClose={onClose} busy={busy}
+    <FormDialog title="Configurações do Domain Manager" description="Parâmetros das consultas automáticas." onClose={onClose} busy={busy}
       footer={<div className="flex flex-wrap justify-end gap-2">
         <button type="button" data-dialog-cancel disabled={busy} className={secondaryButton}>Cancelar</button>
         <button type="submit" form="dm-settings-form" disabled={busy} className={primaryButton}>{busy ? 'Salvando…' : 'Salvar'}</button>
       </div>}>
-      <form id="dm-settings-form" onSubmit={save} noValidate className="space-y-3">
-        <label className="block text-sm font-medium text-slate-700">Intervalo entre consultas (dias)
-          <input type="number" min={1} max={30} step={1} value={days} onChange={(event) => setDays(event.target.value)} className={`${fieldClass} mt-1 max-w-32`} />
-        </label>
-        <p className="text-sm text-slate-600">Vale enquanto faltarem mais de 30 dias para o vencimento. A partir daí, e enquanto o domínio estiver vencido, a consulta passa a ser diária.</p>
+      <form id="dm-settings-form" onSubmit={save} noValidate className="space-y-5">
+        <section aria-labelledby={`${id}-expiry`} className="space-y-2">
+          <h3 id={`${id}-expiry`} className="text-sm font-semibold text-slate-900">Vencimento e certificado</h3>
+          <label className="block text-sm font-medium text-slate-700">Intervalo entre consultas (dias)
+            <input type="number" min={1} max={30} step={1} value={days} onChange={(event) => setDays(event.target.value)} className={`${fieldClass} mt-1 max-w-32`} />
+          </label>
+          <p className="text-sm text-slate-600">Vale enquanto faltarem mais de 30 dias para o vencimento. A partir daí, e enquanto o domínio estiver vencido, a consulta passa a ser diária.</p>
+        </section>
+        <section aria-labelledby={`${id}-mail`} className="space-y-3 border-t border-slate-200 pt-4">
+          <div className="flex items-center justify-between gap-3">
+            <h3 id={`${id}-mail`} className="text-sm font-semibold text-slate-900">Autenticação de e-mail (SPF, DKIM e DMARC)</h3>
+            <Switch id={`${id}-mail-switch`} labelId={`${id}-mail`} checked={mailOn} onChange={setMailOn} />
+          </div>
+          <p className="text-sm text-slate-600">Consulta o DNS de cada domínio e mostra na lista se o SPF, o DKIM e o DMARC estão configurados. Não envia dados a serviços externos.</p>
+          {mailOn && (
+            <>
+              <label className="block text-sm font-medium text-slate-700">Intervalo entre verificações (dias)
+                <input type="number" min={1} max={30} step={1} value={mailDays} onChange={(event) => setMailDays(event.target.value)} className={`${fieldClass} mt-1 max-w-32`} />
+              </label>
+              <label className="block text-sm font-medium text-slate-700">Seletores DKIM testados (um por linha)
+                <textarea value={selectors} onChange={(event) => setSelectors(event.target.value)} rows={6} spellCheck={false} className={`${fieldClass} mt-1 font-mono`} />
+                <span className="mt-1 flex flex-wrap items-center justify-between gap-2 text-xs font-normal text-slate-600">
+                  <span>{parseSelectorList(selectors).length} de {DKIM_SELECTOR_LIMIT}. O DNS não lista os seletores de um domínio: só os desta lista (e os de cada domínio) são procurados.</span>
+                  <button type="button" onClick={() => setSelectors((settings.default_dkim_selectors || []).join('\n'))} className="rounded px-1 font-medium text-indigo-700 underline">Restaurar a lista padrão</button>
+                </span>
+              </label>
+              <label className="block text-sm font-medium text-slate-700">Servidores DNS (opcional, um endereço IP por linha)
+                <textarea value={servers} onChange={(event) => setServers(event.target.value)} rows={2} spellCheck={false} placeholder="vazio = usar o DNS do sistema" className={`${fieldClass} mt-1 font-mono`} />
+                <span className="mt-1 block text-xs font-normal text-slate-600">Até 4 endereços IP. Deixe em branco para usar o DNS do próprio servidor.</span>
+              </label>
+            </>
+          )}
+        </section>
         {error && <p role="alert" className={errorBox}>{error}</p>}
       </form>
     </FormDialog>
@@ -96,24 +147,82 @@ const Row = ({ label, children }) => (
   <div className="grid grid-cols-3 gap-2 py-1.5 text-sm"><dt className="font-medium text-slate-600">{label}</dt><dd className="col-span-2 break-words text-slate-900">{children}</dd></div>
 );
 
-export function DomainDetailDialog({ domain: initial, changes: initialChanges, onClose }) {
+const MARK_TONE_CLASSES = Object.freeze({ ok: 'text-green-800', warning: 'text-amber-800', danger: 'text-red-800', muted: 'text-slate-600' });
+const KEY_STATE = (key) => (key.revoked ? 'revogada' : key.bits ? `${key.key_type.toUpperCase()} ${key.bits} bits` : key.key_type === 'ed25519' ? 'Ed25519' : `${key.key_type} (tamanho desconhecido)`);
+const ALIGN = Object.freeze({ r: 'relaxado', s: 'rígido' });
+
+function MailBlock({ kind, title, section, mail, children }) {
+  const marker = mailMarker(kind, mail);
+  const messages = mailMessages(section);
+  return (
+    <div className="rounded-md border border-slate-200 p-3" data-mail-block={kind}>
+      <h4 className="flex flex-wrap items-center gap-2 text-sm font-semibold text-slate-900">
+        <span>{title}</span>
+        <span className={`text-sm font-medium ${MARK_TONE_CLASSES[marker.tone]}`}><span aria-hidden="true">{marker.mark} </span>{mailStatusLabel(section?.status)}</span>
+      </h4>
+      <dl className="mt-1 divide-y divide-slate-100">{children}</dl>
+      {messages.length > 0 && <ul className="mt-2 list-disc space-y-0.5 pl-5 text-sm text-slate-700">{messages.map((message) => <li key={message}>{message}</li>)}</ul>}
+      {section?.as_of && section.status !== 'inconclusive' && <p className="mt-2 text-xs text-slate-500">Resposta do DNS em {formatDateTime(section.as_of)}</p>}
+    </div>
+  );
+}
+
+function MailSection({ mail }) {
+  if (mail === undefined) return <p className="text-sm text-slate-600">Carregando a verificação de e-mail…</p>;
+  if (!mail) return <section><h3 className="text-sm font-semibold text-slate-900">E-mail (SPF, DKIM e DMARC)</h3><p className="mt-1 text-sm text-slate-600">Ainda não verificado. A verificação roda sozinha, ou use o botão de consulta da lista.</p></section>;
+  const { spf, dmarc, dkim } = mail;
+  const lines = (list) => (list?.length ? list.join(', ') : '—');
+  return (
+    <section aria-labelledby="dm-mail-title" className="space-y-2">
+      <h3 id="dm-mail-title" className="text-sm font-semibold text-slate-900">E-mail (SPF, DKIM e DMARC) <span className="font-normal text-slate-500">· verificado em {formatDateTime(mail.checked_at)}</span></h3>
+      {!mail.name_exists ? <p className="text-sm text-slate-700">Este nome não existe no DNS, então não há o que verificar.</p> : (
+        <div className="grid gap-2 lg:grid-cols-3">
+          <MailBlock kind="spf" title="SPF" section={spf} mail={mail}>
+            {spf.status === 'absent' && <Row label="Registro">Nenhum registro SPF neste nome.</Row>}
+            {spf.record && <Row label="Registro"><code className="break-all text-xs">{spf.record}</code></Row>}
+            {spf.record && <Row label="Política final">{spf.all || '—'}</Row>}
+            {spf.record && <Row label="Consultas DNS">{spf.lookups} de 10</Row>}
+            {spf.record && <Row label="IPs autorizados">{spf.ip_count}</Row>}
+            {spf.includes?.length > 0 && <Row label="Includes">{lines(spf.includes)}</Row>}
+          </MailBlock>
+          <MailBlock kind="dkim" title="DKIM" section={dkim} mail={mail}>
+            <Row label="Seletores testados">{dkim.tested ?? 0}</Row>
+            {dkim.found?.length > 0 ? dkim.found.map((key) => <Row key={key.selector} label={key.selector}>{KEY_STATE(key)}{key.testing ? ' · teste' : ''}</Row>) : <Row label="Encontrados">{dkim.status === 'not_found' ? 'Nenhum entre os seletores testados' : '—'}</Row>}
+            {dkim.status === 'not_found' && !dkim.wildcard && <Row label="Observação">Isso não prova que o domínio não usa DKIM: cadastre o seletor na configuração do domínio (engrenagem).</Row>}
+          </MailBlock>
+          <MailBlock kind="dmarc" title="DMARC" section={dmarc} mail={mail}>
+            {dmarc.status === 'absent' && <Row label="Registro">Nenhum registro DMARC neste nome (a herança do domínio principal não é avaliada).</Row>}
+            {dmarc.record && <Row label="Registro"><code className="break-all text-xs">{dmarc.record}</code></Row>}
+            {dmarc.record && <Row label="Política">{dmarc.policy || '—'}{dmarc.subdomain_policy ? ` · subdomínios: ${dmarc.subdomain_policy}` : ''} · {dmarc.pct}%</Row>}
+            {dmarc.record && <Row label="Relatórios">{lines(dmarc.rua)}</Row>}
+            {dmarc.record && dmarc.ruf?.length > 0 && <Row label="Forenses">{lines(dmarc.ruf)}</Row>}
+            {dmarc.record && <Row label="Alinhamento">DKIM {ALIGN[dmarc.adkim]} · SPF {ALIGN[dmarc.aspf]}</Row>}
+          </MailBlock>
+        </div>
+      )}
+    </section>
+  );
+}
+
+export function DomainDetailDialog({ domain: initial, changes: initialChanges, mail: initialMail, onClose }) {
   const [domain, setDomain] = useState(initial);
   const [changes, setChanges] = useState(initialChanges || null);
+  const [mail, setMail] = useState(initialMail);
   const [error, setError] = useState('');
   useEffect(() => {
-    if (initialChanges) return undefined;
+    if (initialChanges && initialMail !== undefined) return undefined;
     let active = true;
-    getDomainDetail(initial.id).then((data) => { if (active) { setDomain(data.domain); setChanges(data.changes); } })
+    getDomainDetail(initial.id).then((data) => { if (active) { setDomain(data.domain); setChanges(data.changes); setMail(data.mail ?? null); } })
       .catch((failure) => { if (active) setError(describeError(failure, 'Não foi possível carregar o histórico.')); });
     return () => { active = false; };
-  }, [initial.id, initialChanges]);
+  }, [initial.id, initialChanges, initialMail]);
   const snap = domain.snapshot;
   const expiry = expiryInfo(snap);
   return (
     <FormDialog title={domain.name} description={`Origem: ${SOURCE_LABELS[domain.source] || domain.source}`} onClose={onClose} size="xl" guardChanges={false}
       footer={<div className="flex justify-end"><button type="button" data-dialog-cancel className={secondaryButton}>Fechar</button></div>}>
-      {!snap ? <p className="text-sm text-slate-600">Este domínio ainda não foi consultado. Use o botão de consulta na lista.</p> : (
-        <div className="space-y-4">
+      <div className="space-y-4">
+        {!snap ? <p className="text-sm text-slate-600">Este domínio ainda não foi consultado. Use o botão de consulta na lista.</p> : (
           <dl className="divide-y divide-slate-100">
             <Row label="Resultado">{lookupLabel(snap)}{snap.error_code ? ` — ${errorLabel(snap.error_code)}` : ''}</Row>
             <Row label="Vencimento"><span className={TONE_CLASSES[expiry.tone]}>{expiry.text} {expiry.note && `(${expiry.note})`}</span></Row>
@@ -125,25 +234,26 @@ export function DomainDetailDialog({ domain: initial, changes: initialChanges, o
             <Row label="Certificado SSL">{sslLabel(snap.ssl.state)}{snap.ssl.not_after ? ` — vence em ${formatIsoDateTime(snap.ssl.not_after).slice(0, 8)}` : ''}{snap.ssl.issuer ? ` · ${snap.ssl.issuer}` : ''}{snap.ssl.protocol ? ` · ${snap.ssl.protocol}` : ''}</Row>
             <Row label="Última consulta">{formatDateTime(snap.checked_at)}</Row>
           </dl>
-          <section aria-labelledby="dm-changes-title">
-            <h3 id="dm-changes-title" className="text-sm font-semibold text-slate-900">Mudanças detectadas</h3>
-            {error && <p role="alert" className={`${errorBox} mt-2`}>{error}</p>}
-            {changes === null && !error && <p className="mt-1 text-sm text-slate-600">Carregando…</p>}
-            {changes && changes.length === 0 && <p className="mt-1 text-sm text-slate-600">Nenhuma mudança desde a primeira consulta.</p>}
-            {changes && changes.length > 0 && (
-              <ul className="mt-2 divide-y divide-slate-100 rounded-md border border-slate-200">
-                {changes.map((change, index) => (
-                  <li key={`${change.field}-${change.detected_at}-${index}`} className="px-3 py-2 text-sm">
-                    <span className="font-medium text-slate-900">{fieldLabel(change.field)}</span>
-                    <span className="text-slate-600"> · {formatDateTime(change.detected_at)}</span>
-                    <p className="break-words text-slate-700">{changeValue(change.field, change.old_value)} → {changeValue(change.field, change.new_value)}</p>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-        </div>
-      )}
+        )}
+        <MailSection mail={mail} />
+        <section aria-labelledby="dm-changes-title">
+          <h3 id="dm-changes-title" className="text-sm font-semibold text-slate-900">Mudanças detectadas</h3>
+          {error && <p role="alert" className={`${errorBox} mt-2`}>{error}</p>}
+          {changes === null && !error && <p className="mt-1 text-sm text-slate-600">Carregando…</p>}
+          {changes && changes.length === 0 && <p className="mt-1 text-sm text-slate-600">Nenhuma mudança desde a primeira consulta.</p>}
+          {changes && changes.length > 0 && (
+            <ul className="mt-2 divide-y divide-slate-100 rounded-md border border-slate-200">
+              {changes.map((change, index) => (
+                <li key={`${change.field}-${change.detected_at}-${index}`} className="px-3 py-2 text-sm">
+                  <span className="font-medium text-slate-900">{fieldLabel(change.field)}</span>
+                  <span className="text-slate-600"> · {formatDateTime(change.detected_at)}</span>
+                  <p className="break-words text-slate-700">{changeValue(change.field, change.old_value)} → {changeValue(change.field, change.new_value)}</p>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      </div>
     </FormDialog>
   );
 }
@@ -155,11 +265,19 @@ export function AlertsDialog({ domain, onClose, onSaved }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [fieldError, setFieldError] = useState('');
+  // The e-mail check of this domain (on/off and extra DKIM selectors) lives in the same card as its alerts.
+  const [mailForm, setMailForm] = useState(null);
+  const [mailOriginal, setMailOriginal] = useState(null);
 
   useEffect(() => {
     let active = true;
-    getDomainAlerts(domain.id).then((data) => { if (active) setForm(data); })
-      .catch((failure) => { if (active) setError(describeError(failure, 'Não foi possível carregar os alertas.')); });
+    Promise.all([getDomainAlerts(domain.id), getDomainMailSettings(domain.id)])
+      .then(([alerts, mailSettings]) => {
+        if (!active) return;
+        const loaded = { enabled: mailSettings.enabled !== false, extra: (mailSettings.extra_selectors || []).join('\n') };
+        setForm(alerts); setMailForm(loaded); setMailOriginal(loaded);
+      })
+      .catch((failure) => { if (active) setError(describeError(failure, 'Não foi possível carregar as configurações do domínio.')); });
     return () => { active = false; };
   }, [domain.id]);
 
@@ -189,15 +307,30 @@ export function AlertsDialog({ domain, onClose, onSaved }) {
     // An address typed but not yet added is not lost: it is included (or the reason it cannot be is shown).
     const emails = withDraft({ forSave: true });
     if (!emails) return;
+    const extra = parseSelectorList(mailForm.extra);
+    const selectorProblem = selectorProblems(extra, DOMAIN_SELECTOR_LIMIT);
+    if (selectorProblem) { setError(selectorProblem); return; }
     setBusy(true); setError('');
-    try { await saveDomainAlerts(domain.id, { ...form, emails }); await onSaved(); onClose(); } catch (failure) { setError(describeError(failure, 'Não foi possível salvar os alertas.')); } finally { setBusy(false); }
+    let alertsSaved = false;
+    try {
+      await saveDomainAlerts(domain.id, { ...form, emails });
+      alertsSaved = true;
+      if (mailForm.enabled !== mailOriginal.enabled || extra.join('\n') !== parseSelectorList(mailOriginal.extra).join('\n')) {
+        await saveDomainMailSettings(domain.id, { enabled: mailForm.enabled, extra_selectors: extra });
+      }
+      await onSaved(); onClose();
+    } catch (failure) {
+      setError(alertsSaved
+        ? `Os alertas foram salvos, mas a verificação de e-mail NÃO foi: ${describeError(failure, 'o servidor recusou a alteração')}`
+        : describeError(failure, 'Não foi possível salvar as configurações do domínio.'));
+    } finally { setBusy(false); }
   };
 
   return (
-    <FormDialog title={`Alertas — ${domain.name}`} description="Avisos de vencimento deste domínio." onClose={onClose} busy={busy}
+    <FormDialog title={`Configurações — ${domain.name}`} description="Alertas de vencimento e verificação de e-mail deste domínio." onClose={onClose} busy={busy}
       footer={<div className="flex flex-wrap justify-end gap-2">
         <button type="button" data-dialog-cancel disabled={busy} className={secondaryButton}>Cancelar</button>
-        <button type="submit" form="dm-alerts-form" disabled={busy || !form || !canSaveAlerts({ ...form, emails: draft.trim() ? [...form.emails, draft.trim()] : form.emails })} className={primaryButton}>{busy ? 'Salvando…' : 'Salvar'}</button>
+        <button type="submit" form="dm-alerts-form" disabled={busy || !form || !mailForm || !canSaveAlerts({ ...form, emails: draft.trim() ? [...form.emails, draft.trim()] : form.emails })} className={primaryButton}>{busy ? 'Salvando…' : 'Salvar'}</button>
       </div>}>
       {!form && !error && <p className="text-sm text-slate-600">Carregando…</p>}
       {error && <p role="alert" className={errorBox}>{error}</p>}
@@ -238,6 +371,20 @@ export function AlertsDialog({ domain, onClose, onSaved }) {
               {!canSaveAlerts({ ...form, emails: draft.trim() ? [...form.emails, draft.trim()] : form.emails }) && <p role="alert" className="text-sm text-amber-800">Adicione ao menos um e-mail ou marque "Notificar os administradores".</p>}
               <p className="text-xs text-slate-600">O aviso é enviado quando faltarem 30, 15 e 5 dias, no dia do vencimento e diariamente até 10 dias depois. Cada aviso é enviado uma vez por data de vencimento; ao renovar, a sequência recomeça.</p>
             </>
+          )}
+          {mailForm && (
+            <section aria-labelledby={`${id}-mail`} className="space-y-3 border-t border-slate-200 pt-4">
+              <div className="flex items-center justify-between gap-3">
+                <h3 id={`${id}-mail`} className="text-sm font-medium text-slate-900">Verificar SPF, DKIM e DMARC deste domínio</h3>
+                <Switch id={`${id}-mail-switch`} labelId={`${id}-mail`} checked={mailForm.enabled} onChange={(enabled) => setMailForm({ ...mailForm, enabled })} />
+              </div>
+              {mailForm.enabled && (
+                <label className="block text-sm font-medium text-slate-700">Seletores DKIM extras (um por linha)
+                  <textarea value={mailForm.extra} onChange={(event) => setMailForm({ ...mailForm, extra: event.target.value })} rows={3} spellCheck={false} placeholder="exemplo: marketing" className={`${fieldClass} mt-1 font-mono`} />
+                  <span className="mt-1 block text-xs font-normal text-slate-600">Além da lista padrão das configurações. Até {DOMAIN_SELECTOR_LIMIT}. O seletor aparece no cabeçalho DKIM-Signature (campo s=) de um e-mail enviado pelo domínio.</span>
+                </label>
+              )}
+            </section>
           )}
         </form>
       )}

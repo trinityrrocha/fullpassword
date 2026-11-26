@@ -239,10 +239,12 @@ async function run() {
   assert.equal((await service.list({ sort: 'expiry' })).domains[0].name, 'exemplo.com.br');
 
   // Settings
-  assert.deepEqual(await service.getSettings(), { check_interval_days: 7 });
-  assert.deepEqual(await service.saveSettings({ check_interval_days: 14 }), { check_interval_days: 14 });
-  for (const bad of [0, 31, 1.5, '7', null, undefined]) await assert.rejects(service.saveSettings({ check_interval_days: bad }), { code: 'DM_INTERVAL_INVALID' });
-  await service.saveSettings({ check_interval_days: 7 });
+  const defaults = await service.getSettings();
+  assert.equal(defaults.check_interval_days, 7);
+  const base = { check_interval_days: 7, mail_check_enabled: defaults.mail_check_enabled, mail_check_interval_days: defaults.mail_check_interval_days, dkim_selectors: defaults.dkim_selectors, dns_servers: defaults.dns_servers };
+  assert.equal((await service.saveSettings({ ...base, check_interval_days: 14 })).check_interval_days, 14);
+  for (const bad of [0, 31, 1.5, '7', null, undefined]) await assert.rejects(service.saveSettings({ ...base, check_interval_days: bad }), { code: 'DM_INTERVAL_INVALID' });
+  await service.saveSettings(base);
 
   // Remove a manual domain: snapshot and changes go with it.
   await service.removeDomain(added.id);
@@ -269,8 +271,8 @@ async function run() {
   const throttled = { syncFromSpfbl: async () => 0, checkDomain: async () => ({ snapshot: { error_code: 'RATE_LIMITED' } }) };
   const round3 = await scheduler.tick({ service: throttled, queryable: db, now: () => now });
   assert.equal(round3.checked, 3);
-  assert.deepEqual(await scheduler.tick({ service: throttled, queryable: db, now: () => now + 60000 }), { skipped: 'paused' });
-  assert.notDeepEqual(await scheduler.tick({ service: stub, queryable: db, now: () => now + scheduler.PAUSE_MS + 1 }), { skipped: 'paused' });
+  assert.equal((await scheduler.tick({ service: throttled, queryable: db, now: () => now + 60000 })).skipped, 'paused');
+  assert.notEqual((await scheduler.tick({ service: stub, queryable: db, now: () => now + scheduler.PAUSE_MS + 1 })).skipped, 'paused');
   scheduler.resetSchedulerState();
 
   // --- Routes: authenticated, module gate, Super Admin, in that order; every route behind them.
@@ -279,7 +281,7 @@ async function run() {
   assert.equal(layers.length, 3);
   assert.equal(layers[0], 'verifyToken');
   const routes = router.stack.filter((layer) => layer.route).map((layer) => `${Object.keys(layer.route.methods)[0].toUpperCase()} ${layer.route.path}`).sort();
-  assert.deepEqual(routes, ['DELETE /access/:userId', 'DELETE /domains/:id', 'GET /access', 'GET /access/domains', 'GET /domains', 'GET /domains/:id', 'GET /domains/:id/alerts', 'GET /settings', 'POST /domains', 'POST /domains/:id/check', 'POST /domains/import', 'PUT /access/:userId', 'PUT /domains/:id/alerts', 'PUT /settings']);
+  assert.deepEqual(routes, ['DELETE /access/:userId', 'DELETE /domains/:id', 'GET /access', 'GET /access/domains', 'GET /domains', 'GET /domains/:id', 'GET /domains/:id/alerts', 'GET /domains/:id/mail-settings', 'GET /settings', 'POST /domains', 'POST /domains/:id/check', 'POST /domains/import', 'PUT /access/:userId', 'PUT /domains/:id/alerts', 'PUT /domains/:id/mail-settings', 'PUT /settings']);
   assert.match(read('backend/src/server.js'), /'\/api\/domain-manager'\], generalWriteLimiter/);
 
   console.log('domain manager tests passed');
