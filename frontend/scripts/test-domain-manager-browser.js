@@ -12,15 +12,19 @@ import React from 'react';
 import {createRoot} from 'react-dom/client';
 import DomainManager from '/src/pages/DomainManager.jsx';
 import api from '/src/services/api.js';
+import {AuthContext} from '/src/context/AuthContext.jsx';
 import '/src/index.css';
 api.defaults.baseURL='/api';
-createRoot(document.getElementById('root')).render(<main className="p-4"><DomainManager/></main>);
+createRoot(document.getElementById('root')).render(<AuthContext.Provider value={{registerVaultLockCleanup:()=>()=>{}}}><main className="p-4"><DomainManager/></main></AuthContext.Provider>);
 `;
 const vite = await createServer({ root, server: { host: '127.0.0.1', port: 0 }, appType: 'custom', plugins: [{
   name: 'dm-isolated-fixture', enforce: 'pre',
   resolveId(id) { if (id === 'virtual:dm-fixture') return '\0dm-fixture.jsx'; },
   load(id) { if (id === '\0dm-fixture.jsx') return fixture; },
-  transform(code, id) { if (id === '\0dm-fixture.jsx') return transformWithOxc(code, 'dm-fixture.jsx'); },
+  transform(code, id) {
+    if (id === '\0dm-fixture.jsx') return transformWithOxc(code, 'dm-fixture.jsx');
+    if (id.endsWith('/AuthContext.jsx')) return code + '\nexport { AuthContext };';
+  },
   configureServer(server) {
     server.middlewares.use('/__dm_fixture', async (_req, res, next) => {
       try {
@@ -43,7 +47,7 @@ const MAIL_SUMMARY = { checked_at: '2026-11-26T15:00:00Z', name_exists: true, sp
 const MAIL_BAD = { checked_at: '2026-11-26T15:00:00Z', name_exists: true, spf: { status: 'fail', all: '+all' }, dmarc: { status: 'absent', policy: null }, dkim: { status: 'ok', found: 2 } };
 const DEFAULT_SELECTORS = ['default', 'google', 'selector1', 'selector2', 'k1'];
 const state = {
-  calls: [], interval: 7, mailOn: true, mailDays: 7, selectors: [...DEFAULT_SELECTORS], servers: [], domainMail: {}, failMailSave: false, rateLimited: false, alerts: {}, role: 'super_admin', userIds: [],
+  calls: [], sslOn: true, reportWarn: true, interval: 7, mailOn: true, mailDays: 7, selectors: [...DEFAULT_SELECTORS], servers: [], domainMail: {}, failMailSave: false, rateLimited: false, alerts: {}, role: 'super_admin', userIds: [],
   domains: [
     { id: uid(1), name: 'exemplo.com.br', source: 'manual', active: true, snapshot: snap(), mail: MAIL_SUMMARY },
     { id: uid(2), name: 'vencido.com', source: 'spfbl', active: true, snapshot: snap({ expires_on: '2026-11-20', days_left: -6, ssl: { state: 'expired', not_after: null, issuer: null, protocol: null, error: null } }), mail: MAIL_BAD },
@@ -77,7 +81,7 @@ try {
       const all = state.domains.filter((d) => d.name.includes(term) && (state.role === 'super_admin' || state.userIds.includes(d.id)));
       const withAlerts = (d) => { const a = state.alerts[d.id]; return { ...d, alerts: a ? { enabled: a.enabled, notify_admins: a.notify_admins, emails: a.emails.length } : { enabled: false, notify_admins: false, emails: 0 } }; };
       if (state.role === 'user') return json({ domains: all.slice((pageNo - 1) * size, pageNo * size).map((d) => ({ ...d })), total: all.length, page: pageNo, size, role: 'user' });
-      return json({ domains: all.slice((pageNo - 1) * size, pageNo * size).map(withAlerts), total: all.length, page: pageNo, size, role: 'super_admin', settings: { check_interval_days: state.interval, mail_check_enabled: state.mailOn, mail_check_interval_days: state.mailDays, dkim_selectors: state.selectors, dns_servers: state.servers, default_dkim_selectors: DEFAULT_SELECTORS } });
+      return json({ domains: all.slice((pageNo - 1) * size, pageNo * size).map(withAlerts), total: all.length, page: pageNo, size, role: 'super_admin', settings: { ssl_check_enabled: state.sslOn, dmarc_no_report_warning: state.reportWarn, check_interval_days: state.interval, mail_check_enabled: state.mailOn, mail_check_interval_days: state.mailDays, dkim_selectors: state.selectors, dns_servers: state.servers, default_dkim_selectors: DEFAULT_SELECTORS } });
     }
     if (api === '/domain-manager/domains' && method === 'POST') {
       const domain = { id: uid(500), name: body.name, source: 'manual', active: true, snapshot: null };
@@ -98,7 +102,7 @@ try {
     if (/^\/domain-manager\/domains\/[^/]+$/.test(api) && method === 'DELETE') { const id = api.split('/')[3]; state.domains = state.domains.filter((d) => d.id !== id); return json({ ok: true }); }
     if (/^\/domain-manager\/domains\/[^/]+$/.test(api)) { const domain = state.domains.find((d) => d.id === api.split('/')[3]); return json({ domain, changes: domain.mail ? [{ field: 'dmarc_policy', old_value: 'reject', new_value: 'none', detected_at: '2026-11-25T15:00:00Z' }] : [], mail: domain.mail ? MAIL_FULL : null }); }
     if (api === '/domain-manager/settings' && method === 'PUT') {
-      state.interval = body.check_interval_days; state.mailOn = body.mail_check_enabled; state.mailDays = body.mail_check_interval_days; state.selectors = body.dkim_selectors; state.servers = body.dns_servers;
+      state.sslOn = body.ssl_check_enabled; state.reportWarn = body.dmarc_no_report_warning; state.interval = body.check_interval_days; state.mailOn = body.mail_check_enabled; state.mailDays = body.mail_check_interval_days; state.selectors = body.dkim_selectors; state.servers = body.dns_servers;
       return json({ check_interval_days: state.interval });
     }
     if (/^\/domain-manager\/domains\/[^/]+\/mail-settings$/.test(api)) {
@@ -120,7 +124,27 @@ try {
   assert.match(await first.innerText(), /10\/02\/27/); assert.match(await first.innerText(), /em 76 dias/); assert.match(await first.innerText(), /Válido/);
   const expired = rows.filter({ hasText: 'vencido.com' });
   assert.match(await expired.innerText(), /venceu há 6 dias/); assert.match(await expired.innerText(), /Vencido/);
-  assert.match(await rows.filter({ hasText: 'novo.org' }).innerText(), /Aguardando consulta/);
+  assert.match(await rows.filter({ hasText: 'novo.org' }).innerText(), /Aguardando/);
+
+  // Layout: single-line rows of 40px with aligned columns, a short search box beside the buttons, and sorting in the column headers.
+  const box = await rows.first().boundingBox();
+  assert.ok(Math.abs(box.height - 40) < 1, `rows are 40px high (got ${box.height})`);
+  const xs = await rows.evaluateAll((items) => items.slice(0, 5).map((item) => [...item.children].map((child) => Math.round(child.getBoundingClientRect().left))));
+  assert.ok(xs.every((row) => JSON.stringify(row) === JSON.stringify(xs[0])), 'every row starts its columns at the same x');
+  assert.equal(await page.getByLabel('Ordenar por').count(), 0, 'the sort select is gone');
+  assert.ok((await page.getByLabel('Buscar domínio').boundingBox()).width <= 200, 'the search box is short');
+  assert.ok((await page.getByLabel('Buscar domínio').boundingBox()).height === 40, 'inputs are 40px high');
+  await page.getByRole('button', { name: 'Vencimento', exact: true }).click();
+  await page.waitForFunction(() => true);
+  assert.ok(state.calls.some((c) => c.method === 'GET' && c.query.sort === 'expiry'), 'a column header sorts on the server');
+  await page.getByRole('button', { name: 'Domínio', exact: true }).click();
+  const tip = page.getByRole('tooltip');
+  assert.match(await tip.textContent(), /consultados automaticamente por RDAP/, 'the description lives in the title tooltip');
+  assert.equal(await page.locator('h1 + p').count(), 0, 'no description line under the title');
+
+  await page.setViewportSize({ width: 390, height: 900 });
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, 'no horizontal scroll on a phone');
+  await page.setViewportSize({ width: 1280, height: 900 });
 
   // Pagination 20/40/100.
   await page.getByRole('button', { name: 'Próxima' }).click();
@@ -322,6 +346,47 @@ try {
   await domainCard.getByRole('button', { name: 'Salvar' }).click();
   await domainCard.waitFor({ state: 'detached' });
   assert.deepEqual(state.domainMail[uid(3)], { enabled: false, extra_selectors: ['marketing', 'loja'] }, 'with the check off the invalid draft is ignored and the saved selectors stay');
+
+  // Two opt-outs in the settings card: certificate check and the DMARC report warning.
+  await page.getByRole('button', { name: 'Configurações do Domain Manager' }).click();
+  const optDialog = page.getByRole('dialog', { name: 'Configurações do Domain Manager' });
+  const sslSwitch = optDialog.getByRole('switch', { name: /Verificar o vencimento do certificado SSL/ });
+  const ruaSwitch = optDialog.getByRole('switch', { name: /Avisar quando o DMARC não pede relatórios/ });
+  assert.deepEqual([await sslSwitch.getAttribute('aria-checked'), await ruaSwitch.getAttribute('aria-checked')], ['true', 'true']);
+  await sslSwitch.click(); await ruaSwitch.click();
+  await optDialog.getByRole('button', { name: 'Salvar' }).click();
+  await optDialog.waitFor({ state: 'detached' });
+  assert.deepEqual([state.sslOn, state.reportWarn], [false, false]);
+  await page.getByText('SSL', { exact: true }).waitFor({ state: 'detached' });
+  await page.getByRole('button', { name: 'Configurações do Domain Manager' }).click();
+  await optDialog.getByRole('switch', { name: /Verificar o vencimento do certificado SSL/ }).click();
+  await optDialog.getByRole('switch', { name: /Avisar quando o DMARC não pede relatórios/ }).click();
+  await optDialog.getByRole('button', { name: 'Salvar' }).click();
+  await optDialog.waitFor({ state: 'detached' });
+  assert.deepEqual([state.sslOn, state.reportWarn], [true, true]);
+
+  // Record generator (DMARC and SPF): the default result is the strict DMARC, every choice changes the record.
+  await page.getByRole('button', { name: 'Gerador de registros' }).click();
+  const gen = page.getByRole('dialog', { name: 'Gerador de registros' });
+  await gen.waitFor();
+  const record = () => gen.locator('[data-generator-record]').innerText();
+  assert.equal(await record(), 'v=DMARC1; p=reject; sp=reject; adkim=s; aspf=s');
+  await gen.getByText('Quarentena', { exact: true }).first().click();
+  await gen.getByText('Relaxado', { exact: true }).first().click();
+  assert.equal(await record(), 'v=DMARC1; p=quarantine; sp=reject; aspf=s');
+  await gen.getByLabel(/Receber relatórios agregados/).fill('dmarc@exemplo.com.br');
+  assert.equal(await record(), 'v=DMARC1; p=quarantine; sp=reject; aspf=s; rua=mailto:dmarc@exemplo.com.br');
+  await gen.getByLabel(/Receber relatórios agregados/).fill('nao-e-email');
+  assert.match(await gen.innerText(), /não é um e-mail válido/);
+  await gen.getByRole('tab', { name: 'SPF' }).click();
+  assert.equal(await record(), 'v=spf1 mx -all');
+  await gen.getByLabel('Google Workspace').check();
+  await gen.getByLabel(/Endereços IP/).fill('203.0.113.10, 2001:db8::/32');
+  assert.equal(await record(), 'v=spf1 mx ip4:203.0.113.10 ip6:2001:db8::/32 include:_spf.google.com -all');
+  await gen.getByText('Suspeito (~all)').click();
+  assert.match(await gen.innerText(), /Recomendamos -all/);
+  assert.match(await gen.innerText(), /Consultas DNS contadas: 2 de 10/);
+  await page.keyboard.press('Escape'); await gen.waitFor({ state: 'detached' });
 
   // Interval setting.
   await page.getByRole('button', { name: 'Configurações do Domain Manager' }).click();

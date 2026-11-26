@@ -71,7 +71,7 @@ async function run_() {
   let r = await spf('v=spf1 ip4:1.2.3.4 ip6:2001:db8::/32 -all');
   assert.deepEqual([r.status, r.all, r.lookups, r.ip_count, r.errors, r.warnings, r.notes], ['ok', '-all', 0, 2, [], [], []]);
   r = await spf('v=spf1 -all'); assert.equal(r.status, 'ok');
-  r = await spf('V=SPF1 ~all'); assert.deepEqual([r.status, r.notes], ['ok', ['SPF_SOFTFAIL']], '~all is accepted, with a note');
+  r = await spf('V=SPF1 ~all'); assert.deepEqual([r.status, r.warnings, r.notes], ['warning', ['SPF_SOFTFAIL'], []], '~all is a warning that suggests -all');
   r = await spf('v=spf1 ?all'); assert.deepEqual([r.status, r.warnings], ['warning', ['SPF_NEUTRAL_ALL']]);
   r = await spf('v=spf1 +all'); assert.deepEqual([r.status, r.errors], ['fail', ['SPF_ALL_PLUS']]);
   r = await spf('v=spf1 ip4:1.2.3.4'); assert.deepEqual([r.status, r.warnings], ['warning', ['SPF_NO_ALL']]);
@@ -133,6 +133,10 @@ async function run_() {
   assert.deepEqual([d.status, d.rua, d.ruf, d.adkim, d.aspf, d.pct, d.warnings], ['warning', ['a@x.test', 'b@x.test'], ['f@x.test'], 's', 's', 50, ['DMARC_PCT_PARTIAL', 'DMARC_SP_NONE']]);
   d = await dmarc('v=DMARC1; p=none; rua=mailto:r@x.test'); assert.deepEqual([d.status, d.warnings], ['warning', ['DMARC_POLICY_NONE']]);
   d = await dmarc('v=DMARC1; p=reject'); assert.deepEqual([d.status, d.warnings], ['warning', ['DMARC_NO_RUA']]);
+  const quiet = (await mail.checkMailAuth('a.test', { dns: fakeDns({ 'TXT a.test': ok('v=spf1 -all'), 'TXT _dmarc.a.test': ok('v=DMARC1; p=reject') }, []), selectors: [], warnNoReports: false })).dmarc;
+  assert.deepEqual([quiet.status, quiet.warnings], ['ok', []], 'with the option off, a reject policy without rua= is valid');
+  const quietNone = (await mail.checkMailAuth('a.test', { dns: fakeDns({ 'TXT a.test': ok('v=spf1 -all'), 'TXT _dmarc.a.test': ok('v=DMARC1; p=none') }, []), selectors: [], warnNoReports: false })).dmarc;
+  assert.deepEqual([quietNone.status, quietNone.warnings], ['warning', ['DMARC_POLICY_NONE']], 'the other DMARC warnings stay');
   d = await dmarc('v=DMARC1; p=bogus; rua=mailto:r@x.test'); assert.deepEqual([d.status, d.errors], ['fail', ['DMARC_BAD_POLICY']]);
   d = await dmarc('v=DMARC1; rua=mailto:r@x.test'); assert.deepEqual([d.status, d.warnings], ['warning', ['DMARC_NO_POLICY_TAG']]);
   d = await dmarc('v=DMARC1; fo=1'); assert.deepEqual([d.status, d.errors], ['fail', ['DMARC_NO_POLICY']]);
@@ -219,9 +223,13 @@ async function run_() {
   await ensureSecuritySchema(); await ensureSecuritySchema();
   const migration = read('database/migrations/38_domain_manager_mail_auth.sql');
   await pg.exec(migration); await pg.exec(migration);
+  const migration39 = read('database/migrations/39_domain_manager_report_ssl_options.sql');
+  await pg.exec(migration39); await pg.exec(migration39);
   for (const table of ['dm_mail_checks', 'dm_mail_domain_settings']) assert.ok(BACKUP_TABLES.includes(table) && OPTIONAL_BACKUP_TABLES.has(table), `${table} in both backup lists`);
   const defaults = (await pg.query('SELECT mail_check_enabled, mail_check_interval_days, dkim_selectors, dns_servers FROM dm_settings')).rows[0];
   assert.deepEqual([defaults.mail_check_enabled, defaults.mail_check_interval_days, defaults.dkim_selectors.length, defaults.dns_servers], [true, 7, dm.DEFAULT_DKIM_SELECTORS.length, []]);
+  const opts = (await pg.query('SELECT dmarc_no_report_warning, ssl_check_enabled FROM dm_settings')).rows[0];
+  assert.deepEqual([opts.dmarc_no_report_warning, opts.ssl_check_enabled], [true, true], 'both new options default to on (current behavior)');
   await assert.rejects(pg.query('UPDATE dm_settings SET mail_check_interval_days = 31'));
   const sample = (await pg.query("INSERT INTO dm_domains(name) VALUES ('check.test') RETURNING id")).rows[0].id;
   for (const field of ['spf_status', 'spf_record', 'dmarc_status', 'dmarc_policy', 'dkim_status', 'expires_on']) await pg.query('INSERT INTO dm_changes(domain_id, field) VALUES ($1,$2)', [sample, field]);
@@ -238,7 +246,7 @@ async function run_() {
     dnsFactory: (servers) => { sets.push(servers); return { txt: async (n, b) => { b?.spend(); return zones.get(`TXT ${n}`) || ABSENT; }, a: async () => ABSENT, aaaa: async () => ABSENT, mx: async () => ABSENT }; }
   });
 
-  assert.deepEqual(await service.getSettings(), { check_interval_days: 7, mail_check_enabled: true, mail_check_interval_days: 7, dkim_selectors: [...dm.DEFAULT_DKIM_SELECTORS], dns_servers: [], default_dkim_selectors: [...dm.DEFAULT_DKIM_SELECTORS] });
+  assert.deepEqual(await service.getSettings(), { check_interval_days: 7, mail_check_enabled: true, mail_check_interval_days: 7, dkim_selectors: [...dm.DEFAULT_DKIM_SELECTORS], dns_servers: [], dmarc_no_report_warning: true, ssl_check_enabled: true, default_dkim_selectors: [...dm.DEFAULT_DKIM_SELECTORS] });
   const full = { check_interval_days: 3, mail_check_enabled: true, mail_check_interval_days: 5, dkim_selectors: ['Default', 'mykey', 'default'], dns_servers: ['10.0.0.9'] };
   const saved = await service.saveSettings(full);
   assert.deepEqual([saved.check_interval_days, saved.mail_check_interval_days, saved.dkim_selectors, saved.dns_servers], [3, 5, ['default', 'mykey'], ['10.0.0.9']], 'selectors are lower-cased and de-duplicated');
@@ -250,6 +258,12 @@ async function run_() {
   await assert.rejects(service.saveSettings({ check_interval_days: 7 }), { code: 'DM_MAIL_INVALID' }, 'the settings card always sends every field');
   assert.equal((await service.getSettings()).mail_check_interval_days, 5, 'a refused save changes nothing');
   await service.saveSettings({ ...full, dns_servers: [] });
+  assert.deepEqual([(await service.saveSettings({ ...full, dns_servers: [] })).dmarc_no_report_warning, (await service.getSettings()).ssl_check_enabled], [true, true], 'the options keep their value when a save leaves them out');
+  await assert.rejects(service.saveSettings({ ...full, ssl_check_enabled: 'no' }), { code: 'DM_OPTION_INVALID' });
+  await assert.rejects(service.saveSettings({ ...full, dmarc_no_report_warning: 1 }), { code: 'DM_OPTION_INVALID' });
+  const both = await service.saveSettings({ ...full, dns_servers: [], dmarc_no_report_warning: false, ssl_check_enabled: false });
+  assert.deepEqual([both.dmarc_no_report_warning, both.ssl_check_enabled], [false, false]);
+  await service.saveSettings({ ...full, dns_servers: [], dmarc_no_report_warning: true, ssl_check_enabled: true });
 
   // ---------- checkMail: store, summary, changes, inconclusive keeps data ----------
   const added = await service.addDomain('alvo.test', adminId);
@@ -275,15 +289,15 @@ async function run_() {
   zones.set('TXT _dmarc.alvo.test', ok('v=DMARC1; p=reject; rua=mailto:r@alvo.test'));
   zones.set('TXT alvo.test', ok('v=spf1 ip4:203.0.113.5 ~all'));
   outcome = await service.checkMail(id);
-  assert.equal(outcome.changes, 3, 'dmarc policy, the dmarc status (warning -> ok) and the spf record changed');
+  assert.equal(outcome.changes, 4, 'dmarc policy, the dmarc status (warning -> ok), the spf record and the spf status (ok -> warning, now that ~all warns) changed');
   const kinds = (await service.detail(id)).changes.map((change) => change.field).sort();
-  assert.deepEqual(kinds, ['dmarc_policy', 'dmarc_status', 'spf_record']);
+  assert.deepEqual(kinds, ['dmarc_policy', 'dmarc_status', 'spf_record', 'spf_status']);
   const changeCountBefore = (await pg.query('SELECT count(*)::int AS n FROM dm_changes WHERE domain_id = $1', [id])).rows[0].n;
   now += DAY;
   zones.set('TXT alvo.test', FAIL); zones.set('TXT _dmarc.alvo.test', FAIL);
   await service.checkMail(id);
   row = (await service.list({ search: 'alvo' })).domains[0];
-  assert.deepEqual([row.mail.spf.status, row.mail.dmarc.status, row.mail.dkim.status], ['ok', 'ok', 'ok'], 'the last known statuses survive a resolver failure');
+  assert.deepEqual([row.mail.spf.status, row.mail.dmarc.status, row.mail.dkim.status], ['warning', 'ok', 'ok'], 'the last known statuses survive a resolver failure');
   detail = await service.detail(id);
   assert.equal(detail.mail.spf.record, 'v=spf1 ip4:203.0.113.5 ~all');
   assert.equal(detail.mail.dmarc.policy, 'reject');
@@ -358,6 +372,20 @@ async function run_() {
   assert.deepEqual(claimed.sort(), [ids['due1.test'], ids['due2.test']].sort(), 'only active, enabled, due domains');
   assert.deepEqual(await service.claimMailBatch(10), [], 'a claimed domain is not claimed twice');
   assert.equal((await service.claimMailBatch(1)).length, 0);
+
+  // ---------- certificate check can be turned off ----------
+  let probes = 0;
+  const sslService = dm.createService({ rdap: { lookup: async () => ({ lookup_status: 'not_found' }) }, ssl: { probe: async () => { probes += 1; return { ssl_state: 'valid', ssl_not_after: '2030-01-01' }; } }, now: () => now,
+    dnsFactory: () => ({ txt: async (n, b) => { b?.spend(); return ABSENT; }, a: async () => ABSENT, aaaa: async () => ABSENT, mx: async () => ABSENT }) });
+  const sslDomain = await sslService.addDomain('cert.test', adminId);
+  await sslService.checkDomain(sslDomain.id, { manual: true });
+  assert.equal(probes, 1, 'the certificate is probed by default');
+  await sslService.saveSettings({ ...full, dns_servers: [], ssl_check_enabled: false });
+  now += DAY;
+  await sslService.checkDomain(sslDomain.id, { manual: true });
+  assert.equal(probes, 1, 'with the option off the certificate is not probed');
+  assert.equal((await sslService.detail(sslDomain.id)).domain.snapshot.ssl.state, null, 'and no stale certificate is shown');
+  await sslService.saveSettings({ ...full, dns_servers: [], ssl_check_enabled: true });
 
   // ---------- manual check runs the mail check too ----------
   const manual = await service.addDomain('manual.test', adminId);

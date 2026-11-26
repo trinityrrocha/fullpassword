@@ -77,7 +77,7 @@ const saveMailSettings = handle(async (req, res, service) => {
 const getSettings = handle(async (_req, res, service) => res.status(200).json(await service.getSettings()));
 const saveSettings = handle(async (req, res, service) => {
   const settings = await service.saveSettings(req.body);
-  await audit(req, 'domain_manager_settings_saved', { check_interval_days: settings.check_interval_days, mail_check_enabled: settings.mail_check_enabled, mail_check_interval_days: settings.mail_check_interval_days, selectors: settings.dkim_selectors.length, dns_servers: settings.dns_servers.length });
+  await audit(req, 'domain_manager_settings_saved', { check_interval_days: settings.check_interval_days, mail_check_enabled: settings.mail_check_enabled, mail_check_interval_days: settings.mail_check_interval_days, selectors: settings.dkim_selectors.length, dns_servers: settings.dns_servers.length, dmarc_no_report_warning: settings.dmarc_no_report_warning, ssl_check_enabled: settings.ssl_check_enabled });
   return res.status(200).json(settings);
 });
 

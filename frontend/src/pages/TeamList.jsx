@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useId } from 'react';
 import { Users, Plus, Shield, Star, UserRound, Loader2, FolderKey, Trash2, ChevronDown } from 'lucide-react';
+import PageTitle from '../components/PageTitle';
 import SecurePasswordInput from '../components/SecurePasswordInput';
 import AdminSetPasswordDialog from '../components/AdminSetPasswordDialog';
 import FormDialog from '../components/FormDialog';
@@ -441,14 +442,11 @@ export default function TeamList() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="mx-auto max-w-7xl space-y-5 p-4 md:p-6">
       {formError && !isModalOpen && !isEditModalOpen && <p role="alert" className="text-sm text-red-600">{formError}</p>}
       {notice && <p role="status" className="text-sm text-green-700 dark:text-green-300">{notice}</p>}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">Gestão de Equipe</h1>
-          <p className="text-sm text-slate-500">Gerencie usuários, grupos e permissões herdadas nos cofres compartilhados</p>
-        </div>
+        <PageTitle icon={Users} description="Gerencie usuários, grupos e permissões herdadas nos cofres compartilhados">Gestão de Equipe</PageTitle>
         <button
           onClick={() => activeTab === 'users' ? openCreateUserModal() : openGroupModal()}
           className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700"

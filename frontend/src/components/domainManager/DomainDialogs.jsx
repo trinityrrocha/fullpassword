@@ -82,6 +82,8 @@ export function SettingsDialog({ settings, onClose, onSaved }) {
   const [mailDays, setMailDays] = useState(String(settings.mail_check_interval_days ?? 7));
   const [selectors, setSelectors] = useState((settings.dkim_selectors || []).join('\n'));
   const [servers, setServers] = useState((settings.dns_servers || []).join('\n'));
+  const [sslOn, setSslOn] = useState(settings.ssl_check_enabled !== false);
+  const [reportWarn, setReportWarn] = useState(settings.dmarc_no_report_warning !== false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const save = async (event) => {
@@ -98,7 +100,8 @@ export function SettingsDialog({ settings, onClose, onSaved }) {
       await saveDomainSettings({
         check_interval_days: Number(days), mail_check_enabled: mailOn,
         mail_check_interval_days: mailOn ? Number(mailDays) : Number(settings.mail_check_interval_days ?? 7),
-        dkim_selectors: mailOn ? selectorList : (settings.dkim_selectors || []), dns_servers: serverList
+        dkim_selectors: mailOn ? selectorList : (settings.dkim_selectors || []), dns_servers: serverList,
+        ssl_check_enabled: sslOn, dmarc_no_report_warning: reportWarn
       });
       await onSaved(); onClose();
     } catch (failure) { setError(describeError(failure, 'Não foi possível salvar.')); } finally { setBusy(false); }
@@ -116,6 +119,11 @@ export function SettingsDialog({ settings, onClose, onSaved }) {
             <input type="number" min={1} max={30} step={1} value={days} onChange={(event) => setDays(event.target.value)} className={`${fieldClass} mt-1 max-w-32`} />
           </label>
           <p className="text-sm text-slate-600">Vale enquanto faltarem mais de 30 dias para o vencimento. A partir daí, e enquanto o domínio estiver vencido, a consulta passa a ser diária.</p>
+          <div className="flex items-center justify-between gap-3 pt-1">
+            <span id={`${id}-ssl`} className="text-sm font-medium text-slate-700">Verificar o vencimento do certificado SSL</span>
+            <Switch id={`${id}-ssl-switch`} labelId={`${id}-ssl`} checked={sslOn} onChange={setSslOn} />
+          </div>
+          {!sslOn && <p className="text-sm text-slate-600">Desligado: o certificado dos domínios não é mais consultado e a coluna SSL fica em branco.</p>}
         </section>
         <section aria-labelledby={`${id}-mail`} className="space-y-3 border-t border-slate-200 pt-4">
           <div className="flex items-center justify-between gap-3">
@@ -125,6 +133,11 @@ export function SettingsDialog({ settings, onClose, onSaved }) {
           <p className="text-sm text-slate-600">Consulta o DNS de cada domínio e mostra na lista se o SPF, o DKIM e o DMARC estão configurados. Não envia dados a serviços externos.</p>
           {mailOn && (
             <>
+              <div className="flex items-center justify-between gap-3">
+                <span id={`${id}-rua`} className="text-sm font-medium text-slate-700">Avisar quando o DMARC não pede relatórios (rua=)</span>
+                <Switch id={`${id}-rua-switch`} labelId={`${id}-rua`} checked={reportWarn} onChange={setReportWarn} />
+              </div>
+              {!reportWarn && <p className="text-sm text-slate-600">Desligado: um DMARC correto, como p=reject, não recebe aviso só por não ter endereço de relatórios.</p>}
               <label className="block text-sm font-medium text-slate-700">Intervalo entre verificações (dias)
                 <input type="number" min={1} max={30} step={1} value={mailDays} onChange={(event) => setMailDays(event.target.value)} className={`${fieldClass} mt-1 max-w-32`} />
               </label>

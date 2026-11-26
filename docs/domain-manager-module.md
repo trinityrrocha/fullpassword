@@ -43,6 +43,14 @@ Verificação **somente por DNS**, feita pelo próprio servidor: nenhum dado sai
 - Migration `38_domain_manager_mail_auth.sql`: colunas novas em `dm_settings` e `dm_domains`, tabelas `dm_mail_checks` e `dm_mail_domain_settings` (no backup, como opcionais) e o rol de campos de `dm_changes` ampliado.
 - Rotas novas: `GET|PUT /api/domain-manager/domains/:id/mail-settings` (Super Admin). `GET|PUT /settings` agora recebe e devolve todos os campos.
 
+## Lista, opções e gerador de registros
+- **Lista**: uma linha de 40 px por domínio, com colunas alinhadas (Domínio, Vencimento, SPF, DKIM, DMARC, SSL, Consulta, ações). A ordenação é feita clicando no título das colunas Domínio, Vencimento e Consulta; a busca fica ao lado dos botões do cabeçalho. A descrição da página aparece como dica (ícone de informação ao lado do título), assim como nas demais páginas.
+- **SPF com `~all`** passa a ser **aviso** (antes era só uma nota): o resultado sugere trocar por `-all`, que rejeita e-mail de servidores não autorizados.
+- **Opções do card de configurações** (migration `39_domain_manager_report_ssl_options.sql`):
+  - *Avisar quando o DMARC não pede relatórios (rua=)*: ligada por padrão. Desligada, um DMARC correto (por exemplo `p=reject`) não recebe aviso só por não ter endereço de relatórios; os demais avisos continuam. Ao mudar essa opção, as verificações de e-mail de todos os domínios são antecipadas para o resultado da lista refletir a regra nova.
+  - *Verificar o vencimento do certificado SSL*: ligada por padrão. Desligada, o certificado não é mais consultado, a coluna SSL some da lista e o último valor guardado é apagado na próxima consulta de cada domínio.
+- **Gerador de registros** (ícone ao lado do card de configurações, Super Admin): monta o texto de um registro DMARC ou SPF a partir de escolhas e explica cada parte. Só gera texto para copiar e publicar no DNS; nada é enviado a lugar nenhum. O SPF conta as consultas DNS diretas (máximo 10) e avisa quando o registro passa de 255 caracteres.
+
 ## Como a consulta funciona
 - **RDAP** (RFC 9083). O servidor de cada extensão vem da tabela pública da IANA (`data.iana.org/rdap/dns.json`, renovada a cada 24 h); `.br` usa `rdap.registro.br`. O endereço do registro nunca vem do usuário.
 - **Extensões sem RDAP** na tabela (por exemplo `.io`, `.co`, `.de`) aparecem como "Extensão sem consulta RDAP"; a data de vencimento delas depende da fase de API de apoio.

@@ -14,9 +14,9 @@ export default function DesktopNavigation({ user, navigation, onProfile, onLogou
   const Container = top ? 'header' : 'aside';
   const focus = 'focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-indigo-400';
   return <Container data-desktop-navigation={`${preferences.menu_position}/${preferences.menu_display}`} className={top
-    ? 'hidden h-16 shrink-0 items-center gap-2 border-b border-slate-800 bg-slate-900 px-3 text-white md:flex'
+    ? 'hidden h-[55px] shrink-0 items-center gap-2 border-b border-slate-800 bg-slate-900 px-3 text-white md:flex'
     : `hidden shrink-0 flex-col bg-slate-900 text-white md:flex ${icons ? 'w-20' : 'w-64'}`}>
-    <div className={`flex shrink-0 items-center justify-center ${top ? 'pr-1' : 'h-16 border-b border-slate-800'}`} title="FullPassword" aria-label="FullPassword">
+    <div className={`flex shrink-0 items-center justify-center ${top ? 'pr-1' : 'h-[55px] border-b border-slate-800'}`} title="FullPassword" aria-label="FullPassword">
       <Shield className="h-7 w-7 shrink-0 text-indigo-400" aria-hidden="true" />
       {!icons && <span className={`ml-2 font-bold ${top ? 'text-base' : 'text-xl'}`}>FullPassword</span>}
     </div>

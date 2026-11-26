@@ -103,7 +103,7 @@ const MAIL_CODES = Object.freeze({
   SPF_PTR: 'O mecanismo ptr é desencorajado.',
   SPF_TEXT_AFTER_ALL: 'Há termos depois do "all"; eles são ignorados.',
   SPF_VOID_LOOKUPS: 'Mais de 2 consultas do SPF não retornaram resposta.',
-  SPF_SOFTFAIL: '~all (soft fail) é aceito; -all é mais rígido.',
+  SPF_SOFTFAIL: 'O registro termina em ~all (soft fail): e-mail falso ainda pode ser entregue. Recomendado trocar por -all, que rejeita.',
   DMARC_MULTIPLE: 'Há mais de um registro DMARC, o que é inválido.',
   DMARC_NO_POLICY: 'O registro DMARC não tem a política (p=).',
   DMARC_BAD_POLICY: 'A política DMARC não é none, quarantine nem reject.',

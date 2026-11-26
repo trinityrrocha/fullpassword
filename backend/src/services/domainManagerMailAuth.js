@@ -150,7 +150,7 @@ const analyzeSpf = async (domain, dns, budget, prefetched = null) => {
     if (all === null) state.warnings.add('SPF_NO_ALL');
     if (all === '+all') state.errors.add('SPF_ALL_PLUS');
     if (all === '?all') state.warnings.add('SPF_NEUTRAL_ALL');
-    if (all === '~all') state.notes.add('SPF_SOFTFAIL');
+    if (all === '~all') state.warnings.add('SPF_SOFTFAIL');
     if (state.voids > MAX_VOID_LOOKUPS) state.warnings.add('SPF_VOID_LOOKUPS');
     result = { all, record: first.record.slice(0, 1000) };
   } catch (error) {
@@ -178,7 +178,7 @@ const parentNames = (domain) => {
   return parents;
 };
 
-const analyzeDmarc = async (domain, dns, budget) => {
+const analyzeDmarc = async (domain, dns, budget, { warnNoReports = true } = {}) => {
   let answer = await dns.txt(`_dmarc.${domain}`, budget);
   let inheritedFrom = null;
   if (answer.state === 'inconclusive') return { status: 'inconclusive' };
@@ -208,7 +208,7 @@ const analyzeDmarc = async (domain, dns, budget) => {
   if (!policy) { if (rua.length) warnings.push('DMARC_NO_POLICY_TAG'); else errors.push('DMARC_NO_POLICY'); }
   else if (!['none', 'quarantine', 'reject'].includes(policy)) errors.push('DMARC_BAD_POLICY');
   if (policy === 'none') warnings.push('DMARC_POLICY_NONE');
-  if (rua.length === 0) warnings.push('DMARC_NO_RUA');
+  if (rua.length === 0 && warnNoReports) warnings.push('DMARC_NO_RUA');
   const pct = tags.pct === undefined || tags.pct === '' ? 100 : Number(tags.pct);
   if (Number.isInteger(pct) && pct >= 0 && pct < 100) warnings.push('DMARC_PCT_PARTIAL');
   const subdomainPolicy = (tags.sp || '').toLowerCase() || null;
@@ -284,7 +284,7 @@ const analyzeDkim = async (domain, dns, selectors, budget) => {
 // ---------- everything for one name ----------
 const inconclusiveSection = (code) => ({ status: 'inconclusive', code });
 
-const checkMailAuth = async (domain, { dns, selectors = [], budget = createBudget(), dkimBudget = createBudget({ maxQueries: DKIM_BUDGET }) } = {}) => {
+const checkMailAuth = async (domain, { dns, selectors = [], warnNoReports = true, budget = createBudget(), dkimBudget = createBudget({ maxQueries: DKIM_BUDGET }) } = {}) => {
   const apex = await dns.txt(domain, budget).catch((error) => { if (error instanceof QueryBudgetError) return { state: 'inconclusive', code: 'DNS_BUDGET' }; throw error; });
   if (apex.state === 'absent' && apex.code === 'ENOTFOUND') {
     return { name_exists: false, spf: { status: 'absent' }, dmarc: { status: 'absent' }, dkim: { status: 'not_found', tested: 0, found: [], wildcard: false, warnings: [], notes: [], unreachable: 0 } };
@@ -292,7 +292,7 @@ const checkMailAuth = async (domain, { dns, selectors = [], budget = createBudge
   const guard = (task) => task.catch((error) => { if (error instanceof QueryBudgetError) return inconclusiveSection('DNS_BUDGET'); throw error; });
   const [spf, dmarc, dkim] = await Promise.all([
     guard(analyzeSpf(domain, dns, budget, apex.state === 'inconclusive' ? { state: 'inconclusive', code: apex.code } : apex)),
-    guard(analyzeDmarc(domain, dns, budget)),
+    guard(analyzeDmarc(domain, dns, budget, { warnNoReports })),
     guard(analyzeDkim(domain, dns, selectors, dkimBudget))
   ]);
   return { name_exists: true, spf, dmarc, dkim };
