@@ -37,7 +37,7 @@ async function run() {
   const ordinaryAdmin = { id: userId, email: 'user@example.invalid', role: 'admin', is_super_admin: false };
 
   // Fresh install: the registry exists and every module starts disabled.
-  assert.deepEqual((await pg.query('SELECT module_key, enabled FROM system_modules')).rows, [{ module_key: 'spfbl', enabled: false }]);
+  assert.deepEqual((await pg.query('SELECT module_key, enabled FROM system_modules')).rows, [{ module_key: 'spfbl', enabled: false }, { module_key: 'domain_manager', enabled: false }]);
   assert.equal(await service.isModuleEnabled('spfbl'), false);
 
   // Upgrade path: both the runtime ensure and the standalone migration are idempotent and keep the state.
@@ -48,7 +48,7 @@ async function run() {
   const migration = read('database/migrations/25_create_system_modules.sql');
   await pg.exec(migration); await pg.exec(migration);
   assert.equal(await service.isModuleEnabled('spfbl'), true, 'ensure/migration must not reset the toggle');
-  assert.equal((await pg.query('SELECT count(*)::int AS n FROM system_modules')).rows[0].n, 1);
+  assert.equal((await pg.query('SELECT count(*)::int AS n FROM system_modules')).rows[0].n, 2);
   await assert.rejects(pg.query("INSERT INTO system_modules(module_key) VALUES ('Bad Key')"));
   await assert.rejects(pg.query("INSERT INTO system_modules(module_key,updated_by) VALUES ('other','00000000-0000-0000-0000-00000000ffff')"));
 
@@ -62,23 +62,23 @@ async function run() {
   }
   assert.equal(await service.isModuleEnabled('spfbl'), true);
   const listed = await service.listModules();
-  assert.deepEqual(listed.map((m) => [m.key, m.name, m.enabled]), [['spfbl', 'SPFBL', true]]);
+  assert.deepEqual(listed.map((m) => [m.key, m.name, m.enabled]), [['spfbl', 'SPFBL', true], ['domain_manager', 'Domain Manager', false]]);
 
   // Menu: booleans only; disabled => nobody; enabled => Super Admin; others only through a registered grant check.
   await service.setModuleEnabled('spfbl', false, adminId);
-  assert.deepEqual(await service.getMenuModules(superAdmin), { spfbl: false });
+  assert.deepEqual(await service.getMenuModules(superAdmin), { spfbl: false, domain_manager: false });
   await service.setModuleEnabled('spfbl', true, adminId);
-  assert.deepEqual(await service.getMenuModules(superAdmin), { spfbl: true });
-  assert.deepEqual(await service.getMenuModules(ordinary), { spfbl: false });
-  assert.deepEqual(await service.getMenuModules(ordinaryAdmin), { spfbl: false }, 'an admin who is not Super Admin has no implicit access');
-  assert.deepEqual(await service.getMenuModules({ role: 'admin', is_super_admin: true }), { spfbl: false }, 'no user id, no access');
+  assert.deepEqual(await service.getMenuModules(superAdmin), { spfbl: true, domain_manager: false });
+  assert.deepEqual(await service.getMenuModules(ordinary), { spfbl: false, domain_manager: false });
+  assert.deepEqual(await service.getMenuModules(ordinaryAdmin), { spfbl: false, domain_manager: false }, 'an admin who is not Super Admin has no implicit access');
+  assert.deepEqual(await service.getMenuModules({ role: 'admin', is_super_admin: true }), { spfbl: false, domain_manager: false }, 'no user id, no access');
   let granted = false;
   service.registerUserAccessCheck('spfbl', async (user) => granted && user.id === userId);
-  assert.deepEqual(await service.getMenuModules(ordinary), { spfbl: false });
+  assert.deepEqual(await service.getMenuModules(ordinary), { spfbl: false, domain_manager: false });
   granted = true;
-  assert.deepEqual(await service.getMenuModules(ordinary), { spfbl: true });
+  assert.deepEqual(await service.getMenuModules(ordinary), { spfbl: true, domain_manager: false });
   await service.setModuleEnabled('spfbl', false, adminId);
-  assert.deepEqual(await service.getMenuModules(ordinary), { spfbl: false }, 'a grant does not outlive a disabled module');
+  assert.deepEqual(await service.getMenuModules(ordinary), { spfbl: false, domain_manager: false }, 'a grant does not outlive a disabled module');
   assert.throws(() => service.registerUserAccessCheck('nope', async () => true), { code: 'MODULE_UNKNOWN' });
   service.registerUserAccessCheck('spfbl', async () => false);
 
@@ -109,7 +109,7 @@ async function run() {
   res = response(); await controller.list(request(superAdmin), res);
   assert.equal(res.code, 200); assert.equal(res.body.modules[0].enabled, false);
   res = response(); await controller.menu(request(superAdmin), res);
-  assert.deepEqual(res.body, { modules: { spfbl: false } });
+  assert.deepEqual(res.body, { modules: { spfbl: false, domain_manager: false } });
 
   // Backup/restore registry and wiring.
   assert.ok(BACKUP_TABLES.includes('system_modules'));

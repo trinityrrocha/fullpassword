@@ -10,6 +10,7 @@ import ClientsList from './pages/ClientsList';
 import ClientVault from './pages/ClientVault';
 import TeamList from './pages/TeamList';
 import Settings from './pages/Settings';
+import DomainManager from './pages/DomainManager';
 import Spfbl from './pages/Spfbl';
 import ProtectedRoute from './components/ProtectedRoute';
 import { useAuth } from './context/AuthContext';
@@ -56,6 +57,7 @@ function App() {
             <Route path="/client/:id" element={<ClientVault />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="/spfbl" element={<Spfbl />} />
+            <Route path="/domains" element={<DomainManager />} />
           </Route>
 
           {/* Rotas apenas para administradores */}

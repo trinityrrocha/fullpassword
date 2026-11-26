@@ -5,7 +5,7 @@ import SettingsAccordionCard from './SettingsAccordionCard';
 import { listModules, setModuleEnabled } from '../services/spfblService';
 import { describeError, MODULES_CHANGED_EVENT } from '../utils/spfbl';
 
-const MODULE_PAGES = Object.freeze({ spfbl: { href: '/spfbl', label: 'Abrir o SPFBL' } });
+const MODULE_PAGES = Object.freeze({ spfbl: { href: '/spfbl', label: 'Abrir o SPFBL' }, domain_manager: { href: '/domains', label: 'Abrir o Domain Manager' } });
 
 function ModuleRow({ module, busy, onToggle }) {
   const id = useId();

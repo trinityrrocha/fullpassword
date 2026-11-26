@@ -1,6 +1,6 @@
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import { SHELL_ROOT, SHELL_MAIN, SHELL_SCROLLER } from './shellClasses';
-import { Users, Settings, Shield, LogOut, Menu, X, Building2, Bug } from 'lucide-react';
+import { Users, Settings, Shield, LogOut, Menu, X, Building2, Bug, Globe } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import UserProfileModal from '../components/UserProfileModal';
@@ -175,6 +175,7 @@ export default function DashboardLayout() {
     { name: 'Clientes / Cofre', href: '/', icon: Building2 },
     ...(user?.role === 'admin' ? [{ name: 'Gestão de Equipe', href: '/team', icon: Users }] : []),
     ...(modules.spfbl === true ? [{ name: 'SPFBL', href: '/spfbl', icon: Bug }] : []),
+    ...(modules.domain_manager === true ? [{ name: 'Domain Manager', href: '/domains', icon: Globe }] : []),
     { name: 'Configurações', href: '/settings', icon: Settings },
   ];
 

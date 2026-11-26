@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS system_modules (
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
 )`;
 
-const SEED_SYSTEM_MODULES_SQL = "INSERT INTO system_modules (module_key) VALUES ('spfbl') ON CONFLICT (module_key) DO NOTHING";
+const SEED_SYSTEM_MODULES_SQL = "INSERT INTO system_modules (module_key) VALUES ('spfbl'), ('domain_manager') ON CONFLICT (module_key) DO NOTHING";
 
 const ensureModulesSchema = async (client) => {
   await client.query(CREATE_SYSTEM_MODULES_SQL);

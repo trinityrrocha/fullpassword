@@ -114,6 +114,14 @@ const spfblActionLimiter = createWriteRateLimiter({
   message: 'Muitas ações no SPFBL em pouco tempo. Aguarde alguns minutos antes de continuar.'
 });
 
+// Each manual lookup contacts a registry and the domain's own server: bounded per account/IP, on top of the per-domain cooldown.
+const domainManagerLookupLimiter = createWriteRateLimiter({
+  windowMs: 15 * 60 * 1000,
+  limit: 40,
+  code: 'DOMAIN_MANAGER_LOOKUP_RATE_LIMITED',
+  message: 'Muitas consultas de domínio em pouco tempo. Aguarde alguns minutos antes de tentar novamente.'
+});
+
 const smtpTestLimiter = createWriteRateLimiter({
   windowMs: 15 * 60 * 1000,
   limit: 5,
@@ -160,6 +168,7 @@ module.exports = {
   smtpTestLimiter,
   spfblTestLimiter,
   spfblActionLimiter,
+  domainManagerLookupLimiter,
   passwordResetRequestIpLimiter,
   passwordResetRequestLimiter,
   passwordResetValidateLimiter,
