@@ -79,7 +79,7 @@ const MARK_TONES = Object.freeze({ ok: 'ok', warning: 'warning', fail: 'danger',
 export const mailMarker = (kind, mail) => {
   const section = mail?.[kind];
   const label = { spf: 'SPF', dkim: 'DKIM', dmarc: 'DMARC' }[kind];
-  if (!mail || !section) return { label, mark: '·', text: 'não verificado', tone: 'muted', title: `${label}: ainda não verificado` };
+  if (!mail || !section) return { label, mark: '·', status: 'Não verificado', text: 'não verificado', tone: 'muted', title: `${label}: ainda não verificado` };
   const status = section.status;
   let detail = '';
   if (kind === 'spf' && section.all) detail = section.all;
@@ -87,7 +87,7 @@ export const mailMarker = (kind, mail) => {
   if (kind === 'dkim' && status !== 'not_found') detail = section.found ? `${section.found} ${section.found === 1 ? 'seletor' : 'seletores'}` : '';
   const word = status === 'absent' ? 'ausente' : status === 'not_found' ? 'não encontrado' : status === 'inconclusive' ? 'sem resposta' : status === 'fail' ? 'falha' : '';
   const text = detail || word || (status === 'ok' ? 'válido' : status === 'warning' ? 'aviso' : '');
-  return { label, mark: MARKS[status] || '·', text, tone: MARK_TONES[status] || 'muted', title: `${label}: ${MAIL_STATUS_LABELS[status] || '—'}${detail ? ` (${detail})` : ''}` };
+  return { label, mark: MARKS[status] || '·', status: MAIL_STATUS_LABELS[status] || 'Não verificado', text, tone: MARK_TONES[status] || 'muted', title: `${label}: ${MAIL_STATUS_LABELS[status] || '—'}${detail ? ` (${detail})` : ''}` };
 };
 
 const MAIL_CODES = Object.freeze({
@@ -124,8 +124,11 @@ export const mailMessages = (section) => [...(section?.errors || []), ...(sectio
 
 export const DKIM_SELECTOR_LIMIT = 60;
 export const DOMAIN_SELECTOR_LIMIT = 20;
-const SELECTOR_PATTERN = /^[a-z0-9](?:[a-z0-9._-]{0,60}[a-z0-9])?$/i;
-export const isValidSelector = (value) => SELECTOR_PATTERN.test(String(value || ''));
+export const DKIM_PROBE_LIMIT = DKIM_SELECTOR_LIMIT + DOMAIN_SELECTOR_LIMIT;
+// Same rule as the server: dot-separated labels of up to 63 characters, no empty label, at most 100 characters in all.
+const SELECTOR_LABEL = '[a-z0-9](?:[a-z0-9_-]{0,61}[a-z0-9])?';
+const SELECTOR_PATTERN = new RegExp(`^${SELECTOR_LABEL}(?:\\.${SELECTOR_LABEL})*$`, 'i');
+export const isValidSelector = (value) => { const text = String(value || ''); return text.length <= 100 && SELECTOR_PATTERN.test(text); };
 // A pasted list: one selector per line, comma or space; lower-cased, de-duplicated, blanks dropped.
 export const parseSelectorList = (text) => [...new Set(String(text || '').split(/[\s,;]+/).map((item) => item.trim().toLowerCase()).filter(Boolean))];
 export const selectorProblems = (list, limit) => {

@@ -88,13 +88,18 @@ export function SettingsDialog({ settings, onClose, onSaved }) {
     event.preventDefault();
     const selectorList = parseSelectorList(selectors);
     const serverList = parseServerList(servers);
+    // Hidden fields are not validated and keep their saved values: turning the check off must never be blocked by a draft in a field you cannot see.
     const problem = (!validDays(days) && 'Informe o intervalo das consultas de vencimento de 1 a 30 dias.')
-      || (!validDays(mailDays) && 'Informe o intervalo da verificação de e-mail de 1 a 30 dias.')
-      || selectorProblems(selectorList, DKIM_SELECTOR_LIMIT) || serverProblems(serverList);
+      || (mailOn && !validDays(mailDays) && 'Informe o intervalo da verificação de e-mail de 1 a 30 dias.')
+      || (mailOn && (selectorList.length === 0 ? 'Informe ao menos um seletor DKIM.' : selectorProblems(selectorList, DKIM_SELECTOR_LIMIT))) || serverProblems(serverList);
     if (problem) { setError(problem); return; }
     setBusy(true); setError('');
     try {
-      await saveDomainSettings({ check_interval_days: Number(days), mail_check_enabled: mailOn, mail_check_interval_days: Number(mailDays), dkim_selectors: selectorList, dns_servers: serverList });
+      await saveDomainSettings({
+        check_interval_days: Number(days), mail_check_enabled: mailOn,
+        mail_check_interval_days: mailOn ? Number(mailDays) : Number(settings.mail_check_interval_days ?? 7),
+        dkim_selectors: mailOn ? selectorList : (settings.dkim_selectors || []), dns_servers: serverList
+      });
       await onSaved(); onClose();
     } catch (failure) { setError(describeError(failure, 'Não foi possível salvar.')); } finally { setBusy(false); }
   };
@@ -130,12 +135,15 @@ export function SettingsDialog({ settings, onClose, onSaved }) {
                   <button type="button" onClick={() => setSelectors((settings.default_dkim_selectors || []).join('\n'))} className="rounded px-1 font-medium text-indigo-700 underline">Restaurar a lista padrão</button>
                 </span>
               </label>
-              <label className="block text-sm font-medium text-slate-700">Servidores DNS (opcional, um endereço IP por linha)
-                <textarea value={servers} onChange={(event) => setServers(event.target.value)} rows={2} spellCheck={false} placeholder="vazio = usar o DNS do sistema" className={`${fieldClass} mt-1 font-mono`} />
-                <span className="mt-1 block text-xs font-normal text-slate-600">Até 4 endereços IP. Deixe em branco para usar o DNS do próprio servidor.</span>
-              </label>
             </>
           )}
+        </section>
+        <section aria-labelledby={`${id}-dns`} className="space-y-2 border-t border-slate-200 pt-4">
+          <h3 id={`${id}-dns`} className="text-sm font-semibold text-slate-900">Servidores DNS</h3>
+          <label className="block text-sm font-medium text-slate-700">Servidores DNS (opcional, um endereço IP por linha)
+            <textarea value={servers} onChange={(event) => setServers(event.target.value)} rows={2} spellCheck={false} placeholder="vazio = usar o DNS do sistema" className={`${fieldClass} mt-1 font-mono`} />
+            <span className="mt-1 block text-xs font-normal text-slate-600">Até 4 endereços IP. Deixe em branco para usar o DNS do próprio servidor. Valem para todas as consultas de DNS do módulo.</span>
+          </label>
         </section>
         {error && <p role="alert" className={errorBox}>{error}</p>}
       </form>
@@ -154,13 +162,14 @@ const ALIGN = Object.freeze({ r: 'relaxado', s: 'rígido' });
 function MailBlock({ kind, title, section, mail, children }) {
   const marker = mailMarker(kind, mail);
   const messages = mailMessages(section);
+  const noAnswer = section?.status === 'inconclusive';
   return (
     <div className="rounded-md border border-slate-200 p-3" data-mail-block={kind}>
       <h4 className="flex flex-wrap items-center gap-2 text-sm font-semibold text-slate-900">
         <span>{title}</span>
         <span className={`text-sm font-medium ${MARK_TONE_CLASSES[marker.tone]}`}><span aria-hidden="true">{marker.mark} </span>{mailStatusLabel(section?.status)}</span>
       </h4>
-      <dl className="mt-1 divide-y divide-slate-100">{children}</dl>
+      {noAnswer ? <p className="mt-1 text-sm text-slate-700">O DNS não respondeu e ainda não há dado anterior. Uma nova tentativa acontece em algumas horas.</p> : <dl className="mt-1 divide-y divide-slate-100">{children}</dl>}
       {messages.length > 0 && <ul className="mt-2 list-disc space-y-0.5 pl-5 text-sm text-slate-700">{messages.map((message) => <li key={message}>{message}</li>)}</ul>}
       {section?.as_of && section.status !== 'inconclusive' && <p className="mt-2 text-xs text-slate-500">Resposta do DNS em {formatDateTime(section.as_of)}</p>}
     </div>
@@ -169,7 +178,7 @@ function MailBlock({ kind, title, section, mail, children }) {
 
 function MailSection({ mail }) {
   if (mail === undefined) return <p className="text-sm text-slate-600">Carregando a verificação de e-mail…</p>;
-  if (!mail) return <section><h3 className="text-sm font-semibold text-slate-900">E-mail (SPF, DKIM e DMARC)</h3><p className="mt-1 text-sm text-slate-600">Ainda não verificado. A verificação roda sozinha, ou use o botão de consulta da lista.</p></section>;
+  if (!mail) return <section><h3 className="text-sm font-semibold text-slate-900">E-mail (SPF, DKIM e DMARC)</h3><p className="mt-1 text-sm text-slate-600">Ainda não verificado. Quando a verificação de e-mail está ligada nas configurações, ela roda sozinha, ou use o botão de consulta da lista.</p></section>;
   const { spf, dmarc, dkim } = mail;
   const lines = (list) => (list?.length ? list.join(', ') : '—');
   return (
@@ -307,8 +316,9 @@ export function AlertsDialog({ domain, onClose, onSaved }) {
     // An address typed but not yet added is not lost: it is included (or the reason it cannot be is shown).
     const emails = withDraft({ forSave: true });
     if (!emails) return;
-    const extra = parseSelectorList(mailForm.extra);
-    const selectorProblem = selectorProblems(extra, DOMAIN_SELECTOR_LIMIT);
+    // A hidden field is neither validated nor sent: switching the check off keeps the extras that were saved.
+    const extra = mailForm.enabled ? parseSelectorList(mailForm.extra) : parseSelectorList(mailOriginal.extra);
+    const selectorProblem = mailForm.enabled ? selectorProblems(extra, DOMAIN_SELECTOR_LIMIT) : '';
     if (selectorProblem) { setError(selectorProblem); return; }
     setBusy(true); setError('');
     let alertsSaved = false;
@@ -320,6 +330,7 @@ export function AlertsDialog({ domain, onClose, onSaved }) {
       }
       await onSaved(); onClose();
     } catch (failure) {
+      if (alertsSaved) { try { await onSaved(); } catch { /* the list refreshes on the next load */ } }
       setError(alertsSaved
         ? `Os alertas foram salvos, mas a verificação de e-mail NÃO foi: ${describeError(failure, 'o servidor recusou a alteração')}`
         : describeError(failure, 'Não foi possível salvar as configurações do domínio.'));

@@ -123,7 +123,7 @@ export default function DomainManager() {
                   const marker = mailMarker(kind, domain.mail);
                   return (
                     <span key={kind} title={marker.title} className={`inline-flex items-center gap-1 ${MAIL_TONES[marker.tone]}`}>
-                      <span className="font-medium">{marker.label}</span><span aria-hidden="true">{marker.mark}</span><span>{marker.text}</span>
+                      <span className="font-medium">{marker.label}</span><span aria-hidden="true">{marker.mark}</span><span className="sr-only">{marker.status}, </span><span>{marker.text}</span>
                     </span>
                   );
                 })}

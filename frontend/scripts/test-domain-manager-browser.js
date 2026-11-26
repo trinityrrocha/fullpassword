@@ -235,6 +235,7 @@ try {
   // E-mail checks: compact markers in the list (glyph AND words), full results in the details.
   const mailRow = (name) => page.getByRole('list', { name: 'Domínios' }).getByRole('listitem').filter({ hasText: name }).locator('[data-mail-cell]');
   const good = await mailRow('vencido.com').innerText();
+  assert.match(good, /Falha/, 'the spoken status is part of the marker');
   assert.match(good, /SPF[\s\S]*\+all/); assert.match(good, /DMARC[\s\S]*ausente/); assert.match(good, /DKIM[\s\S]*2 seletores/);
   assert.equal(await mailRow('vencido.com').locator('span[title^="SPF"]').getAttribute('title'), 'SPF: Falha (+all)');
   assert.match(await mailRow('novo.org').innerText(), /SPF[\s\S]*não verificado/);
@@ -261,10 +262,10 @@ try {
   await settingsDialog.getByRole('button', { name: 'Salvar' }).click();
   assert.match(await settingsDialog.getByRole('alert').innerText(), /Seletor inválido: "meu\$sel"/);
   await settingsDialog.getByLabel(/Seletores DKIM testados/).fill('Default\nmarketing\ndefault');
-  await settingsDialog.getByLabel(/Servidores DNS/).fill('dns.google');
+  await settingsDialog.getByRole('textbox', { name: /Servidores DNS/ }).fill('dns.google');
   await settingsDialog.getByRole('button', { name: 'Salvar' }).click();
   assert.match(await settingsDialog.getByRole('alert').innerText(), /Endereço IP inválido: "dns\.google"/);
-  await settingsDialog.getByLabel(/Servidores DNS/).fill('10.0.0.9\n1.1.1.1');
+  await settingsDialog.getByRole('textbox', { name: /Servidores DNS/ }).fill('10.0.0.9\n1.1.1.1');
   await settingsDialog.getByLabel(/Intervalo entre verificações/).fill('0');
   await settingsDialog.getByRole('button', { name: 'Salvar' }).click();
   assert.match(await settingsDialog.getByRole('alert').innerText(), /verificação de e-mail de 1 a 30 dias/);
@@ -275,6 +276,25 @@ try {
   await settingsDialog.getByRole('button', { name: 'Salvar' }).click();
   await settingsDialog.waitFor({ state: 'detached' });
   assert.deepEqual([state.mailOn, state.mailDays, state.selectors, state.servers], [true, 3, ['default', 'marketing'], ['10.0.0.9', '1.1.1.1']], 'selectors are lower-cased and de-duplicated, servers kept');
+
+  // Turning the e-mail check off is never blocked by a draft in a field you cannot see; the saved values are kept.
+  await page.getByRole('button', { name: 'Configurações do Domain Manager' }).click();
+  const offDialog = page.getByRole('dialog', { name: 'Configurações do Domain Manager' });
+  await offDialog.getByLabel(/Seletores DKIM testados/).fill('lixo$');
+  await offDialog.getByRole('switch', { name: /Autenticação de e-mail/ }).click();
+  assert.equal(await offDialog.getByRole('textbox', { name: /Servidores DNS/ }).count(), 1, 'the DNS servers stay visible: they serve every DNS check');
+  await offDialog.getByRole('button', { name: 'Salvar' }).click();
+  await offDialog.waitFor({ state: 'detached' });
+  assert.deepEqual([state.mailOn, state.selectors, state.mailDays], [false, ['default', 'marketing'], 3], 'hidden, invalid drafts are neither blocking nor saved');
+  await page.getByRole('button', { name: 'Configurações do Domain Manager' }).click();
+  await offDialog.getByRole('switch', { name: /Autenticação de e-mail/ }).click();
+  await offDialog.getByLabel(/Seletores DKIM testados/).fill('');
+  await offDialog.getByRole('button', { name: 'Salvar' }).click();
+  assert.match(await offDialog.getByRole('alert').innerText(), /ao menos um seletor/);
+  await offDialog.getByLabel(/Seletores DKIM testados/).fill('default');
+  await offDialog.getByRole('button', { name: 'Salvar' }).click();
+  await offDialog.waitFor({ state: 'detached' });
+  assert.deepEqual([state.mailOn, state.selectors], [true, ['default']]);
 
   // Per-domain card: e-mail check switch and extra selectors next to the alerts; a failed e-mail save is named.
   await page.getByRole('button', { name: 'Configurações de novo.org' }).click();
@@ -289,13 +309,19 @@ try {
   assert.equal(await domainCard.getByLabel(/Seletores DKIM extras/).inputValue(), 'marketing\nloja', 'the saved selectors come back');
   state.failMailSave = true;
   await domainCard.getByLabel(/Seletores DKIM extras/).fill('outro');
+  const listCallsBefore = state.calls.filter((c) => c.method === 'GET' && c.api === '/domain-manager/domains').length;
   await domainCard.getByRole('button', { name: 'Salvar' }).click();
   assert.match(await domainCard.getByRole('alert').first().innerText(), /alertas foram salvos, mas a verificação de e-mail NÃO foi/);
+  await page.waitForFunction((before) => true, listCallsBefore);
+  assert.ok(state.calls.filter((c) => c.method === 'GET' && c.api === '/domain-manager/domains').length > listCallsBefore, 'the list is refreshed even when only the first half was saved');
   state.failMailSave = false;
   await domainCard.getByLabel(/Seletores DKIM extras/).fill('bad$name');
   await domainCard.getByRole('button', { name: 'Salvar' }).click();
   assert.match(await domainCard.getByRole('alert').first().innerText(), /Seletor inválido: "bad\$name"/);
-  await page.keyboard.press('Escape'); await page.getByRole('button', { name: 'Descartar', exact: true }).click(); await domainCard.waitFor({ state: 'detached' });
+  await domainCard.getByRole('switch', { name: /Verificar SPF, DKIM e DMARC deste domínio/ }).click();
+  await domainCard.getByRole('button', { name: 'Salvar' }).click();
+  await domainCard.waitFor({ state: 'detached' });
+  assert.deepEqual(state.domainMail[uid(3)], { enabled: false, extra_selectors: ['marketing', 'loja'] }, 'with the check off the invalid draft is ignored and the saved selectors stay');
 
   // Interval setting.
   await page.getByRole('button', { name: 'Configurações do Domain Manager' }).click();

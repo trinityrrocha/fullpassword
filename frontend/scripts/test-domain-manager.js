@@ -52,7 +52,11 @@ assert.equal(dm.canSaveDmAccess({ enabled: true, domainIds: Array.from({ length:
 
 // ---- SPF, DKIM and DMARC markers: a glyph AND words, never only a colour ----
 const mail = { spf: { status: 'ok', all: '-all' }, dmarc: { status: 'warning', policy: 'none' }, dkim: { status: 'not_found', found: 0 } };
-assert.deepEqual(dm.mailMarker('spf', mail), { label: 'SPF', mark: '✓', text: '-all', tone: 'ok', title: 'SPF: Válido (-all)' });
+assert.deepEqual(dm.mailMarker('spf', mail), { label: 'SPF', mark: '✓', status: 'Válido', text: '-all', tone: 'ok', title: 'SPF: Válido (-all)' });
+assert.equal(dm.mailMarker('dmarc', mail).status, 'Aviso', 'every marker carries the spoken status, so p=none is not read like reject');
+assert.equal(dm.mailMarker('dmarc', { dmarc: { status: 'ok', policy: 'reject' } }).status, 'Válido');
+assert.equal(dm.mailMarker('spf', { spf: { status: 'fail', all: '+all' } }).status, 'Falha');
+assert.equal(dm.mailMarker('spf', null).status, 'Não verificado');
 assert.deepEqual([dm.mailMarker('dmarc', mail).text, dm.mailMarker('dmarc', mail).tone, dm.mailMarker('dmarc', mail).mark], ['p=none', 'warning', '⚠']);
 assert.deepEqual([dm.mailMarker('dkim', mail).text, dm.mailMarker('dkim', mail).mark], ['não encontrado', '?']);
 assert.equal(dm.mailMarker('dkim', { dkim: { status: 'ok', found: 1 } }).text, '1 seletor');
@@ -78,8 +82,10 @@ assert.match(dm.selectorProblems(['ok', 'bad$name'], 20), /Seletor inválido: "b
 assert.match(dm.selectorProblems(Array.from({ length: 21 }, (_, i) => `s${i}x`), 20), /no máximo 20/);
 assert.equal(dm.isValidSelector('a'), true);
 assert.equal(dm.isValidSelector('-a'), false);
-assert.equal(dm.isValidSelector('a'.repeat(62)), true);
-assert.equal(dm.isValidSelector('a'.repeat(63)), false);
+assert.equal(dm.isValidSelector('a'.repeat(63)), true);
+assert.equal(dm.isValidSelector('a'.repeat(64)), false);
+for (const bad of ['a..b', 'a.', '.a', 'a b', '', `${'a'.repeat(50)}.${'b'.repeat(50)}`]) assert.equal(dm.isValidSelector(bad), false, bad);
+for (const good of ['s1.2024', 'a_b', 'k-1']) assert.equal(dm.isValidSelector(good), true, good);
 assert.deepEqual(dm.parseServerList('10.0.0.9, 1.1.1.1\n10.0.0.9'), ['10.0.0.9', '1.1.1.1']);
 assert.equal(dm.serverProblems(['10.0.0.9', '2606:4700:4700::1111']), '');
 for (const bad of ['dns.google', '1.1.1.1:53', '999.1.1.1', 'a:b:z']) assert.match(dm.serverProblems([bad]), /Endereço IP inválido/, bad);

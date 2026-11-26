@@ -104,6 +104,15 @@ async function run_() {
   await mail.checkMailAuth('a.test', { dns: fakeDns({ 'TXT a.test': ok('v=spf1 exists:%{i}.x.test include:%{d}.y.test -all') }, log), selectors: [] });
   assert.ok(!log.some((entry) => entry.includes('%')), 'no query with a macro in it');
   r = await spf('v=spf1 a:v1.test a:v2.test a:v3.test -all'); assert.deepEqual([r.status, r.void_lookups, r.warnings], ['warning', 3, ['SPF_VOID_LOOKUPS']]);
+  // the SAME provider included by two branches is legitimate: only a name on the current chain is a loop
+  r = await spf('v=spf1 include:a1.test include:b1.test -all', { 'TXT a1.test': ok('v=spf1 include:shared.test -all'), 'TXT b1.test': ok('v=spf1 include:shared.test -all'), 'TXT shared.test': ok('v=spf1 ip4:9.9.9.0/24 -all') });
+  assert.deepEqual([r.status, r.errors, r.lookups, r.ip_count], ['ok', [], 4, 2], 'a shared include is not a loop');
+  r = await spf('v=spf1 include:p1.test include:P1.test -all', { 'TXT p1.test': ok('v=spf1 -all') });
+  assert.deepEqual([r.status, r.errors], ['ok', []], 'the same include twice is not a loop either');
+  r = await spf('v=spf1 include:x1.test redirect=x1.test', { 'TXT x1.test': ok('v=spf1 ip4:1.2.3.4 -all') }); assert.equal(r.status, 'ok');
+  r = await spf('v=spf1 redirect=open.test', { 'TXT open.test': ok('v=spf1 ip4:5.5.5.5') }); assert.deepEqual([r.status, r.warnings], ['warning', ['SPF_NO_ALL']], 'a redirect that ends without "all" is warned too');
+  for (const term of ['a/33', 'mx/99', 'a//129', 'a:host/abc', 'mx:x.test/24/24']) { r = await spf(`v=spf1 ${term} -all`); assert.equal(r.status, 'fail', term); }
+  for (const term of ['a/24', 'mx/32', 'a:host.test/24//64', 'mx:mail.test//64', 'a//128']) { r = await spf(`v=spf1 ${term} -all`); assert.notEqual(r.status, 'fail', term); }
   // an unreachable resolver says nothing; a failed include makes the whole answer inconclusive
   assert.equal((await run('a.test', { 'TXT a.test': FAIL })).spf.status, 'inconclusive');
   r = await spf('v=spf1 include:flaky.test -all', { 'TXT flaky.test': FAIL }); assert.equal(r.status, 'inconclusive');
@@ -111,7 +120,7 @@ async function run_() {
   const chain = Object.fromEntries(Array.from({ length: 30 }, (_, i) => [`TXT c${i}.test`, ok(`v=spf1 include:c${i + 1}.test -all`)]));
   log = [];
   const bounded = await mail.checkMailAuth('c0.test', { dns: fakeDns(chain, log), selectors: [], budget: createBudget({ maxQueries: 8 }) });
-  assert.ok(log.length <= 8, 'the budget stops the walk');
+  assert.ok(log.filter((entry) => !entry.includes('_domainkey')).length <= 8, 'the budget stops the walk (DKIM has its own)');
   assert.ok(['inconclusive', 'fail'].includes(bounded.spf.status));
 
   // ---------- DMARC ----------
@@ -129,6 +138,22 @@ async function run_() {
   d = await dmarc('v=DMARC1; fo=1'); assert.deepEqual([d.status, d.errors], ['fail', ['DMARC_NO_POLICY']]);
   d = await dmarc(['v=DMARC1; p=none', 'v=DMARC1; p=reject']); assert.deepEqual([d.status, d.errors], ['fail', ['DMARC_MULTIPLE']]);
   d = await dmarc('v=DMARC1; p=reject; rua=mailto:r@x.test; pct=abc'); assert.deepEqual([d.status, d.pct], ['ok', 100]);
+  d = await dmarc('v=DMARC1; p=reject; rua=mailto:r@x.test; pct='); assert.deepEqual([d.status, d.pct, d.warnings], ['ok', 100, []], 'an empty pct is not 0');
+  // a name with no DMARC of its own inherits the nearest parent's; two-label names have no parent to ask
+  const inheritLog = [];
+  const sub = await mail.checkMailAuth('mail.shop.a.test', { dns: fakeDns({ 'TXT mail.shop.a.test': ok('v=spf1 -all'), 'TXT _dmarc.a.test': ok('v=DMARC1; p=reject; rua=mailto:r@a.test') }, inheritLog), selectors: [] });
+  assert.deepEqual([sub.dmarc.status, sub.dmarc.inherited_from, sub.dmarc.policy], ['ok', 'a.test', 'reject']);
+  assert.deepEqual(inheritLog.filter((entry) => entry.includes('_dmarc')), ['TXT _dmarc.mail.shop.a.test', 'TXT _dmarc.shop.a.test', 'TXT _dmarc.a.test']);
+  const own = await mail.checkMailAuth('mail.a.test', { dns: fakeDns({ 'TXT mail.a.test': ok('v=spf1 -all'), 'TXT _dmarc.mail.a.test': ok('v=DMARC1; p=none; rua=mailto:r@a.test'), 'TXT _dmarc.a.test': ok('v=DMARC1; p=reject') }), selectors: [] });
+  assert.deepEqual([own.dmarc.policy, own.dmarc.inherited_from], ['none', null], 'its own record wins');
+  const twoLabel = [];
+  const apexOnly = await mail.checkMailAuth('a.test', { dns: fakeDns({ 'TXT a.test': ok('v=spf1 -all') }, twoLabel), selectors: [] });
+  assert.equal(apexOnly.dmarc.status, 'absent');
+  assert.deepEqual(twoLabel.filter((entry) => entry.includes('_dmarc')), ['TXT _dmarc.a.test'], 'no parent queries for a two-label name');
+  const none = await mail.checkMailAuth('x.y.z.a.test', { dns: fakeDns({ 'TXT x.y.z.a.test': ok('v=spf1 -all') }), selectors: [] });
+  assert.equal(none.dmarc.status, 'absent');
+  const upFail = await mail.checkMailAuth('mail.a.test', { dns: fakeDns({ 'TXT mail.a.test': ok('v=spf1 -all'), 'TXT _dmarc.a.test': FAIL }), selectors: [] });
+  assert.equal(upFail.dmarc.status, 'inconclusive', 'a failure while walking up says nothing');
   assert.equal((await dmarc(null, { 'TXT _dmarc.a.test': FAIL })).status, 'inconclusive', 'a failure is not "absent"');
 
   // ---------- DKIM ----------
@@ -160,15 +185,30 @@ async function run_() {
   await mail.checkMailAuth('a.test', { dns: fakeDns({ 'TXT a.test': ok('v=spf1 -all') }, log), selectors: ['ok1', 'bad selector', '../x', '', 'OK1', 'a'.repeat(80), 'good-2'], budget: createBudget({ maxQueries: 200 }) });
   const probed = log.filter((entry) => entry.includes('._domainkey.') && !entry.includes('dm-')).map((entry) => entry.split(' ')[1].split('._domainkey')[0]).sort();
   assert.deepEqual(probed, ['good-2', 'ok1'], 'only valid, unique selectors are probed');
+  for (const bad of ['a..b', 'a.', '.a', '-a', 'a-', 'a b', 'a'.repeat(64), `${'a'.repeat(50)}.${'b'.repeat(50)}`]) assert.equal(mail.isValidSelector(bad), false, bad);
+  for (const good of ['a', 's1', 's1.2024', 'a_b', 'k-1', 'a'.repeat(63)]) assert.equal(mail.isValidSelector(good), true, good);
   log = [];
   await mail.checkMailAuth('a.test', { dns: fakeDns({ 'TXT a.test': ok('v=spf1 -all') }, log), selectors: Array.from({ length: 100 }, (_, i) => `s${i}x`), budget: createBudget({ maxQueries: 500 }) });
-  assert.equal(log.filter((entry) => entry.includes('._domainkey.') && !entry.includes('dm-')).length, mail.MAX_SELECTORS);
+  assert.equal(log.filter((entry) => entry.includes('._domainkey.') && !entry.includes('dm-')).length, mail.MAX_PROBED_SELECTORS, 'one check probes at most 60 global + 20 own selectors (the settings enforce each limit)');
+  log = [];
+  const sixtyPlusExtras = [...Array.from({ length: 60 }, (_, i) => `g${i}x`), 'extra-a', 'extra-b'];
+  await mail.checkMailAuth('a.test', { dns: fakeDns({ 'TXT a.test': ok('v=spf1 -all') }, log), selectors: sixtyPlusExtras, budget: createBudget({ maxQueries: 500 }) });
+  const probedAll = log.filter((entry) => entry.includes('._domainkey.') && !entry.includes('dm-'));
+  assert.equal(probedAll.length, 62);
+  assert.ok(probedAll.some((entry) => entry.includes('extra-a._domainkey')) && probedAll.some((entry) => entry.includes('extra-b._domainkey')), 'a full global list never swallows the domain extras');
+  // a full-size selector list still gets a verdict for SPF, DMARC and DKIM together
+  const bigZone = { 'TXT a.test': ok('v=spf1 -all'), 'TXT _dmarc.a.test': ok('v=DMARC1; p=reject; rua=mailto:r@a.test'), 'TXT g59x._domainkey.a.test': ok(`v=DKIM1; p=${KEY2048}`) };
+  const big = await mail.checkMailAuth('a.test', { dns: fakeDns(bigZone), selectors: Array.from({ length: 80 }, (_, i) => `g${i}x`) });
+  assert.deepEqual([big.spf.status, big.dmarc.status, big.dkim.status, big.dkim.found.length], ['ok', 'ok', 'ok', 1], 'the budget fits the largest allowed configuration');
 
   // ---------- the whole check ----------
   const gone = await mail.checkMailAuth('gone.test', { dns: fakeDns({ 'TXT gone.test': NXDOMAIN }), selectors: ['default'] });
   assert.deepEqual([gone.name_exists, gone.spf.status, gone.dmarc.status, gone.dkim.status], [false, 'absent', 'absent', 'not_found'], 'a name that does not exist is reported once, not three failures');
-  const starved = await mail.checkMailAuth('a.test', { dns: fakeDns({ 'TXT a.test': ok('v=spf1 -all') }), selectors: ['default', 'google'], budget: createBudget({ maxQueries: 3 }) });
-  assert.ok([starved.spf, starved.dmarc, starved.dkim].some((section) => section.status === 'inconclusive'), 'an exhausted budget is inconclusive, never a verdict');
+  const starved = await mail.checkMailAuth('a.test', { dns: fakeDns({ 'TXT a.test': ok('v=spf1 -all') }), selectors: ['default', 'google'], budget: createBudget({ maxQueries: 1 }) });
+  assert.ok([starved.spf, starved.dmarc].some((section) => section.status === 'inconclusive'), 'an exhausted budget is inconclusive, never a verdict');
+  const dkimStarved = await mail.checkMailAuth('a.test', { dns: fakeDns({ 'TXT a.test': ok('v=spf1 -all') }), selectors: ['default', 'google', 'k1'], dkimBudget: createBudget({ maxQueries: 2 }) });
+  assert.equal(dkimStarved.dkim.status, 'inconclusive', 'the DKIM budget is its own');
+  assert.equal(dkimStarved.spf.status, 'ok', 'and never starves SPF');
   const apexDown = await mail.checkMailAuth('a.test', { dns: fakeDns({ 'TXT a.test': FAIL }), selectors: [] });
   assert.equal(apexDown.name_exists, true);
 
@@ -203,7 +243,7 @@ async function run_() {
   const saved = await service.saveSettings(full);
   assert.deepEqual([saved.check_interval_days, saved.mail_check_interval_days, saved.dkim_selectors, saved.dns_servers], [3, 5, ['default', 'mykey'], ['10.0.0.9']], 'selectors are lower-cased and de-duplicated');
   for (const [patch, code] of [[{ check_interval_days: 0 }, 'DM_INTERVAL_INVALID'], [{ check_interval_days: '7' }, 'DM_INTERVAL_INVALID'], [{ mail_check_enabled: 'yes' }, 'DM_MAIL_INVALID'], [{ mail_check_interval_days: 31 }, 'DM_MAIL_INTERVAL_INVALID'],
-    [{ dkim_selectors: ['bad name'] }, 'DM_SELECTORS_INVALID'], [{ dkim_selectors: 'x' }, 'DM_SELECTORS_INVALID'], [{ dkim_selectors: Array.from({ length: 61 }, (_, i) => `s${i}x`) }, 'DM_SELECTORS_INVALID'],
+    [{ dkim_selectors: ['bad name'] }, 'DM_SELECTORS_INVALID'], [{ dkim_selectors: [] }, 'DM_SELECTORS_INVALID'], [{ dkim_selectors: ['a..b'] }, 'DM_SELECTORS_INVALID'], [{ dkim_selectors: 'x' }, 'DM_SELECTORS_INVALID'], [{ dkim_selectors: Array.from({ length: 61 }, (_, i) => `s${i}x`) }, 'DM_SELECTORS_INVALID'],
     [{ dns_servers: ['dns.google'] }, 'DM_DNS_SERVERS_INVALID'], [{ dns_servers: ['1.1.1.1:53'] }, 'DM_DNS_SERVERS_INVALID']]) {
     await assert.rejects(service.saveSettings({ ...full, ...patch }), { code }, JSON.stringify(patch));
   }
@@ -255,6 +295,28 @@ async function run_() {
   await service.checkMail(id);
   const lost = (await service.detail(id)).changes.find((change) => change.field === 'dmarc_status' && change.new_value === 'absent');
   assert.deepEqual([lost.old_value, lost.new_value], ['ok', 'absent']);
+  // a partial DKIM answer (one selector unreachable) must not look like a change
+  await service.saveMailSettings(id, { enabled: true, extra_selectors: [] }, adminId);
+  zones.set('TXT alvo.test', ok('v=spf1 -all')); zones.set('TXT _dmarc.alvo.test', ok('v=DMARC1; p=reject; rua=mailto:r@alvo.test'));
+  zones.set('TXT default._domainkey.alvo.test', ok(`v=DKIM1; p=${KEY2048}`));
+  zones.delete('TXT especial._domainkey.alvo.test');
+  now += DAY; await service.checkMail(id);
+  assert.equal((await service.list({ search: 'alvo' })).domains[0].mail.dkim.status, 'ok');
+  const beforePartial = (await pg.query('SELECT count(*)::int AS n FROM dm_changes WHERE domain_id = $1', [id])).rows[0].n;
+  zones.set('TXT default._domainkey.alvo.test', FAIL); zones.set('TXT google._domainkey.alvo.test', ok(`v=DKIM1; p=${KEY1024}`));
+  now += DAY; await service.checkMail(id);
+  assert.equal((await service.list({ search: 'alvo' })).domains[0].mail.dkim.status, 'ok', 'a partial answer keeps the last verdict (ok), not warning');
+  assert.equal((await pg.query('SELECT count(*)::int AS n FROM dm_changes WHERE domain_id = $1', [id])).rows[0].n, beforePartial, 'and writes no change');
+  assert.equal((await pg.query('SELECT next_mail_check_at FROM dm_domains WHERE id = $1', [id])).rows[0].next_mail_check_at.getTime(), now + 6 * 3600000, 'a partial answer is retried soon');
+  zones.delete('TXT google._domainkey.alvo.test'); zones.delete('TXT default._domainkey.alvo.test'); zones.set('TXT default._domainkey.alvo.test', ok(`v=DKIM1; p=${KEY2048}`));
+  // two checks of the same domain at once: only one runs, so no change is recorded twice
+  let release;
+  const hold = new Promise((resolve) => { release = resolve; });
+  const slowMail = dm.createService({ now: () => now, mailAuth: async () => { await hold; return { name_exists: true, spf: { status: 'ok', record: 'v=spf1 -all', all: '-all' }, dmarc: { status: 'ok', policy: 'reject' }, dkim: { status: 'ok', found: [], unreachable: 0 } }; } });
+  const slowFirst = slowMail.checkMail(id);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(await slowMail.checkMail(id), null, 'the second check of the same domain is skipped');
+  release(); await slowFirst;
   // a name that vanished
   zones.set('TXT alvo.test', NXDOMAIN);
   now += DAY;
@@ -302,7 +364,16 @@ async function run_() {
   zones.set('TXT manual.test', ok('v=spf1 -all'));
   const manualResult = await service.checkDomain(manual.id, { manual: true });
   assert.equal(manualResult.mail.spf.status, 'ok', 'the lookup button also refreshes the e-mail checks');
-  const mailFails = dm.createService({ rdap: { lookup: async () => ({ lookup_status: 'not_found' }) }, ssl: { probe: async () => ({ ssl_state: 'none' }) }, now: () => now + 5 * DAY, mailAuth: async () => { throw new Error('boom'); } });
+  // the SCHEDULED registry round never runs the e-mail check (it has its own interval); only the button does
+  let mailCalls = 0;
+  let spyClock = now + 9 * DAY;
+  const spyService = dm.createService({ rdap: { lookup: async () => ({ lookup_status: 'not_found' }) }, ssl: { probe: async () => ({ ssl_state: 'none' }) }, now: () => spyClock, mailAuth: async () => { mailCalls += 1; return { name_exists: true, spf: { status: 'ok' }, dmarc: { status: 'ok' }, dkim: { status: 'ok', found: [], unreachable: 0 } }; } });
+  await spyService.checkDomain(manual.id);
+  assert.equal(mailCalls, 0, 'the scheduled registry lookup does not touch DNS e-mail checks');
+  spyClock += 60000;
+  await spyService.checkDomain(manual.id, { manual: true });
+  assert.equal(mailCalls, 1, 'the lookup button does');
+  const mailFails = dm.createService({ rdap: { lookup: async () => ({ lookup_status: 'not_found' }) }, ssl: { probe: async () => ({ ssl_state: 'none' }) }, now: () => now + 12 * DAY, mailAuth: async () => { throw new Error('boom'); } });
   const stillOk = await mailFails.checkDomain(manual.id, { manual: true });
   assert.equal(stillOk.snapshot.lookup_status, 'not_found', 'a broken mail check never fails the registry result');
 

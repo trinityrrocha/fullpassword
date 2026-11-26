@@ -8,20 +8,29 @@ const MAX_SPF_LOOKUPS = 10;
 const MAX_VOID_LOOKUPS = 2;
 const MAX_DEPTH = 10;
 const MAX_SELECTORS = 60;
+const MAX_EXTRA_SELECTORS = 20;
+// What one check may probe: the global list plus a domain's own extras, so extras are never silently cut.
+const MAX_PROBED_SELECTORS = MAX_SELECTORS + MAX_EXTRA_SELECTORS;
+const DKIM_BUDGET = MAX_PROBED_SELECTORS + 5;
 const SELECTOR_CONCURRENCY = 5;
 const SPF_PREFIX = /^v=spf1(?:\s|$)/i;
-const SELECTOR_PATTERN = /^[a-z0-9](?:[a-z0-9._-]{0,60}[a-z0-9])?$/i;
+const LABEL = '[a-z0-9](?:[a-z0-9_-]{0,61}[a-z0-9])?';
+const SELECTOR_PATTERN = new RegExp(`^${LABEL}(?:\\.${LABEL})*$`, 'i');
 const MECHANISMS = new Set(['all', 'include', 'a', 'mx', 'ptr', 'exists', 'ip4', 'ip6']);
 const COUNTED = new Set(['include', 'a', 'mx', 'ptr', 'exists']);
 
-const isValidSelector = (value) => typeof value === 'string' && SELECTOR_PATTERN.test(value);
+const isValidSelector = (value) => typeof value === 'string' && value.length <= 100 && SELECTOR_PATTERN.test(value);
 
 // ---------- SPF ----------
 const analyzeSpf = async (domain, dns, budget, prefetched = null) => {
-  const state = { lookups: 0, voids: 0, ipCount: 0, includes: [], errors: new Set(), warnings: new Set(), notes: new Set(), inconclusive: false, visited: new Set([domain]), stop: false };
+  // `path` holds only the names on the CURRENT include chain: the same provider included by two branches is legitimate, a name that
+  // includes itself (directly or through others) is a loop. The 10-lookup limit bounds the total work.
+  const state = { lookups: 0, voids: 0, ipCount: 0, includes: [], errors: new Set(), warnings: new Set(), notes: new Set(), inconclusive: false, path: new Set([domain]), stop: false };
+  const memo = new Map();
 
   const fetchSpf = async (name, known = null) => {
-    const answer = known || await dns.txt(name, budget);
+    if (!known && !memo.has(name)) memo.set(name, dns.txt(name, budget));
+    const answer = known || await memo.get(name);
     if (answer.state === 'inconclusive') { state.inconclusive = true; return { failed: true }; }
     if (answer.state === 'absent') return { none: true };
     const records = answer.records.filter((record) => SPF_PREFIX.test(record));
@@ -49,9 +58,12 @@ const analyzeSpf = async (domain, dns, budget, prefetched = null) => {
       return { qualifier, mechanism, arg: address };
     }
     if (mechanism === 'a' || mechanism === 'mx') {
-      const match = /^(.*?)(?:\/(\d{1,3}))?(?:\/\/(\d{1,3}))?$/.exec(rest[0] === ':' ? arg : rest);
-      arg = rest[0] === ':' ? (match ? match[1] : arg) : '';
-      cidr = match ? match[2] : null;
+      const match = /^(.*?)(?:\/(\d{1,2}))?(?:\/\/(\d{1,3}))?$/.exec(rest[0] === ':' ? arg : rest);
+      if (!match || (match[2] !== undefined && Number(match[2]) > 32) || (match[3] !== undefined && Number(match[3]) > 128)) return null;
+      if (rest[0] !== ':' && match[1]) return null;
+      if (match[1].includes('/')) return null;
+      arg = rest[0] === ':' ? match[1] : '';
+      cidr = match[2] ?? null;
     }
     if ((mechanism === 'include' || mechanism === 'exists') && !arg) return null;
     if (mechanism === 'all' && rest) return null;
@@ -88,14 +100,14 @@ const analyzeSpf = async (domain, dns, budget, prefetched = null) => {
         const target = arg.toLowerCase().replace(/\.$/, '');
         if (depth === 0) state.includes.push(target);
         if (macro) continue;
-        if (state.visited.has(target)) { state.errors.add('SPF_LOOP'); continue; }
+        if (state.path.has(target)) { state.errors.add('SPF_LOOP'); continue; }
         if (depth + 1 > MAX_DEPTH) { state.errors.add('SPF_TOO_DEEP'); continue; }
-        state.visited.add(target);
         const found = await fetchSpf(target);
         if (found.failed) continue;
         if (found.none) { state.errors.add('SPF_INCLUDE_NO_RECORD'); continue; }
         if (found.multiple) { state.errors.add('SPF_MULTIPLE'); continue; }
-        await evaluate(target, found.record, depth + 1);
+        state.path.add(target);
+        try { await evaluate(target, found.record, depth + 1); } finally { state.path.delete(target); }
         continue;
       }
       if (mechanism === 'a' || mechanism === 'mx') {
@@ -116,16 +128,15 @@ const analyzeSpf = async (domain, dns, budget, prefetched = null) => {
       if (state.lookups > MAX_SPF_LOOKUPS) { state.errors.add('SPF_TOO_MANY_LOOKUPS'); state.stop = true; return all; }
       const target = redirect.toLowerCase().replace(/\.$/, '');
       if (!redirect || redirect.includes('%')) return all;
-      if (state.visited.has(target)) { state.errors.add('SPF_LOOP'); return all; }
+      if (state.path.has(target)) { state.errors.add('SPF_LOOP'); return all; }
       if (depth + 1 > MAX_DEPTH) { state.errors.add('SPF_TOO_DEEP'); return all; }
-      state.visited.add(target);
       const found = await fetchSpf(target);
       if (found.failed) return all;
       if (found.none) { state.errors.add('SPF_INCLUDE_NO_RECORD'); return all; }
       if (found.multiple) { state.errors.add('SPF_MULTIPLE'); return all; }
-      return evaluate(target, found.record, depth + 1);
+      state.path.add(target);
+      try { return await evaluate(target, found.record, depth + 1); } finally { state.path.delete(target); }
     }
-    if (!sawAll && redirect === null && depth === 0) state.warnings.add('SPF_NO_ALL');
     return all;
   };
 
@@ -136,6 +147,7 @@ const analyzeSpf = async (domain, dns, budget, prefetched = null) => {
     if (first.none) return { status: 'absent' };
     if (first.multiple) return { status: 'fail', errors: ['SPF_MULTIPLE'], warnings: [], notes: [], lookups: 0, void_lookups: 0, ip_count: 0, includes: [], all: null, record: null };
     const all = await evaluate(domain, first.record, 0);
+    if (all === null) state.warnings.add('SPF_NO_ALL');
     if (all === '+all') state.errors.add('SPF_ALL_PLUS');
     if (all === '?all') state.warnings.add('SPF_NEUTRAL_ALL');
     if (all === '~all') state.notes.add('SPF_SOFTFAIL');
@@ -156,11 +168,29 @@ const analyzeSpf = async (domain, dns, budget, prefetched = null) => {
 const mailtoList = (value) => (typeof value === 'string' ? value : '').split(',').map((item) => item.trim())
   .map((item) => /^mailto:([^?!\s]{3,254})/i.exec(item)?.[1]).filter(Boolean).slice(0, 5);
 
+// Without the public suffix list the organizational domain is unknown, so a name with no DMARC of its own walks up its parents (at most
+// 3 queries) and uses the first record found, as a subdomain inherits it (RFC 7489 6.6.3). Two-label names have nothing to inherit from.
+const dmarcRecordOf = (answer) => answer.records.filter((record) => /^\s*v=DMARC1\s*(;|$)/i.test(record));
+const parentNames = (domain) => {
+  const labels = domain.split('.');
+  const parents = [];
+  for (let index = 1; index < labels.length - 1 && parents.length < 3; index += 1) parents.push(labels.slice(index).join('.'));
+  return parents;
+};
+
 const analyzeDmarc = async (domain, dns, budget) => {
-  const answer = await dns.txt(`_dmarc.${domain}`, budget);
+  let answer = await dns.txt(`_dmarc.${domain}`, budget);
+  let inheritedFrom = null;
   if (answer.state === 'inconclusive') return { status: 'inconclusive' };
-  if (answer.state === 'absent') return { status: 'absent' };
-  const records = answer.records.filter((record) => /^\s*v=DMARC1\s*(;|$)/i.test(record));
+  if (answer.state === 'absent' || dmarcRecordOf(answer).length === 0) {
+    for (const parent of parentNames(domain)) {
+      const upper = await dns.txt(`_dmarc.${parent}`, budget);
+      if (upper.state === 'inconclusive') return { status: 'inconclusive' };
+      if (upper.state === 'ok' && dmarcRecordOf(upper).length > 0) { answer = upper; inheritedFrom = parent; break; }
+    }
+    if (!inheritedFrom) return { status: 'absent' };
+  }
+  const records = dmarcRecordOf(answer);
   if (records.length === 0) return { status: 'absent' };
   if (records.length > 1) return { status: 'fail', errors: ['DMARC_MULTIPLE'], warnings: [], record: null, policy: null, subdomain_policy: null, pct: 100, rua: [], ruf: [], adkim: 'r', aspf: 'r' };
   const tags = {};
@@ -179,13 +209,13 @@ const analyzeDmarc = async (domain, dns, budget) => {
   else if (!['none', 'quarantine', 'reject'].includes(policy)) errors.push('DMARC_BAD_POLICY');
   if (policy === 'none') warnings.push('DMARC_POLICY_NONE');
   if (rua.length === 0) warnings.push('DMARC_NO_RUA');
-  const pct = tags.pct === undefined ? 100 : Number(tags.pct);
+  const pct = tags.pct === undefined || tags.pct === '' ? 100 : Number(tags.pct);
   if (Number.isInteger(pct) && pct >= 0 && pct < 100) warnings.push('DMARC_PCT_PARTIAL');
   const subdomainPolicy = (tags.sp || '').toLowerCase() || null;
   if (subdomainPolicy === 'none' && policy && policy !== 'none') warnings.push('DMARC_SP_NONE');
   const status = errors.length ? 'fail' : warnings.length ? 'warning' : 'ok';
   return {
-    status, record: records[0].slice(0, 1000), policy: policy || null, subdomain_policy: subdomainPolicy, pct: Number.isInteger(pct) && pct >= 0 && pct <= 100 ? pct : 100,
+    status, inherited_from: inheritedFrom, record: records[0].slice(0, 1000), policy: policy || null, subdomain_policy: subdomainPolicy, pct: Number.isInteger(pct) && pct >= 0 && pct <= 100 ? pct : 100,
     rua, ruf, adkim: (tags.adkim || 'r').toLowerCase() === 's' ? 's' : 'r', aspf: (tags.aspf || 'r').toLowerCase() === 's' ? 's' : 'r', errors, warnings
   };
 };
@@ -217,7 +247,8 @@ const analyzeDkim = async (domain, dns, selectors, budget) => {
   if (probe.state === 'ok' && probe.records.some(looksLikeDkim)) {
     return { status: 'not_found', wildcard: true, tested: 0, found: [], warnings: [], notes: ['DKIM_WILDCARD'], unreachable: 0 };
   }
-  const list = [...new Set((selectors || []).filter(isValidSelector).map((selector) => selector.toLowerCase()))].slice(0, MAX_SELECTORS);
+  const list = [...new Set((selectors || []).filter(isValidSelector).map((selector) => selector.toLowerCase()))]
+    .filter((selector) => `${selector}._domainkey.${domain}`.length <= 253).slice(0, MAX_PROBED_SELECTORS);
   const found = [];
   let unreachable = 0;
   let cursor = 0;
@@ -247,13 +278,13 @@ const analyzeDkim = async (domain, dns, selectors, budget) => {
     else { status = 'warning'; warnings.push('DKIM_KEY_UNREADABLE'); }
     if (active.some((key) => key.testing)) notes.push('DKIM_TESTING');
   }
-  return { status, wildcard: false, tested: list.length, found, warnings, notes, unreachable };
+  return { status, wildcard: false, tested: list.length, found, warnings, notes, unreachable, partial: unreachable > 0 && found.length > 0 };
 };
 
 // ---------- everything for one name ----------
 const inconclusiveSection = (code) => ({ status: 'inconclusive', code });
 
-const checkMailAuth = async (domain, { dns, selectors = [], budget = createBudget() } = {}) => {
+const checkMailAuth = async (domain, { dns, selectors = [], budget = createBudget(), dkimBudget = createBudget({ maxQueries: DKIM_BUDGET }) } = {}) => {
   const apex = await dns.txt(domain, budget).catch((error) => { if (error instanceof QueryBudgetError) return { state: 'inconclusive', code: 'DNS_BUDGET' }; throw error; });
   if (apex.state === 'absent' && apex.code === 'ENOTFOUND') {
     return { name_exists: false, spf: { status: 'absent' }, dmarc: { status: 'absent' }, dkim: { status: 'not_found', tested: 0, found: [], wildcard: false, warnings: [], notes: [], unreachable: 0 } };
@@ -262,9 +293,9 @@ const checkMailAuth = async (domain, { dns, selectors = [], budget = createBudge
   const [spf, dmarc, dkim] = await Promise.all([
     guard(analyzeSpf(domain, dns, budget, apex.state === 'inconclusive' ? { state: 'inconclusive', code: apex.code } : apex)),
     guard(analyzeDmarc(domain, dns, budget)),
-    guard(analyzeDkim(domain, dns, selectors, budget))
+    guard(analyzeDkim(domain, dns, selectors, dkimBudget))
   ]);
   return { name_exists: true, spf, dmarc, dkim };
 };
 
-module.exports = { checkMailAuth, analyzeSpf, analyzeDmarc, analyzeDkim, isValidSelector, MAX_SPF_LOOKUPS, MAX_SELECTORS };
+module.exports = { checkMailAuth, analyzeSpf, analyzeDmarc, analyzeDkim, isValidSelector, MAX_SPF_LOOKUPS, MAX_SELECTORS, MAX_EXTRA_SELECTORS, MAX_PROBED_SELECTORS };
