@@ -533,3 +533,10 @@ CREATE TABLE IF NOT EXISTS dm_mail_domain_settings (
 ALTER TABLE dm_changes DROP CONSTRAINT IF EXISTS dm_changes_field_check;
 ALTER TABLE dm_changes ADD CONSTRAINT dm_changes_field_check CHECK (field IN
     ('expires_on', 'nameservers', 'dnssec', 'rdap_statuses', 'ssl_state', 'registrar', 'spf_status', 'spf_record', 'dmarc_status', 'dmarc_policy', 'dkim_status'));
+
+-- Dashboard: which cards each account shows and in which order. A preference, not a secret: it is not part of the backups.
+CREATE TABLE IF NOT EXISTS user_dashboard_layouts (
+    user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    layout JSONB NOT NULL DEFAULT '{}'::jsonb,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+);

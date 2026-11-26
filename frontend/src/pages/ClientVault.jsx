@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
+import PageTitle from '../components/PageTitle';
 import { ArrowLeft, Server, Globe, Shield, HardDrive, Plus, Save, Share, KeyRound, LockKeyhole, Edit2 } from 'lucide-react';
 import SecurePasswordInput from '../components/SecurePasswordInput';
 import DeleteConfirmationControl from '../components/DeleteConfirmationControl';
@@ -816,10 +817,7 @@ export default function ClientVault() {
           <Link to="/" aria-label="Voltar aos cofres" title="Voltar aos cofres" className="p-2 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-full transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-400">
             <ArrowLeft className="w-5 h-5" aria-hidden="true" />
           </Link>
-          <div>
-            <h1 className="text-2xl font-bold text-slate-900">{clientName}</h1>
-            <p className="text-sm text-slate-500">Cofre de Senhas e Credenciais</p>
-          </div>
+          <PageTitle description="Cofre de Senhas e Credenciais">{clientName}</PageTitle>
         </div>
         <div className="flex items-center gap-2">
           <button type="button" onClick={handleManualLock} className="inline-flex items-center justify-center rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50">

@@ -113,12 +113,13 @@ try {
         const main = await page.locator('main').boundingBox();
         assert.equal(main.x, menu_position === 'top' ? 0 : menu_display === 'icons' ? 80 : 256);
         const links = nav.getByRole('navigation').getByRole('link');
-        assert.equal(await links.count(), 3);
-        assert.equal(await links.first().locator('svg').count(), menu_display === 'icons' ? 1 : 0);
-        assert.equal(await links.first().getAttribute('aria-current'), 'page');
-        assert.equal(await links.first().getAttribute('title'), 'Clientes / Cofre');
+        assert.equal(await links.count(), 4, 'a Super Admin also sees the Dashboard, first in the menu');
+        assert.equal(await links.first().getAttribute('title'), 'Dashboard');
+        assert.equal(await links.nth(1).locator('svg').count(), menu_display === 'icons' ? 1 : 0);
+        assert.equal(await links.nth(1).getAttribute('aria-current'), 'page');
+        assert.equal(await links.nth(1).getAttribute('title'), 'Clientes / Cofre');
         assert.equal(await page.getByRole('button', { name: /Notifica/ }).filter({ visible: true }).count(), 1);
-        if (menu_display === 'icons') { await links.first().focus(); assert.equal(await links.first().locator('span').last().evaluate(el => getComputedStyle(el).opacity), '1'); }
+        if (menu_display === 'icons') { await links.nth(1).focus(); assert.equal(await links.nth(1).locator('span').last().evaluate(el => getComputedStyle(el).opacity), '1'); }
         if (process.env.PROFILE_SCREENSHOT_DIR && width === 1280) await page.screenshot({ path: path.join(process.env.PROFILE_SCREENSHOT_DIR, `${menu_position}-${menu_display}-${dark}.png`) });
         await openProfile();
         assert.equal(await page.locator(`input[name="menu_position"][value="${menu_position}"]`).isChecked(), true);
