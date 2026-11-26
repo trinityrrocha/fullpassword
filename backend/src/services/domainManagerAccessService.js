@@ -54,7 +54,8 @@ const saveAccess = async (targetUserId, input, grantedBy) => {
     if (!user) throw new AccessError('Usuário não encontrado.', 'DM_ACCESS_USER_NOT_FOUND', 404);
     if (user.is_super_admin === true) throw new AccessError('O Super Admin já tem acesso ao módulo.', 'DM_ACCESS_SUPER_ADMIN', 409);
     if (user.is_active !== true) throw new AccessError('Não é possível dar acesso a um usuário inativo.', 'DM_ACCESS_USER_INACTIVE', 409);
-    const found = (await client.query('SELECT count(*)::int AS n FROM dm_domains WHERE id = ANY($1::uuid[])', [domainIds])).rows[0].n;
+    // FOR SHARE: a domain removed at this very moment waits for this transaction (or is gone already) instead of breaking the insert.
+    const found = (await client.query('SELECT id FROM dm_domains WHERE id = ANY($1::uuid[]) FOR SHARE', [domainIds])).rows.length;
     if (found !== domainIds.length) throw new AccessError('Um ou mais domínios selecionados não existem mais. Atualize a lista.', 'DM_ACCESS_DOMAINS_INVALID', 422);
     await client.query(
       `INSERT INTO dm_user_access (user_id, granted_by) VALUES ($1, $2)

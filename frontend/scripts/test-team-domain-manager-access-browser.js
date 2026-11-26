@@ -38,7 +38,7 @@ try {
   const uid = (n) => `00000000-0000-0000-0000-${String(n).padStart(12, '0')}`;
   const users = [{ id: uid(2), name: 'Ana Souza', email: 'ana@example.invalid', is_active: true, role: 'user', groups: [] }, { id: uid(3), name: 'Inativa Silva', email: 'in@example.invalid', is_active: false, role: 'user', groups: [] }];
   const domains = Array.from({ length: 6 }, (_, i) => ({ id: uid(100 + i), name: `site${i}.example.com` }));
-  let dmOn = true; let spfblOn = false; let failAccess = false; let grants = [{ user_id: uid(2), name: 'Ana Souza', email: 'ana@example.invalid', domains: [domains[0]], user_active: true }];
+  let dmOn = true; let spfblOn = false; let failAccess = false; let revoke404 = false; let grants = [{ user_id: uid(2), name: 'Ana Souza', email: 'ana@example.invalid', domains: [domains[0]], user_active: true }];
   const calls = [];
   await page.route('**/*', async (route) => {
     const req = route.request(); const url = new URL(req.url());
@@ -59,7 +59,10 @@ try {
     if (url.pathname.startsWith('/api/domain-manager/access/')) {
       if (failAccess) return json({ error: 'Reautenticação recusada' }, 403);
       const id = url.pathname.split('/').pop();
-      if (req.method() === 'DELETE') { grants = grants.filter((g) => g.user_id !== id); return json({ revoked: true }); }
+      if (req.method() === 'DELETE') {
+        if (revoke404) return json({ code: 'DM_ACCESS_NOT_FOUND', error: 'Acesso não encontrado.' }, 404);
+        grants = grants.filter((g) => g.user_id !== id); return json({ revoked: true });
+      }
       grants = [...grants.filter((g) => g.user_id !== id), { user_id: id, domains: domains.filter((d) => body.domain_ids.includes(d.id)) }];
       return json({ access: { user_id: id } });
     }
@@ -147,6 +150,28 @@ try {
   calls.length = 0;
   await create.getByRole('button', { name: 'Salvar Usuário' }).click(); await create.waitFor({ state: 'detached' });
   assert.deepEqual(calls.filter((c) => c.method !== 'GET').map((c) => `${c.method} ${c.path.replace(uid(9), ':new')}`), ['POST /api/users', 'PUT /api/domain-manager/access/:new']);
+
+  // 9. a revocation that is already done (a retry) counts as done: no stuck error, the dialog closes
+  await open();
+  grants = [{ user_id: uid(2), name: 'Ana Souza', email: 'ana@example.invalid', domains: [domains[0]], user_active: true }];
+  revoke404 = true;
+  await editAna(); await dialog.getByRole('tab', { name: TAB }).click();
+  await dialog.getByRole('checkbox', { name: ACCESS }).uncheck();
+  calls.length = 0;
+  await dialog.getByRole('button', { name: 'Salvar Alterações' }).click(); await dialog.waitFor({ state: 'detached' });
+  assert.ok(calls.some((c) => c.method === 'DELETE' && c.path.startsWith('/api/domain-manager/access/')), 'the revocation was attempted');
+  revoke404 = false;
+
+  // 10. deactivating the account in the same save: the access draft is left alone (no call the server would refuse), no false error
+  grants = [];
+  await open(); await editAna(); await dialog.getByRole('tab', { name: TAB }).click();
+  await dialog.getByRole('checkbox', { name: ACCESS }).check();
+  await dialog.getByRole('checkbox', { name: 'site4.example.com' }).check();
+  await dialog.getByRole('tab', { name: 'Dados' }).click();
+  await dialog.getByRole('switch', { name: 'Status da Conta' }).click();
+  calls.length = 0;
+  await dialog.getByRole('button', { name: 'Salvar Alterações' }).click(); await dialog.waitFor({ state: 'detached' });
+  assert.deepEqual(calls.filter((c) => c.method !== 'GET').map((c) => `${c.method} ${c.path.replace(uid(2), ':id')}`), ['PUT /api/users/:id'], 'only the user is saved');
 
   assert.deepEqual(errors, []);
   console.log('team dialog Domain Manager access browser tests passed');

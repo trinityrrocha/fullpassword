@@ -242,17 +242,23 @@ export default function TeamList() {
       return error.response?.data?.error || 'o servidor recusou a alteração';
     }
   };
-  const saveDmAccessDraft = async (userId) => {
-    if (!dmAccess.dirty || !dmAccess.loaded) return '';
+  // `eligible` is false for an account being deactivated in the same save: its access draft is left alone (the server would refuse it).
+  const saveDmAccessDraft = async (userId, eligible = true) => {
+    if (!eligible || !dmAccess.dirty || !dmAccess.loaded) return '';
     try {
       if (dmAccess.enabled) await saveDomainAccess(userId, dmAccess.domainIds);
-      else if (dmAccess.had) await revokeDomainAccess(userId);
+      else if (dmAccess.had) {
+        // Already gone (a retry after another part of the save failed) is the outcome that was asked for.
+        try { await revokeDomainAccess(userId); } catch (error) { if (error.response?.status !== 404) throw error; }
+      }
+      // Saved: the draft now matches the server, so a retry of the rest of the dialog does not repeat (or fail on) this part.
+      setDmAccess((current) => ({ ...current, had: current.enabled, dirty: false }));
       return '';
     } catch (error) {
       return error.response?.data?.error || 'o servidor recusou a alteração';
     }
   };
-  const dmDraftInvalid = () => dmAccess.dirty && !canSaveDmAccess(dmAccess);
+  const dmDraftInvalid = (eligible = true) => eligible && dmAccess.dirty && !canSaveDmAccess(dmAccess);
   const spfblDraftInvalid = (userId) => spfbl.dirty && spfbl.enabled && !canSaveAccess(userId || 'new', spfbl.mode, spfbl.domainIds);
 
   const openCreateUserModal = () => {
@@ -303,7 +309,7 @@ export default function TeamList() {
     setFormError('');
     if(!e.currentTarget.checkValidity()){setFormError('Preencha nome e e-mail válidos e os campos obrigatórios.');e.currentTarget.querySelector(':invalid')?.focus();return;}
     if (spfblDraftInvalid(editUser.id)) { setFormError('Escolha de 1 a 100 domínios para o acesso ao SPFBL.'); setModalTab('spfbl'); return; }
-    if (dmDraftInvalid()) { setFormError('Escolha de 1 a 100 domínios para o acesso ao Domain Manager.'); setModalTab('dm'); return; }
+    if (dmDraftInvalid(editUser.is_active)) { setFormError('Escolha de 1 a 100 domínios para o acesso ao Domain Manager.'); setModalTab('dm'); return; }
     savingRef.current=true;setIsSaving(true);
     try {
       const payload = {
@@ -318,7 +324,7 @@ export default function TeamList() {
 
       await api.put(`/users/${editUser.id}`, payload);
       const accessFailure = await saveSpfblAccess(editUser.id);
-      const dmFailure = await saveDmAccessDraft(editUser.id);
+      const dmFailure = await saveDmAccessDraft(editUser.id, editUser.is_active);
       await loadUsers();
       if (accessFailure) { setFormError(`Usuário salvo, mas o acesso ao SPFBL NÃO foi salvo: ${accessFailure}.`); setModalTab('spfbl'); return; }
       if (dmFailure) { setFormError(`Usuário salvo, mas o acesso ao Domain Manager NÃO foi salvo: ${dmFailure}.`); setModalTab('dm'); return; }
