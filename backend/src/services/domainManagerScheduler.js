@@ -1,6 +1,7 @@
 const db = require('../config/database');
 const { isModuleEnabled } = require('./modulesService');
 const { getService } = require('./domainManagerService');
+const { getAlertService } = require('./domainManagerAlerts');
 const { safeLogError } = require('../utils/safeLogger');
 
 // Lookups are scheduled in the database, not by timers: a domain's turn is CLAIMED with a conditional UPDATE (SKIP LOCKED), so a restart
@@ -14,14 +15,21 @@ const BREAKER_LIMIT = 3;
 let timer = null;
 let pausedUntil = 0;
 let busy = false;
+let lastAlertPassAt = 0;
+const ALERT_EVERY_MS = 10 * 60 * 1000;
 
-const tick = async ({ service = getService(), queryable = db, now = Date.now } = {}) => {
+const tick = async ({ service = getService(), alerts = getAlertService(), queryable = db, now = Date.now } = {}) => {
   if (busy) return { skipped: 'busy' };
   if (now() < pausedUntil) return { skipped: 'paused' };
   if (!(await isModuleEnabled('domain_manager', queryable))) return { skipped: 'module_off' };
   busy = true;
   try {
     await service.syncFromSpfbl();
+    // Alerts run on their own, slower beat, before and independent of the registry lookups.
+    if (now() - lastAlertPassAt >= ALERT_EVERY_MS) {
+      lastAlertPassAt = now();
+      try { await alerts.processDue(); } catch (error) { safeLogError('Falha nos alertas do Domain Manager.', { name: error?.name, code: error?.code }, { includeStack: false }); }
+    }
     const due = (await queryable.query(
       `UPDATE dm_domains SET next_check_at = $2 WHERE id IN (
          SELECT id FROM dm_domains WHERE active AND next_check_at <= $1 ORDER BY next_check_at LIMIT ${BATCH} FOR UPDATE SKIP LOCKED)
@@ -51,6 +59,6 @@ const startDomainManagerScheduler = () => {
   timer.unref?.();
   return timer;
 };
-const resetSchedulerState = () => { pausedUntil = 0; busy = false; };
+const resetSchedulerState = () => { pausedUntil = 0; busy = false; lastAlertPassAt = 0; };
 
 module.exports = { tick, startDomainManagerScheduler, resetSchedulerState, PAUSE_MS, BATCH };

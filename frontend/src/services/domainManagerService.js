@@ -9,3 +9,5 @@ export const removeDomain = async (id) => (await api.delete(`/domain-manager/dom
 export const checkDomain = async (id) => (await api.post(`/domain-manager/domains/${encodeURIComponent(id)}/check`, {})).data;
 export const getDomainSettings = async () => (await api.get('/domain-manager/settings')).data;
 export const saveDomainSettings = async (payload) => (await api.put('/domain-manager/settings', payload)).data;
+export const getDomainAlerts = async (id) => (await api.get(`/domain-manager/domains/${encodeURIComponent(id)}/alerts`)).data;
+export const saveDomainAlerts = async (id, payload) => (await api.put(`/domain-manager/domains/${encodeURIComponent(id)}/alerts`, payload)).data;

@@ -16,6 +16,8 @@ const NOTIFICATION_ACTIONS = [
   'backup_restore_dry_run_failed',
   'backup_restore_failed',
   'csrf_denied',
+  // Domain Manager: a domain close to (or past) its expiry, for Super Admins who chose to be notified.
+  'domain_manager_expiry_alert',
   'ip_access_blocked',
   'ip_block_denied',
   'ip_blocked',
@@ -89,6 +91,14 @@ const getNotificationContent = (event) => {
     if (spfbl[event.action]) return spfbl[event.action];
     return failed ? ['Falha no SPFBL', `Uma operação do módulo SPFBL não foi concluída${where}.`] : ['Evento do SPFBL', 'Evento registrado no módulo SPFBL.'];
   }
+  if (event.action === 'domain_manager_expiry_alert') {
+    const where = spfblDomain(event);
+    const days = Number.isInteger(event.metadata?.days_left) ? event.metadata.days_left : null;
+    if (days === null) return ['Alerta de domínio', `Um domínio exige atenção${where}.`];
+    if (days < 0) return ['Domínio vencido', `O domínio venceu há ${-days} ${days === -1 ? 'dia' : 'dias'}${where}.`];
+    if (days === 0) return ['Domínio vence hoje', `O domínio vence hoje${where}.`];
+    return ['Domínio próximo do vencimento', `O domínio vence em ${days} ${days === 1 ? 'dia' : 'dias'}${where}.`];
+  }
   const contentByAction = {
     backup_export_denied: ['Exportação de backup negada', `A tentativa de exportação foi recusada${context}.`],
     backup_export_failed: ['Falha na exportação de backup', 'O backup não pôde ser exportado.'],
@@ -123,7 +133,7 @@ const formatSecurityNotification = (event) => {
   const [title, summary] = getNotificationContent(event);
   const severity = event.status === 'failed'
     ? 'error'
-    : event.status === 'denied' || event.status === 'blocked' || ['ip_blocked', 'ip_access_blocked'].includes(event.action)
+    : event.status === 'denied' || event.status === 'blocked' || ['ip_blocked', 'ip_access_blocked', 'domain_manager_expiry_alert'].includes(event.action)
       ? 'warning'
       : event.status === 'success'
         ? 'success'
@@ -134,9 +144,11 @@ const formatSecurityNotification = (event) => {
     summary: summary.slice(0, 120),
     created_at: event.created_at,
     severity,
-    status_label: STATUS_LABELS[event.status] || 'Informação',
+    status_label: event.action === 'domain_manager_expiry_alert' ? 'Atenção' : STATUS_LABELS[event.status] || 'Informação',
     // SPFBL events open the module (requests for new requests, audit otherwise); everything else opens the system audit.
-    target_url: String(event.action).startsWith('spfbl_')
+    target_url: event.action === 'domain_manager_expiry_alert'
+      ? '/domains'
+      : String(event.action).startsWith('spfbl_')
       ? `/spfbl?tab=${event.action === 'spfbl_review_requested' ? 'requests' : 'audit'}`
       : `/settings?section=audit&audit_action=${encodeURIComponent(event.action)}`
   };

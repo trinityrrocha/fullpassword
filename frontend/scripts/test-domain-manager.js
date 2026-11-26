@@ -31,9 +31,21 @@ assert.equal(dm.changeValue('dnssec', 'true'), 'ativo');
 assert.equal(dm.changeValue('nameservers', null), '—');
 assert.equal(dm.dnssecLabel(null), '—');
 
+assert.equal(dm.alertsLabel({ enabled: false, emails: 3, notify_admins: true }), '');
+assert.equal(dm.alertsLabel({ enabled: true, emails: 1, notify_admins: false }), 'Alertas ativos (1 e-mail)');
+assert.equal(dm.alertsLabel({ enabled: true, emails: 2, notify_admins: true }), 'Alertas ativos (2 e-mails + administradores)');
+assert.equal(dm.alertsLabel({ enabled: true, emails: 0, notify_admins: true }), 'Alertas ativos (administradores)');
+assert.equal(dm.alertsLabel(null), '');
+assert.deepEqual(['a@b.co', ' a@b.co ', 'a@b', 'a b@c.com', '', null].map(dm.isValidEmail), [true, true, false, false, false, false]);
+assert.equal(dm.canSaveAlerts({ enabled: false, notify_admins: false, emails: [] }), true);
+assert.equal(dm.canSaveAlerts({ enabled: true, notify_admins: false, emails: [] }), false);
+assert.equal(dm.canSaveAlerts({ enabled: true, notify_admins: true, emails: [] }), true);
+assert.equal(dm.canSaveAlerts({ enabled: true, notify_admins: false, emails: ['a@b.co'] }), true);
+
 // Wiring: route, menu entry (module-gated) and the module card link exist.
 assert.match(read('src/App.jsx'), /path="\/domains" element=\{<DomainManager \/>\}/);
 assert.match(read('src/layouts/DashboardLayout.jsx'), /modules\.domain_manager === true/);
 assert.match(read('src/components/ModulesCard.jsx'), /domain_manager: \{ href: '\/domains'/);
 assert.match(read('src/pages/DomainManager.jsx'), /SearchAlert/);
+assert.match(read('src/pages/DomainManager.jsx'), /<Settings className="h-5 w-5"/, 'the per-domain gear is the lucide Settings icon');
 console.log('domain manager frontend tests passed');
