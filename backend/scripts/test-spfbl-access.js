@@ -85,11 +85,11 @@ async function run() {
 
   // ---- Access is evaluated live: module toggle, grants and account status ----
   await modules.setModuleEnabled('spfbl', true, ids.admin);
-  assert.deepEqual(await modules.getMenuModules(user('alice')), { spfbl: true });
-  assert.deepEqual(await modules.getMenuModules(user('carol')), { spfbl: false }, 'no grant, no icon');
-  assert.deepEqual(await modules.getMenuModules(admin), { spfbl: true });
+  assert.deepEqual(await modules.getMenuModules(user('alice')), { spfbl: true, domain_manager: false });
+  assert.deepEqual(await modules.getMenuModules(user('carol')), { spfbl: false, domain_manager: false }, 'no grant, no icon');
+  assert.deepEqual(await modules.getMenuModules(admin), { spfbl: true, domain_manager: false });
   await modules.setModuleEnabled('spfbl', false, ids.admin);
-  assert.deepEqual(await modules.getMenuModules(user('alice')), { spfbl: false }, 'a grant does not outlive a disabled module');
+  assert.deepEqual(await modules.getMenuModules(user('alice')), { spfbl: false, domain_manager: false }, 'a grant does not outlive a disabled module');
   await modules.setModuleEnabled('spfbl', true, ids.admin);
   await pg.query('UPDATE users SET is_active = FALSE WHERE id = $1', [ids.bob]);
   assert.equal(await access.hasAccess(user('bob')), false, 'a deactivated account loses access without touching the grant');
@@ -137,7 +137,7 @@ async function run() {
 
   // The menu endpoint (any signed-in user) reports the grant, booleans only.
   res = response(); await modulesController.menu(request(user('alice')), res);
-  assert.deepEqual(res.body, { modules: { spfbl: true } });
+  assert.deepEqual(res.body, { modules: { spfbl: true, domain_manager: false } });
 
   // ---- Wiring ----
   const routes = read('backend/src/routes/spfblRoutes.js');

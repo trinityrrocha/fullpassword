@@ -7,6 +7,11 @@ const MODULES = Object.freeze({
     key: 'spfbl',
     name: 'SPFBL',
     description: 'Consulta e gestão de bloqueios de e-mail do Matrix SPFBL, com domínios do cPanel/WHM e acesso por usuário.'
+  }),
+  domain_manager: Object.freeze({
+    key: 'domain_manager',
+    name: 'Domain Manager',
+    description: 'Lista de domínios com vencimento, DNS e certificado SSL, consultados por RDAP, com alertas de vencimento.'
   })
 });
 
