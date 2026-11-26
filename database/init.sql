@@ -504,6 +504,8 @@ ALTER TABLE dm_settings ADD COLUMN IF NOT EXISTS mail_check_enabled BOOLEAN NOT 
 ALTER TABLE dm_settings ADD COLUMN IF NOT EXISTS mail_check_interval_days SMALLINT NOT NULL DEFAULT 7 CHECK (mail_check_interval_days BETWEEN 1 AND 30);
 ALTER TABLE dm_settings ADD COLUMN IF NOT EXISTS dkim_selectors TEXT[] NOT NULL DEFAULT ARRAY['default','google','selector1','selector2','k1','k2','s1','s2','mail','dkim','mandrill','mte1','ctct1','smtp','sig1']::text[];
 ALTER TABLE dm_settings ADD COLUMN IF NOT EXISTS dns_servers TEXT[] NOT NULL DEFAULT ARRAY[]::text[];
+ALTER TABLE dm_settings ADD COLUMN IF NOT EXISTS dmarc_no_report_warning BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE dm_settings ADD COLUMN IF NOT EXISTS ssl_check_enabled BOOLEAN NOT NULL DEFAULT TRUE;
 
 ALTER TABLE dm_domains ADD COLUMN IF NOT EXISTS next_mail_check_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP;
 CREATE INDEX IF NOT EXISTS dm_domains_mail_due_idx ON dm_domains (next_mail_check_at) WHERE active;

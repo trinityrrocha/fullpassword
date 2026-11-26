@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Bug } from 'lucide-react';
+import PageTitle from '../components/PageTitle';
 import SpfblSettingsTab from '../components/spfbl/SpfblSettingsTab';
 import SpfblAccessPanel from '../components/spfbl/SpfblAccessPanel';
 import SpfblOwnScope from '../components/spfbl/SpfblOwnScope';
@@ -78,10 +79,7 @@ export default function Spfbl() {
     <div className="mx-auto max-w-7xl space-y-5 p-4 md:p-6">
       <header>
         <div className="flex items-start justify-between gap-3">
-          <div>
-            <h1 className="flex items-center text-2xl font-bold text-slate-900"><Bug className="mr-2 h-6 w-6 text-slate-500" aria-hidden="true" />SPFBL</h1>
-            <p className="mt-1 text-sm text-slate-600">Consulta e gestão de bloqueios de e-mail do Matrix SPFBL.</p>
-          </div>
+          <PageTitle icon={Bug} iconClassName="text-slate-500" description="Consulta e gestão de bloqueios de e-mail do Matrix SPFBL.">SPFBL</PageTitle>
         </div>
       </header>
       {error && <p role="alert" className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>}

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Settings as SettingsIcon, RefreshCw, AlertTriangle, ShieldCheck, Download, Database } from 'lucide-react';
+import PageTitle from '../components/PageTitle';
 import api from '../services/api';
 import { safeLogError } from '../utils/safeLogger';
 import { useAuth } from '../context/AuthContext';
@@ -364,13 +365,7 @@ export default function Settings() {
   return (
     <div className="w-full max-w-7xl mx-auto space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900 flex items-center">
-            <SettingsIcon className="w-6 h-6 mr-2 text-indigo-600" />
-            Configurações do Sistema
-          </h1>
-          <p className="text-sm text-slate-500">Gerencie parâmetros globais, atualizações e backups da plataforma</p>
-        </div>
+        <PageTitle icon={SettingsIcon} iconClassName="text-indigo-600" description="Gerencie parâmetros globais, atualizações e backups da plataforma">Configurações do Sistema</PageTitle>
       </div>
 
 

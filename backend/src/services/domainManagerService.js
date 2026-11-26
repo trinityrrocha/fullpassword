@@ -88,13 +88,15 @@ const createService = ({ queryable = db, rdap = createRdapClient(), ssl = sslPro
   };
 
   const getSettings = async () => {
-    const row = (await queryable.query('SELECT check_interval_days, mail_check_enabled, mail_check_interval_days, dkim_selectors, dns_servers FROM dm_settings WHERE id = 1')).rows[0] || {};
+    const row = (await queryable.query('SELECT check_interval_days, mail_check_enabled, mail_check_interval_days, dkim_selectors, dns_servers, dmarc_no_report_warning, ssl_check_enabled FROM dm_settings WHERE id = 1')).rows[0] || {};
     return {
       check_interval_days: Number(row.check_interval_days || 7),
       mail_check_enabled: row.mail_check_enabled !== false,
       mail_check_interval_days: Number(row.mail_check_interval_days || 7),
       dkim_selectors: Array.isArray(row.dkim_selectors) ? row.dkim_selectors : [...DEFAULT_DKIM_SELECTORS],
       dns_servers: Array.isArray(row.dns_servers) ? row.dns_servers : [],
+      dmarc_no_report_warning: row.dmarc_no_report_warning !== false,
+      ssl_check_enabled: row.ssl_check_enabled !== false,
       default_dkim_selectors: [...DEFAULT_DKIM_SELECTORS]
     };
   };
@@ -113,9 +115,18 @@ const createService = ({ queryable = db, rdap = createRdapClient(), ssl = sslPro
     if (!selectors) throw new DomainError(`Informe de 1 a ${MAX_SELECTORS} seletores DKIM válidos (letras, números, ponto, hífen e sublinhado).`, 'DM_SELECTORS_INVALID', 422);
     const servers = normalizeServers(input.dns_servers ?? []);
     if (!servers) throw new DomainError('Informe até 4 endereços IP de servidores DNS, ou deixe em branco para usar o do sistema.', 'DM_DNS_SERVERS_INVALID', 422);
+    const before = await getSettings();
+    for (const key of ['dmarc_no_report_warning', 'ssl_check_enabled']) {
+      if (input[key] !== undefined && typeof input[key] !== 'boolean') throw new DomainError('Opção inválida nas configurações.', 'DM_OPTION_INVALID', 422);
+    }
+    const reportWarning = input.dmarc_no_report_warning ?? before.dmarc_no_report_warning;
+    const sslCheck = input.ssl_check_enabled ?? before.ssl_check_enabled;
     await queryable.query(
-      `UPDATE dm_settings SET check_interval_days = $1, mail_check_enabled = $2, mail_check_interval_days = $3, dkim_selectors = $4::text[], dns_servers = $5::text[], updated_at = CURRENT_TIMESTAMP WHERE id = 1`,
-      [input.check_interval_days, input.mail_check_enabled, input.mail_check_interval_days, selectors, servers]);
+      `UPDATE dm_settings SET check_interval_days = $1, mail_check_enabled = $2, mail_check_interval_days = $3, dkim_selectors = $4::text[], dns_servers = $5::text[],
+         dmarc_no_report_warning = $6, ssl_check_enabled = $7, updated_at = CURRENT_TIMESTAMP WHERE id = 1`,
+      [input.check_interval_days, input.mail_check_enabled, input.mail_check_interval_days, selectors, servers, reportWarning, sslCheck]);
+    // The stored verdicts were made under the old rule: bring every domain's e-mail check forward so the list agrees with the new option.
+    if (reportWarning !== before.dmarc_no_report_warning) await queryable.query('UPDATE dm_domains SET next_mail_check_at = CURRENT_TIMESTAMP WHERE active');
     return getSettings();
   };
 
@@ -227,7 +238,8 @@ const createService = ({ queryable = db, rdap = createRdapClient(), ssl = sslPro
     }
     running.add(id);
     try {
-      const [registry, certificate] = await Promise.all([rdap.lookup(domain.name), ssl.probe(domain.name).catch(() => ({ ssl_state: 'error', ssl_error: 'PROBE_FAILED' }))]);
+      const { ssl_check_enabled: sslEnabled } = await getSettings();
+      const [registry, certificate] = await Promise.all([rdap.lookup(domain.name), sslEnabled ? ssl.probe(domain.name).catch(() => ({ ssl_state: 'error', ssl_error: 'PROBE_FAILED' })) : {}]);
       const previous = (await queryable.query('SELECT * FROM dm_snapshots WHERE domain_id = $1', [id])).rows[0];
       // A failed registry call keeps the last known registry data; only the status and time move.
       const keep = registry.lookup_status === 'error' && previous;
@@ -309,7 +321,7 @@ const createService = ({ queryable = db, rdap = createRdapClient(), ssl = sslPro
     mailRunning.add(id);
     try {
       const selectors = [...new Set([...settings.dkim_selectors, ...own.extra_selectors])];
-      const outcome = await mailAuth(domain.name, { dns: dnsFor(settings.dns_servers), selectors, budget: createBudget({ now }) });
+      const outcome = await mailAuth(domain.name, { dns: dnsFor(settings.dns_servers), selectors, warnNoReports: settings.dmarc_no_report_warning, budget: createBudget({ now }) });
       const previous = (await queryable.query('SELECT * FROM dm_mail_checks WHERE domain_id = $1', [id])).rows[0];
       const stamp = new Date(now()).toISOString();
       // A section is "unsettled" when the DNS did not answer, or (DKIM) when some selectors did not answer and the verdict would differ

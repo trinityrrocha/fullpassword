@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { Building2, Search, Plus, Pencil, Eye, Trash2, Loader2 } from 'lucide-react';
+import PageTitle from '../components/PageTitle';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import useClearOnVaultLock from '../hooks/useClearOnVaultLock';
@@ -266,13 +267,10 @@ export default function ClientsList() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="mx-auto max-w-7xl space-y-5 p-4 md:p-6">
       <SharedItemsPanel />
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">Clientes</h1>
-          <p className="text-sm text-slate-500">Selecione um cliente para acessar seu cofre de senhas</p>
-        </div>
+        <PageTitle icon={Building2} description="Selecione um cliente para acessar seu cofre de senhas">Clientes</PageTitle>
         <button 
           onClick={() => setIsModalOpen(true)}
           className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"

@@ -232,7 +232,7 @@ export default function DashboardLayout() {
         {topNavigation ? <DesktopNavigation user={user} navigation={navigation} onProfile={() => setIsProfileModalOpen(true)} onLogout={handleLogout}>
           <ThemeToggle />
           {canSeeUpdates && <SecurityNotificationsMenu notifications={combinedNotifications} isOpen={isNotificationsOpen} onToggle={toggleNotifications} onClose={closeNotifications} onNavigate={openNotification} />}
-        </DesktopNavigation> : <div className="hidden h-16 shrink-0 items-center justify-end gap-2 border-b border-slate-200 bg-white px-8 md:flex dark:border-slate-800 dark:bg-slate-900">
+        </DesktopNavigation> : <div className="hidden h-[55px] shrink-0 items-center justify-end gap-2 border-b border-slate-200 bg-white px-8 md:flex dark:border-slate-800 dark:bg-slate-900">
           <ThemeToggle />
           {canSeeUpdates && (
             <SecurityNotificationsMenu

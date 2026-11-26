@@ -104,3 +104,26 @@ assert.match(read('src/pages/DomainManager.jsx'), /const isAdmin = data\.role ==
 assert.match(read('src/pages/TeamList.jsx'), /DomainManagerUserAccess/, 'the user dialog has the Domain Manager tab');
 assert.match(read('src/pages/DomainManager.jsx'), /<Settings className="h-5 w-5"/, 'the per-domain gear is the lucide Settings icon');
 console.log('domain manager frontend tests passed');
+
+// ---------- record generators ----------
+const gen = await import('../src/utils/recordGenerators.js');
+assert.equal(gen.buildDmarc({}).record, 'v=DMARC1; p=reject; sp=reject; adkim=s; aspf=s');
+assert.equal(gen.buildDmarc({ policy: 'none', subPolicy: 'same', adkim: 'r', aspf: 'r' }).record, 'v=DMARC1; p=none');
+assert.equal(gen.buildDmarc({ policy: 'quarantine', subPolicy: 'none', adkim: 'r', aspf: 'r', pct: '25', rua: 'a@x.com, mailto:b@x.com', ruf: 'f@x.com', fo: '1', ri: '3600' }).record,
+  'v=DMARC1; p=quarantine; sp=none; pct=25; rua=mailto:a@x.com,mailto:b@x.com; ruf=mailto:f@x.com; fo=1; ri=3600');
+assert.equal(gen.buildDmarc({ rua: 'ruim' }).valid, false);
+assert.equal(gen.buildDmarc({ rua: 'a@x.com,b@x.com,c@x.com,d@x.com,e@x.com,f@x.com' }).valid, false, 'at most 5 report addresses');
+assert.equal(gen.buildDmarc({ pct: '0' }).valid, false); assert.equal(gen.buildDmarc({ pct: '101' }).valid, false); assert.equal(gen.buildDmarc({ ri: '10' }).valid, false);
+assert.ok(gen.buildDmarc({ policy: 'none' }).warnings.some((w) => /apenas monitora/.test(w)));
+assert.equal(gen.buildSpf({}).record, 'v=spf1 mx -all');
+assert.equal(gen.buildSpf({ mx: false, a: true, ips: '203.0.113.5 198.51.100.0/24 2001:db8::/32', providers: ['google', 'ses'], includes: 'include:_SPF.x.com', all: '~all' }).record,
+  'v=spf1 a ip4:203.0.113.5 ip4:198.51.100.0/24 ip6:2001:db8::/32 include:_spf.google.com include:amazonses.com include:_spf.x.com ~all');
+assert.ok(gen.buildSpf({ all: '~all' }).warnings.some((w) => /Recomendamos -all/.test(w)));
+assert.ok(gen.buildSpf({ all: '?all' }).warnings.some((w) => /Recomendamos -all/.test(w)));
+for (const bad of ['300.1.1.1', '1.2.3.4/33', '1.2.3', 'zzz', '2001:::1', '2001:db8::/129']) assert.equal(gen.buildSpf({ ips: bad }).valid, false, bad);
+assert.equal(gen.buildSpf({ includes: 'not a host' }).valid, false);
+assert.equal(gen.buildSpf({ mx: false }).warnings.some((w) => /Nenhum servidor autorizado/.test(w)), true);
+const heavy = gen.buildSpf({ a: true, providers: gen.SPF_PROVIDERS.map((p) => p.id), includes: 'a.example.com b.example.com c.example.com' });
+assert.equal(heavy.lookups, 12); assert.equal(heavy.valid, false, 'more than 10 DNS lookups is refused');
+assert.equal(gen.buildSpf({ mx: false, a: false, providers: ['google'], includes: '_spf.google.com' }).lookups, 1, 'a repeated include counts once');
+console.log('record generator tests passed');

@@ -8,7 +8,7 @@ const verifyRuntimeSchema=async(queryable=db)=>{
   await queryable.query('SELECT history_retention_days,history_interval_hours,history_last_run_at FROM spfbl_settings LIMIT 0');
   await queryable.query('SELECT provider_limit,gap FROM spfbl_history_runs LIMIT 0');
   await queryable.query('SELECT s.encrypted_token,s.server_kind,s.matrix_user,s.encrypted_matrix_password,s.history_last_run_at,d.server_id FROM spfbl_whm_servers s CROSS JOIN spfbl_domains d LIMIT 0');
-  await queryable.query('SELECT s.mail_check_enabled,s.mail_check_interval_days,s.dkim_selectors,s.dns_servers,d.next_mail_check_at FROM dm_settings s CROSS JOIN dm_domains d LIMIT 0');
+  await queryable.query('SELECT s.mail_check_enabled,s.mail_check_interval_days,s.dkim_selectors,s.dns_servers,s.dmarc_no_report_warning,s.ssl_check_enabled,d.next_mail_check_at FROM dm_settings s CROSS JOIN dm_domains d LIMIT 0');
   await queryable.query('SELECT user_id,can_view,can_edit,can_add,can_delete FROM client_user_access LIMIT 0');
   await queryable.query('SELECT user_shares FROM vault_migration_stages LIMIT 0');
   const tables=['vault_crypto_epochs','vault_crypto_envelopes','vault_records','vault_record_history','vault_migration_stages','sensitive_auth_grants','sensitive_auth_attempts','email_change_requests','mfa_login_challenges','system_modules','spfbl_settings','spfbl_domains','spfbl_user_access','spfbl_user_domains','spfbl_requests','spfbl_operations','spfbl_release_events','spfbl_history_records','spfbl_history_runs','spfbl_whm_servers','dm_settings','dm_domains','dm_snapshots','dm_changes','dm_alert_settings','dm_notifications_sent','dm_user_access','dm_user_domains','dm_mail_checks','dm_mail_domain_settings'];
