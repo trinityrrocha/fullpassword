@@ -17,6 +17,8 @@ router.post('/domains/import', controller.importList);
 router.get('/domains/:id', controller.detail);
 router.delete('/domains/:id', controller.remove);
 router.post('/domains/:id/check', domainManagerLookupLimiter, controller.check);
+router.get('/domains/:id/alerts', controller.getAlerts);
+router.put('/domains/:id/alerts', controller.saveAlerts);
 router.get('/settings', controller.getSettings);
 router.put('/settings', controller.saveSettings);
 

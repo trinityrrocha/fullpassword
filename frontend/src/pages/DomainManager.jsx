@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Globe, Plus, SearchAlert, Settings, Trash2 } from 'lucide-react';
+import { Bell, Globe, Plus, SearchAlert, Settings, SlidersHorizontal, Trash2 } from 'lucide-react';
 import PaginationBar from '../components/PaginationBar';
-import { AddDomainDialog, DomainDetailDialog, SettingsDialog } from '../components/domainManager/DomainDialogs';
+import { AddDomainDialog, AlertsDialog, DomainDetailDialog, SettingsDialog } from '../components/domainManager/DomainDialogs';
 import { checkDomain, listDomains, removeDomain } from '../services/domainManagerService';
 import { describeError, formatDateTime } from '../utils/spfbl';
-import { SOURCE_LABELS, TONE_CLASSES, errorLabel, expiryInfo, lookupLabel, sslLabel } from '../utils/domainManager';
+import { SOURCE_LABELS, TONE_CLASSES, alertsLabel, errorLabel, expiryInfo, lookupLabel, sslLabel } from '../utils/domainManager';
 
 const primaryButton = 'inline-flex items-center rounded-md bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-60';
 const secondaryButton = 'inline-flex items-center rounded-md border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60';
@@ -72,7 +72,7 @@ export default function DomainManager() {
           <p className="mt-1 text-sm text-slate-600">Vencimento, DNS e certificado SSL dos domínios, consultados automaticamente por RDAP.</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <button type="button" onClick={() => setDialog({ kind: 'settings' })} className={secondaryButton}><Settings className="mr-1.5 h-4 w-4" aria-hidden="true" />Consultas automáticas</button>
+          <button type="button" onClick={() => setDialog({ kind: 'settings' })} className={secondaryButton}><SlidersHorizontal className="mr-1.5 h-4 w-4" aria-hidden="true" />Consultas automáticas</button>
           <button type="button" onClick={() => setDialog({ kind: 'add' })} className={primaryButton}><Plus className="mr-1.5 h-4 w-4" aria-hidden="true" />Adicionar domínios</button>
         </div>
       </header>
@@ -104,7 +104,7 @@ export default function DomainManager() {
             <li key={domain.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 px-3 py-2">
               <div className="min-w-48 flex-1">
                 <button type="button" onClick={() => setDialog({ kind: 'detail', domain })} className="break-all text-left text-sm font-medium text-indigo-700 underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600">{domain.name}</button>
-                <p className="text-xs text-slate-600">{SOURCE_LABELS[domain.source] || domain.source} · {domain.snapshot ? `${lookupLabel(domain.snapshot)}${domain.snapshot.error_code ? ` — ${errorLabel(domain.snapshot.error_code)}` : ''}` : 'Aguardando consulta'}{domain.snapshot ? ` · ${formatDateTime(domain.snapshot.checked_at)}` : ''}</p>
+                <p className="text-xs text-slate-600">{SOURCE_LABELS[domain.source] || domain.source} · {domain.snapshot ? `${lookupLabel(domain.snapshot)}${domain.snapshot.error_code ? ` — ${errorLabel(domain.snapshot.error_code)}` : ''}` : 'Aguardando consulta'}{domain.snapshot ? ` · ${formatDateTime(domain.snapshot.checked_at)}` : ''}{domain.alerts?.enabled && <span className="ml-1 inline-flex items-center text-indigo-800"> · <Bell className="mx-1 h-3 w-3" aria-hidden="true" />{alertsLabel(domain.alerts)}</span>}</p>
               </div>
               <div className="w-40 text-sm">
                 <span className="sr-only">Vencimento: </span>
@@ -113,6 +113,7 @@ export default function DomainManager() {
               </div>
               <div className="w-24 text-sm text-slate-700"><span className="sr-only">Certificado SSL: </span>{sslLabel(domain.snapshot?.ssl?.state)}</div>
               <div className="flex items-center gap-1">
+                <button type="button" onClick={() => setDialog({ kind: 'alerts', domain })} title="Alertas de vencimento" aria-label={`Alertas de ${domain.name}`} className={iconButton}><Settings className="h-5 w-5" aria-hidden="true" /></button>
                 <button type="button" disabled={busy} onClick={() => check(domain)} title="Consultar agora" aria-label={`Consultar ${domain.name} agora`} className={iconButton}><SearchAlert className="h-5 w-5" aria-hidden="true" /></button>
                 {domain.source === 'manual' && (confirmId === domain.id ? (
                   <span className="flex items-center gap-1 text-sm">
@@ -132,6 +133,7 @@ export default function DomainManager() {
 
       {dialog?.kind === 'add' && <AddDomainDialog onClose={() => setDialog(null)} onDone={reload} />}
       {dialog?.kind === 'settings' && <SettingsDialog settings={data.settings} onClose={() => setDialog(null)} onSaved={reload} />}
+      {dialog?.kind === 'alerts' && <AlertsDialog domain={dialog.domain} onClose={() => setDialog(null)} onSaved={reload} />}
       {dialog?.kind === 'detail' && <DomainDetailDialog domain={dialog.domain} changes={dialog.changes} onClose={() => setDialog(null)} />}
     </div>
   );

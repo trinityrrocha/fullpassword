@@ -47,8 +47,29 @@ const DOMAIN_MANAGER_STATEMENTS = [
   `CREATE INDEX IF NOT EXISTS dm_changes_domain_idx ON dm_changes (domain_id, detected_at DESC)`
 ];
 
+// Alerts (migration 36).
+const DOMAIN_MANAGER_ALERT_STATEMENTS = [
+  `CREATE TABLE IF NOT EXISTS dm_alert_settings (
+    domain_id UUID PRIMARY KEY REFERENCES dm_domains(id) ON DELETE CASCADE,
+    enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    notify_admins BOOLEAN NOT NULL DEFAULT FALSE,
+    emails JSONB NOT NULL DEFAULT '[]'::jsonb,
+    updated_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+)`,
+  `CREATE TABLE IF NOT EXISTS dm_notifications_sent (
+    domain_id UUID NOT NULL REFERENCES dm_domains(id) ON DELETE CASCADE,
+    expires_on DATE NOT NULL,
+    event_key VARCHAR(16) NOT NULL,
+    recipient VARCHAR(40) NOT NULL,
+    sent_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (domain_id, expires_on, event_key, recipient)
+)`
+];
+
 const ensureDomainManagerSchema = async (client) => {
   for (const statement of DOMAIN_MANAGER_STATEMENTS) await client.query(statement);
+  for (const statement of DOMAIN_MANAGER_ALERT_STATEMENTS) await client.query(statement);
 };
 
-module.exports = { DOMAIN_MANAGER_STATEMENTS, ensureDomainManagerSchema };
+module.exports = { DOMAIN_MANAGER_STATEMENTS, DOMAIN_MANAGER_ALERT_STATEMENTS, ensureDomainManagerSchema };

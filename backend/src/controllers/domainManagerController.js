@@ -1,4 +1,5 @@
 const { getService, DomainError, UUID_PATTERN } = require('../services/domainManagerService');
+const { getAlertService } = require('../services/domainManagerAlerts');
 const { recordAuditEvent } = require('../services/auditService');
 const { safeLogError } = require('../utils/safeLogger');
 
@@ -53,4 +54,13 @@ const saveSettings = handle(async (req, res, service) => {
   return res.status(200).json(settings);
 });
 
-module.exports = { list, detail, add, importList, remove, check, getSettings, saveSettings };
+const getAlerts = handle(async (req, res) => res.status(200).json(await getAlertService().getAlerts(requireId(req))));
+const saveAlerts = handle(async (req, res, service) => {
+  const id = requireId(req);
+  const { domain } = await service.detail(id);
+  const alerts = await getAlertService().saveAlerts(id, req.body, req.user.id);
+  await audit(req, 'domain_manager_alerts_saved', { domain: domain.name, enabled: alerts.enabled, notify_admins: alerts.notify_admins, emails: alerts.emails.length });
+  return res.status(200).json(alerts);
+});
+
+module.exports = { getAlerts, saveAlerts, list, detail, add, importList, remove, check, getSettings, saveSettings };

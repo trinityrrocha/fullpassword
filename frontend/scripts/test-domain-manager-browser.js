@@ -34,7 +34,7 @@ const vite = await createServer({ root, server: { host: '127.0.0.1', port: 0 }, 
 const uid = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const snap = (extra = {}) => ({ checked_at: '2026-11-26T15:00:00Z', lookup_status: 'ok', error_code: null, registrar: 'Registrador Exemplo', expires_on: '2027-02-10', days_left: 76, registered_on: '2020-02-10', rdap_statuses: ['active'], nameservers: ['ns1.exemplo.net', 'ns2.exemplo.net'], dnssec: true, ssl: { state: 'valid', not_after: '2027-01-10T00:00:00Z', issuer: 'CA Exemplo', protocol: 'TLSv1.3', error: null }, ...extra });
 const state = {
-  calls: [], interval: 7, rateLimited: false,
+  calls: [], interval: 7, rateLimited: false, alerts: {},
   domains: [
     { id: uid(1), name: 'exemplo.com.br', source: 'manual', active: true, snapshot: snap() },
     { id: uid(2), name: 'vencido.com', source: 'spfbl', active: true, snapshot: snap({ expires_on: '2026-11-20', days_left: -6, ssl: { state: 'expired', not_after: null, issuer: null, protocol: null, error: null } }) },
@@ -66,13 +66,19 @@ try {
       const size = Number(url.searchParams.get('size') || 20); const pageNo = Number(url.searchParams.get('page') || 1);
       const term = (url.searchParams.get('search') || '').toLowerCase();
       const all = state.domains.filter((d) => d.name.includes(term));
-      return json({ domains: all.slice((pageNo - 1) * size, pageNo * size), total: all.length, page: pageNo, size, settings: { check_interval_days: state.interval } });
+      const withAlerts = (d) => { const a = state.alerts[d.id]; return { ...d, alerts: a ? { enabled: a.enabled, notify_admins: a.notify_admins, emails: a.emails.length } : { enabled: false, notify_admins: false, emails: 0 } }; };
+      return json({ domains: all.slice((pageNo - 1) * size, pageNo * size).map(withAlerts), total: all.length, page: pageNo, size, settings: { check_interval_days: state.interval } });
     }
     if (api === '/domain-manager/domains' && method === 'POST') {
       const domain = { id: uid(500), name: body.name, source: 'manual', active: true, snapshot: null };
       state.domains.unshift(domain); return json({ domain }, 201);
     }
     if (api === '/domain-manager/domains/import') return json({ added: body.names.length - 1, duplicates: 1, invalid: ['ruim'] });
+    if (/^\/domain-manager\/domains\/[^/]+\/alerts$/.test(api)) {
+      const id = api.split('/')[3];
+      if (method === 'PUT') { state.alerts[id] = { enabled: body.enabled, notify_admins: body.notify_admins, emails: body.emails }; return json(state.alerts[id]); }
+      return json(state.alerts[id] || { enabled: false, notify_admins: false, emails: [] });
+    }
     if (/^\/domain-manager\/domains\/[^/]+\/check$/.test(api)) {
       if (state.rateLimited) return json({ code: 'DM_COOLDOWN', error: 'Este domínio foi consultado agora há pouco. Aguarde alguns segundos.' }, 429);
       const id = api.split('/')[3]; const domain = state.domains.find((d) => d.id === id);
@@ -149,6 +155,43 @@ try {
   assert.equal(state.calls.filter((c) => c.method === 'DELETE').length, 0, 'removal needs a second click');
   await page.getByRole('button', { name: 'Remover', exact: true }).click();
   await page.waitForFunction(() => ![...document.querySelectorAll('[aria-label="Domínios"] > li')].some((li) => li.innerText.includes('exemplo.com.br')));
+
+  // Alerts (gear): switch, several e-mails, the administrators checkbox; saving needs a recipient.
+  await page.getByRole('button', { name: 'Alertas de novo.org' }).click();
+  const alertsDialog = page.getByRole('dialog', { name: 'Alertas — novo.org' });
+  await alertsDialog.waitFor();
+  const alertsSwitch = alertsDialog.getByRole('switch', { name: 'Alertas de vencimento' });
+  await alertsSwitch.waitFor();
+  assert.equal(await alertsSwitch.getAttribute('aria-checked'), 'false');
+  assert.equal(await alertsDialog.getByLabel('E-mails para notificação').count(), 0, 'e-mail fields only appear when the alerts are on');
+  await alertsSwitch.click();
+  assert.equal(await alertsDialog.getByRole('button', { name: 'Salvar' }).isDisabled(), true, 'on without a recipient cannot be saved');
+  assert.match(await alertsDialog.innerText(), /ao menos um e-mail ou marque/);
+  const emailField = alertsDialog.getByLabel('E-mails para notificação');
+  await emailField.fill('invalido'); await alertsDialog.getByRole('button', { name: 'Adicionar e-mail' }).click();
+  assert.match(await alertsDialog.getByRole('alert').first().innerText(), /e-mail válido/);
+  await emailField.fill('TI@Empresa.com'); await emailField.press('Enter');
+  await emailField.fill('outro@empresa.com'); await alertsDialog.getByRole('button', { name: 'Adicionar e-mail' }).click();
+  await emailField.fill('ti@empresa.com'); await alertsDialog.getByRole('button', { name: 'Adicionar e-mail' }).click();
+  assert.match(await alertsDialog.getByRole('alert').first().innerText(), /já está na lista/);
+  await alertsDialog.getByRole('checkbox', { name: /Notificar os administradores/ }).check();
+  await alertsDialog.getByRole('button', { name: 'Salvar' }).click();
+  await alertsDialog.waitFor({ state: 'detached' });
+  const putAlerts = state.calls.find((c) => c.method === 'PUT' && c.api.endsWith('/alerts'));
+  assert.deepEqual(putAlerts.body, { enabled: true, notify_admins: true, emails: ['ti@empresa.com', 'outro@empresa.com'] });
+  await rows.filter({ hasText: 'novo.org' }).getByText('Alertas ativos (2 e-mails + administradores)').waitFor();
+  // Reopen: the saved values come back; removing every recipient blocks saving; switching off clears the row indicator.
+  await page.getByRole('button', { name: 'Alertas de novo.org' }).click();
+  await alertsDialog.getByRole('list', { name: 'E-mails adicionados' }).waitFor();
+  assert.equal(await alertsDialog.getByRole('list', { name: 'E-mails adicionados' }).getByRole('listitem').count(), 2);
+  await alertsDialog.getByRole('button', { name: 'Remover ti@empresa.com' }).click();
+  await alertsDialog.getByRole('button', { name: 'Remover outro@empresa.com' }).click();
+  await alertsDialog.getByRole('checkbox', { name: /Notificar os administradores/ }).uncheck();
+  assert.equal(await alertsDialog.getByRole('button', { name: 'Salvar' }).isDisabled(), true);
+  await alertsDialog.getByRole('switch', { name: 'Alertas de vencimento' }).click();
+  await alertsDialog.getByRole('button', { name: 'Salvar' }).click();
+  await alertsDialog.waitFor({ state: 'detached' });
+  await page.waitForFunction(() => ![...document.querySelectorAll('[aria-label="Domínios"] > li')].some((li) => li.innerText.includes('Alertas ativos')));
 
   // Interval setting.
   await page.getByRole('button', { name: 'Consultas automáticas' }).click();

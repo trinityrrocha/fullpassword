@@ -51,6 +51,7 @@ const toRow = (row) => {
   return {
     id: row.id, name: row.name, source: row.source, active: row.active,
     last_checked_at: row.last_checked_at || null, next_check_at: row.next_check_at || null,
+    alerts: { enabled: row.alerts_enabled === true, notify_admins: row.alerts_admins === true, emails: Number(row.alerts_emails || 0) },
     snapshot: row.checked_at ? {
       checked_at: row.checked_at, lookup_status: row.lookup_status, error_code: row.error_code,
       registrar: row.registrar, expires_on: expiresOn, days_left: expiresOn ? daysBetween(today(), expiresOn) : null,
@@ -61,8 +62,9 @@ const toRow = (row) => {
 };
 
 const SELECT_ROW = `SELECT d.id, d.name, d.source, d.active, d.last_checked_at, d.next_check_at, s.checked_at, s.lookup_status, s.error_code, s.registrar,
-  s.expires_on, s.registered_on, s.rdap_statuses, s.nameservers, s.dnssec, s.ssl_state, s.ssl_not_after, s.ssl_issuer, s.ssl_protocol, s.ssl_error
-  FROM dm_domains d LEFT JOIN dm_snapshots s ON s.domain_id = d.id`;
+  s.expires_on, s.registered_on, s.rdap_statuses, s.nameservers, s.dnssec, s.ssl_state, s.ssl_not_after, s.ssl_issuer, s.ssl_protocol, s.ssl_error,
+  a.enabled AS alerts_enabled, a.notify_admins AS alerts_admins, jsonb_array_length(COALESCE(a.emails, '[]'::jsonb)) AS alerts_emails
+  FROM dm_domains d LEFT JOIN dm_snapshots s ON s.domain_id = d.id LEFT JOIN dm_alert_settings a ON a.domain_id = d.id`;
 
 const createService = ({ queryable = db, rdap = createRdapClient(), ssl = sslProbe, now = Date.now } = {}) => {
   const running = new Set();

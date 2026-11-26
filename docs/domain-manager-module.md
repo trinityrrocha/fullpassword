@@ -8,7 +8,17 @@ Lista de domínios com vencimento, servidores DNS, DNSSEC e certificado SSL, con
 - Consulta automática de todos os domínios. Cadência adaptativa: a cada N dias (padrão 7, configurável de 1 a 30) enquanto faltar mais de 30 dias para o vencimento, e **diária** dos 30 dias antes do vencimento em diante e enquanto o domínio estiver vencido. O intervalo nunca passa do dia em que a janela de 30 dias abre.
 - Botão de consulta (`SearchAlert` (nome antigo do ícone search-exclamation-point, presente na versão do lucide-react travada no lockfile)) em cada linha: consulta na hora, atualiza a data e abre os detalhes. Intervalo mínimo de 30 s por domínio e limite por conta.
 - Detalhe: vencimento, registro, registrador, status, servidores DNS, DNSSEC, certificado SSL e mudanças detectadas entre consultas.
-- Acesso apenas do Super Admin nesta fase. Alertas, acesso de usuários, integração com os cofres e API de apoio entram nas fases seguintes.
+- Acesso apenas do Super Admin. Acesso de usuários, integração com os cofres e API de apoio entram nas fases seguintes.
+
+## Alertas de vencimento (fase 2)
+- **Engrenagem** (`Settings`) em cada domínio abre o modal de alertas: interruptor de alertas, vários e-mails (até 20) e o checkbox **Notificar os administradores**, que dispensa digitar o e-mail deles. Com os alertas ligados é preciso ao menos um e-mail ou o checkbox. A lista mostra `Alertas ativos (N e-mails + administradores)` ao lado do domínio.
+- **Quando avisa**: os mesmos passos do aviso de vencimento dos cofres: 30, 15 e 5 dias antes, no dia do vencimento e diariamente até 10 dias depois. Cada passo dispara na **primeira passada** em que o domínio entra na faixa (e não só no dia exato), então um dia perdido não vira um aviso perdido. Quando faltar pouco e nenhum passo anterior foi visto, vai só o passo atual.
+- **Uma vez só**: cada (domínio, data de vencimento, passo, destinatário) é reservado no banco **antes** do envio e liberado se o envio falhar. Duas instâncias não enviam em dobro, uma falha tenta de novo depois de 1 hora, e renovar o domínio (nova data) recomeça a sequência.
+- **Administradores**: com o checkbox, todos os Super Admins ativos recebem o e-mail e o sino de "Notificações recentes" mostra o aviso (selo "Atenção", abre `/domains`). Sem o checkbox não há aviso no sino.
+- **Aviso dos cofres**: o aviso que já existe (data digitada no cofre) continua igual. Se um endereço já é coberto por ele para o mesmo domínio, o Domain Manager não envia um segundo e-mail a esse endereço. A unificação completa vem com a fase dos cofres.
+- O corpo do e-mail traz domínio, data e dias restantes, sem dados do registro. A auditoria guarda só a quantidade de e-mails, nunca os endereços.
+- O agendador avalia os alertas a cada 10 minutos. Migration `36_domain_manager_alerts.sql`: tabelas `dm_alert_settings` e `dm_notifications_sent`.
+- Rotas novas: `GET|PUT /api/domain-manager/domains/:id/alerts` (Super Admin).
 
 ## Como a consulta funciona
 - **RDAP** (RFC 9083). O servidor de cada extensão vem da tabela pública da IANA (`data.iana.org/rdap/dns.json`, renovada a cada 24 h); `.br` usa `rdap.registro.br`. O endereço do registro nunca vem do usuário.
@@ -23,7 +33,7 @@ Lista de domínios com vencimento, servidores DNS, DNSSEC e certificado SSL, con
 A fila vive no banco: o turno de cada domínio é reservado com um `UPDATE` condicional (`SKIP LOCKED`), então reinício do backend ou uma segunda instância não duplicam consultas, e um turno reservado que não terminou volta à fila em 30 minutos. Não usa lock consultivo.
 
 ## Dados
-Tabelas `dm_settings`, `dm_domains`, `dm_snapshots` (último resultado) e `dm_changes` (mudanças). Migration `35_domain_manager.sql`, aditiva; entram no backup como opcionais.
+Tabelas `dm_settings`, `dm_domains`, `dm_snapshots` (último resultado), `dm_changes` (mudanças), `dm_alert_settings` e `dm_notifications_sent`. Migrations `35_domain_manager.sql` e `36_domain_manager_alerts.sql`, aditivas; entram no backup como opcionais.
 
 ## API (`/api/domain-manager`, Super Admin, módulo ativo)
 `GET /domains`, `POST /domains`, `POST /domains/import`, `GET /domains/:id`, `DELETE /domains/:id` (só os manuais), `POST /domains/:id/check`, `GET|PUT /settings`.

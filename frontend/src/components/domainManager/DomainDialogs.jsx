@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
+import { X } from 'lucide-react';
 import FormDialog from '../FormDialog';
-import { addDomain, importDomains, saveDomainSettings, getDomainDetail } from '../../services/domainManagerService';
+import { addDomain, getDomainAlerts, getDomainDetail, importDomains, saveDomainAlerts, saveDomainSettings } from '../../services/domainManagerService';
 import { describeError, formatDateTime, formatDay, formatIsoDateTime } from '../../utils/spfbl';
-import { MAX_IMPORT, SOURCE_LABELS, changeValue, dnssecLabel, errorLabel, expiryInfo, fieldLabel, lookupLabel, parseDomainList, sslLabel, TONE_CLASSES } from '../../utils/domainManager';
+import { MAX_ALERT_EMAILS, MAX_IMPORT, SOURCE_LABELS, canSaveAlerts, isValidEmail, changeValue, dnssecLabel, errorLabel, expiryInfo, fieldLabel, lookupLabel, parseDomainList, sslLabel, TONE_CLASSES } from '../../utils/domainManager';
 
 const fieldClass = 'w-full rounded-md border border-slate-300 bg-white px-2.5 py-2 text-sm outline-hidden focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200';
 const primaryButton = 'rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-60';
@@ -142,6 +143,90 @@ export function DomainDetailDialog({ domain: initial, changes: initialChanges, o
             )}
           </section>
         </div>
+      )}
+    </FormDialog>
+  );
+}
+
+export function AlertsDialog({ domain, onClose, onSaved }) {
+  const id = useId();
+  const [form, setForm] = useState(null);
+  const [draft, setDraft] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [fieldError, setFieldError] = useState('');
+
+  useEffect(() => {
+    let active = true;
+    getDomainAlerts(domain.id).then((data) => { if (active) setForm(data); })
+      .catch((failure) => { if (active) setError(describeError(failure, 'Não foi possível carregar os alertas.')); });
+    return () => { active = false; };
+  }, [domain.id]);
+
+  const addEmail = () => {
+    const value = draft.trim().toLowerCase();
+    if (!value) return;
+    if (!isValidEmail(value)) { setFieldError('Informe um e-mail válido.'); return; }
+    if (form.emails.includes(value)) { setFieldError('Este e-mail já está na lista.'); return; }
+    if (form.emails.length >= MAX_ALERT_EMAILS) { setFieldError(`O máximo é ${MAX_ALERT_EMAILS} e-mails.`); return; }
+    setForm({ ...form, emails: [...form.emails, value] });
+    setDraft(''); setFieldError('');
+  };
+  const removeEmail = (email) => setForm({ ...form, emails: form.emails.filter((item) => item !== email) });
+
+  const save = async (event) => {
+    event.preventDefault();
+    setBusy(true); setError('');
+    try { await saveDomainAlerts(domain.id, form); await onSaved(); onClose(); } catch (failure) { setError(describeError(failure, 'Não foi possível salvar os alertas.')); } finally { setBusy(false); }
+  };
+
+  return (
+    <FormDialog title={`Alertas — ${domain.name}`} description="Avisos de vencimento deste domínio." onClose={onClose} busy={busy}
+      footer={<div className="flex flex-wrap justify-end gap-2">
+        <button type="button" data-dialog-cancel disabled={busy} className={secondaryButton}>Cancelar</button>
+        <button type="submit" form="dm-alerts-form" disabled={busy || !form || !canSaveAlerts(form)} className={primaryButton}>{busy ? 'Salvando…' : 'Salvar'}</button>
+      </div>}>
+      {!form && !error && <p className="text-sm text-slate-600">Carregando…</p>}
+      {error && <p role="alert" className={errorBox}>{error}</p>}
+      {form && (
+        <form id="dm-alerts-form" onSubmit={save} noValidate className="space-y-4">
+          <div className="flex items-center justify-between gap-3">
+            <span id={`${id}-switch`} className="text-sm font-medium text-slate-900">Alertas de vencimento</span>
+            <button type="button" role="switch" aria-checked={form.enabled} aria-labelledby={`${id}-switch`} onClick={() => setForm({ ...form, enabled: !form.enabled })}
+              className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border border-transparent transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 ${form.enabled ? 'bg-indigo-600' : 'bg-slate-300'}`}>
+              <span aria-hidden="true" className={`inline-block h-5 w-5 rounded-full bg-white shadow transition-transform ${form.enabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
+            </button>
+          </div>
+          {form.enabled && (
+            <>
+              <div>
+                <label htmlFor={`${id}-email`} className="block text-sm font-medium text-slate-700">E-mails para notificação</label>
+                <div className="mt-1 flex gap-2">
+                  <input id={`${id}-email`} type="email" value={draft} onChange={(event) => { setDraft(event.target.value); setFieldError(''); }}
+                    onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); addEmail(); } }} maxLength={254} autoComplete="off" placeholder="nome@empresa.com" className={fieldClass} />
+                  <button type="button" onClick={addEmail} disabled={!draft.trim()} className={secondaryButton}>Adicionar e-mail</button>
+                </div>
+                {fieldError && <p role="alert" className="mt-1 text-sm text-red-800">{fieldError}</p>}
+                {form.emails.length > 0 && (
+                  <ul className="mt-2 flex flex-wrap gap-2" aria-label="E-mails adicionados">
+                    {form.emails.map((email) => (
+                      <li key={email} className="flex items-center gap-1 rounded-full border border-slate-300 bg-slate-50 py-0.5 pl-3 pr-1 text-sm text-slate-800">
+                        <span className="break-all">{email}</span>
+                        <button type="button" onClick={() => removeEmail(email)} aria-label={`Remover ${email}`} className="rounded-full p-1 text-slate-600 hover:bg-slate-200"><X className="h-3.5 w-3.5" aria-hidden="true" /></button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              <label className="flex items-start gap-2 text-sm text-slate-800">
+                <input type="checkbox" checked={form.notify_admins} onChange={(event) => setForm({ ...form, notify_admins: event.target.checked })} className="mt-0.5 h-4 w-4 rounded border-slate-300" />
+                <span>Notificar os administradores<span className="block text-xs text-slate-600">Eles recebem o e-mail e o aviso no sino sem precisar digitar o endereço aqui.</span></span>
+              </label>
+              {!canSaveAlerts(form) && <p role="alert" className="text-sm text-amber-800">Adicione ao menos um e-mail ou marque "Notificar os administradores".</p>}
+              <p className="text-xs text-slate-600">O aviso é enviado quando faltarem 30, 15 e 5 dias, no dia do vencimento e diariamente até 10 dias depois. Cada aviso é enviado uma vez por data de vencimento; ao renovar, a sequência recomeça.</p>
+            </>
+          )}
+        </form>
       )}
     </FormDialog>
   );

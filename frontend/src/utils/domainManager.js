@@ -49,3 +49,17 @@ export const TONE_CLASSES = Object.freeze({
 
 // A pasted list: one domain per line, comma, semicolon or space; duplicates and blanks dropped, case folded.
 export const parseDomainList = (text) => [...new Set(String(text || '').split(/[\s,;]+/).map((item) => item.trim().toLowerCase()).filter(Boolean))];
+
+export const MAX_ALERT_EMAILS = 20;
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+export const isValidEmail = (value) => typeof value === 'string' && value.length <= 254 && EMAIL_PATTERN.test(value.trim());
+// What the list shows next to a domain: nothing when the alerts are off.
+export const alertsLabel = (alerts) => {
+  if (!alerts?.enabled) return '';
+  const parts = [];
+  if (alerts.emails > 0) parts.push(`${alerts.emails} ${alerts.emails === 1 ? 'e-mail' : 'e-mails'}`);
+  if (alerts.notify_admins) parts.push('administradores');
+  return `Alertas ativos${parts.length ? ` (${parts.join(' + ')})` : ''}`;
+};
+// The form is valid when the alerts are off, or when someone will receive them.
+export const canSaveAlerts = ({ enabled, notify_admins: notifyAdmins, emails }) => !enabled || notifyAdmins || emails.length > 0;
