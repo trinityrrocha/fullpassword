@@ -365,7 +365,7 @@ async function run() {
       // Module off: nobody gets in, not even the Super Admin; the toggle itself is Super Admin only.
       await denies(sa1.api.get('/spfbl/whm-servers'),404,'MODULE_DISABLED');
       await denies(directApi.get('/spfbl/overview'),404,'MODULE_DISABLED');
-      assert.deepEqual((await sa1.api.get('/system/modules/menu')).data,{modules:{spfbl:false}});
+      assert.deepEqual((await sa1.api.get('/system/modules/menu')).data,{modules:{spfbl:false,domain_manager:false}});
       assert.deepEqual((await sa1.api.get('/system/modules')).data.modules.map(m=>[m.key,m.enabled]),[['spfbl',false]]);
       await denies(ordinaryAdminApi.get('/system/modules'),403,'SUPER_ADMIN_REQUIRED');
       await denies(directApi.get('/system/modules'),403);
@@ -379,9 +379,9 @@ async function run() {
       await denies(sa1.api.put('/system/modules/nope',{enabled:true,_reauth_token:onToken}),403,'REAUTH_REQUIRED');
       assert.equal((await sa1.api.put('/system/modules/spfbl',{enabled:true,_reauth_token:onToken})).data.module.enabled,true);
       await denies(sa1.api.put('/system/modules/spfbl',{enabled:true,_reauth_token:onToken}),403,'REAUTH_REQUIRED');
-      assert.deepEqual((await sa1.api.get('/system/modules/menu')).data,{modules:{spfbl:true}});
-      assert.deepEqual((await ordinaryAdminApi.get('/system/modules/menu')).data,{modules:{spfbl:false}},'an admin who is not Super Admin has no implicit access');
-      assert.deepEqual((await directApi.get('/system/modules/menu')).data,{modules:{spfbl:false}});
+      assert.deepEqual((await sa1.api.get('/system/modules/menu')).data,{modules:{spfbl:true,domain_manager:false}});
+      assert.deepEqual((await ordinaryAdminApi.get('/system/modules/menu')).data,{modules:{spfbl:false,domain_manager:false}},'an admin who is not Super Admin has no implicit access');
+      assert.deepEqual((await directApi.get('/system/modules/menu')).data,{modules:{spfbl:false,domain_manager:false}});
 
       // Configuration: Super Admin only, secrets encrypted and never returned.
       await denies(ordinaryAdminApi.get('/spfbl/whm-servers'),403,'SUPER_ADMIN_REQUIRED');
@@ -429,7 +429,7 @@ async function run() {
       await denies(sa2.api.put('/spfbl/access/'+sa1.id,{...selfGrant,_reauth_token:await reauthToken(sa2.api,'spfbl_access:'+sa1.id,selfGrant)}),409,'SPFBL_ACCESS_SUPER_ADMIN');
 
       // The granted account: its own scope only, never configuration, domains or other grants.
-      assert.deepEqual((await directApi.get('/system/modules/menu')).data,{modules:{spfbl:true}});
+      assert.deepEqual((await directApi.get('/system/modules/menu')).data,{modules:{spfbl:true,domain_manager:false}});
       const own=(await directApi.get('/spfbl/overview')).data;
       assert.deepEqual([own.role,own.unlock_mode,own.domains.map(d=>d.name)],['user','review',['one.example.com']]);
       assert.equal(JSON.stringify(own).includes('two.example.com'),false);
@@ -458,7 +458,7 @@ async function run() {
       await denies(sa2.api.delete('/spfbl/access/'+ordinaryAdmin,{_reauth_token:revokeToken}),403,'REAUTH_REQUIRED');
       assert.equal((await sa2.api.delete('/spfbl/access/'+directUser.id,{_reauth_token:revokeToken})).data.revoked,true);
       await denies(directApi.get('/spfbl/overview'),403,'SPFBL_ACCESS_DENIED');
-      assert.deepEqual((await directApi.get('/system/modules/menu')).data,{modules:{spfbl:false}});
+      assert.deepEqual((await directApi.get('/system/modules/menu')).data,{modules:{spfbl:false,domain_manager:false}});
       // A grant never outlives the module: switch it off and even the granted routes disappear.
       const regrant=await reauthToken(sa2.api,'spfbl_access:'+directUser.id,grant);
       await sa2.api.put('/spfbl/access/'+directUser.id,{...grant,_reauth_token:regrant});
@@ -467,7 +467,7 @@ async function run() {
       assert.equal((await sa1.api.put('/system/modules/spfbl',{enabled:false,_reauth_token:offToken})).data.module.enabled,false);
       await denies(directApi.get('/spfbl/overview'),404,'MODULE_DISABLED');
       await denies(sa1.api.get('/spfbl/whm-servers'),404,'MODULE_DISABLED');
-      assert.deepEqual((await directApi.get('/system/modules/menu')).data,{modules:{spfbl:false}});
+      assert.deepEqual((await directApi.get('/system/modules/menu')).data,{modules:{spfbl:false,domain_manager:false}});
       for(const url of ['/spfbl/dashboard','/spfbl/history','/spfbl/requests','/spfbl/records/'+'a'.repeat(64)]) await denies(directApi.get(url),404,'MODULE_DISABLED');
       await denies(sa1.api.get('/spfbl/requests'),404,'MODULE_DISABLED');
       // Audit trail: what happened, never secrets.
