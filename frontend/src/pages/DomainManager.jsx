@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Globe, Plus, SearchExclamationPoint, Settings, Trash2 } from 'lucide-react';
+import { Globe, Plus, SearchAlert, Settings, Trash2 } from 'lucide-react';
 import PaginationBar from '../components/PaginationBar';
 import { AddDomainDialog, DomainDetailDialog, SettingsDialog } from '../components/domainManager/DomainDialogs';
 import { checkDomain, listDomains, removeDomain } from '../services/domainManagerService';
@@ -113,7 +113,7 @@ export default function DomainManager() {
               </div>
               <div className="w-24 text-sm text-slate-700"><span className="sr-only">Certificado SSL: </span>{sslLabel(domain.snapshot?.ssl?.state)}</div>
               <div className="flex items-center gap-1">
-                <button type="button" disabled={busy} onClick={() => check(domain)} title="Consultar agora" aria-label={`Consultar ${domain.name} agora`} className={iconButton}><SearchExclamationPoint className="h-5 w-5" aria-hidden="true" /></button>
+                <button type="button" disabled={busy} onClick={() => check(domain)} title="Consultar agora" aria-label={`Consultar ${domain.name} agora`} className={iconButton}><SearchAlert className="h-5 w-5" aria-hidden="true" /></button>
                 {domain.source === 'manual' && (confirmId === domain.id ? (
                   <span className="flex items-center gap-1 text-sm">
                     <button type="button" disabled={busy} onClick={() => remove(domain)} className="rounded px-2 py-1 font-medium text-red-800 underline">Remover</button>

@@ -6,7 +6,7 @@ Lista de domínios com vencimento, servidores DNS, DNSSEC e certificado SSL, con
 - Lista paginada (20/40/100) com busca e ordenação por nome, vencimento ou última consulta.
 - Domínios cadastrados à mão (um a um ou colando uma lista de até 200) e domínios do catálogo do SPFBL (entram sozinhos, só o nome).
 - Consulta automática de todos os domínios. Cadência adaptativa: a cada N dias (padrão 7, configurável de 1 a 30) enquanto faltar mais de 30 dias para o vencimento, e **diária** dos 30 dias antes do vencimento em diante e enquanto o domínio estiver vencido. O intervalo nunca passa do dia em que a janela de 30 dias abre.
-- Botão de consulta (`SearchExclamationPoint`) em cada linha: consulta na hora, atualiza a data e abre os detalhes. Intervalo mínimo de 30 s por domínio e limite por conta.
+- Botão de consulta (`SearchAlert` (nome antigo do ícone search-exclamation-point, presente na versão do lucide-react travada no lockfile)) em cada linha: consulta na hora, atualiza a data e abre os detalhes. Intervalo mínimo de 30 s por domínio e limite por conta.
 - Detalhe: vencimento, registro, registrador, status, servidores DNS, DNSSEC, certificado SSL e mudanças detectadas entre consultas.
 - Acesso apenas do Super Admin nesta fase. Alertas, acesso de usuários, integração com os cofres e API de apoio entram nas fases seguintes.
 

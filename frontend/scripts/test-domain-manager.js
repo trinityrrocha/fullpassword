@@ -35,5 +35,5 @@ assert.equal(dm.dnssecLabel(null), '—');
 assert.match(read('src/App.jsx'), /path="\/domains" element=\{<DomainManager \/>\}/);
 assert.match(read('src/layouts/DashboardLayout.jsx'), /modules\.domain_manager === true/);
 assert.match(read('src/components/ModulesCard.jsx'), /domain_manager: \{ href: '\/domains'/);
-assert.match(read('src/pages/DomainManager.jsx'), /SearchExclamationPoint/);
+assert.match(read('src/pages/DomainManager.jsx'), /SearchAlert/);
 console.log('domain manager frontend tests passed');
