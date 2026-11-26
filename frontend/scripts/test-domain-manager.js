@@ -50,11 +50,56 @@ assert.equal(dm.canSaveDmAccess({ enabled: true, domainIds: ['a'] }), true);
 assert.equal(dm.canSaveDmAccess({ enabled: true, domainIds: Array.from({ length: 101 }, (_, i) => String(i)) }), false);
 assert.equal(dm.canSaveDmAccess({ enabled: true, domainIds: Array.from({ length: 100 }, (_, i) => String(i)) }), true);
 
+// ---- SPF, DKIM and DMARC markers: a glyph AND words, never only a colour ----
+const mail = { spf: { status: 'ok', all: '-all' }, dmarc: { status: 'warning', policy: 'none' }, dkim: { status: 'not_found', found: 0 } };
+assert.deepEqual(dm.mailMarker('spf', mail), { label: 'SPF', mark: '✓', status: 'Válido', text: '-all', tone: 'ok', title: 'SPF: Válido (-all)' });
+assert.equal(dm.mailMarker('dmarc', mail).status, 'Aviso', 'every marker carries the spoken status, so p=none is not read like reject');
+assert.equal(dm.mailMarker('dmarc', { dmarc: { status: 'ok', policy: 'reject' } }).status, 'Válido');
+assert.equal(dm.mailMarker('spf', { spf: { status: 'fail', all: '+all' } }).status, 'Falha');
+assert.equal(dm.mailMarker('spf', null).status, 'Não verificado');
+assert.deepEqual([dm.mailMarker('dmarc', mail).text, dm.mailMarker('dmarc', mail).tone, dm.mailMarker('dmarc', mail).mark], ['p=none', 'warning', '⚠']);
+assert.deepEqual([dm.mailMarker('dkim', mail).text, dm.mailMarker('dkim', mail).mark], ['não encontrado', '?']);
+assert.equal(dm.mailMarker('dkim', { dkim: { status: 'ok', found: 1 } }).text, '1 seletor');
+assert.equal(dm.mailMarker('dkim', { dkim: { status: 'ok', found: 3 } }).text, '3 seletores');
+assert.deepEqual([dm.mailMarker('spf', { spf: { status: 'fail' } }).text, dm.mailMarker('spf', { spf: { status: 'fail' } }).tone], ['falha', 'danger']);
+assert.equal(dm.mailMarker('dmarc', { dmarc: { status: 'absent' } }).text, 'ausente');
+assert.equal(dm.mailMarker('spf', { spf: { status: 'inconclusive' } }).text, 'sem resposta');
+assert.equal(dm.mailMarker('dmarc', { dmarc: { status: 'ok', policy: 'reject' } }).text, 'reject');
+assert.deepEqual([dm.mailMarker('spf', null).text, dm.mailMarker('spf', null).mark], ['não verificado', '·']);
+assert.equal(dm.mailStatusLabel('not_found'), 'Não encontrado');
+assert.equal(dm.mailStatusLabel('nope'), '—');
+assert.deepEqual(dm.mailMessages({ errors: ['SPF_ALL_PLUS'], warnings: ['SPF_PTR'], notes: ['SPF_SOFTFAIL'] }).length, 3);
+assert.equal(dm.mailCodeLabel('UNKNOWN_CODE'), 'UNKNOWN_CODE', 'an unknown code is shown as is, never hidden');
+assert.deepEqual(dm.mailMessages(null), []);
+for (const code of ['SPF_MULTIPLE', 'SPF_TOO_MANY_LOOKUPS', 'DMARC_POLICY_NONE', 'DKIM_WILDCARD', 'DKIM_WEAK_KEY']) assert.notEqual(dm.mailCodeLabel(code), code, `${code} has a Portuguese message`);
+assert.equal(dm.fieldLabel('dmarc_policy'), 'Política DMARC');
+assert.equal(dm.changeValue('dmarc_status', 'warning'), 'Aviso');
+assert.equal(dm.changeValue('spf_record', 'v=spf1 -all'), 'v=spf1 -all');
+// selector and server lists
+assert.deepEqual(dm.parseSelectorList('Default, google\nGOOGLE;k1'), ['default', 'google', 'k1']);
+assert.equal(dm.selectorProblems(['default', 'k1'], 20), '');
+assert.match(dm.selectorProblems(['ok', 'bad$name'], 20), /Seletor inválido: "bad\$name"/);
+assert.match(dm.selectorProblems(Array.from({ length: 21 }, (_, i) => `s${i}x`), 20), /no máximo 20/);
+assert.equal(dm.isValidSelector('a'), true);
+assert.equal(dm.isValidSelector('-a'), false);
+assert.equal(dm.isValidSelector('a'.repeat(63)), true);
+assert.equal(dm.isValidSelector('a'.repeat(64)), false);
+for (const bad of ['a..b', 'a.', '.a', 'a b', '', `${'a'.repeat(50)}.${'b'.repeat(50)}`]) assert.equal(dm.isValidSelector(bad), false, bad);
+for (const good of ['s1.2024', 'a_b', 'k-1']) assert.equal(dm.isValidSelector(good), true, good);
+assert.deepEqual(dm.parseServerList('10.0.0.9, 1.1.1.1\n10.0.0.9'), ['10.0.0.9', '1.1.1.1']);
+assert.equal(dm.serverProblems(['10.0.0.9', '2606:4700:4700::1111']), '');
+for (const bad of ['dns.google', '1.1.1.1:53', '999.1.1.1', 'a:b:z']) assert.match(dm.serverProblems([bad]), /Endereço IP inválido/, bad);
+assert.match(dm.serverProblems(['1.1.1.1', '2.2.2.2', '3.3.3.3', '4.4.4.4', '5.5.5.5']), /no máximo 4/);
+assert.equal(dm.DKIM_SELECTOR_LIMIT, 60);
+assert.equal(dm.DOMAIN_SELECTOR_LIMIT, 20);
+
 // Wiring: route, menu entry (module-gated) and the module card link exist.
 assert.match(read('src/App.jsx'), /path="\/domains" element=\{<DomainManager \/>\}/);
 assert.match(read('src/layouts/DashboardLayout.jsx'), /modules\.domain_manager === true/);
 assert.match(read('src/components/ModulesCard.jsx'), /domain_manager: \{ href: '\/domains'/);
 assert.match(read('src/pages/DomainManager.jsx'), /SearchAlert/);
+assert.match(read('src/pages/DomainManager.jsx'), /<Settings2 className="h-5 w-5"/, 'the settings card opens from an icon in the header');
+assert.match(read('src/pages/DomainManager.jsx'), /data-mail-cell/, 'the list shows the e-mail markers');
 assert.match(read('src/pages/DomainManager.jsx'), /const isAdmin = data\.role === 'super_admin'/, 'administration controls depend on the role the server reports');
 assert.match(read('src/pages/TeamList.jsx'), /DomainManagerUserAccess/, 'the user dialog has the Domain Manager tab');
 assert.match(read('src/pages/DomainManager.jsx'), /<Settings className="h-5 w-5"/, 'the per-domain gear is the lucide Settings icon');

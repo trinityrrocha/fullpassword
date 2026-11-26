@@ -42,7 +42,9 @@ const BACKUP_TABLES = Object.freeze([
   'dm_alert_settings',
   'dm_notifications_sent',
   'dm_user_access',
-  'dm_user_domains'
+  'dm_user_domains',
+  'dm_mail_checks',
+  'dm_mail_domain_settings'
 ]);
 
 // Tables added after the first backup format shipped. A backup made before them has no entry for them: restoring it
@@ -66,7 +68,9 @@ const OPTIONAL_BACKUP_TABLES = Object.freeze(new Set([
   'dm_alert_settings',
   'dm_notifications_sent',
   'dm_user_access',
-  'dm_user_domains'
+  'dm_user_domains',
+  'dm_mail_checks',
+  'dm_mail_domain_settings'
 ]));
 
 module.exports = { BACKUP_TABLES, OPTIONAL_BACKUP_TABLES };

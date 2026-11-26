@@ -30,6 +30,8 @@ router.put('/access/:userId', uuidParam('userId'), guard('domain_manager_access'
 router.delete('/access/:userId', uuidParam('userId'), guard('domain_manager_access', 'userId'), controller.revokeAccess);
 router.get('/domains/:id/alerts', controller.getAlerts);
 router.put('/domains/:id/alerts', controller.saveAlerts);
+router.get('/domains/:id/mail-settings', controller.getMailSettings);
+router.put('/domains/:id/mail-settings', controller.saveMailSettings);
 router.get('/settings', controller.getSettings);
 router.put('/settings', controller.saveSettings);
 

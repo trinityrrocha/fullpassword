@@ -28,6 +28,21 @@ Lista de domínios com vencimento, servidores DNS, DNSSEC e certificado SSL, con
 - Conceder ou revogar exige **reautenticação** ligada ao usuário-alvo (propósito `domain_manager_access:<id>`), como no SPFBL, e é auditado (`domain_manager_access_saved` e `domain_manager_access_revoked`, com o alvo e a quantidade de domínios). Salvar sem mexer na aba não pede reautenticação.
 - Migration `37_domain_manager_user_access.sql` (`dm_user_access`, `dm_user_domains`). Rotas: `GET /domains`, `GET /domains/:id` e `POST /domains/:id/check` aceitam também contas liberadas; `GET /access`, `GET /access/domains`, `PUT|DELETE /access/:userId` são do Super Admin.
 
+## Autenticação de e-mail: SPF, DKIM e DMARC (fase 5a)
+Verificação **somente por DNS**, feita pelo próprio servidor: nenhum dado sai para serviço externo e não há cota nem custo.
+- **Na lista**: três marcadores por linha, com símbolo e texto (nunca só cor): `SPF ✓ -all`, `DKIM ✓ 2 seletores`, `DMARC ⚠ p=none`. Os estados são válido, aviso, falha, ausente, **não encontrado** (só DKIM) e **inconclusivo**. O detalhe do domínio mostra o registro, a política, as consultas DNS do SPF (x de 10), os IPs autorizados, os relatórios do DMARC, as chaves DKIM (tipo e tamanho) e as mensagens.
+- **Regras**: SPF ausente ou sem registro; mais de um registro, erro de sintaxe, `+all`, mais de 10 consultas DNS, laço entre includes ou include sem SPF são **falha**; `?all`, ausência de `all`, `ptr` e muitas consultas sem resposta são **aviso**; `~all` é aceito (com nota) e `-all` é o mais rígido. DMARC `p=none`, sem `rua=`, `pct` abaixo de 100 e `sp=none` são aviso; mais de um registro ou política inválida é falha. No DKIM, uma chave de 2048 bits ou Ed25519 basta para ficar válido; só chaves de 1024 bits é aviso.
+- **O limite do DKIM**: o DNS não lista os seletores de um domínio. O sistema procura os da lista padrão (ajustável nas configurações) mais os cadastrados na configuração do domínio. "Não encontrado" significa apenas "não está entre os testados", nunca "não usa DKIM". Se o domínio responde a qualquer seletor (curinga), isso é detectado e nada é listado.
+- **O DMARC de subdomínios** não herda do domínio principal nesta fase: um nome sem registro mostra "Nenhum registro DMARC neste nome".
+- **DNS inconclusivo nunca vira "ausente"**: falha do resolvedor, tempo esgotado ou recusa mantêm o último dado conhecido, não geram linha em "Mudanças detectadas" e a verificação é repetida em 6 horas. Só uma resposta clara do DNS ("não existe") conta como ausência.
+- **Limites de segurança**: cada domínio tem um orçamento de consultas (60) e de tempo (25 s), porque os `include:` de um SPF são controlados por terceiros. Nomes com macros do SPF são contados, mas nunca consultados.
+- **Agenda própria**: padrão de 7 dias (1 a 30), em coluna separada da consulta RDAP. Um Registro.br limitando as respostas **não** atrasa as verificações de DNS nem os alertas.
+- **Configurações**: o ícone no cabeçalho da página abre o card de configurações do Domain Manager (intervalos, verificação de e-mail ligada ou desligada, lista de seletores DKIM e servidores DNS opcionais, até 4 endereços IP; vazio usa o DNS do sistema). A engrenagem de cada domínio ganhou a verificação ligada ou desligada daquele domínio e os seletores extras.
+- **Mudanças detectadas**: mudança de estado do SPF, DKIM ou DMARC, da política DMARC e do texto do registro SPF. Alertas por e-mail para essas mudanças ainda não existem.
+- **Acesso**: administradores veem e configuram tudo. Contas liberadas (fase 3) veem os resultados dos seus domínios, somente leitura, e não veem seletores nem configurações.
+- Migration `38_domain_manager_mail_auth.sql`: colunas novas em `dm_settings` e `dm_domains`, tabelas `dm_mail_checks` e `dm_mail_domain_settings` (no backup, como opcionais) e o rol de campos de `dm_changes` ampliado.
+- Rotas novas: `GET|PUT /api/domain-manager/domains/:id/mail-settings` (Super Admin). `GET|PUT /settings` agora recebe e devolve todos os campos.
+
 ## Como a consulta funciona
 - **RDAP** (RFC 9083). O servidor de cada extensão vem da tabela pública da IANA (`data.iana.org/rdap/dns.json`, renovada a cada 24 h); `.br` usa `rdap.registro.br`. O endereço do registro nunca vem do usuário.
 - **Extensões sem RDAP** na tabela (por exemplo `.io`, `.co`, `.de`) aparecem como "Extensão sem consulta RDAP"; a data de vencimento delas depende da fase de API de apoio.
@@ -41,7 +56,7 @@ Lista de domínios com vencimento, servidores DNS, DNSSEC e certificado SSL, con
 A fila vive no banco: o turno de cada domínio é reservado com um `UPDATE` condicional (`SKIP LOCKED`), então reinício do backend ou uma segunda instância não duplicam consultas, e um turno reservado que não terminou volta à fila em 30 minutos. Não usa lock consultivo.
 
 ## Dados
-Tabelas `dm_settings`, `dm_domains`, `dm_snapshots` (último resultado), `dm_changes` (mudanças), `dm_alert_settings`, `dm_notifications_sent`, `dm_user_access` e `dm_user_domains`. Migrations `35_domain_manager.sql`, `36_domain_manager_alerts.sql` e `37_domain_manager_user_access.sql`, aditivas; entram no backup como opcionais.
+Tabelas `dm_settings`, `dm_domains`, `dm_snapshots` (último resultado), `dm_changes` (mudanças), `dm_alert_settings`, `dm_notifications_sent`, `dm_user_access`, `dm_user_domains`, `dm_mail_checks` e `dm_mail_domain_settings`. Migrations `35_domain_manager.sql` a `38_domain_manager_mail_auth.sql`, aditivas; entram no backup como opcionais.
 
 ## API (`/api/domain-manager`, Super Admin, módulo ativo)
 `GET /domains`, `POST /domains`, `POST /domains/import`, `GET /domains/:id`, `DELETE /domains/:id` (só os manuais), `POST /domains/:id/check`, `GET|PUT /settings`.

@@ -33,11 +33,20 @@ const vite = await createServer({ root, server: { host: '127.0.0.1', port: 0 }, 
 
 const uid = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const snap = (extra = {}) => ({ checked_at: '2026-11-26T15:00:00Z', lookup_status: 'ok', error_code: null, registrar: 'Registrador Exemplo', expires_on: '2027-02-10', days_left: 76, registered_on: '2020-02-10', rdap_statuses: ['active'], nameservers: ['ns1.exemplo.net', 'ns2.exemplo.net'], dnssec: true, ssl: { state: 'valid', not_after: '2027-01-10T00:00:00Z', issuer: 'CA Exemplo', protocol: 'TLSv1.3', error: null }, ...extra });
+const MAIL_FULL = {
+  checked_at: '2026-11-26T15:00:00Z', name_exists: true,
+  spf: { status: 'ok', record: 'v=spf1 -all', all: '-all', lookups: 0, void_lookups: 0, ip_count: 0, includes: [], errors: [], warnings: [], notes: [], as_of: '2026-11-26T15:00:00Z' },
+  dmarc: { status: 'warning', record: 'v=DMARC1; p=none; rua=mailto:r@exemplo.com.br', policy: 'none', subdomain_policy: null, pct: 100, rua: ['r@exemplo.com.br'], ruf: [], adkim: 'r', aspf: 's', errors: [], warnings: ['DMARC_POLICY_NONE'], as_of: '2026-11-26T15:00:00Z' },
+  dkim: { status: 'not_found', wildcard: false, tested: 15, found: [], warnings: [], notes: [], unreachable: 0, as_of: '2026-11-26T15:00:00Z' }
+};
+const MAIL_SUMMARY = { checked_at: '2026-11-26T15:00:00Z', name_exists: true, spf: { status: 'ok', all: '-all' }, dmarc: { status: 'warning', policy: 'none' }, dkim: { status: 'not_found', found: 0 } };
+const MAIL_BAD = { checked_at: '2026-11-26T15:00:00Z', name_exists: true, spf: { status: 'fail', all: '+all' }, dmarc: { status: 'absent', policy: null }, dkim: { status: 'ok', found: 2 } };
+const DEFAULT_SELECTORS = ['default', 'google', 'selector1', 'selector2', 'k1'];
 const state = {
-  calls: [], interval: 7, rateLimited: false, alerts: {}, role: 'super_admin', userIds: [],
+  calls: [], interval: 7, mailOn: true, mailDays: 7, selectors: [...DEFAULT_SELECTORS], servers: [], domainMail: {}, failMailSave: false, rateLimited: false, alerts: {}, role: 'super_admin', userIds: [],
   domains: [
-    { id: uid(1), name: 'exemplo.com.br', source: 'manual', active: true, snapshot: snap() },
-    { id: uid(2), name: 'vencido.com', source: 'spfbl', active: true, snapshot: snap({ expires_on: '2026-11-20', days_left: -6, ssl: { state: 'expired', not_after: null, issuer: null, protocol: null, error: null } }) },
+    { id: uid(1), name: 'exemplo.com.br', source: 'manual', active: true, snapshot: snap(), mail: MAIL_SUMMARY },
+    { id: uid(2), name: 'vencido.com', source: 'spfbl', active: true, snapshot: snap({ expires_on: '2026-11-20', days_left: -6, ssl: { state: 'expired', not_after: null, issuer: null, protocol: null, error: null } }), mail: MAIL_BAD },
     { id: uid(3), name: 'novo.org', source: 'manual', active: true, snapshot: null },
     ...Array.from({ length: 30 }, (_, i) => ({ id: uid(100 + i), name: `extra${String(i).padStart(2, '0')}.com`, source: 'manual', active: true, snapshot: null }))
   ]
@@ -68,7 +77,7 @@ try {
       const all = state.domains.filter((d) => d.name.includes(term) && (state.role === 'super_admin' || state.userIds.includes(d.id)));
       const withAlerts = (d) => { const a = state.alerts[d.id]; return { ...d, alerts: a ? { enabled: a.enabled, notify_admins: a.notify_admins, emails: a.emails.length } : { enabled: false, notify_admins: false, emails: 0 } }; };
       if (state.role === 'user') return json({ domains: all.slice((pageNo - 1) * size, pageNo * size).map((d) => ({ ...d })), total: all.length, page: pageNo, size, role: 'user' });
-      return json({ domains: all.slice((pageNo - 1) * size, pageNo * size).map(withAlerts), total: all.length, page: pageNo, size, role: 'super_admin', settings: { check_interval_days: state.interval } });
+      return json({ domains: all.slice((pageNo - 1) * size, pageNo * size).map(withAlerts), total: all.length, page: pageNo, size, role: 'super_admin', settings: { check_interval_days: state.interval, mail_check_enabled: state.mailOn, mail_check_interval_days: state.mailDays, dkim_selectors: state.selectors, dns_servers: state.servers, default_dkim_selectors: DEFAULT_SELECTORS } });
     }
     if (api === '/domain-manager/domains' && method === 'POST') {
       const domain = { id: uid(500), name: body.name, source: 'manual', active: true, snapshot: null };
@@ -84,11 +93,19 @@ try {
       if (state.rateLimited) return json({ code: 'DM_COOLDOWN', error: 'Este domínio foi consultado agora há pouco. Aguarde alguns segundos.' }, 429);
       const id = api.split('/')[3]; const domain = state.domains.find((d) => d.id === id);
       domain.snapshot = snap({ expires_on: '2026-12-09', days_left: 13 });
-      return json({ domain, changes: [{ field: 'expires_on', old_value: '2026-12-01', new_value: '2026-12-09', detected_at: '2026-11-26T15:00:00Z' }] });
+      return json({ domain, changes: [{ field: 'expires_on', old_value: '2026-12-01', new_value: '2026-12-09', detected_at: '2026-11-26T15:00:00Z' }, { field: 'dmarc_policy', old_value: 'reject', new_value: 'none', detected_at: '2026-11-25T15:00:00Z' }], mail: domain.mail ? MAIL_FULL : null });
     }
     if (/^\/domain-manager\/domains\/[^/]+$/.test(api) && method === 'DELETE') { const id = api.split('/')[3]; state.domains = state.domains.filter((d) => d.id !== id); return json({ ok: true }); }
-    if (/^\/domain-manager\/domains\/[^/]+$/.test(api)) { const domain = state.domains.find((d) => d.id === api.split('/')[3]); return json({ domain, changes: [] }); }
-    if (api === '/domain-manager/settings' && method === 'PUT') { state.interval = body.check_interval_days; return json({ check_interval_days: state.interval }); }
+    if (/^\/domain-manager\/domains\/[^/]+$/.test(api)) { const domain = state.domains.find((d) => d.id === api.split('/')[3]); return json({ domain, changes: domain.mail ? [{ field: 'dmarc_policy', old_value: 'reject', new_value: 'none', detected_at: '2026-11-25T15:00:00Z' }] : [], mail: domain.mail ? MAIL_FULL : null }); }
+    if (api === '/domain-manager/settings' && method === 'PUT') {
+      state.interval = body.check_interval_days; state.mailOn = body.mail_check_enabled; state.mailDays = body.mail_check_interval_days; state.selectors = body.dkim_selectors; state.servers = body.dns_servers;
+      return json({ check_interval_days: state.interval });
+    }
+    if (/^\/domain-manager\/domains\/[^/]+\/mail-settings$/.test(api)) {
+      const id = api.split('/')[3];
+      if (method === 'PUT') { if (state.failMailSave) return json({ error: 'Falha simulada' }, 500); state.domainMail[id] = { enabled: body.enabled, extra_selectors: body.extra_selectors }; return json(state.domainMail[id]); }
+      return json(state.domainMail[id] || { enabled: true, extra_selectors: [] });
+    }
     return json({ error: `unexpected ${method} ${api}` }, 404);
   });
 
@@ -158,8 +175,8 @@ try {
   await page.waitForFunction(() => ![...document.querySelectorAll('[aria-label="Domínios"] > li')].some((li) => li.innerText.includes('exemplo.com.br')));
 
   // Alerts (gear): switch, several e-mails, the administrators checkbox; saving needs a recipient.
-  await page.getByRole('button', { name: 'Alertas de novo.org' }).click();
-  const alertsDialog = page.getByRole('dialog', { name: 'Alertas — novo.org' });
+  await page.getByRole('button', { name: 'Configurações de novo.org' }).click();
+  const alertsDialog = page.getByRole('dialog', { name: 'Configurações — novo.org' });
   await alertsDialog.waitFor();
   const alertsSwitch = alertsDialog.getByRole('switch', { name: 'Alertas de vencimento' });
   await alertsSwitch.waitFor();
@@ -182,7 +199,7 @@ try {
   assert.deepEqual(putAlerts.body, { enabled: true, notify_admins: true, emails: ['ti@empresa.com', 'outro@empresa.com'] });
   await rows.filter({ hasText: 'novo.org' }).getByText('Alertas ativos (2 e-mails + administradores)').waitFor();
   // Reopen: the saved values come back; removing every recipient blocks saving; switching off clears the row indicator.
-  await page.getByRole('button', { name: 'Alertas de novo.org' }).click();
+  await page.getByRole('button', { name: 'Configurações de novo.org' }).click();
   await alertsDialog.getByRole('list', { name: 'E-mails adicionados' }).waitFor();
   assert.equal(await alertsDialog.getByRole('list', { name: 'E-mails adicionados' }).getByRole('listitem').count(), 2);
   await alertsDialog.getByRole('button', { name: 'Remover ti@empresa.com' }).click();
@@ -195,8 +212,8 @@ try {
   await page.waitForFunction(() => ![...document.querySelectorAll('[aria-label="Domínios"] > li')].some((li) => li.innerText.includes('Alertas ativos')));
 
   // An address typed but not added is kept when saving; an invalid one blocks saving and says why.
-  await page.getByRole('button', { name: 'Alertas de extra00.com' }).click();
-  const pendingDialog = page.getByRole('dialog', { name: 'Alertas — extra00.com' });
+  await page.getByRole('button', { name: 'Configurações de extra00.com' }).click();
+  const pendingDialog = page.getByRole('dialog', { name: 'Configurações — extra00.com' });
   await pendingDialog.getByRole('switch', { name: 'Alertas de vencimento' }).click();
   const pendingField = pendingDialog.getByLabel('E-mails para notificação');
   await pendingField.fill('digitado@empresa.com');
@@ -204,20 +221,111 @@ try {
   await pendingDialog.getByRole('button', { name: 'Salvar' }).click();
   await pendingDialog.waitFor({ state: 'detached' });
   assert.deepEqual(state.calls.filter((c) => c.method === 'PUT' && c.api.endsWith('/alerts')).at(-1).body.emails, ['digitado@empresa.com']);
-  await page.getByRole('button', { name: 'Alertas de extra01.com' }).click();
-  const badDialog = page.getByRole('dialog', { name: 'Alertas — extra01.com' });
+  await page.getByRole('button', { name: 'Configurações de extra01.com' }).click();
+  const badDialog = page.getByRole('dialog', { name: 'Configurações — extra01.com' });
   await badDialog.getByRole('switch', { name: 'Alertas de vencimento' }).click();
   await badDialog.getByLabel('E-mails para notificação').fill('nao-e-email');
   await badDialog.getByRole('button', { name: 'Salvar' }).click();
   assert.match(await badDialog.getByRole('alert').first().innerText(), /e-mail válido/);
-  assert.equal(await page.getByRole('dialog', { name: 'Alertas — extra01.com' }).count(), 1, 'the dialog stays open');
+  assert.equal(await page.getByRole('dialog', { name: 'Configurações — extra01.com' }).count(), 1, 'the dialog stays open');
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: 'Descartar', exact: true }).click();
   await badDialog.waitFor({ state: 'detached' });
 
+  // E-mail checks: compact markers in the list (glyph AND words), full results in the details.
+  const mailRow = (name) => page.getByRole('list', { name: 'Domínios' }).getByRole('listitem').filter({ hasText: name }).locator('[data-mail-cell]');
+  const good = await mailRow('vencido.com').innerText();
+  assert.match(good, /Falha/, 'the spoken status is part of the marker');
+  assert.match(good, /SPF[\s\S]*\+all/); assert.match(good, /DMARC[\s\S]*ausente/); assert.match(good, /DKIM[\s\S]*2 seletores/);
+  assert.equal(await mailRow('vencido.com').locator('span[title^="SPF"]').getAttribute('title'), 'SPF: Falha (+all)');
+  assert.match(await mailRow('novo.org').innerText(), /SPF[\s\S]*não verificado/);
+  await page.getByRole('button', { name: 'vencido.com', exact: true }).click();
+  const mailDialog = page.getByRole('dialog', { name: 'vencido.com' });
+  await mailDialog.getByRole('heading', { name: /E-mail \(SPF, DKIM e DMARC\)/ }).waitFor();
+  const mailText = await mailDialog.innerText();
+  assert.match(mailText, /v=spf1 -all/); assert.match(mailText, /0 de 10/); assert.match(mailText, /p=none só monitora/);
+  assert.match(mailText, /Nenhum entre os seletores testados/); assert.match(mailText, /não prova que o domínio não usa DKIM/);
+  assert.match(mailText, /Política DMARC[\s\S]*reject → none/, 'a DMARC change is listed with readable values');
+  assert.match(mailText, /DKIM rígido|SPF rígido/, 'alignment is spelled out');
+  await page.keyboard.press('Escape');
+
+  // The settings card (icon in the header): e-mail parameters, validated before saving.
+  await page.getByRole('button', { name: 'Configurações do Domain Manager' }).click();
+  const settingsDialog = page.getByRole('dialog', { name: 'Configurações do Domain Manager' });
+  await settingsDialog.waitFor();
+  const mailSwitch = settingsDialog.getByRole('switch', { name: /Autenticação de e-mail/ });
+  assert.equal(await mailSwitch.getAttribute('aria-checked'), 'true');
+  await mailSwitch.click();
+  assert.equal(await settingsDialog.getByLabel(/Seletores DKIM testados/).count(), 0, 'e-mail fields hide when the check is off');
+  await mailSwitch.click();
+  await settingsDialog.getByLabel(/Seletores DKIM testados/).fill('Default\nmeu$sel');
+  await settingsDialog.getByRole('button', { name: 'Salvar' }).click();
+  assert.match(await settingsDialog.getByRole('alert').innerText(), /Seletor inválido: "meu\$sel"/);
+  await settingsDialog.getByLabel(/Seletores DKIM testados/).fill('Default\nmarketing\ndefault');
+  await settingsDialog.getByRole('textbox', { name: /Servidores DNS/ }).fill('dns.google');
+  await settingsDialog.getByRole('button', { name: 'Salvar' }).click();
+  assert.match(await settingsDialog.getByRole('alert').innerText(), /Endereço IP inválido: "dns\.google"/);
+  await settingsDialog.getByRole('textbox', { name: /Servidores DNS/ }).fill('10.0.0.9\n1.1.1.1');
+  await settingsDialog.getByLabel(/Intervalo entre verificações/).fill('0');
+  await settingsDialog.getByRole('button', { name: 'Salvar' }).click();
+  assert.match(await settingsDialog.getByRole('alert').innerText(), /verificação de e-mail de 1 a 30 dias/);
+  await settingsDialog.getByLabel(/Intervalo entre verificações/).fill('3');
+  await settingsDialog.getByRole('button', { name: 'Restaurar a lista padrão' }).click();
+  assert.equal(await settingsDialog.getByLabel(/Seletores DKIM testados/).inputValue(), DEFAULT_SELECTORS.join('\n'));
+  await settingsDialog.getByLabel(/Seletores DKIM testados/).fill('Default\nmarketing\ndefault');
+  await settingsDialog.getByRole('button', { name: 'Salvar' }).click();
+  await settingsDialog.waitFor({ state: 'detached' });
+  assert.deepEqual([state.mailOn, state.mailDays, state.selectors, state.servers], [true, 3, ['default', 'marketing'], ['10.0.0.9', '1.1.1.1']], 'selectors are lower-cased and de-duplicated, servers kept');
+
+  // Turning the e-mail check off is never blocked by a draft in a field you cannot see; the saved values are kept.
+  await page.getByRole('button', { name: 'Configurações do Domain Manager' }).click();
+  const offDialog = page.getByRole('dialog', { name: 'Configurações do Domain Manager' });
+  await offDialog.getByLabel(/Seletores DKIM testados/).fill('lixo$');
+  await offDialog.getByRole('switch', { name: /Autenticação de e-mail/ }).click();
+  assert.equal(await offDialog.getByRole('textbox', { name: /Servidores DNS/ }).count(), 1, 'the DNS servers stay visible: they serve every DNS check');
+  await offDialog.getByRole('button', { name: 'Salvar' }).click();
+  await offDialog.waitFor({ state: 'detached' });
+  assert.deepEqual([state.mailOn, state.selectors, state.mailDays], [false, ['default', 'marketing'], 3], 'hidden, invalid drafts are neither blocking nor saved');
+  await page.getByRole('button', { name: 'Configurações do Domain Manager' }).click();
+  await offDialog.getByRole('switch', { name: /Autenticação de e-mail/ }).click();
+  await offDialog.getByLabel(/Seletores DKIM testados/).fill('');
+  await offDialog.getByRole('button', { name: 'Salvar' }).click();
+  assert.match(await offDialog.getByRole('alert').innerText(), /ao menos um seletor/);
+  await offDialog.getByLabel(/Seletores DKIM testados/).fill('default');
+  await offDialog.getByRole('button', { name: 'Salvar' }).click();
+  await offDialog.waitFor({ state: 'detached' });
+  assert.deepEqual([state.mailOn, state.selectors], [true, ['default']]);
+
+  // Per-domain card: e-mail check switch and extra selectors next to the alerts; a failed e-mail save is named.
+  await page.getByRole('button', { name: 'Configurações de novo.org' }).click();
+  const domainCard = page.getByRole('dialog', { name: 'Configurações — novo.org' });
+  await domainCard.getByRole('switch', { name: /Verificar SPF, DKIM e DMARC deste domínio/ }).waitFor();
+  assert.equal(await domainCard.getByRole('switch', { name: /Verificar SPF, DKIM e DMARC deste domínio/ }).getAttribute('aria-checked'), 'true');
+  await domainCard.getByLabel(/Seletores DKIM extras/).fill('Marketing\nloja');
+  await domainCard.getByRole('button', { name: 'Salvar' }).click();
+  await domainCard.waitFor({ state: 'detached' });
+  assert.deepEqual(state.domainMail[uid(3)], { enabled: true, extra_selectors: ['marketing', 'loja'] });
+  await page.getByRole('button', { name: 'Configurações de novo.org' }).click();
+  assert.equal(await domainCard.getByLabel(/Seletores DKIM extras/).inputValue(), 'marketing\nloja', 'the saved selectors come back');
+  state.failMailSave = true;
+  await domainCard.getByLabel(/Seletores DKIM extras/).fill('outro');
+  const listCallsBefore = state.calls.filter((c) => c.method === 'GET' && c.api === '/domain-manager/domains').length;
+  await domainCard.getByRole('button', { name: 'Salvar' }).click();
+  assert.match(await domainCard.getByRole('alert').first().innerText(), /alertas foram salvos, mas a verificação de e-mail NÃO foi/);
+  await page.waitForFunction((before) => true, listCallsBefore);
+  assert.ok(state.calls.filter((c) => c.method === 'GET' && c.api === '/domain-manager/domains').length > listCallsBefore, 'the list is refreshed even when only the first half was saved');
+  state.failMailSave = false;
+  await domainCard.getByLabel(/Seletores DKIM extras/).fill('bad$name');
+  await domainCard.getByRole('button', { name: 'Salvar' }).click();
+  assert.match(await domainCard.getByRole('alert').first().innerText(), /Seletor inválido: "bad\$name"/);
+  await domainCard.getByRole('switch', { name: /Verificar SPF, DKIM e DMARC deste domínio/ }).click();
+  await domainCard.getByRole('button', { name: 'Salvar' }).click();
+  await domainCard.waitFor({ state: 'detached' });
+  assert.deepEqual(state.domainMail[uid(3)], { enabled: false, extra_selectors: ['marketing', 'loja'] }, 'with the check off the invalid draft is ignored and the saved selectors stay');
+
   // Interval setting.
-  await page.getByRole('button', { name: 'Consultas automáticas' }).click();
-  await page.getByLabel(/Intervalo entre consultas/).fill('14');
+  await page.getByRole('button', { name: 'Configurações do Domain Manager' }).click();
+  await page.getByLabel(/Intervalo entre consultas \(dias\)/).fill('14');
   await page.getByRole('button', { name: 'Salvar' }).click();
   await page.getByRole('dialog').waitFor({ state: 'detached' });
   assert.equal(state.interval, 14);
@@ -229,10 +337,11 @@ try {
   await userRows.first().waitFor();
   assert.equal(await userRows.count(), 2, 'only the granted domains');
   assert.match(await page.getByText(/acesso somente leitura aos domínios liberados/).innerText(), /pode ver os detalhes e consultar/);
-  for (const name of ['Adicionar domínios', 'Consultas automáticas']) assert.equal(await page.getByRole('button', { name }).count(), 0, `${name} is Super Admin only`);
-  assert.equal(await page.getByRole('button', { name: /^Alertas de / }).count(), 0, 'no alert gear for an ordinary account');
+  for (const name of ['Adicionar domínios', 'Configurações do Domain Manager']) assert.equal(await page.getByRole('button', { name }).count(), 0, `${name} is Super Admin only`);
+  assert.equal(await page.getByRole('button', { name: /^Configurações de / }).count(), 0, 'no alert gear for an ordinary account');
   assert.equal(await page.getByRole('button', { name: /^Remover / }).count(), 0, 'no removal for an ordinary account');
   assert.equal(await page.getByText(/Alertas ativos/).count(), 0);
+  assert.match(await userRows.filter({ hasText: 'vencido.com' }).locator('[data-mail-cell]').innerText(), /SPF[\s\S]*DKIM[\s\S]*DMARC/, 'a granted account reads the e-mail results of its domains');
   await page.getByRole('button', { name: 'Consultar vencido.com agora' }).click();
   const userDialog = page.getByRole('dialog', { name: 'vencido.com' });
   await userDialog.waitFor();

@@ -2,6 +2,8 @@ const url = require('node:url');
 const db = require('../config/database');
 const { createRdapClient } = require('./domainManagerRdap');
 const sslProbe = require('./domainManagerSsl');
+const { createDnsClient, createBudget, normalizeServers } = require('./domainManagerDns');
+const { checkMailAuth, isValidSelector, MAX_SELECTORS, MAX_EXTRA_SELECTORS } = require('./domainManagerMailAuth');
 
 // Domain Manager core: the list of domains, the latest lookup result (RDAP + SSL) and the changes between lookups.
 class DomainError extends Error {
@@ -21,6 +23,8 @@ const DAY_MS = 86400000;
 const MANUAL_COOLDOWN_MS = 30000;
 const PAGE_SIZES = new Set([20, 40, 100]);
 const TZ = 'America/Sao_Paulo';
+const MAIL_RETRY_MS = 6 * 60 * 60 * 1000;
+const DEFAULT_DKIM_SELECTORS = Object.freeze(['default', 'google', 'selector1', 'selector2', 'k1', 'k2', 's1', 's2', 'mail', 'dkim', 'mandrill', 'mte1', 'ctct1', 'smtp', 'sig1']);
 
 const normalizeName = (input) => {
   if (typeof input !== 'string') return null;
@@ -52,6 +56,11 @@ const toRow = (row) => {
     id: row.id, name: row.name, source: row.source, active: row.active,
     last_checked_at: row.last_checked_at || null, next_check_at: row.next_check_at || null,
     alerts: { enabled: row.alerts_enabled === true, notify_admins: row.alerts_admins === true, emails: Number(row.alerts_emails || 0) },
+    mail: row.mail_checked_at ? {
+      checked_at: row.mail_checked_at, name_exists: row.mail_name_exists !== false,
+      spf: { status: row.spf_status, all: row.spf_all || null }, dmarc: { status: row.dmarc_status, policy: row.dmarc_policy || null },
+      dkim: { status: row.dkim_status, found: Number(row.dkim_found || 0) }
+    } : null,
     snapshot: row.checked_at ? {
       checked_at: row.checked_at, lookup_status: row.lookup_status, error_code: row.error_code,
       registrar: row.registrar, expires_on: expiresOn, days_left: expiresOn ? daysBetween(today(), expiresOn) : null,
@@ -63,21 +72,71 @@ const toRow = (row) => {
 
 const SELECT_ROW = `SELECT d.id, d.name, d.source, d.active, d.last_checked_at, d.next_check_at, s.checked_at, s.lookup_status, s.error_code, s.registrar,
   s.expires_on, s.registered_on, s.rdap_statuses, s.nameservers, s.dnssec, s.ssl_state, s.ssl_not_after, s.ssl_issuer, s.ssl_protocol, s.ssl_error,
-  a.enabled AS alerts_enabled, a.notify_admins AS alerts_admins, jsonb_array_length(COALESCE(a.emails, '[]'::jsonb)) AS alerts_emails
-  FROM dm_domains d LEFT JOIN dm_snapshots s ON s.domain_id = d.id LEFT JOIN dm_alert_settings a ON a.domain_id = d.id`;
+  a.enabled AS alerts_enabled, a.notify_admins AS alerts_admins, jsonb_array_length(COALESCE(a.emails, '[]'::jsonb)) AS alerts_emails,
+  mc.checked_at AS mail_checked_at, mc.name_exists AS mail_name_exists, mc.spf_status, mc.dmarc_status, mc.dkim_status, mc.spf->>'all' AS spf_all,
+  mc.dmarc->>'policy' AS dmarc_policy, jsonb_array_length(COALESCE(mc.dkim->'found', '[]'::jsonb)) AS dkim_found
+  FROM dm_domains d LEFT JOIN dm_snapshots s ON s.domain_id = d.id LEFT JOIN dm_alert_settings a ON a.domain_id = d.id LEFT JOIN dm_mail_checks mc ON mc.domain_id = d.id`;
 
-const createService = ({ queryable = db, rdap = createRdapClient(), ssl = sslProbe, now = Date.now } = {}) => {
+const createService = ({ queryable = db, rdap = createRdapClient(), ssl = sslProbe, now = Date.now, mailAuth = checkMailAuth, dnsFactory = (servers) => createDnsClient({ servers }) } = {}) => {
   const running = new Set();
+  const mailRunning = new Set();
+  const dnsClients = new Map();
+  const dnsFor = (servers) => {
+    const key = servers.join(',');
+    if (!dnsClients.has(key)) dnsClients.set(key, dnsFactory(servers));
+    return dnsClients.get(key);
+  };
 
   const getSettings = async () => {
-    const row = (await queryable.query('SELECT check_interval_days FROM dm_settings WHERE id = 1')).rows[0];
-    return { check_interval_days: Number(row?.check_interval_days || 7) };
+    const row = (await queryable.query('SELECT check_interval_days, mail_check_enabled, mail_check_interval_days, dkim_selectors, dns_servers FROM dm_settings WHERE id = 1')).rows[0] || {};
+    return {
+      check_interval_days: Number(row.check_interval_days || 7),
+      mail_check_enabled: row.mail_check_enabled !== false,
+      mail_check_interval_days: Number(row.mail_check_interval_days || 7),
+      dkim_selectors: Array.isArray(row.dkim_selectors) ? row.dkim_selectors : [...DEFAULT_DKIM_SELECTORS],
+      dns_servers: Array.isArray(row.dns_servers) ? row.dns_servers : [],
+      default_dkim_selectors: [...DEFAULT_DKIM_SELECTORS]
+    };
   };
+  const validDays = (value) => Number.isInteger(value) && value >= 1 && value <= 30;
+  const normalizeSelectors = (input, max, min = 0) => {
+    if (!Array.isArray(input) || input.length > max) return null;
+    const list = [...new Set(input.map((item) => (typeof item === 'string' ? item.trim().toLowerCase() : '')))];
+    return list.length >= min && list.every(isValidSelector) ? list : null;
+  };
+  // A full replacement: the settings card always sends every field.
   const saveSettings = async (input) => {
-    const days = input?.check_interval_days;
-    if (!Number.isInteger(days) || days < 1 || days > 30) throw new DomainError('Informe o intervalo entre consultas de 1 a 30 dias.', 'DM_INTERVAL_INVALID', 422);
-    await queryable.query('UPDATE dm_settings SET check_interval_days = $1, updated_at = CURRENT_TIMESTAMP WHERE id = 1', [days]);
+    if (!validDays(input?.check_interval_days)) throw new DomainError('Informe o intervalo entre consultas de 1 a 30 dias.', 'DM_INTERVAL_INVALID', 422);
+    if (typeof input.mail_check_enabled !== 'boolean') throw new DomainError('Informe se a verificação de e-mail fica ligada.', 'DM_MAIL_INVALID', 422);
+    if (!validDays(input.mail_check_interval_days)) throw new DomainError('Informe o intervalo da verificação de e-mail de 1 a 30 dias.', 'DM_MAIL_INTERVAL_INVALID', 422);
+    const selectors = normalizeSelectors(input.dkim_selectors, MAX_SELECTORS, 1);
+    if (!selectors) throw new DomainError(`Informe de 1 a ${MAX_SELECTORS} seletores DKIM válidos (letras, números, ponto, hífen e sublinhado).`, 'DM_SELECTORS_INVALID', 422);
+    const servers = normalizeServers(input.dns_servers ?? []);
+    if (!servers) throw new DomainError('Informe até 4 endereços IP de servidores DNS, ou deixe em branco para usar o do sistema.', 'DM_DNS_SERVERS_INVALID', 422);
+    await queryable.query(
+      `UPDATE dm_settings SET check_interval_days = $1, mail_check_enabled = $2, mail_check_interval_days = $3, dkim_selectors = $4::text[], dns_servers = $5::text[], updated_at = CURRENT_TIMESTAMP WHERE id = 1`,
+      [input.check_interval_days, input.mail_check_enabled, input.mail_check_interval_days, selectors, servers]);
     return getSettings();
+  };
+
+  const getMailSettings = async (domainId) => {
+    const domain = (await queryable.query('SELECT id FROM dm_domains WHERE id = $1', [domainId])).rows[0];
+    if (!domain) throw new DomainError('Domínio não encontrado.', 'DM_NOT_FOUND', 404);
+    const row = (await queryable.query('SELECT enabled, extra_selectors FROM dm_mail_domain_settings WHERE domain_id = $1', [domainId])).rows[0];
+    return { enabled: row ? row.enabled : true, extra_selectors: row?.extra_selectors || [] };
+  };
+  const saveMailSettings = async (domainId, input, userId) => {
+    if (!input || typeof input.enabled !== 'boolean') throw new DomainError('Dados da verificação de e-mail inválidos.', 'DM_MAIL_INVALID', 422);
+    const selectors = normalizeSelectors(input.extra_selectors ?? [], MAX_EXTRA_SELECTORS);
+    if (!selectors) throw new DomainError(`Informe até ${MAX_EXTRA_SELECTORS} seletores DKIM válidos.`, 'DM_SELECTORS_INVALID', 422);
+    await getMailSettings(domainId);
+    await queryable.query(
+      `INSERT INTO dm_mail_domain_settings (domain_id, enabled, extra_selectors, updated_by) VALUES ($1, $2, $3::text[], $4)
+       ON CONFLICT (domain_id) DO UPDATE SET enabled = EXCLUDED.enabled, extra_selectors = EXCLUDED.extra_selectors, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP`,
+      [domainId, input.enabled, selectors, userId || null]);
+    // A new selector is worth looking for now, not in a week.
+    await queryable.query('UPDATE dm_domains SET next_mail_check_at = CURRENT_TIMESTAMP WHERE id = $1', [domainId]);
+    return getMailSettings(domainId);
   };
 
   // SPFBL's domains are listed automatically (names only); removing one from the SPFBL catalogue does not delete its lookup history.
@@ -126,7 +185,8 @@ const createService = ({ queryable = db, rdap = createRdapClient(), ssl = sslPro
     const domain = await getDomain(id);
     const changes = (await queryable.query(
       'SELECT field, old_value, new_value, detected_at FROM dm_changes WHERE domain_id = $1 ORDER BY detected_at DESC LIMIT 50', [id])).rows;
-    return { domain, changes };
+    const mailRow = (await queryable.query('SELECT checked_at, name_exists, spf, dmarc, dkim FROM dm_mail_checks WHERE domain_id = $1', [id])).rows[0];
+    return { domain, changes, mail: mailRow ? { checked_at: mailRow.checked_at, name_exists: mailRow.name_exists, spf: mailRow.spf, dmarc: mailRow.dmarc, dkim: mailRow.dkim } : null };
   };
 
   const SORTS = { name: 'd.name ASC', expiry: 's.expires_on ASC NULLS LAST, d.name ASC', checked: 's.checked_at DESC NULLS LAST, d.name ASC' };
@@ -198,19 +258,97 @@ const createService = ({ queryable = db, rdap = createRdapClient(), ssl = sslPro
       const { check_interval_days: interval } = await getSettings();
       const delay = nextCheckDelayMs({ lookupStatus: merged.lookup_status, errorCode: merged.error_code, expiresOn: merged.expires_on }, interval, now());
       await queryable.query('UPDATE dm_domains SET last_checked_at = $2, next_check_at = $3, updated_at = CURRENT_TIMESTAMP WHERE id = $1', [id, checkedAt, new Date(now() + delay)]);
-      return { ...(await getDomain(id)), changes: changes.length };
+      let mailChangesCount = 0;
+      // Only the lookup BUTTON refreshes the e-mail checks too. The scheduled registry round never does: the e-mail checks have their own
+      // interval, and a throttled registry retrying every hour must not turn into dozens of DNS queries per domain per hour.
+      if (manual) { try { mailChangesCount = (await checkMail(id))?.changes || 0; } catch { /* the registry result is already stored; the mail check retries on its schedule */ } }
+      return { ...(await getDomain(id)), changes: changes.length + mailChangesCount };
     } finally {
       running.delete(id);
+    }
+  };
+
+  // Domains whose mail check is due. Claimed with a conditional UPDATE (SKIP LOCKED), like the registry lookups, but on their own
+  // column: a throttled registry must never stall DNS checks.
+  const claimMailBatch = async (limit, claimMs = 30 * 60 * 1000) => {
+    const settings = await getSettings();
+    if (!settings.mail_check_enabled) return [];
+    return (await queryable.query(
+      `UPDATE dm_domains SET next_mail_check_at = $2 WHERE id IN (
+         SELECT d.id FROM dm_domains d LEFT JOIN dm_mail_domain_settings m ON m.domain_id = d.id
+          WHERE d.active AND COALESCE(m.enabled, TRUE) AND d.next_mail_check_at <= $1 ORDER BY d.next_mail_check_at LIMIT ${Number(limit) || 10} FOR UPDATE OF d SKIP LOCKED)
+       RETURNING id`, [new Date(now()), new Date(now() + claimMs)])).rows.map((row) => row.id);
+  };
+
+  const mailChanges = (previous, next) => {
+    if (!previous) return [];
+    const rows = [];
+    const settled = (status) => status && status !== 'inconclusive';
+    for (const [field, before, after] of [['spf_status', previous.spf_status, next.spf.status], ['dmarc_status', previous.dmarc_status, next.dmarc.status], ['dkim_status', previous.dkim_status, next.dkim.status]]) {
+      if (settled(before) && settled(after) && before !== after) rows.push({ field, old: before, next: after });
+    }
+    const beforePolicy = previous.dmarc?.policy ?? null;
+    if (settled(previous.dmarc_status) && settled(next.dmarc.status) && beforePolicy !== (next.dmarc.policy ?? null)) {
+      rows.push({ field: 'dmarc_policy', old: beforePolicy, next: next.dmarc.policy ?? null });
+    }
+    const beforeRecord = previous.spf?.record ?? null;
+    if (beforeRecord && next.spf.record && beforeRecord !== next.spf.record) rows.push({ field: 'spf_record', old: beforeRecord.slice(0, 500), next: next.spf.record.slice(0, 500) });
+    return rows;
+  };
+
+  // SPF, DKIM and DMARC of one name. A section whose DNS answer was INCONCLUSIVE keeps the last known data and writes no change row:
+  // a resolver hiccup must never look like "the domain lost its SPF".
+  const checkMail = async (id) => {
+    const domain = (await queryable.query('SELECT id, name FROM dm_domains WHERE id = $1', [id])).rows[0];
+    if (!domain) throw new DomainError('Domínio não encontrado.', 'DM_NOT_FOUND', 404);
+    const settings = await getSettings();
+    const own = await getMailSettings(id);
+    if (!settings.mail_check_enabled || !own.enabled) return null;
+    // One check of a domain at a time: two at once would read the same "previous" and record every change twice.
+    if (mailRunning.has(id)) return null;
+    mailRunning.add(id);
+    try {
+      const selectors = [...new Set([...settings.dkim_selectors, ...own.extra_selectors])];
+      const outcome = await mailAuth(domain.name, { dns: dnsFor(settings.dns_servers), selectors, budget: createBudget({ now }) });
+      const previous = (await queryable.query('SELECT * FROM dm_mail_checks WHERE domain_id = $1', [id])).rows[0];
+      const stamp = new Date(now()).toISOString();
+      // A section is "unsettled" when the DNS did not answer, or (DKIM) when some selectors did not answer and the verdict would differ
+      // from the last known one: a partial answer must never register as a change.
+      const unsettled = (section, key) => section.status === 'inconclusive'
+        || (key === 'dkim' && section.unreachable > 0 && previous?.dkim_status && previous.dkim_status !== section.status);
+      const settle = (section, key) => (unsettled(section, key) && previous?.[`${key}_status`] && previous[`${key}_status`] !== 'inconclusive'
+        ? { value: previous[key], status: previous[`${key}_status`], kept: true }
+        : { value: { ...section, as_of: stamp }, status: section.status, kept: false });
+      const spf = settle(outcome.spf, 'spf');
+      const dmarc = settle(outcome.dmarc, 'dmarc');
+      const dkim = settle(outcome.dkim, 'dkim');
+      const merged = { spf: spf.value, dmarc: dmarc.value, dkim: dkim.value };
+      await queryable.query(
+        `INSERT INTO dm_mail_checks (domain_id, checked_at, name_exists, spf_status, dmarc_status, dkim_status, spf, dmarc, dkim)
+         VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8::jsonb,$9::jsonb)
+         ON CONFLICT (domain_id) DO UPDATE SET checked_at = EXCLUDED.checked_at, name_exists = EXCLUDED.name_exists, spf_status = EXCLUDED.spf_status,
+           dmarc_status = EXCLUDED.dmarc_status, dkim_status = EXCLUDED.dkim_status, spf = EXCLUDED.spf, dmarc = EXCLUDED.dmarc, dkim = EXCLUDED.dkim`,
+        [id, new Date(now()), outcome.name_exists, spf.status, dmarc.status, dkim.status, JSON.stringify(merged.spf), JSON.stringify(merged.dmarc), JSON.stringify(merged.dkim)]);
+      const changes = mailChanges(previous, { spf: { ...merged.spf, status: spf.status }, dmarc: { ...merged.dmarc, status: dmarc.status }, dkim: { status: dkim.status } });
+      for (const change of changes) {
+        await queryable.query('INSERT INTO dm_changes (domain_id, field, old_value, new_value) VALUES ($1,$2,$3,$4)', [id, change.field, change.old, change.next]);
+      }
+      const anyUnsettled = [[outcome.spf, 'spf'], [outcome.dmarc, 'dmarc'], [outcome.dkim, 'dkim']].some(([section, key]) => unsettled(section, key));
+      const delay = anyUnsettled ? MAIL_RETRY_MS : settings.mail_check_interval_days * DAY_MS;
+      await queryable.query('UPDATE dm_domains SET next_mail_check_at = $2 WHERE id = $1', [id, new Date(now() + delay)]);
+      return { changes: changes.length };
+    } finally {
+      mailRunning.delete(id);
     }
   };
 
   // Names only, for the picker of the user dialog (Super Admin). Bounded: the grant itself is limited to 100 domains.
   const listNames = async () => (await queryable.query('SELECT id, name FROM dm_domains ORDER BY name LIMIT 5000')).rows;
 
-  return { listNames, getSettings, saveSettings, syncFromSpfbl, addDomain, importDomains, removeDomain, getDomain, detail, list, checkDomain };
+  return { listNames, getSettings, saveSettings, getMailSettings, saveMailSettings, claimMailBatch, checkMail, syncFromSpfbl, addDomain, importDomains, removeDomain, getDomain, detail, list, checkDomain };
 };
 
 let shared = null;
 const getService = () => { shared = shared || createService(); return shared; };
 
-module.exports = { DomainError, createService, getService, normalizeName, nextCheckDelayMs, daysBetween, today, UUID_PATTERN, MAX_IMPORT };
+module.exports = { DEFAULT_DKIM_SELECTORS, DomainError, createService, getService, normalizeName, nextCheckDelayMs, daysBetween, today, UUID_PATTERN, MAX_IMPORT };

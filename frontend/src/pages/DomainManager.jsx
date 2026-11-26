@@ -1,15 +1,16 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Bell, Globe, Plus, SearchAlert, Settings, SlidersHorizontal, Trash2 } from 'lucide-react';
+import { Bell, Globe, Plus, SearchAlert, Settings, Settings2, Trash2 } from 'lucide-react';
 import PaginationBar from '../components/PaginationBar';
 import { AddDomainDialog, AlertsDialog, DomainDetailDialog, SettingsDialog } from '../components/domainManager/DomainDialogs';
 import { checkDomain, listDomains, removeDomain } from '../services/domainManagerService';
 import { describeError, formatDateTime } from '../utils/spfbl';
-import { SOURCE_LABELS, TONE_CLASSES, alertsLabel, errorLabel, expiryInfo, lookupLabel, sslLabel } from '../utils/domainManager';
+import { SOURCE_LABELS, TONE_CLASSES, alertsLabel, mailMarker, errorLabel, expiryInfo, lookupLabel, sslLabel } from '../utils/domainManager';
 
 const primaryButton = 'inline-flex items-center rounded-md bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-60';
 const secondaryButton = 'inline-flex items-center rounded-md border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60';
 const iconButton = 'rounded-md p-2 text-slate-600 hover:bg-slate-100 hover:text-slate-900 disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600';
 const fieldClass = 'rounded-md border border-slate-300 bg-white px-2.5 py-2 text-sm outline-hidden focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200';
+const MAIL_TONES = Object.freeze({ ok: 'text-green-800', warning: 'text-amber-800', danger: 'text-red-800', muted: 'text-slate-600' });
 const SORTS = Object.freeze([['name', 'Nome'], ['expiry', 'Vencimento'], ['checked', 'Última consulta']]);
 
 export default function DomainManager() {
@@ -46,7 +47,7 @@ export default function DomainManager() {
     try {
       const result = await checkDomain(domain.id);
       reload();
-      setDialog({ kind: 'detail', domain: result.domain, changes: result.changes });
+      setDialog({ kind: 'detail', domain: result.domain, changes: result.changes, mail: result.mail });
     } catch (error) {
       setMessage({ type: 'error', text: describeError(error, 'Não foi possível consultar o domínio.') });
     } finally { setBusyId(null); }
@@ -75,7 +76,7 @@ export default function DomainManager() {
           <p className="mt-1 text-sm text-slate-600">Vencimento, DNS e certificado SSL dos domínios, consultados automaticamente por RDAP.</p>
         </div>
         {isAdmin && <div className="flex flex-wrap gap-2">
-          <button type="button" onClick={() => setDialog({ kind: 'settings' })} className={secondaryButton}><SlidersHorizontal className="mr-1.5 h-4 w-4" aria-hidden="true" />Consultas automáticas</button>
+          <button type="button" onClick={() => setDialog({ kind: 'settings' })} aria-label="Configurações do Domain Manager" title="Configurações do Domain Manager" className={`${secondaryButton} px-2.5`}><Settings2 className="h-5 w-5" aria-hidden="true" /></button>
           <button type="button" onClick={() => setDialog({ kind: 'add' })} className={primaryButton}><Plus className="mr-1.5 h-4 w-4" aria-hidden="true" />Adicionar domínios</button>
         </div>}
       </header>
@@ -116,9 +117,20 @@ export default function DomainManager() {
                 <span className={`font-medium ${TONE_CLASSES[expiry.tone]}`}>{expiry.text}</span>
                 {expiry.note && <span className={`ml-1 text-xs ${TONE_CLASSES[expiry.tone]}`}>{expiry.note}</span>}
               </div>
+              <div className="flex w-full flex-wrap gap-x-3 gap-y-0.5 text-xs md:w-auto" data-mail-cell>
+                <span className="sr-only">E-mail: </span>
+                {['spf', 'dkim', 'dmarc'].map((kind) => {
+                  const marker = mailMarker(kind, domain.mail);
+                  return (
+                    <span key={kind} title={marker.title} className={`inline-flex items-center gap-1 ${MAIL_TONES[marker.tone]}`}>
+                      <span className="font-medium">{marker.label}</span><span aria-hidden="true">{marker.mark}</span><span className="sr-only">{marker.status}, </span><span>{marker.text}</span>
+                    </span>
+                  );
+                })}
+              </div>
               <div className="w-24 text-sm text-slate-700"><span className="sr-only">Certificado SSL: </span>{sslLabel(domain.snapshot?.ssl?.state)}</div>
               <div className="flex items-center gap-1">
-                {isAdmin && <button type="button" onClick={() => setDialog({ kind: 'alerts', domain })} title="Alertas de vencimento" aria-label={`Alertas de ${domain.name}`} className={iconButton}><Settings className="h-5 w-5" aria-hidden="true" /></button>}
+                {isAdmin && <button type="button" onClick={() => setDialog({ kind: 'alerts', domain })} title="Configurações do domínio" aria-label={`Configurações de ${domain.name}`} className={iconButton}><Settings className="h-5 w-5" aria-hidden="true" /></button>}
                 <button type="button" disabled={busy} onClick={() => check(domain)} title="Consultar agora" aria-label={`Consultar ${domain.name} agora`} className={iconButton}><SearchAlert className="h-5 w-5" aria-hidden="true" /></button>
                 {isAdmin && domain.source === 'manual' && (confirmId === domain.id ? (
                   <span className="flex items-center gap-1 text-sm">
@@ -139,7 +151,7 @@ export default function DomainManager() {
       {dialog?.kind === 'add' && <AddDomainDialog onClose={() => setDialog(null)} onDone={reload} />}
       {dialog?.kind === 'settings' && <SettingsDialog settings={data.settings} onClose={() => setDialog(null)} onSaved={reload} />}
       {dialog?.kind === 'alerts' && <AlertsDialog domain={dialog.domain} onClose={() => setDialog(null)} onSaved={reload} />}
-      {dialog?.kind === 'detail' && <DomainDetailDialog domain={dialog.domain} changes={dialog.changes} onClose={() => setDialog(null)} />}
+      {dialog?.kind === 'detail' && <DomainDetailDialog domain={dialog.domain} changes={dialog.changes} mail={dialog.mail} onClose={() => setDialog(null)} />}
     </div>
   );
 }
