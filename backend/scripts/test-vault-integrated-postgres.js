@@ -115,7 +115,7 @@ async function run() {
       await leastPrivilege.query('SELECT crypto_identity FROM users LIMIT 0');
       const verifyRuntimeSchema=require('../src/config/verifyRuntimeSchema').verifyRuntimeSchema;
       await verifyRuntimeSchema(leastPrivilege);
-      for(const table of ['system_modules','spfbl_settings','spfbl_whm_servers','spfbl_domains','spfbl_user_access','spfbl_user_domains','spfbl_requests','spfbl_operations','spfbl_release_events']) {
+      for(const table of ['system_modules','spfbl_settings','spfbl_whm_servers','spfbl_domains','spfbl_user_access','spfbl_user_domains','spfbl_requests','spfbl_operations','spfbl_release_events','dm_settings','dm_domains','dm_snapshots','dm_changes']) {
         assert.equal((await leastPrivilege.query("SELECT has_table_privilege(current_user,$1,'SELECT,INSERT,UPDATE,DELETE') AS ok",[table])).rows[0].ok,true,'runtime role must read and write '+table);
         await leastPrivilege.query(`SELECT * FROM ${table} LIMIT 0`);
       }
@@ -366,7 +366,7 @@ async function run() {
       await denies(sa1.api.get('/spfbl/whm-servers'),404,'MODULE_DISABLED');
       await denies(directApi.get('/spfbl/overview'),404,'MODULE_DISABLED');
       assert.deepEqual((await sa1.api.get('/system/modules/menu')).data,{modules:{spfbl:false,domain_manager:false}});
-      assert.deepEqual((await sa1.api.get('/system/modules')).data.modules.map(m=>[m.key,m.enabled]),[['spfbl',false]]);
+      assert.deepEqual((await sa1.api.get('/system/modules')).data.modules.map(m=>[m.key,m.enabled]),[['spfbl',false],['domain_manager',false]]);
       await denies(ordinaryAdminApi.get('/system/modules'),403,'SUPER_ADMIN_REQUIRED');
       await denies(directApi.get('/system/modules'),403);
       await denies(ordinaryAdminApi.put('/system/modules/spfbl',{enabled:true}),403,'SUPER_ADMIN_REQUIRED');
