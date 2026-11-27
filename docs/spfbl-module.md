@@ -68,6 +68,13 @@ feita a partir de textos conhecidos: **não foi validada com falhas reais do ser
   simultâneas ao mesmo período compartilham uma só chamada). Quanto tempo para trás o servidor guarda esses registros depende dele (não
   consta na documentação do cPanel).
 - **Permissão do token**: o token do WHM precisa poder executar `emailtrack_search`; sem isso a tela mostra que o WHM recusou essa função.
+  **Atenção ao escopo do token**: um token com privilégios restritos é tratado pelo WHM como um revendedor e a função pode devolver só as contas
+  pertencentes àquele usuário (num servidor com revendedores, as contas dos outros revendedores ficam de fora). O mesmo pedido feito no
+  terminal como root devolve todas. Para ver todos os domínios, gere o token do root **sem restringir os privilégios** (WHM > Desenvolvimento >
+  Gerenciar tokens de API) e atualize-o no servidor WHM cadastrado. A linha de *Diagnóstico* mostra de quais domínios vieram os registros.
+- **Falha parcial**: as duas consultas são independentes; se uma falhar (por exemplo, tempo esgotado na das adiadas e com falha), o que a outra
+  trouxe continua aparecendo, com um aviso, e o diagnóstico mostra, por consulta, quantos registros vieram, em quantas partes, em quantos ms e o
+  código do erro.
 - Rota: `GET /api/spfbl/sent` (limitador de 60 por 15 minutos).
 
 **Histórico armazenado.** O Matrix devolve o histórico da conta inteira. Uma coleta em segundo plano (1 por vez) percorre as páginas,

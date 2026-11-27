@@ -219,27 +219,40 @@ class WhmClient {
     const filters = (field, extra = '') => `&api.filter.enable=1${extra}&api.filter.b.field=${field}&api.filter.b.arg0=${since}&api.filter.b.type=gt&api.filter.c.field=${field}&api.filter.c.arg0=${until}&api.filter.c.type=lt`;
     const sorted = (field) => `&api.sort.enable=1&api.sort.a.field=${field}&api.sort.a.method=numeric&api.sort.a.reverse=1`;
     const kinds = [
-      { query: `&success=1&defer=0&failure=0&inprogress=1&deliverytype=remote&max_results_by_type=0${filters('sendunixtime', domain ? `&api.filter.a.field=domain&api.filter.a.arg0=${domain}&api.filter.a.type=eq` : '')}${sorted('sendunixtime')}` },
-      { query: `&success=0&defer=1&failure=1&inprogress=0&deliverytype=all&max_results_by_type=0${filters('actionunixtime')}${sorted('actionunixtime')}` }
+      { name: 'delivered', query: `&success=1&defer=0&failure=0&inprogress=1&deliverytype=remote&max_results_by_type=0${filters('sendunixtime', domain ? `&api.filter.a.field=domain&api.filter.a.arg0=${domain}&api.filter.a.type=eq` : '')}${sorted('sendunixtime')}` },
+      { name: 'problems', query: `&success=0&defer=1&failure=1&inprogress=0&deliverytype=all&max_results_by_type=0${filters('actionunixtime')}${sorted('actionunixtime')}` }
     ];
     const started = this.now();
     const records = [];
+    const stats = [];
     let truncated = false;
-    for (const { query } of kinds) {
-      let collected = 0;
-      for (let start = 1; ; start += EMAIL_CHUNK) {
-        // A long read is split into many calls: each one gets its own time limit, the whole read a larger one.
-        if (this.now() - started > EMAIL_TOTAL_MS) throw new WhmError('Tempo limite da consulta ao WHM excedido.', 'WHM_TIMEOUT', 504, 'WHM_TIMEOUT');
-        this.deadline = this.now() + TOTAL_DEADLINE_MS;
-        const data = await this.call('emailtrack_search', `${query}&api.chunk.enable=1&api.chunk.size=${EMAIL_CHUNK}&api.chunk.start=${start}`);
-        if (!Array.isArray(data.records)) throw new WhmError('O WHM não retornou os registros de envio esperados em emailtrack_search.', 'WHM_FORMAT', 502, 'WHM_FORMAT emailtrack_search');
-        records.push(...data.records);
-        collected += data.records.length;
-        if (data.records.length < EMAIL_CHUNK) break;
-        if (collected >= cap) { truncated = true; break; }
+    let firstError = null;
+    // One kind failing (a timeout on the heavier one, say) must not hide the other: its records are kept and the failure is reported.
+    for (const { name, query } of kinds) {
+      const stat = { kind: name, chunks: 0, records: 0, ms: 0, error: null };
+      const kindStarted = this.now();
+      try {
+        for (let start = 1; ; start += EMAIL_CHUNK) {
+          // A long read is split into many calls: each one gets its own time limit, the whole read a larger one.
+          if (this.now() - started > EMAIL_TOTAL_MS) throw new WhmError('Tempo limite da consulta ao WHM excedido.', 'WHM_TIMEOUT', 504, 'WHM_TIMEOUT');
+          this.deadline = this.now() + TOTAL_DEADLINE_MS;
+          const data = await this.call('emailtrack_search', `${query}&api.chunk.enable=1&api.chunk.size=${EMAIL_CHUNK}&api.chunk.start=${start}`);
+          if (!Array.isArray(data.records)) throw new WhmError('O WHM não retornou os registros de envio esperados em emailtrack_search.', 'WHM_FORMAT', 502, 'WHM_FORMAT emailtrack_search');
+          records.push(...data.records);
+          stat.chunks += 1; stat.records += data.records.length;
+          if (data.records.length < EMAIL_CHUNK) break;
+          if (stat.records >= cap) { truncated = true; break; }
+        }
+      } catch (error) {
+        stat.error = String(error?.code || 'internal_error').slice(0, 60);
+        firstError = firstError || error;
       }
+      stat.ms = this.now() - kindStarted;
+      stats.push(stat);
     }
-    return { records, truncated };
+    // Both kinds failed: nothing to show, say why. One failed: what the other returned is kept and the page says part of it is missing.
+    if (stats.every((stat) => stat.error)) throw firstError;
+    return { records, truncated, stats };
   }
 
   // Active domains = domains of non-suspended accounts. get_domain_info is reported as incomplete on some servers,
