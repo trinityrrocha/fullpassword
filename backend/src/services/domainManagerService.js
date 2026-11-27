@@ -51,7 +51,8 @@ const nextCheckDelayMs = ({ lookupStatus, errorCode, expiresOn }, intervalDays, 
   return intervalDays * DAY_MS;
 };
 
-const toRow = (row) => {
+// `nowMs` is the service's clock (injectable in tests), so the days left follow it and not the machine's date.
+const toRow = (row, nowMs = Date.now()) => {
   const expiresOn = dayString(row.expires_on);
   return {
     id: row.id, name: row.name, source: row.source, active: row.active,
@@ -64,7 +65,7 @@ const toRow = (row) => {
     } : null,
     snapshot: row.checked_at ? {
       checked_at: row.checked_at, lookup_status: row.lookup_status, error_code: row.error_code,
-      registrar: row.registrar, expires_on: expiresOn, days_left: expiresOn ? daysBetween(today(), expiresOn) : null,
+      registrar: row.registrar, expires_on: expiresOn, days_left: expiresOn ? daysBetween(today(nowMs), expiresOn) : null,
       registered_on: dayString(row.registered_on), rdap_statuses: row.rdap_statuses || [], nameservers: row.nameservers || [], dnssec: row.dnssec,
       ssl: { state: row.ssl_state, not_after: row.ssl_not_after, issuer: row.ssl_issuer, protocol: row.ssl_protocol, error: row.ssl_error }
     } : null
@@ -223,7 +224,7 @@ const createService = ({ whmSync = (actorId) => require('./spfblDomainsService')
   const getDomain = async (id) => {
     const row = (await queryable.query(`${SELECT_ROW} WHERE d.id = $1`, [id])).rows[0];
     if (!row) throw new DomainError('Domínio não encontrado.', 'DM_NOT_FOUND', 404);
-    return toRow(row);
+    return toRow(row, now());
   };
 
   const detail = async (id) => {
@@ -248,7 +249,7 @@ const createService = ({ whmSync = (actorId) => require('./spfblDomainsService')
     const total = (await queryable.query(`SELECT count(*)::int AS n FROM dm_domains d ${where}`, params)).rows[0].n;
     const rows = (await queryable.query(
       `${SELECT_ROW} ${where} ORDER BY ${SORTS[sort] || SORTS.name} LIMIT ${pageSize} OFFSET ${(pageNumber - 1) * pageSize}`, params)).rows;
-    return { domains: rows.map(toRow), total, page: pageNumber, size: pageSize };
+    return { domains: rows.map((row) => toRow(row, now())), total, page: pageNumber, size: pageSize };
   };
 
   const changeRows = (previous, next) => {

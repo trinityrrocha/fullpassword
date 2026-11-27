@@ -5,13 +5,13 @@ const ipaddr = require('ipaddr.js');
 // Read-only WHM API 1 client, ported from the CpanelApi.php of the original PHP SPFBL portal and adapted to WHM (port 2087):
 // - the hostname is resolved once; every address must be a public IPv4, and the connection goes to that exact
 //   address (no second lookup, so no DNS rebinding) while TLS is verified against the hostname;
-// - fixed port, no redirects, no proxy, bounded response and time, and only two allow-listed read functions;
+// - fixed port, no redirects, no proxy, bounded response and time, and only three allow-listed read functions;
 // - the token travels only in the Authorization header and never reaches a URL, a log or an error.
 // Contract (cPanel API docs): GET /json-api/<function>?api.version=1 with "Authorization: whm USER:TOKEN".
 // listaccts -> data.acct[] {user, domain, suspended (0|1), ...}; get_domain_info -> data.domains[] {domain, user, ...}.
 // NOT verified against a real WHM server: the tests use a simulated transport.
 const WHM_PORT = 2087;
-const FUNCTIONS = new Set(['listaccts', 'get_domain_info']);
+const FUNCTIONS = new Set(['listaccts', 'get_domain_info', 'emailtrack_search']);
 // A whole server's domain list can be large; 8 MiB, not the 1 MiB used for a single cron list.
 const MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 20000;
@@ -120,7 +120,8 @@ class WhmClient {
     return this.ip;
   }
 
-  async call(name) {
+  // `query` is built only by this class (validated values), never from a request: it is appended as-is after api.version.
+  async call(name, query = '') {
     if (!FUNCTIONS.has(name)) throw new WhmError('Operação WHM não permitida.', 'WHM_FUNCTION_FORBIDDEN', 403);
     const remaining = this.deadline - this.now();
     if (remaining < 1000) throw new WhmError('Tempo limite da consulta ao WHM excedido.', 'WHM_TIMEOUT', 504, 'WHM_TIMEOUT');
@@ -130,7 +131,7 @@ class WhmClient {
       response = await this.transport({
         ip,
         host: this.host,
-        path: `/json-api/${name}?api.version=1`,
+        path: `/json-api/${name}?api.version=1${query}`,
         headers: { Authorization: `whm ${this.user}:${this.token}`, Accept: 'application/json', 'User-Agent': 'FullPassword-SPFBL/1' },
         timeoutMs: Math.min(REQUEST_TIMEOUT_MS, remaining),
         maxBytes: MAX_RESPONSE_BYTES
@@ -192,6 +193,26 @@ class WhmClient {
       list.push({ domain, user });
     }
     return { domains: list, skipped };
+  }
+
+  // Delivery records of the mail SENT by one domain (emailtrack_search, WHM API 1). The server filters by sender domain and by period, so
+  // the answer stays small; remote deliveries only (a message accepted from the Internet is not "sent"). Every value is validated here.
+  // Contract (cPanel API docs): data.records[] {type: success|defer|failure|inprogress, sender, email, recipient, sendunixtime, message, ...}.
+  async emailTrack({ domain, sinceUnix, untilUnix, perType = 2000 }) {
+    if (!DOMAIN_PATTERN.test(String(domain || ''))) throw new WhmError('Domínio inválido.', 'WHM_FORMAT', 422);
+    const since = Number(sinceUnix);
+    const until = Number(untilUnix);
+    const limit = Number(perType);
+    if (!Number.isInteger(since) || !Number.isInteger(until) || since < 0 || until <= since || !Number.isInteger(limit) || limit < 1 || limit > 5000) {
+      throw new WhmError('Período inválido.', 'WHM_FORMAT', 422);
+    }
+    const query = `&success=1&defer=1&failure=1&inprogress=1&deliverytype=remote&max_results_by_type=${limit}`
+      + `&api.filter.enable=1&api.filter.a.field=domain&api.filter.a.arg0=${domain}&api.filter.a.type=eq`
+      + `&api.filter.b.field=sendunixtime&api.filter.b.arg0=${since}&api.filter.b.type=gt`
+      + `&api.filter.c.field=sendunixtime&api.filter.c.arg0=${until}&api.filter.c.type=lt`;
+    const data = await this.call('emailtrack_search', query);
+    if (!Array.isArray(data.records)) throw new WhmError('O WHM não retornou os registros de envio esperados em emailtrack_search.', 'WHM_FORMAT', 502, 'WHM_FORMAT emailtrack_search');
+    return data.records;
   }
 
   // Active domains = domains of non-suspended accounts. get_domain_info is reported as incomplete on some servers,

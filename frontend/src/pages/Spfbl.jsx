@@ -5,7 +5,7 @@ import SpfblSettingsTab from '../components/spfbl/SpfblSettingsTab';
 import SpfblAccessPanel from '../components/spfbl/SpfblAccessPanel';
 import SpfblOwnScope from '../components/spfbl/SpfblOwnScope';
 import SpfblDashboard from '../components/spfbl/SpfblDashboard';
-import SpfblHistory from '../components/spfbl/SpfblHistory';
+import SpfblHistoryTabs from '../components/spfbl/SpfblHistoryTabs';
 import SpfblRequests from '../components/spfbl/SpfblRequests';
 import SpfblAudit from '../components/spfbl/SpfblAudit';
 import { getOverview, listAccess, listDomains, listUsers, listWhmServers } from '../services/spfblService';
@@ -93,7 +93,7 @@ export default function Spfbl() {
         </nav>
       )}
       {overview && tab === 'dashboard' && <SpfblDashboard role={overview.role} />}
-      {overview && tab === 'history' && <SpfblHistory />}
+      {overview && tab === 'history' && <SpfblHistoryTabs />}
       {overview && tab === 'requests' && <SpfblRequests />}
       {overview?.role === 'super_admin' && tab === 'audit' && <SpfblAudit />}
       {overview?.role === 'super_admin' && tab === 'access' && (

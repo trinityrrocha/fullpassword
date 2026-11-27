@@ -1,3 +1,4 @@
+const sent = require('../services/spfblSentService');
 const db = require('../config/database');
 const { recordAuditEvent } = require('../services/auditService');
 const { ConfigEncryptionError } = require('../services/configSecretCrypto');
@@ -24,6 +25,7 @@ const CONFIG_KEY_MESSAGE = 'A chave de criptografia das configurações não est
 
 // Authorization (Super Admin) and the module toggle are enforced by the router before these handlers run.
 const mapKnownError = (res, error) => {
+  if (error instanceof sent.SentError) return res.status(error.statusCode).json({ code: error.code, error: error.message });
   if (error instanceof SpfblSettingsError || error instanceof MatrixError || error instanceof WhmError || error instanceof domains.DomainError || error instanceof access.AccessError || error instanceof history.HistoryError || error instanceof release.ReleaseError || error instanceof auditService.AuditError) {
     return res.status(error.statusCode).json({ code: error.code, error: error.message });
   }
@@ -356,6 +358,17 @@ const historyList = guarded('histórico', async (req, res) => {
     state: view });
 });
 
+// Sent mail of one domain, read live from its WHM server (nothing is stored). Same scope as the history: only the caller's domains.
+const sentService = sent.createService({ credentialsFor: (serverId) => servers.getWhmCredentials(serverId), serverIdOf: (domain) => servers.serverIdOfDomain(domain) });
+const sentList = guarded('e-mails enviados', async (req, res) => {
+  const scope = await scopeDomains(req.user);
+  if (scope.length === 0) return res.status(200).json({ domain: null, domains_scope: [], rows: [], filtered_total: 0, period_total: 0, page: 1, pages: 1, page_size: sent.PAGE_SIZES[0], filters: { period: '24h', status: 'all', by: 'any', q: '' }, truncated: false });
+  const domain = requireDomain(scope, req.query.domain ?? scope[0]);
+  const result = await sentService.search({ domain, query: req.query });
+  res.setHeader('Cache-Control', 'no-store');
+  return res.status(200).json({ domain, domains_scope: scope, ...result });
+});
+
 const refreshHistory = guarded('atualização do histórico', async (req, res) => {
   const scope = await scopeDomains(req.user);
   const filters = history.parseFilters(req.body || {}, Date.now());
@@ -593,6 +606,6 @@ const blockRequest = decide('block', async (actor, req, input) => {
 module.exports = {
   dashboard, historyList, refreshHistory, recordDetail, recordStatus, requestReview, unlockRecord, blockSender, adminDomains, auditList, listRequests, requestDetail, keepRequest, releaseRequest, blockRequest, resetStatusState, getHistorySettings, saveHistorySettings, collectNow, resetCollectState, STATUS_COOLDOWN_MS,
   validateWhm, validateMatrix, resetValidateState, listWhmServers, createWhmServer, updateWhmServer, removeWhmServer, testMatrix, resetTestState, TEST_COOLDOWN_MS,
-  testWhm, syncWhmServer, syncDomains, listDomains, addDomain, removeDomain, resetWhmState, WHM_COOLDOWN_MS,
+  sentList, testWhm, syncWhmServer, syncDomains, listDomains, addDomain, removeDomain, resetWhmState, WHM_COOLDOWN_MS,
   listAccess, saveAccess, revokeAccess, overview
 };
