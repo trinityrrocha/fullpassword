@@ -1,14 +1,20 @@
 const { WhmClient } = require('./spfblWhmClient');
+// Loaded on first use: it needs the database settings, which pure tests of this module do not have.
+const defaultStore = new Proxy({}, { get: (_target, name) => require('./spfblSentStore')[name] });
 
-// "Enviados": the mail SENT by a domain, read live from the WHM server that hosts it (emailtrack_search). Nothing is stored: recipient
-// addresses stay on the server and only travel to the page that asked. One server answer is kept for a short time so that paging and
-// filtering do not call the WHM again. Scope (which domains a person may see) is decided by the controller, before this is called.
-const TTL_MS = 60 * 1000;
-const MAX_CACHE = 50;
-// Per kind of call (delivered / problems): the read stops there and the page says there may be more.
+// "Enviados": the mail SENT by the domains of a WHM server (emailtrack_search). The server is read in small time windows (one day at most per
+// call), never the whole retention at once, and every line is stored in PostgreSQL: the screen reads from there, so the WHM limit of
+// records per call no longer caps the period. A scheduled collection (same interval and retention as the received history) keeps it
+// current, and a page load tops it up with what is newer than the last collection. Scope (which domains a person may see) is decided by the
+// controller, before this is called.
+const TOP_UP_MS = 2 * 60 * 1000;
+const OVERLAP_SECONDS = 3600;
+const WINDOW_SECONDS = 86400;
+const BACKFILL_DAYS = 10;
+// Per kind of call (delivered / problems) and per window: the read stops there and the page says there may be more.
 const MAX_PER_KIND = 5000;
 const ALL = 'all';
-const PERIODS = Object.freeze({ '24h': 24 * 3600, '3d': 3 * 86400, '7d': 7 * 86400, '30d': 30 * 86400 });
+const PERIODS = Object.freeze({ '24h': 24 * 3600, '3d': 3 * 86400, '7d': 7 * 86400, '30d': 30 * 86400, '60d': 60 * 86400, '90d': 90 * 86400 });
 const STATUS_FILTERS = Object.freeze({ all: null, sent: ['success'], deferred: ['defer'], failed: ['failure'], progress: ['inprogress'] });
 const PAGE_SIZES = Object.freeze([20, 40, 100]);
 const MAX_QUERY = 100;
@@ -90,7 +96,7 @@ const senderDomainOf = (raw) => {
 
 const periodSeconds = (value) => {
   const key = value === undefined || value === '' ? '24h' : String(value);
-  if (!PERIODS[key]) throw new SentError('Escolha um período entre 24 horas, 3, 7 ou 30 dias.', 'SPFBL_SENT_PERIOD', 422);
+  if (!PERIODS[key]) throw new SentError('Escolha um período entre 24 horas, 3, 7, 30, 60 ou 90 dias.', 'SPFBL_SENT_PERIOD', 422);
   return { key, seconds: PERIODS[key] };
 };
 const parseFilters = (query = {}) => {
@@ -113,119 +119,144 @@ const parsePageSize = (value) => {
 // Tests replace createClient here, as they do for the domain sync.
 const internals = { createClient: (credentials) => new WhmClient(credentials) };
 
-const createService = ({ credentialsFor, serverIdOf, serverIdsOf, allServers, createClient = (credentials) => internals.createClient(credentials), now = Date.now } = {}) => {
-  const cache = new Map();
-  const inFlight = new Map();
+// A stored row, in the shape the page uses. The result text is worked out again on every read, so an improved translation of the server's
+// answers also applies to what was stored earlier.
+const publicRow = (row, withServer) => {
+  const detail = row.detail && typeof row.detail === 'object' ? row.detail : {};
+  const result = classifyResult(row.event_type, detail.message);
+  const sentUnix = Math.floor(new Date(row.sent_at).getTime() / 1000);
+  return {
+    id: row.record_key, type: row.event_type, event: EVENT_LABELS[row.event_type], sender_domain: row.sender_domain,
+    action_unix: Math.floor(new Date(row.action_at).getTime() / 1000), sent_at: new Date(row.sent_at).toISOString(), sent_unix: sentUnix,
+    sender: row.sender, recipient: row.recipient, delivered_to: row.delivered_to,
+    result: { key: result.key, label: result.label, tone: result.tone, code: result.code }, detail,
+    ...(withServer ? { server: row.server_name } : {})
+  };
+};
 
-  // What one WHM server answered for a period (every domain of the server), shared for a minute. The period start is rounded to 5 minutes
-  // so that repeated page loads use the same entry. One domain or all of them share this same read: the choice is made afterwards, here.
-  const fetchServer = async (serverId, seconds) => {
+const createService = ({ credentialsFor, serverIdOf, serverIdsOf, allServers, createClient = (credentials) => internals.createClient(credentials), now = Date.now, store = defaultStore, retentionDays = async () => 30 } = {}) => {
+  const running = new Map();
+  const lastRead = new Map();
+
+  // Reads one window of one server and stores what is a sent-mail line. Returns what the server answered, for the diagnostics.
+  const readWindow = async (client, serverId, sinceUnix, untilUnix) => {
+    const { records: raw, truncated, stats = [] } = await client.emailTrack({ sinceUnix, untilUnix, maxPerKind: MAX_PER_KIND });
+    const returned = {};
+    const sources = {};
+    const records = [];
+    let otherType = 0;
+    for (const item of raw) {
+      returned[item?.type] = (returned[item?.type] || 0) + 1;
+      const name = senderDomainOf(item || {}) || '(sistema)';
+      sources[name] = (sources[name] || 0) + 1;
+      const record = normalizeRecord(item);
+      if (record) records.push(record); else otherType += 1;
+    }
+    const stored = await store.upsert(serverId, records);
+    return { returned, sources, other_type: otherType, calls: stats, truncated, partial: stats.some((stat) => stat.error), stored };
+  };
+
+  // Brings one server up to date: from the last collection (with an overlap) to now, in windows of a day. The first collection goes back
+  // up to BACKFILL_DAYS (never beyond the retention). A window that fails stops the run and keeps the progress made so far.
+  const collectNow = async (serverId, { backfill = false } = {}) => {
     const nowSec = Math.floor(now() / 1000);
-    const until = Math.ceil((nowSec + 1) / 300) * 300;
-    const since = Math.floor((nowSec - seconds) / 300) * 300;
-    const key = `${serverId}|${since}`;
-    const hit = cache.get(key);
-    if (hit && now() - hit.at < TTL_MS) return { ...hit, cached: true };
-    if (inFlight.has(key)) return inFlight.get(key);
-    const promise = (async () => {
-      const { records: raw, truncated, stats = [] } = await createClient(await credentialsFor(serverId)).emailTrack({ sinceUnix: since, untilUnix: until, maxPerKind: MAX_PER_KIND });
-      const counts = {};
-      for (const record of raw) counts[record?.type] = (counts[record?.type] || 0) + 1;
-      const sources = {};
-      for (const record of raw) { const name = senderDomainOf(record || {}) || '(sistema)'; sources[name] = (sources[name] || 0) + 1; }
-      const diagnostics = { returned: counts, other_type: 0, other_domain: 0, out_of_period: 0, calls: stats, sources };
-      const records = [];
-      const seen = new Set();
-      for (const item of raw) {
-        const record = normalizeRecord(item);
-        if (!record) { diagnostics.other_type += 1; continue; }
-        // In the period when it was sent OR when it was last attempted (a message deferred days ago and retried now still counts).
-        const inPeriod = (record.sent_unix > since && record.sent_unix < until) || (record.action_unix > since && record.action_unix < until);
-        if (!inPeriod) { diagnostics.out_of_period += 1; continue; }
-        if (seen.has(record.id)) continue;
-        seen.add(record.id);
-        records.push(record);
-      }
-      const entry = { at: now(), records, truncated, partial: stats.some((stat) => stat.error), diagnostics, fetched_at: new Date(now()).toISOString() };
-      cache.set(key, entry);
-      if (cache.size > MAX_CACHE) cache.delete(cache.keys().next().value);
-      return { ...entry, cached: false };
-    })().finally(() => inFlight.delete(key));
-    inFlight.set(key, promise);
+    const state = await store.getState(serverId);
+    const retention = await retentionDays();
+    const floor = nowSec - Math.min(retention, BACKFILL_DAYS) * 86400;
+    let from = state.through ? Math.max(floor, state.through - OVERLAP_SECONDS) : floor;
+    if (!backfill && !state.through) from = nowSec - 86400;
+    const client = createClient(await credentialsFor(serverId));
+    const total = { returned: {}, sources: {}, other_type: 0, calls: [], truncated: false, partial: false, stored: 0, windows: 0 };
+    let through = state.through;
+    let failure = null;
+    while (from < nowSec) {
+      const until = Math.min(nowSec + 60, from + WINDOW_SECONDS);
+      try {
+        const part = await readWindow(client, serverId, from, until);
+        for (const [type, n] of Object.entries(part.returned)) total.returned[type] = (total.returned[type] || 0) + n;
+        for (const [name, n] of Object.entries(part.sources)) total.sources[name] = (total.sources[name] || 0) + n;
+        total.other_type += part.other_type; total.calls.push(...part.calls); total.truncated = total.truncated || part.truncated; total.partial = total.partial || part.partial;
+        total.stored += part.stored; total.windows += 1;
+        through = Math.min(until, nowSec);
+        // The server filters with "after" and "before" (both exclusive): the next window starts one second earlier so a line on the boundary is not lost.
+        from = until - 1;
+        await store.markCollected(serverId, through);
+      } catch (error) { failure = error; break; }
+    }
+    await store.prune(retention);
+    lastRead.set(serverId, { at: new Date(now()).toISOString(), ...total, error: failure ? String(failure.code || 'internal_error').slice(0, 60) : null });
+    if (failure && total.windows === 0) throw failure;
+    return { ...total, failed: Boolean(failure) };
+  };
+
+  // One collection per server at a time: a page load during a scheduled run waits for it instead of starting another.
+  const collect = (serverId, options) => {
+    if (running.has(serverId)) return running.get(serverId);
+    const promise = collectNow(serverId, options).finally(() => running.delete(serverId));
+    running.set(serverId, promise);
     return promise;
   };
 
-  const sumDiagnostics = (parts) => {
-    const total = { returned: {}, other_type: 0, other_domain: 0, out_of_period: 0, calls: [], sources: {} };
-    for (const part of parts) {
-      for (const [type, n] of Object.entries(part.returned || {})) total.returned[type] = (total.returned[type] || 0) + n;
-      total.other_type += part.other_type; total.other_domain += part.other_domain; total.out_of_period += part.out_of_period;
-      total.calls.push(...(part.calls || []));
-      for (const [name, n] of Object.entries(part.sources || {})) total.sources[name] = (total.sources[name] || 0) + n;
-    }
-    return total;
+  // A page load: top up the servers that matter when their data is older than TOP_UP_MS. A server never collected is collected in the
+  // background (it can take a while), and a failure only marks the answer as partial: what is stored is still shown.
+  const refresh = async (serverIds) => {
+    const outcome = { failed: [], collecting: false, last_run_at: null };
+    await Promise.all([...serverIds].map(async (serverId) => {
+      try {
+        const state = await store.getState(serverId);
+        if (state.lastRunAt && (!outcome.last_run_at || state.lastRunAt > outcome.last_run_at)) outcome.last_run_at = state.lastRunAt;
+        if (!state.through) { collect(serverId, { backfill: true }).catch(() => {}); outcome.collecting = true; return; }
+        if (now() - state.through * 1000 < TOP_UP_MS) return;
+        await collect(serverId);
+      } catch (error) { outcome.failed.push({ id: serverId, code: String(error?.code || 'internal_error').slice(0, 60) }); }
+    }));
+    return outcome;
   };
 
   // `domain` is one domain of the scope, or ALL ("todos os domínios"). For all of them: the Super Admin gets everything every WHM server
-  // reports (system mail included); any other account gets the mail of the domains of its scope, from the servers that host them.
+  // reports (system mail included); any other account gets the mail of the domains of its scope.
   const search = async ({ domain, scope = [], admin = false, query = {}, diagnostics = false }) => {
     const filters = parseFilters(query);
     const pageSize = parsePageSize(query.page_size);
-    let parts;
-    let failures = [];
+    let serverIds;
+    let names = new Map();
     if (domain === ALL) {
       const targets = admin ? await allServers() : [...(await serverIdsOf(scope))].map((id) => ({ id, name: id }));
       if (targets.length === 0) throw new SentError('Nenhum servidor WHM cadastrado para consultar os e-mails enviados.', 'SPFBL_SENT_NO_SERVER', 409);
-      const settled = await Promise.allSettled(targets.map((server) => fetchServer(server.id, filters.seconds)));
-      parts = []; failures = [];
-      settled.forEach((result, index) => {
-        if (result.status === 'fulfilled') parts.push({ ...result.value, server: targets[index].name });
-        else failures.push({ name: targets[index].name, code: String(result.reason?.code || 'internal_error').slice(0, 60), error: result.reason });
-      });
-      // Nothing came back from any server: say why (a refused token, a timeout) instead of an empty list.
-      if (parts.length === 0) throw failures[0].error;
+      serverIds = targets.map((target) => target.id);
+      names = new Map(targets.map((target) => [target.id, target.name]));
     } else {
       const serverId = await serverIdOf(domain);
       if (!serverId) throw new SentError('Este domínio está sem servidor WHM cadastrado: não há como consultar os e-mails enviados.', 'SPFBL_SENT_NO_SERVER', 409);
-      const read = await fetchServer(serverId, filters.seconds);
-      // One domain: the read holds every domain of the server, so the others are set aside here (and counted for the diagnostics).
-      const mine = read.records.filter((record) => record.sender_domain === domain);
-      parts = [{ ...read, records: mine, diagnostics: { ...read.diagnostics, other_domain: read.records.length - mine.length }, server: null }];
+      serverIds = [serverId];
     }
-    const scopeSet = new Set(scope);
-    const seen = new Set();
-    const all = [];
-    for (const part of parts) {
-      for (const record of part.records) {
-        if (domain === ALL && !admin && !scopeSet.has(record.sender_domain)) continue;
-        if (seen.has(record.id)) continue;
-        seen.add(record.id);
-        all.push(part.server ? { ...record, server: part.server } : record);
-      }
-    }
+    const refreshed = await refresh(serverIds);
+    const retention = await retentionDays();
+    const sinceUnix = Math.floor(now() / 1000) - Math.min(filters.seconds, retention * 86400);
     const wanted = STATUS_FILTERS[filters.status];
-    const matches = (record) => {
-      if (wanted && !wanted.includes(record.type)) return false;
-      if (!filters.q) return true;
-      const sender = record.sender.toLowerCase();
-      const recipient = record.recipient.toLowerCase();
-      return filters.by === 'sender' ? sender.includes(filters.q) : filters.by === 'recipient' ? recipient.includes(filters.q) : (sender.includes(filters.q) || recipient.includes(filters.q));
-    };
-    const rows = all.filter(matches).sort((a, b) => b.sent_unix - a.sent_unix || (a.id < b.id ? 1 : -1));
-    const pages = Math.max(1, Math.ceil(rows.length / pageSize));
-    const page = Math.min(pages, Math.max(1, Math.floor(Number(query.page)) || 1));
+    const found = await store.search({
+      serverIds, domains: domain === ALL ? (admin ? null : scope) : [domain], sinceUnix, types: wanted, q: filters.q, by: filters.by,
+      page: Math.floor(Number(query.page)) || 1, pageSize });
+    const reads = serverIds.map((id) => lastRead.get(id)).filter(Boolean);
+    const stale = refreshed.failed.length;
+    // Every server failed to bring its data up to date and nothing is stored yet: say why instead of an empty list.
     return {
       filters: { period: filters.period, status: filters.status, by: filters.by, q: filters.q },
-      rows: rows.slice((page - 1) * pageSize, page * pageSize), filtered_total: rows.length, period_total: all.length,
-      page, pages, page_size: pageSize, truncated: parts.some((part) => part.truncated), partial: parts.some((part) => part.partial), fetched_at: parts.map((part) => part.fetched_at).sort().at(-1), cached: parts.every((part) => part.cached),
-      servers_failed: failures.length,
-      // Names of the servers that did not answer (a label the Super Admin typed), and counts only of what was returned: never addresses.
-      ...(admin ? { servers_failed_names: failures.map((failure) => ({ name: failure.name, code: failure.code })) } : {}),
-      ...(diagnostics ? { diagnostics: sumDiagnostics(parts.map((part) => part.diagnostics)) } : {})
+      rows: found.rows.map((row) => publicRow(row, admin && domain === ALL)), filtered_total: found.filtered, period_total: found.period,
+      page: found.page, pages: found.pages, page_size: pageSize, retention_days: retention,
+      truncated: reads.some((read) => read.truncated), partial: reads.some((read) => read.partial) || stale > 0, collecting: refreshed.collecting,
+      last_run_at: refreshed.last_run_at, servers_failed: stale,
+      ...(admin ? { servers_failed_names: refreshed.failed.map((failure) => ({ name: names.get(failure.id) || failure.id, code: failure.code })) } : {}),
+      ...(diagnostics ? { diagnostics: {
+        returned: reads.reduce((sum, read) => { for (const [k, n] of Object.entries(read.returned)) sum[k] = (sum[k] || 0) + n; return sum; }, {}),
+        other_type: reads.reduce((sum, read) => sum + read.other_type, 0),
+        calls: reads.flatMap((read) => read.calls),
+        sources: reads.reduce((sum, read) => { for (const [k, n] of Object.entries(read.sources)) sum[k] = (sum[k] || 0) + n; return sum; }, {}),
+        stored_period: found.period, collected_at: reads.map((read) => read.at).sort().at(-1) || null } } : {})
     };
   };
 
-  return { search, fetchServer };
+  return { search, collect, refresh };
 };
 
-module.exports = { internals, SentError, classifyResult, normalizeRecord, parseFilters, parsePageSize, createService, PERIODS, PAGE_SIZES, MAX_PER_KIND, ALL, TTL_MS, EVENT_LABELS };
+module.exports = { internals, SentError, classifyResult, normalizeRecord, parseFilters, parsePageSize, createService, publicRow, PERIODS, PAGE_SIZES, MAX_PER_KIND, ALL, TOP_UP_MS, EVENT_LABELS };

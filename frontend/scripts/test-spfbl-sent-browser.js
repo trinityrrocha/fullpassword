@@ -39,7 +39,7 @@ const row = (n, extra = {}) => ({
   ...extra
 });
 const state = {
-  calls: [], partial: false, failedServers: [], diagnostics: null, fail: null, scope: ['exemplo.test', 'outro.test'], truncated: false,
+  calls: [], partial: false, failedServers: [], diagnostics: null, retention: 30, collecting: false, fail: null, scope: ['exemplo.test', 'outro.test'], truncated: false,
   rows: [
     row(1),
     row(2, { type: 'failure', event: 'Falha na entrega', result: { key: 'mailbox_full', label: 'Caixa cheia', tone: 'danger', code: '552 5.2.2' }, detail: { ...row(2).detail, type: 'failure', message: '552 5.2.2 Mailbox full' } }),
@@ -73,7 +73,7 @@ try {
       if (query.status === 'failed') rows = rows.filter((r) => r.type === 'failure');
       if (query.q) rows = rows.filter((r) => r.sender.includes(query.q) || r.recipient.includes(query.q));
       return json({ domain: query.domain || 'all', domains_scope: state.scope, servers_failed: state.failedServers.length, partial: state.partial, ...(state.failedServers.length ? { servers_failed_names: state.failedServers } : {}), filters: { period: query.period || '24h', status: query.status || 'all', by: query.by || 'any', q: query.q || '' },
-        rows: rows.slice((pageNo - 1) * size, pageNo * size), filtered_total: rows.length, period_total: state.rows.length, page: pageNo, pages: Math.max(1, Math.ceil(rows.length / size)), page_size: size, truncated: state.truncated, fetched_at: '2026-11-27T12:10:00Z', cached: false, ...(state.diagnostics ? { diagnostics: state.diagnostics } : {}) });
+        rows: rows.slice((pageNo - 1) * size, pageNo * size), filtered_total: rows.length, period_total: state.rows.length, retention_days: state.retention, collecting: state.collecting, page: pageNo, pages: Math.max(1, Math.ceil(rows.length / size)), page_size: size, truncated: state.truncated, fetched_at: '2026-11-27T12:10:00Z', cached: false, ...(state.diagnostics ? { diagnostics: state.diagnostics } : {}) });
     }
     return json({ error: `unexpected ${api}` }, 404);
   });
@@ -100,7 +100,7 @@ try {
   assert.equal(await first.locator('td').nth(5).innerText(), 'Enviado');
   assert.equal(await table.getByText('Caixa cheia', { exact: true }).count(), 1);
   assert.equal(await table.getByText('Adiado: servidor de destino sem resposta').count(), 1);
-  assert.match(await page.getByText(/registros com os filtros/).innerText(), /30 registros com os filtros · 30 do domínio no período/);
+  assert.match(await page.getByText(/registros com os filtros/).innerText(), /30 registros com os filtros · 30 no período/);
   const lastSentCall = () => state.calls.filter((c) => c.api === '/spfbl/sent').at(-1).query;
   assert.deepEqual([lastSentCall().page, lastSentCall().page_size], ['1', '20']);
 
@@ -139,13 +139,13 @@ try {
 
   // The Super Admin sees why records may be missing (counts only); other accounts never get the line.
   assert.equal(await page.locator('[data-sent-diagnostics]').count(), 0, 'no diagnostics for an ordinary account');
-  state.diagnostics = { returned: { success: 10, defer: 2, failure: 3, rejected: 4 }, other_type: 4, other_domain: 7, out_of_period: 1, calls: [{ kind: 'delivered', chunks: 1, records: 353, ms: 820, error: null }, { kind: 'problems', chunks: 0, records: 0, ms: 20000, error: 'WHM_TIMEOUT' }], sources: { 'a.test': 5, 'b.test': 9 } };
+  state.diagnostics = { returned: { success: 10, defer: 2, failure: 3, rejected: 4 }, other_type: 4, stored_period: 25, calls: [{ kind: 'delivered', chunks: 1, records: 353, ms: 820, error: null }, { kind: 'problems', chunks: 0, records: 0, ms: 20000, error: 'WHM_TIMEOUT' }], sources: { 'a.test': 5, 'b.test': 9 } };
   await page.getByRole('button', { name: 'Atualizar' }).click();
   const diagnostics = page.locator('[data-sent-diagnostics]');
   await diagnostics.waitFor();
-  assert.match(await diagnostics.innerText(), /o WHM devolveu 10 entregues, 2 adiados, 3 falhas e 4 recusados na chegada\. Ficaram de fora 7 de outros domínios, 1 fora do período e 4 que não são envios\./);
+  assert.match(await diagnostics.innerText(), /a última consulta ao WHM devolveu 10 entregues, 2 adiados, 3 falhas e 4 recusados na chegada \(4 não são envios\)\. Armazenados no período para esta consulta: 25\./);
   assert.match(await page.locator('[data-sent-calls]').innerText(), /Consultas ao WHM: entregues: 353 registros em 1 parte, 820 ms · adiados e falhas: 0 registros em 0 partes, 20\.000 ms \(erro WHM_TIMEOUT\)\./);
-  assert.match(await page.locator('[data-sent-sources]').innerText(), /Domínios no retorno: b\.test \(9\), a\.test \(5\)\./, 'the busiest domains come first');
+  assert.match(await page.locator('[data-sent-sources]').innerText(), /Domínios na última consulta: b\.test \(9\), a\.test \(5\)\./, 'the busiest domains come first');
   state.partial = true; await page.getByRole('button', { name: 'Atualizar' }).click();
   assert.match(await page.locator('[data-sent-partial]').innerText(), /Uma das consultas ao WHM falhou/);
   state.partial = false;
@@ -159,9 +159,16 @@ try {
   assert.match(await failedNote.innerText(), /1 servidor WHM não respondeu: os e-mails dele não aparecem nesta lista\. Servidor: Servidor B \(WHM_TIMEOUT\)\./);
   state.failedServers = []; await page.getByRole('button', { name: 'Atualizar' }).click(); await failedNote.waitFor({ state: 'detached' });
 
+  // The periods offered follow the retention of the stored history; a first collection in progress is announced.
+  assert.deepEqual(await page.getByLabel('Período').locator('option').allInnerTexts(), ['Últimas 24 horas', 'Últimos 3 dias', 'Últimos 7 dias', 'Últimos 30 dias']);
+  state.retention = 90; state.collecting = true; await page.getByRole('button', { name: 'Atualizar' }).click();
+  await page.locator('[data-sent-collecting]').waitFor();
+  assert.deepEqual(await page.getByLabel('Período').locator('option').allInnerTexts(), ['Últimas 24 horas', 'Últimos 3 dias', 'Últimos 7 dias', 'Últimos 30 dias', 'Últimos 60 dias', 'Últimos 90 dias']);
+  state.retention = 30; state.collecting = false; await page.getByRole('button', { name: 'Atualizar' }).click(); await page.locator('[data-sent-collecting]').waitFor({ state: 'detached' });
+
   // The truncation notice, an error from the server and an empty scope are each said plainly.
   state.truncated = true; await page.getByRole('button', { name: 'Atualizar' }).click();
-  await page.getByText(/O servidor devolveu o limite de registros/).waitFor();
+  await page.getByText(/O servidor devolveu o limite de registros em uma das coletas/).waitFor();
   state.truncated = false;
   state.fail = { status: 409, body: { code: 'SPFBL_SENT_NO_SERVER', error: 'Este domínio está sem servidor WHM cadastrado: não há como consultar os e-mails enviados.' } };
   await page.getByRole('button', { name: 'Consultar' }).click();

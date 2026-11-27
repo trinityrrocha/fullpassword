@@ -3,7 +3,7 @@ import FormDialog from '../FormDialog';
 import PaginationBar from '../PaginationBar';
 import { getSent } from '../../services/spfblService';
 import { describeError, formatIsoDateTime, formatNumber } from '../../utils/spfbl';
-import { DEFAULT_SENT_FILTERS, PERIOD_OPTIONS, RESULT_OPTIONS, RESULT_TONE_CLASSES, SEARCH_BY_OPTIONS, detailGroups, splitDateTime } from '../../utils/spfblSent';
+import { DEFAULT_SENT_FILTERS, RESULT_OPTIONS, RESULT_TONE_CLASSES, SEARCH_BY_OPTIONS, detailGroups, periodOptions, splitDateTime } from '../../utils/spfblSent';
 
 const field = 'mt-1 w-full min-h-9 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900';
 const HEADERS = ['Evento', 'Remetente', 'Destinatário', 'Data', 'Hora', 'Resultado', ''];
@@ -74,7 +74,7 @@ export default function SpfblSent() {
           <select value={draft.domain} onChange={set('domain')} className={field}><option value="all">Todos os domínios</option>{data.domains_scope.map((name) => <option key={name} value={name}>{name}</option>)}</select>
         </label>
         <label className="block text-xs font-medium text-slate-700">Período
-          <select value={draft.period} onChange={set('period')} className={field}>{PERIOD_OPTIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
+          <select value={draft.period} onChange={set('period')} className={field}>{periodOptions(data.retention_days, draft.period).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
         </label>
         <label className="block text-xs font-medium text-slate-700">Resultado
           <select value={draft.status} onChange={set('status')} className={field}>{RESULT_OPTIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
@@ -89,7 +89,7 @@ export default function SpfblSent() {
           <button type="submit" className="min-h-9 flex-1 rounded-md bg-blue-800 px-4 text-sm font-semibold text-white hover:bg-blue-900">Consultar</button>
           <button type="button" onClick={clear} className="min-h-9 flex-1 rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-blue-800 hover:bg-slate-50">Limpar</button>
         </div>
-        <p className="col-span-full text-xs text-slate-500">Consulta feita ao vivo no servidor WHM do domínio (resposta guardada por 1 minuto) e mostra o que o servidor ainda guarda. Horário de Brasília.</p>
+        <p className="col-span-full text-xs text-slate-500">Os e-mails enviados são coletados do servidor WHM e guardados aqui pelo período de retenção; ao consultar, o que for mais novo que a última coleta é buscado na hora. Horário de Brasília.</p>
       </form>
 
       {error && <p role="alert" className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>}
@@ -99,29 +99,30 @@ export default function SpfblSent() {
           {data.servers_failed_names?.length > 0 && <> Servidor{data.servers_failed_names.length === 1 ? '' : 'es'}: {data.servers_failed_names.map((server) => `${server.name} (${server.code})`).join(', ')}.</>}
         </p>
       )}
-      {data.truncated && <p role="status" className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">O servidor devolveu o limite de registros de algum tipo: pode haver mais e-mails no período. Reduza o período para ver todos.</p>}
+      {data.collecting && <p role="status" className="rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-900" data-sent-collecting>A primeira coleta deste servidor está em andamento (pode levar alguns minutos): a lista vai se completando. Clique em Atualizar mais tarde.</p>}
+      {data.truncated && <p role="status" className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">O servidor devolveu o limite de registros em uma das coletas: pode haver mais e-mails em algum dia. Se a coleta for mais frequente, isso deixa de acontecer.</p>}
       {data.partial && (
         <p role="status" className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900" data-sent-partial>
-          Uma das consultas ao WHM falhou: parte dos e-mails (as entregas ou os adiamentos e falhas) pode estar faltando nesta lista. Tente atualizar.
+          Uma das consultas ao WHM falhou: os e-mails mais recentes (as entregas ou os adiamentos e falhas) podem estar faltando. O que já foi coletado continua aparecendo. Tente atualizar.
         </p>
       )}
       {data.diagnostics && (
         <div className="space-y-0.5 text-xs text-slate-500" data-sent-diagnostics>
           <p>
-            Diagnóstico (só para o Super Admin): o WHM devolveu {formatNumber(data.diagnostics.returned?.success || 0)} entregues, {formatNumber(data.diagnostics.returned?.defer || 0)} adiados, {formatNumber(data.diagnostics.returned?.failure || 0)} falhas
-            {data.diagnostics.returned?.inprogress ? `, ${formatNumber(data.diagnostics.returned.inprogress)} em andamento` : ''}{data.diagnostics.returned?.rejected ? ` e ${formatNumber(data.diagnostics.returned.rejected)} recusados na chegada` : ''}.
-            Ficaram de fora {formatNumber(data.diagnostics.other_domain)} de outros domínios, {formatNumber(data.diagnostics.out_of_period)} fora do período e {formatNumber(data.diagnostics.other_type)} que não são envios.
+            Diagnóstico (só para o Super Admin): a última consulta ao WHM devolveu {formatNumber(data.diagnostics.returned?.success || 0)} entregues, {formatNumber(data.diagnostics.returned?.defer || 0)} adiados, {formatNumber(data.diagnostics.returned?.failure || 0)} falhas
+            {data.diagnostics.returned?.inprogress ? `, ${formatNumber(data.diagnostics.returned.inprogress)} em andamento` : ''}{data.diagnostics.returned?.rejected ? ` e ${formatNumber(data.diagnostics.returned.rejected)} recusados na chegada` : ''}{' '}
+            ({formatNumber(data.diagnostics.other_type)} não são envios). Armazenados no período para esta consulta: {formatNumber(data.diagnostics.stored_period)}.
           </p>
           {data.diagnostics.calls?.length > 0 && (
             <p data-sent-calls>Consultas ao WHM: {data.diagnostics.calls.map((call) => `${call.kind === 'delivered' ? 'entregues' : 'adiados e falhas'}: ${formatNumber(call.records)} registros em ${formatNumber(call.chunks)} ${call.chunks === 1 ? 'parte' : 'partes'}, ${formatNumber(call.ms)} ms${call.error ? ` (erro ${call.error})` : ''}`).join(' · ')}.</p>
           )}
           {data.diagnostics.sources && Object.keys(data.diagnostics.sources).length > 0 && (
-            <p data-sent-sources>Domínios no retorno: {Object.entries(data.diagnostics.sources).sort((a, b) => b[1] - a[1]).slice(0, 12).map(([name, n]) => `${name} (${formatNumber(n)})`).join(', ')}.</p>
+            <p data-sent-sources>Domínios na última consulta: {Object.entries(data.diagnostics.sources).sort((a, b) => b[1] - a[1]).slice(0, 12).map(([name, n]) => `${name} (${formatNumber(n)})`).join(', ')}.</p>
           )}
         </div>
       )}
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p role="status" className="text-sm text-slate-700"><strong>{formatNumber(data.filtered_total)}</strong> {data.filtered_total === 1 ? 'registro' : 'registros'} com os filtros · <strong>{formatNumber(data.period_total)}</strong> do domínio no período{loading ? ' · atualizando…' : ''}</p>
+        <p role="status" className="text-sm text-slate-700"><strong>{formatNumber(data.filtered_total)}</strong> {data.filtered_total === 1 ? 'registro' : 'registros'} com os filtros · <strong>{formatNumber(data.period_total)}</strong> {data.domain === 'all' ? 'no período' : 'do domínio no período'}{loading ? ' · atualizando…' : ''}</p>
         <button type="button" onClick={refresh} disabled={loading} className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60">Atualizar</button>
       </div>
 

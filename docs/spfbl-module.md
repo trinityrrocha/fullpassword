@@ -38,44 +38,54 @@ destinatários, últimos 10 desbloqueios), *Histórico* (filtros por domínio au
 90 dias; 25 por página; detalhes do registro), *Solicitações* (a conta vê as suas; o Super Admin vê a fila e decide).
 
 **Histórico: Recebidos e Enviados.** A aba *Histórico* tem duas sub-abas. *Recebidos* é a tela descrita abaixo. *Enviados* mostra os e-mails
-que o domínio escolhido enviou, **lidos ao vivo do servidor WHM que hospeda o domínio** pela função `emailtrack_search` da API do cPanel
-(somente leitura, na lista de funções permitidas do cliente WHM), **sem gravar nada no banco** (os endereços dos destinatários ficam no
-servidor). Colunas: evento (Entrega, Tentativa adiada, Falha na entrega, Em andamento), remetente, destinatário, data (dd/mm/aa), hora
-(Brasília), resultado e *Detalhes* (todos os campos do log em grupos: mensagem, remetente, destinatário e entrega). O resultado é "Enviado"
-ou um texto curto traduzido da resposta do servidor de destino (Destinatário inexistente, Caixa cheia, Domínio inexistente, Limite de envios
-excedido, Bloqueado como spam, Servidor de destino sem resposta, Falha de TLS, Mensagem grande demais; adiamentos aparecem como "Adiado:
-…"); o que não for reconhecido aparece como "Falha na entrega (código)" e o texto completo fica em *Detalhes*. Essa tradução é heurística,
-feita a partir de textos conhecidos: **não foi validada com falhas reais do servidor** e deve ser ajustada quando houver exemplos.
+enviados pelos domínios do servidor WHM, lidos pela função `emailtrack_search` da API do cPanel (somente leitura, na lista de funções
+permitidas do cliente WHM). Os registros são **coletados e armazenados no PostgreSQL** (migration `42_spfbl_sent_history.sql`, tabela
+`spfbl_sent_records`): a tela lê do banco, então o limite de registros por chamada do WHM não restringe mais o período, e consultar 7, 30, 60 ou
+90 dias não chama o WHM para esse intervalo todo. Isso significa que os **endereços dos destinatários passam a ficar no banco do FullPassword**
+pelo prazo de retenção (como já ocorre com o histórico de recebidos). Colunas: evento (Entrega, Tentativa adiada, Falha na entrega, Em andamento),
+remetente, destinatário, data (dd/mm/aa), hora (Brasília), resultado e *Detalhes* (todos os campos do log em grupos). O resultado é "Enviado" ou
+um texto curto traduzido da resposta do servidor de destino (Destinatário inexistente, Caixa cheia, Domínio inexistente, Limite de envios
+excedido, Bloqueado como spam, Servidor de destino sem resposta, Falha de TLS, Mensagem grande demais; adiamentos aparecem como "Adiado: …"); o
+que não for reconhecido aparece como "Falha na entrega (código)". A tradução é refeita **a cada leitura** a partir do texto guardado, então uma
+tradução melhorada vale também para o que já foi coletado. É heurística, feita de textos conhecidos: **não foi validada com falhas reais do
+servidor** e deve ser ajustada quando houver exemplos.
+- **Coleta**: no mesmo intervalo da coleta do histórico de recebidos (card *Histórico armazenado*: **15 ou 30 minutos**, 1, 2, 4, 8, 12 ou 24
+  horas) e para **todo servidor WHM com token**, tenha ou não conexão Matrix. A primeira coleta vai até 10 dias para trás (nunca além da
+  retenção), **dia a dia**; as seguintes leem só o que é mais novo que a coleta anterior, com 1 hora de sobreposição (a chave do registro é um hash
+  de mensagem, destinatário, hora e tipo, então uma linha lida duas vezes é gravada uma só vez). Uma janela que falha não perde o progresso das
+  anteriores. O turno é reservado no banco antes da coleta (reinício ou segunda instância não a repetem) e um servidor que falha espera 15
+  minutos. A auditoria registra `spfbl_sent_collected` (servidor, quantidade, janelas), sem endereços.
+- **Ao abrir a tela**: o que for mais novo que a última coleta é buscado na hora (no máximo a cada 2 minutos por servidor). Se a coleta do
+  servidor ainda nunca rodou, ela começa em segundo plano e a tela avisa que a primeira coleta está em andamento. Se o WHM falhar, o que já está
+  guardado continua aparecendo, com um aviso (e, para o Super Admin, o servidor e o código do erro).
+- **Retenção**: a mesma do histórico de recebidos (30, 60 ou 90 dias). Registros mais antigos são apagados a cada coleta e, ao reduzir a
+  retenção, na hora. Os períodos do filtro (24 horas, 3, 7, 30, 60 e 90 dias) são limitados pela retenção.
 - **Escopo**: o mesmo do histórico recebido (a conta só consulta os domínios liberados para ela; o Super Admin, todos). O domínio do
   registro é o do remetente: o campo `domain` e, quando ele vem vazio, o domínio do endereço do remetente (`email`, depois `sender`).
   Mensagens recusadas na chegada (`type: rejected`) não entram.
 - **Todos os domínios**: a primeira opção do seletor de domínio (e a padrão). Para o **Super Admin** traz tudo o que **cada servidor WHM
   cadastrado** registra, de todas as contas (inclusive as de revendedores restauradas de backup e o e-mail do próprio sistema, como o do
-  root); para as demais contas, os domínios do escopo delas, só dos servidores que os hospedam. Um servidor que não responder não esconde os
-  outros: a tela avisa quantos falharam (e, para o Super Admin, quais e por quê).
-- **Duas consultas ao WHM** (os registros não têm os mesmos campos): *entregues e em andamento* são filtradas no servidor só por período e só entregas remotas (**o domínio nunca vai no pedido**:
-  o filtro `domain eq` devolvia 0 registros num servidor real; o servidor inteiro é lido uma vez, guardado em cache, e o domínio escolhido é
-  filtrado aqui); *adiadas e com falha* **não** são filtradas por `domain` nem por entrega remota
-  (nelas o `domain` pode vir vazio e uma falha na fase de roteamento nunca chega a um transporte remoto), só pelo período da tentativa, e o
-  backend fica com as que pertencem ao escopo. Um registro vale no período se foi enviado ou tentado nele.
+  root); para as demais contas, os domínios do escopo delas.
+- **Duas consultas ao WHM** (os registros não têm os mesmos campos): *entregues e em andamento* são filtradas no servidor só por período e só
+  entregas remotas (**o domínio nunca vai no pedido**: o filtro `domain eq` devolvia 0 registros num servidor real; o servidor inteiro é lido e o
+  domínio é filtrado no banco); *adiadas e com falha* **não** são filtradas por `domain` nem por entrega remota (nelas o `domain` pode vir vazio
+  e uma falha na fase de roteamento nunca chega a um transporte remoto), só pelo período da tentativa. Um registro vale no período se foi
+  enviado ou tentado nele.
 - **Sem limite de resultados da função**: `max_results_by_type` é aplicado pelo servidor **antes** dos filtros, então qualquer limite faria
-  os remetentes mais ativos (e-mail do sistema, rotinas de backup) empurrarem os demais domínios para fora da resposta. A consulta usa
-  `max_results_by_type=0` e controla o tamanho pelos filtros, pela ordem (mais novos primeiro) e pela paginação do próprio WHM
-  (`api.chunk`, 500 por chamada, até 5000 por tipo de consulta e no máximo 120 segundos); se o teto for atingido a tela avisa que pode haver
-  mais e sugere reduzir o período.
-- **Diagnóstico (só Super Admin)**: a tela mostra uma linha com a contagem do que o WHM devolveu por tipo e quantos registros ficaram de
-  fora (outro domínio, fora do período, não é envio). Só números, nunca endereços.
-- **Limites**: a resposta de cada servidor fica guardada por 1 minuto (trocar filtro ou página não consulta o WHM de novo; consultas
-  simultâneas ao mesmo período compartilham uma só chamada). Quanto tempo para trás o servidor guarda esses registros depende dele (não
-  consta na documentação do cPanel).
-- **Permissão do token**: o token do WHM precisa poder executar `emailtrack_search`; sem isso a tela mostra que o WHM recusou essa função.
-  **Atenção ao escopo do token**: um token com privilégios restritos é tratado pelo WHM como um revendedor e a função pode devolver só as contas
-  pertencentes àquele usuário (num servidor com revendedores, as contas dos outros revendedores ficam de fora). O mesmo pedido feito no
-  terminal como root devolve todas. Para ver todos os domínios, gere o token do root **sem restringir os privilégios** (WHM > Desenvolvimento >
-  Gerenciar tokens de API) e atualize-o no servidor WHM cadastrado. A linha de *Diagnóstico* mostra de quais domínios vieram os registros.
-- **Falha parcial**: as duas consultas são independentes; se uma falhar (por exemplo, tempo esgotado na das adiadas e com falha), o que a outra
-  trouxe continua aparecendo, com um aviso, e o diagnóstico mostra, por consulta, quantos registros vieram, em quantas partes, em quantos ms e o
-  código do erro.
+  os remetentes mais ativos empurrarem os demais domínios para fora da resposta. A consulta usa `max_results_by_type=0` e controla o tamanho
+  por **janelas de um dia** (as janelas se sobrepõem em 1 segundo, porque o WHM filtra com "depois de" e "antes de" exclusivos), pela ordem
+  (mais novos primeiro) e pela paginação do próprio WHM (`api.chunk`, 500 por chamada, até 5000 por tipo e por janela, no máximo 120 segundos
+  por janela). Se uma janela atingir o teto, a tela avisa que pode haver mais.
+- **Diagnóstico (só Super Admin)**: uma linha com o que a **última consulta** ao WHM devolveu por tipo, quantos não são envios e quantos
+  registros estão armazenados no período para a consulta, por consulta (registros, partes, ms, erro) e os domínios que mais apareceram. Só
+  números, nunca endereços.
+- **Permissão do token**: o token do WHM precisa poder executar `emailtrack_search` (privilégio `track-email`). **Para ver todas as contas de um
+  servidor com revendedores é preciso um token do root com todos os privilégios**: com privilégios parciais (testado com `track-email`,
+  `acct-summary` e `list-accts`) o WHM devolve só as contas cujo proprietário é root, e as de outros revendedores ficam de fora. Esse
+  comportamento foi observado num servidor real; a causa exata não está na documentação do cPanel. Como o token é poderoso, **restrinja por IP**
+  (o IP que o cPanel enxerga é o de saída da rede do FullPassword, por exemplo o do firewall com NAT) e use um token exclusivo, com validade.
+  A alternativa de menor privilégio é um token por revendedor, ainda não implementada.
+- **Falha parcial**: as duas consultas são independentes; se uma falhar, o que a outra trouxe é gravado e a tela avisa.
 - Rota: `GET /api/spfbl/sent` (limitador de 60 por 15 minutos).
 
 **Histórico armazenado.** O Matrix devolve o histórico da conta inteira. Uma coleta em segundo plano (1 por vez) percorre as páginas,

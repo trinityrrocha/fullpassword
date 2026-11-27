@@ -4,7 +4,7 @@ import FormDialog from '../FormDialog';
 import SpfblServersPanel from './SpfblServersPanel';
 import SpfblDomainsPanel from './SpfblDomainsPanel';
 import SpfblHistorySettings from './SpfblHistorySettings';
-import { serverSummary } from '../../utils/spfbl';
+import { formatInterval, serverSummary } from '../../utils/spfbl';
 
 const CARDS = [
   { key: 'servers', title: 'Servidores', icon: Server },
@@ -17,7 +17,7 @@ const summaryOf = (key, servers, overview, history) => {
     const { total, withMatrix } = serverSummary(servers);
     return total === 0 ? 'Nenhum servidor' : `${total} ${total === 1 ? 'servidor' : 'servidores'} · ${withMatrix} com Matrix`;
   }
-  if (key === 'retention') return history ? `${history.retention_days} dias · coleta a cada ${history.interval_hours} h` : 'Global, vale para todos os servidores';
+  if (key === 'retention') return history ? `${history.retention_days} dias · coleta a cada ${formatInterval(history.interval_minutes)}` : 'Global, vale para todos os servidores';
   const without = overview.domains.without_server;
   return `${overview.domains.active} ativos de ${overview.domains.total}${without ? ` · ${without} sem servidor` : ''}`;
 };
