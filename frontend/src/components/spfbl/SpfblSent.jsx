@@ -100,12 +100,25 @@ export default function SpfblSent() {
         </p>
       )}
       {data.truncated && <p role="status" className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">O servidor devolveu o limite de registros de algum tipo: pode haver mais e-mails no período. Reduza o período para ver todos.</p>}
-      {data.diagnostics && (
-        <p className="text-xs text-slate-500" data-sent-diagnostics>
-          Diagnóstico (só para o Super Admin): o WHM devolveu {formatNumber(data.diagnostics.returned?.success || 0)} entregues, {formatNumber(data.diagnostics.returned?.defer || 0)} adiados, {formatNumber(data.diagnostics.returned?.failure || 0)} falhas
-          {data.diagnostics.returned?.inprogress ? `, ${formatNumber(data.diagnostics.returned.inprogress)} em andamento` : ''}{data.diagnostics.returned?.rejected ? ` e ${formatNumber(data.diagnostics.returned.rejected)} recusados na chegada` : ''}.
-          Ficaram de fora {formatNumber(data.diagnostics.other_domain)} de outros domínios, {formatNumber(data.diagnostics.out_of_period)} fora do período e {formatNumber(data.diagnostics.other_type)} que não são envios.
+      {data.partial && (
+        <p role="status" className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900" data-sent-partial>
+          Uma das consultas ao WHM falhou: parte dos e-mails (as entregas ou os adiamentos e falhas) pode estar faltando nesta lista. Tente atualizar.
         </p>
+      )}
+      {data.diagnostics && (
+        <div className="space-y-0.5 text-xs text-slate-500" data-sent-diagnostics>
+          <p>
+            Diagnóstico (só para o Super Admin): o WHM devolveu {formatNumber(data.diagnostics.returned?.success || 0)} entregues, {formatNumber(data.diagnostics.returned?.defer || 0)} adiados, {formatNumber(data.diagnostics.returned?.failure || 0)} falhas
+            {data.diagnostics.returned?.inprogress ? `, ${formatNumber(data.diagnostics.returned.inprogress)} em andamento` : ''}{data.diagnostics.returned?.rejected ? ` e ${formatNumber(data.diagnostics.returned.rejected)} recusados na chegada` : ''}.
+            Ficaram de fora {formatNumber(data.diagnostics.other_domain)} de outros domínios, {formatNumber(data.diagnostics.out_of_period)} fora do período e {formatNumber(data.diagnostics.other_type)} que não são envios.
+          </p>
+          {data.diagnostics.calls?.length > 0 && (
+            <p data-sent-calls>Consultas ao WHM: {data.diagnostics.calls.map((call) => `${call.kind === 'delivered' ? 'entregues' : 'adiados e falhas'}: ${formatNumber(call.records)} registros em ${formatNumber(call.chunks)} ${call.chunks === 1 ? 'parte' : 'partes'}, ${formatNumber(call.ms)} ms${call.error ? ` (erro ${call.error})` : ''}`).join(' · ')}.</p>
+          )}
+          {data.diagnostics.sources && Object.keys(data.diagnostics.sources).length > 0 && (
+            <p data-sent-sources>Domínios no retorno: {Object.entries(data.diagnostics.sources).sort((a, b) => b[1] - a[1]).slice(0, 12).map(([name, n]) => `${name} (${formatNumber(n)})`).join(', ')}.</p>
+          )}
+        </div>
       )}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p role="status" className="text-sm text-slate-700"><strong>{formatNumber(data.filtered_total)}</strong> {data.filtered_total === 1 ? 'registro' : 'registros'} com os filtros · <strong>{formatNumber(data.period_total)}</strong> do domínio no período{loading ? ' · atualizando…' : ''}</p>

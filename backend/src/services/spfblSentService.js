@@ -128,10 +128,12 @@ const createService = ({ credentialsFor, serverIdOf, serverIdsOf, allServers, cr
     if (hit && now() - hit.at < TTL_MS) return { ...hit, cached: true };
     if (inFlight.has(key)) return inFlight.get(key);
     const promise = (async () => {
-      const { records: raw, truncated } = await createClient(await credentialsFor(serverId)).emailTrack({ domain, sinceUnix: since, untilUnix: until, maxPerKind: MAX_PER_KIND });
+      const { records: raw, truncated, stats = [] } = await createClient(await credentialsFor(serverId)).emailTrack({ domain, sinceUnix: since, untilUnix: until, maxPerKind: MAX_PER_KIND });
       const counts = {};
       for (const record of raw) counts[record?.type] = (counts[record?.type] || 0) + 1;
-      const diagnostics = { returned: counts, other_type: 0, other_domain: 0, out_of_period: 0 };
+      const sources = {};
+      for (const record of raw) { const name = senderDomainOf(record || {}) || '(sistema)'; sources[name] = (sources[name] || 0) + 1; }
+      const diagnostics = { returned: counts, other_type: 0, other_domain: 0, out_of_period: 0, calls: stats, sources };
       const records = [];
       const seen = new Set();
       for (const item of raw) {
@@ -146,7 +148,7 @@ const createService = ({ credentialsFor, serverIdOf, serverIdsOf, allServers, cr
         seen.add(record.id);
         records.push(record);
       }
-      const entry = { at: now(), records, truncated, diagnostics, fetched_at: new Date(now()).toISOString() };
+      const entry = { at: now(), records, truncated, partial: stats.some((stat) => stat.error), diagnostics, fetched_at: new Date(now()).toISOString() };
       cache.set(key, entry);
       if (cache.size > MAX_CACHE) cache.delete(cache.keys().next().value);
       return { ...entry, cached: false };
@@ -156,10 +158,12 @@ const createService = ({ credentialsFor, serverIdOf, serverIdsOf, allServers, cr
   };
 
   const sumDiagnostics = (parts) => {
-    const total = { returned: {}, other_type: 0, other_domain: 0, out_of_period: 0 };
+    const total = { returned: {}, other_type: 0, other_domain: 0, out_of_period: 0, calls: [], sources: {} };
     for (const part of parts) {
       for (const [type, n] of Object.entries(part.returned || {})) total.returned[type] = (total.returned[type] || 0) + n;
       total.other_type += part.other_type; total.other_domain += part.other_domain; total.out_of_period += part.out_of_period;
+      total.calls.push(...(part.calls || []));
+      for (const [name, n] of Object.entries(part.sources || {})) total.sources[name] = (total.sources[name] || 0) + n;
     }
     return total;
   };
@@ -212,7 +216,7 @@ const createService = ({ credentialsFor, serverIdOf, serverIdsOf, allServers, cr
     return {
       filters: { period: filters.period, status: filters.status, by: filters.by, q: filters.q },
       rows: rows.slice((page - 1) * pageSize, page * pageSize), filtered_total: rows.length, period_total: all.length,
-      page, pages, page_size: pageSize, truncated: parts.some((part) => part.truncated), fetched_at: parts.map((part) => part.fetched_at).sort().at(-1), cached: parts.every((part) => part.cached),
+      page, pages, page_size: pageSize, truncated: parts.some((part) => part.truncated), partial: parts.some((part) => part.partial), fetched_at: parts.map((part) => part.fetched_at).sort().at(-1), cached: parts.every((part) => part.cached),
       servers_failed: failures.length,
       // Names of the servers that did not answer (a label the Super Admin typed), and counts only of what was returned: never addresses.
       ...(admin ? { servers_failed_names: failures.map((failure) => ({ name: failure.name, code: failure.code })) } : {}),

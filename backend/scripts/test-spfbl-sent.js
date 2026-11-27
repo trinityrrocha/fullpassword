@@ -93,7 +93,7 @@ async function run() {
   clock += 61 * 1000;
   const withFailures = await service.search({ domain: 'exemplo.test', query: {}, diagnostics: true });
   assert.deepEqual(withFailures.rows.map((r) => [r.detail.msgid, r.result.label]), [['m5', 'Enviado'], ['m6', 'Destinatário inexistente'], ['m7', 'Adiado: caixa cheia']], 'failed and deferred mail with an empty "domain" is listed');
-  assert.deepEqual(withFailures.diagnostics, { returned: { success: 1, failure: 4, defer: 1, rejected: 1 }, other_type: 1, other_domain: 3, out_of_period: 0 }, 'the Super Admin sees what was returned and why records were left out');
+  assert.deepEqual(withFailures.diagnostics, { returned: { success: 1, failure: 4, defer: 1, rejected: 1 }, other_type: 1, other_domain: 3, out_of_period: 0, calls: [], sources: { 'exemplo.test': 3, 'outro.test': 1, 'srv.outro.test': 1, 'fora.example': 1, '(sistema)': 1 } }, 'the Super Admin sees what was returned, from which domains, and why records were left out');
   assert.equal(JSON.stringify(withFailures.diagnostics).includes('@'), false, 'diagnostics carry counts only, never addresses');
   clock += 61 * 1000; assert.equal('diagnostics' in (await service.search({ domain: 'exemplo.test', query: {} })), false, 'no diagnostics unless asked');
   answer = [mk(2500, { type: 'defer', sendunixtime: String(sec(60 * 24 * 3)), actionunixtime: String(sec(5)) }), mk(2600, { sendunixtime: String(sec(60 * 24 * 3)), actionunixtime: String(sec(60 * 24 * 3)) })]; clock += 61 * 1000;
@@ -193,6 +193,24 @@ async function run() {
   // a long chunked read gets a fresh time limit per call, but not an unlimited one
   let tick = 0; const slow = whm({}, { now: () => { tick += 30000; return tick; }, transport });
   await assert.rejects(slow.emailTrack({ domain: null, sinceUnix: 1, untilUnix: 2 }), { code: 'WHM_TIMEOUT' }, 'the whole read has a ceiling');
+  // one kind failing keeps what the other returned and says so; both failing reports the reason
+  const half = (failKind) => whm({}, { transport: async (call) => {
+    const isProblems = new URLSearchParams(call.path.split('?')[1]).get('success') === '0';
+    if ((failKind === 'problems' && isProblems) || (failKind === 'delivered' && !isProblems) || failKind === 'both') return { status: 502, body: '{}' };
+    return { status: 200, body: JSON.stringify({ metadata: { result: 1 }, data: { records: [record({ msgid: isProblems ? 'p' : 'd' })] } }) };
+  } });
+  const onlyDelivered = await half('problems').emailTrack({ domain: null, sinceUnix: 1, untilUnix: 2 });
+  assert.deepEqual([onlyDelivered.records.map((r) => r.msgid), onlyDelivered.stats.map((st) => [st.kind, st.records, st.error])], [['d'], [['delivered', 1, null], ['problems', 0, 'WHM_HTTP']]], 'a failed second call keeps the first');
+  const onlyProblems = await half('delivered').emailTrack({ domain: null, sinceUnix: 1, untilUnix: 2 });
+  assert.deepEqual(onlyProblems.records.map((r) => r.msgid), ['p']);
+  await assert.rejects(half('both').emailTrack({ domain: null, sinceUnix: 1, untilUnix: 2 }), { code: 'WHM_HTTP' }, 'both failing is an error with its reason');
+  assert.ok(onlyDelivered.stats.every((st) => Number.isInteger(st.ms) && Number.isInteger(st.chunks)));
+  const partialService = sent.createService({ credentialsFor: async () => ({}), serverIdOf: async () => 'srv-1', now: () => clock,
+    createClient: () => ({ emailTrack: async () => ({ records: [mk(5)], truncated: false, stats: [{ kind: 'delivered', chunks: 1, records: 1, ms: 12, error: null }, { kind: 'problems', chunks: 0, records: 0, ms: 20000, error: 'WHM_TIMEOUT' }] }) }) });
+  clock += 61 * 1000;
+  const flagged = await partialService.search({ domain: 'exemplo.test', query: {}, diagnostics: true });
+  assert.deepEqual([flagged.partial, flagged.rows.length, flagged.diagnostics.calls.map((c) => c.error)], [true, 1, [null, 'WHM_TIMEOUT']], 'a partial read is flagged and still lists what arrived');
+  assert.equal((await service.search({ domain: 'exemplo.test', query: {} })).partial, false);
   console.log('spfbl sent mail tests passed');
 }
 
