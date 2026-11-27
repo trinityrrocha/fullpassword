@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Database } from 'lucide-react';
 import { collectHistoryNow, getHistorySettings, saveHistorySettings } from '../../services/spfblService';
-import { describeError, formatIsoShort, formatNumber } from '../../utils/spfbl';
+import { describeError, formatInterval, formatIsoShort, formatNumber } from '../../utils/spfbl';
 
 const fieldClass = 'rounded-md border border-slate-300 bg-white px-2.5 py-2 text-sm outline-hidden focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 disabled:bg-slate-100';
 const primaryButton = 'rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-60';
@@ -17,7 +17,7 @@ export default function SpfblHistorySettings() {
   const [confirm, setConfirm] = useState(null);
   const [message, setMessage] = useState({ type: '', text: '' });
 
-  const apply = useCallback((next) => { setData(next); setRetention(String(next.retention_days)); setInterval(String(next.interval_hours)); }, []);
+  const apply = useCallback((next) => { setData(next); setRetention(String(next.retention_days)); setInterval(String(next.interval_minutes)); }, []);
   useEffect(() => {
     let active = true;
     getHistorySettings()
@@ -29,7 +29,7 @@ export default function SpfblHistorySettings() {
   const save = async (confirmShrink = false) => {
     setBusy('save'); setMessage({ type: '', text: '' });
     try {
-      const saved = await saveHistorySettings({ retention_days: Number(retention), interval_hours: Number(interval), ...(confirmShrink ? { confirm_shrink: true } : {}) });
+      const saved = await saveHistorySettings({ retention_days: Number(retention), interval_minutes: Number(interval), ...(confirmShrink ? { confirm_shrink: true } : {}) });
       apply(saved); setConfirm(null);
       setMessage({ type: 'success', text: saved.deleted ? `Salvo. ${formatNumber(saved.deleted)} registros antigos foram apagados.` : 'Configuração do histórico salva.' });
     } catch (error) {
@@ -47,12 +47,12 @@ export default function SpfblHistorySettings() {
     } catch (error) { setMessage({ type: 'error', text: describeError(error, 'Não foi possível iniciar a coleta.') }); } finally { setBusy(''); }
   };
 
-  const changed = data && (Number(retention) !== data.retention_days || Number(interval) !== data.interval_hours);
+  const changed = data && (Number(retention) !== data.retention_days || Number(interval) !== data.interval_minutes);
   return (
     <section className="rounded-lg border border-slate-200 bg-white shadow-sm" aria-labelledby="spfbl-history-settings-title">
       <header className="border-b border-slate-200 px-4 py-3">
         <h2 id="spfbl-history-settings-title" className="flex items-center text-base font-semibold text-slate-900"><Database className="mr-2 h-5 w-5 text-indigo-500" aria-hidden="true" />Histórico armazenado</h2>
-        <p className="mt-1 text-sm text-slate-600">O servidor consulta o Matrix de tempos em tempos e guarda os registros dos domínios cadastrados pelo período escolhido.</p>
+        <p className="mt-1 text-sm text-slate-600">O servidor consulta o Matrix (recebidos) e o WHM (enviados) de tempos em tempos e guarda os registros pelo período escolhido.</p>
       </header>
       <div className="space-y-4 p-4">
         {!data && !message.text && <p role="status" className="text-sm text-slate-600">Carregando...</p>}
@@ -68,9 +68,9 @@ export default function SpfblHistorySettings() {
               <label className="text-sm font-medium text-slate-700">
                 Coletar a cada
                 <select value={interval} onChange={(event) => setInterval(event.target.value)} disabled={busy !== ''} className={`${fieldClass} mt-1 block w-full`}>
-                  {data.interval_options.map((hours) => <option key={hours} value={hours}>{hours === 1 ? '1 hora' : `${hours} horas`}</option>)}
+                  {data.interval_options.map((minutes) => <option key={minutes} value={minutes}>{formatInterval(minutes)}</option>)}
                 </select>
-                <span className="mt-1 block text-xs font-normal text-slate-600">O Matrix mostra só os últimos 1024 registros do servidor: quanto mais frequente, menos registros se perdem.</span>
+                <span className="mt-1 block text-xs font-normal text-slate-600">Vale também para os e-mails enviados. O Matrix mostra só os últimos 1024 registros do servidor: quanto mais frequente, menos registros se perdem.</span>
               </label>
             </div>
             <p className="text-xs text-slate-600">
@@ -80,7 +80,7 @@ export default function SpfblHistorySettings() {
             {data.servers?.length > 0 && (
               <ul aria-label="Última coleta por servidor" className="space-y-1 text-xs text-slate-600">
                 {data.servers.map((server) => (
-                  <li key={server.id}>{server.name}: {server.matrix ? (server.last_run_at ? `última coleta em ${formatIsoShort(server.last_run_at)}` : 'ainda não coletou') : 'sem conexão Matrix (não coleta)'}.</li>
+                  <li key={server.id}>{server.name}: recebidos {server.matrix ? (server.last_run_at ? `coletados em ${formatIsoShort(server.last_run_at)}` : 'ainda não coletados') : 'sem conexão Matrix (não coleta)'}; enviados {server.sent_last_run_at ? `coletados em ${formatIsoShort(server.sent_last_run_at)}` : 'ainda não coletados'}.</li>
                 ))}
               </ul>
             )}

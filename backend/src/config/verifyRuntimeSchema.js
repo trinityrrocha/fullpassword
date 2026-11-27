@@ -5,8 +5,9 @@ const verifyRuntimeSchema=async(queryable=db)=>{
   await queryable.query('SELECT u.vault_secret_changed_at,p.login_min_length,p.login_rotation_months,p.vault_min_length,p.vault_rotation_months FROM users u CROSS JOIN password_policy_settings p LIMIT 0');
   await queryable.query('SELECT u.crypto_identity,c.crypto_epoch,c.crypto_revision,c.rotation_required FROM users u CROSS JOIN clients c LIMIT 0');
   await queryable.query('SELECT s.scoped_items,i.envelope,e.user_id FROM vault_migration_stages s CROSS JOIN vault_item_crypto i CROSS JOIN vault_item_crypto_envelopes e LIMIT 0');
-  await queryable.query('SELECT history_retention_days,history_interval_hours,history_last_run_at FROM spfbl_settings LIMIT 0');
+  await queryable.query('SELECT history_retention_days,history_interval_hours,history_interval_minutes,history_last_run_at FROM spfbl_settings LIMIT 0');
   await queryable.query('SELECT provider_limit,gap FROM spfbl_history_runs LIMIT 0');
+  await queryable.query('SELECT r.record_key,r.event_type,r.sent_at,r.sender_domain,r.detail,s.sent_last_run_at,s.sent_collected_through FROM spfbl_sent_records r CROSS JOIN spfbl_whm_servers s LIMIT 0');
   await queryable.query('SELECT s.encrypted_token,s.server_kind,s.matrix_user,s.encrypted_matrix_password,s.history_last_run_at,d.server_id FROM spfbl_whm_servers s CROSS JOIN spfbl_domains d LIMIT 0');
   await queryable.query('SELECT s.mail_check_enabled,s.mail_check_interval_days,s.dkim_selectors,s.dns_servers,s.dmarc_no_report_warning,s.ssl_check_enabled,s.domain_sync_enabled,s.domain_sync_interval_hours,s.domain_sync_last_at,s.domain_sync_last_status,d.next_mail_check_at FROM dm_settings s CROSS JOIN dm_domains d LIMIT 0');
   await queryable.query('SELECT user_id,can_view,can_edit,can_add,can_delete FROM client_user_access LIMIT 0');

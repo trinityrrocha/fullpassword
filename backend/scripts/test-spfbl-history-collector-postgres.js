@@ -122,12 +122,12 @@ async function main() {
     await database.query("UPDATE spfbl_history_records SET arrival_at = CURRENT_TIMESTAMP - INTERVAL '45 days' WHERE record_id IN (SELECT record_id FROM spfbl_history_records LIMIT 3)");
     await database.query('UPDATE spfbl_settings SET history_retention_days = 60 WHERE id = 1');
     await assert.rejects(historySettings.update({ retention_days: 45 }), { code: 'SPFBL_HISTORY_RETENTION_INVALID' });
-    await assert.rejects(historySettings.update({ interval_hours: 3 }), { code: 'SPFBL_HISTORY_INTERVAL_INVALID' });
-    await assert.rejects(historySettings.update({ interval_hours: 0 }), { code: 'SPFBL_HISTORY_INTERVAL_INVALID' });
+    await assert.rejects(historySettings.update({ interval_minutes: 45 }), { code: 'SPFBL_HISTORY_INTERVAL_INVALID' });
+    await assert.rejects(historySettings.update({ interval_minutes: 0 }), { code: 'SPFBL_HISTORY_INTERVAL_INVALID' });
     await assert.rejects(historySettings.update({ retention_days: 30 }), { code: 'SPFBL_HISTORY_SHRINK_CONFIRM', rows_to_delete: 3 });
     assert.equal((await repository.stats(integration)).rows, 9, 'nothing deleted without confirmation');
-    const shrunk = await historySettings.update({ retention_days: 30, interval_hours: 4, confirm_shrink: true });
-    assert.equal(shrunk.deleted, 3); assert.equal(shrunk.retention_days, 30); assert.equal(shrunk.interval_hours, 4); assert.deepEqual(shrunk.interval_options, [1, 2, 4, 8, 12, 24]); assert.equal((await repository.stats(integration)).rows, 6);
+    const shrunk = await historySettings.update({ retention_days: 30, interval_minutes: 240, confirm_shrink: true });
+    assert.equal(shrunk.deleted, 3); assert.equal(shrunk.retention_days, 30); assert.equal(shrunk.interval_minutes, 240); assert.deepEqual(shrunk.interval_options, [15, 30, 60, 120, 240, 480, 720, 1440]); assert.equal((await repository.stats(integration)).rows, 6);
     assert.equal((await historySettings.update({ retention_days: 90 })).retention_days, 90, 'growing needs no confirmation');
 
     // scope: reads are by domain; rows of a replaced Matrix account are purged
@@ -165,7 +165,7 @@ async function main() {
 
     const collectors = { isRunning: () => collector.isRunning(), forServer: () => collector, markInterrupted: async () => {} };
     // scheduler: every N hours, claimed in the database, a failure gives the claim back
-    await wipe(); await database.query('UPDATE spfbl_settings SET history_interval_hours = 2 WHERE id = 1'); await database.query('UPDATE spfbl_whm_servers SET history_last_run_at = NULL');
+    await wipe(); await database.query('UPDATE spfbl_settings SET history_interval_minutes = 120 WHERE id = 1'); await database.query('UPDATE spfbl_whm_servers SET history_last_run_at = NULL');
     scheduler.resetSchedulerState();
     const first = await scheduler.tick({ collectors }); assert.ok(first.ran, JSON.stringify(first));
     assert.equal(first.ran[0].server_id, serverId);
@@ -179,7 +179,7 @@ async function main() {
     assert.equal((await scheduler.tick({ collectors })).skipped, 'not_due', 'a failed server waits before the next attempt');
     scheduler.resetSchedulerState(); await database.query("UPDATE spfbl_whm_servers SET history_last_run_at = CURRENT_TIMESTAMP - INTERVAL '90 minutes'");
     assert.equal((await scheduler.tick({ collectors })).skipped, 'not_due', '90 minutes is not due on a 2-hour interval');
-    await database.query('UPDATE spfbl_settings SET history_interval_hours = 1 WHERE id = 1');
+    await database.query('UPDATE spfbl_settings SET history_interval_minutes = 60 WHERE id = 1');
     scheduler.resetSchedulerState();
     assert.ok((await scheduler.tick({ collectors })).ran, '90 minutes is due on a 1-hour interval');
     await database.query("UPDATE system_modules SET enabled = FALSE WHERE module_key = 'spfbl'").catch(() => {});

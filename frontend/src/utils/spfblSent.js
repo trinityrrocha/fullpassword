@@ -9,7 +9,9 @@ export const splitDateTime = (iso) => {
   return Number.isNaN(date.getTime()) ? { date: '—', time: '' } : { date: DATE.format(date), time: TIME.format(date) };
 };
 
-export const PERIOD_OPTIONS = Object.freeze([['24h', 'Últimas 24 horas'], ['3d', 'Últimos 3 dias'], ['7d', 'Últimos 7 dias'], ['30d', 'Últimos 30 dias']]);
+export const PERIOD_OPTIONS = Object.freeze([['24h', 'Últimas 24 horas', 1], ['3d', 'Últimos 3 dias', 3], ['7d', 'Últimos 7 dias', 7], ['30d', 'Últimos 30 dias', 30], ['60d', 'Últimos 60 dias', 60], ['90d', 'Últimos 90 dias', 90]]);
+// Only the periods the stored history covers (the retention chosen in the settings), plus the one already selected.
+export const periodOptions = (retentionDays, selected) => PERIOD_OPTIONS.filter(([value, , days]) => days <= (Number(retentionDays) || 30) || value === selected);
 export const RESULT_OPTIONS = Object.freeze([['all', 'Todos'], ['sent', 'Enviados'], ['deferred', 'Adiados'], ['failed', 'Falhas'], ['progress', 'Em andamento']]);
 export const SEARCH_BY_OPTIONS = Object.freeze([['any', 'Remetente ou destinatário'], ['sender', 'Remetente'], ['recipient', 'Destinatário']]);
 export const DEFAULT_SENT_FILTERS = Object.freeze({ period: '24h', status: 'all', by: 'any', q: '' });

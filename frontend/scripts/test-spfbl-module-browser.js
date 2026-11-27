@@ -52,7 +52,7 @@ const vite = await createServer({ root, server: { host: '127.0.0.1', port: 0 }, 
 const SECRETS = ['MATRIX_PASSWORD_SENTINEL_x1', 'WHMTOKENSENTINEL0123456789ABCDEF'];
 const uid = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const newState = () => ({
-  history: { retention_days: 30, interval_hours: 4, retention_options: [30, 60, 90], interval_options: [1, 2, 4, 8, 12, 24], timezone: 'America/Sao_Paulo', servers: [{ id: uid(1), name: 'Servidor Principal', matrix: true, last_run_at: '2026-11-24T09:00:00Z' }], stored: { rows: 4321, oldest_at: '2026-10-25T10:00:00Z', newest_at: '2026-11-24T10:00:00Z' }, running: false },
+  history: { retention_days: 30, interval_minutes: 240, retention_options: [30, 60, 90], interval_options: [15, 30, 60, 120, 240, 480, 720, 1440], timezone: 'America/Sao_Paulo', servers: [{ id: uid(1), name: 'Servidor Principal', matrix: true, last_run_at: '2026-11-24T09:00:00Z' }], stored: { rows: 4321, oldest_at: '2026-10-25T10:00:00Z', newest_at: '2026-11-24T10:00:00Z' }, running: false },
   enabled: false, role: 'super_admin', failToggle: false, calls: [], whmCooldown: false,
   servers: [{ id: uid(1), name: 'Servidor Principal', kind: 'cpanel', host: 'srv.example.com', whm_user: 'root', has_token: true, matrix_user: 'ops@example.com', has_matrix_password: true, matrix_configured: true, sync_at: null, sync_status: null, history_last_run_at: null, domains_total: 120, domains_active: 108, updated_at: '2026-11-21T00:00:00Z' }],
   domains: [
@@ -117,7 +117,7 @@ try {
       if (![30, 60, 90].includes(body.retention_days)) return json({ code: 'SPFBL_HISTORY_RETENTION_INVALID', error: 'Escolha 30, 60 ou 90 dias de retenção.' }, 422);
       if (body.retention_days < state.history.retention_days && !body.confirm_shrink) return json({ code: 'SPFBL_HISTORY_SHRINK_CONFIRM', error: 'x', rows_to_delete: 1234 }, 409);
       const deleted = body.retention_days < state.history.retention_days ? 1234 : 0;
-      state.history = { ...state.history, retention_days: body.retention_days, interval_hours: body.interval_hours };
+      state.history = { ...state.history, retention_days: body.retention_days, interval_minutes: body.interval_minutes };
       return json({ ...state.history, deleted });
     }
     if (api === '/spfbl/history/collect' && method === 'POST') { state.history.running = true; return json({ started: true }, 202); }
@@ -340,11 +340,11 @@ try {
   await shot('settings-dialog-1280');
   assert.deepEqual(await page.getByLabel('Guardar por').locator('option').allInnerTexts(), ['30 dias', '60 dias', '90 dias']);
   await page.getByLabel('Guardar por').selectOption('90');
-  assert.deepEqual(await page.getByLabel('Coletar a cada').locator('option').allInnerTexts(), ['1 hora', '2 horas', '4 horas', '8 horas', '12 horas', '24 horas']);
-  await page.getByLabel('Coletar a cada').selectOption('2');
+  assert.deepEqual(await page.getByLabel('Coletar a cada').locator('option').allInnerTexts(), ['15 minutos', '30 minutos', '1 hora', '2 horas', '4 horas', '8 horas', '12 horas', '24 horas']);
+  await page.getByLabel('Coletar a cada').selectOption('120');
   await page.getByRole('button', { name: 'Salvar', exact: true }).click();
   await page.getByRole('status').filter({ hasText: 'Configuração do histórico salva.' }).waitFor();
-  assert.deepEqual([state.history.retention_days, state.history.interval_hours], [90, 2]);
+  assert.deepEqual([state.history.retention_days, state.history.interval_minutes], [90, 120]);
   await page.getByLabel('Guardar por').selectOption('30');
   await page.getByRole('button', { name: 'Salvar', exact: true }).click();
   await page.getByRole('alert').filter({ hasText: 'apagará 1.234 registros' }).waitFor();
@@ -354,7 +354,7 @@ try {
   assert.equal(state.history.retention_days, 30);
   await page.getByRole('button', { name: 'Coletar agora' }).click();
   await page.getByRole('status').filter({ hasText: 'Coleta iniciada em segundo plano' }).waitFor();
-  await page.getByText(/Servidor Principal: última coleta em/).waitFor();
+  await page.getByText(/Servidor Principal: recebidos coletados em/).waitFor();
   await page.keyboard.press('Escape');
   await retention.waitFor({ state: 'detached' });
 
