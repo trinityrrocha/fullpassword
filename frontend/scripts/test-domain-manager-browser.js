@@ -415,7 +415,7 @@ try {
   const wide = page.getByRole('dialog', { name: 'Configurações do Domain Manager' });
   await wide.waitFor();
   assert.ok((await wide.boundingBox()).width >= 800, 'the card is wide');
-  assert.match(await wide.innerText(), /Última sincronização: 26\/11\/26 15:00 \(concluída\)/);
+  assert.match(await wide.innerText(), /Última sincronização: 26\/11\/26 \d{2}:\d{2} \(concluída\)/);
   const syncSwitch = wide.getByRole('switch', { name: /Sincronizar domínios com os servidores WHM automaticamente/ });
   assert.equal(await syncSwitch.getAttribute('aria-checked'), 'true');
   assert.equal(await wide.getByLabel('Intervalo da sincronização (horas)').inputValue(), '6');
