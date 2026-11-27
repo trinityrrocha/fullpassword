@@ -82,7 +82,14 @@ try {
 
   // The cards say things in words, not only in colours.
   assert.match(await text('domains_health'), /60%/); assert.match(await text('domains_health'), /6 de 10 domínios estão saudáveis/); assert.match(await text('domains_health'), /Vencidos/);
-  assert.match(await text('domain_expirations'), /venceu há 6 dias/); assert.match(await text('domain_expirations'), /em 10 dias/); assert.match(await text('domain_expirations'), /06\/12\/26/);
+  const expirations = page.locator('[data-dashboard-card="domain_expirations"]');
+  assert.deepEqual((await expirations.locator('div.uppercase > span').allTextContents()), ['Domínio', 'Vencimento', 'Restam'], 'the card has column titles');
+  assert.match(await text('domain_expirations'), /06\/12\/26/);
+  assert.equal(await expirations.locator('[aria-label="venceu há 6 dias"]').innerText(), '-6', 'the days column is only the number');
+  assert.equal(await expirations.locator('[aria-label="faltam 10 dias"]').innerText(), '10');
+  assert.equal(await expirations.getByText(/dias/).count(), 0, 'no words in the days column');
+  const columns = await expirations.locator('li').evaluateAll((items) => items.map((item) => [...item.children].map((child) => Math.round(child.getBoundingClientRect().left))));
+  assert.ok(columns.every((row) => JSON.stringify(row) === JSON.stringify(columns[0])), 'every row aligns its columns');
   assert.match(await text('security_alerts'), /3 ocorrências nos últimos 7 dias/); assert.match(await text('security_alerts'), /Login bloqueado/);
   assert.match(await text('unlock_requests'), /2 solicitações aguardando/); assert.match(await text('unlock_requests'), /reaberta/); assert.match(await text('unlock_requests'), /a mais antiga: há 3 dias/);
   assert.match(await text('spam_senders'), /spam\.example[\s\S]*40 bloqueios/); assert.match(await text('spam_senders'), /há 12 dias · 3 domínios/); assert.match(await text('spam_senders'), /não informa o país/);
