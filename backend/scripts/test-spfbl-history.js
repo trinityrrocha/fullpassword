@@ -154,10 +154,12 @@ async function run() {
   assert.deepEqual(res.body.domains_scope, ['one.example.com']); assert.deepEqual(res.body.rows.map((r) => r.detail.msgid), ['s1', 's2'], 'only this domain\'s mail');
   assert.equal(res.body.rows[1].result.label, 'Caixa cheia'); assert.equal(res.headers['Cache-Control'], 'no-store');
   assert.equal(JSON.stringify(res.body).includes('MATRIX_SECRET_SENTINEL'), false); assert.equal(sentAsked, 1);
+  assert.equal('diagnostics' in res.body, false, 'an ordinary account never gets the diagnostics');
   res = await call(controller.sentList, user('alice'), { query: { domain: 'two.example.com' } }); assert.equal(res.code, 403, 'another domain is invisible');
   res = await call(controller.sentList, user('bob')); assert.equal(res.code, 403, 'no grant, no access');
   res = await call(controller.sentList, user('alice'), { query: { period: '1y' } }); assert.equal(res.code, 422); assert.equal(res.body.code, 'SPFBL_SENT_PERIOD');
   res = await call(controller.sentList, admin, { query: { domain: 'two.example.com' } }); assert.equal(res.code, 200); assert.deepEqual(res.body.rows.map((r) => r.detail.msgid), ['s3'], 'the Super Admin sees any domain, still only that domain\'s mail');
+  res = await call(controller.sentList, admin, { query: { domain: 'one.example.com' } }); assert.deepEqual([res.body.diagnostics.returned.success, res.body.diagnostics.other_domain], [2, 1]); assert.equal(JSON.stringify(res.body.diagnostics).includes('@'), false, 'the Super Admin gets counts, not addresses');
   assert.deepEqual((await call(controller.sentList, admin, { query: { domain: 'one.example.com', status: 'failed' } })).body.rows.map((r) => r.detail.msgid), ['s2']);
   await access.revokeAccess(ids.alice);
   res = await call(controller.historyList, user('alice'), { query: { domain: 'one.example.com' } }); assert.equal(res.code, 403, 'revoked access applies on the next request');

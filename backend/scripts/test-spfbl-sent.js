@@ -84,6 +84,19 @@ async function run() {
   assert.equal(calls, 3, 'simultaneous requests for the same period share one server call'); assert.ok(one.rows.length >= two.rows.length);
   await assert.rejects(service.search({ domain: 'semservidor.test', query: {} }), { code: 'SPFBL_SENT_NO_SERVER', statusCode: 409 });
   await assert.rejects(service.search({ domain: 'exemplo.test', query: { period: 'x' } }), { code: 'SPFBL_SENT_PERIOD' });
+  // failures and deferrals: they can come with an empty "domain" and the sender only in "email"; they are matched by the sender's address
+  answer = [mk(5), mk(6, { type: 'failure', domain: '', email: 'ana@exemplo.test', sender: '', message: '550 5.1.1 User unknown', transport: '', transport_is_remote: 0, router: 'dnslookup' }),
+    mk(7, { type: 'defer', domain: '', email: 'Vendas@EXEMPLO.test', sender: '', message: '452 4.2.2 over quota' }),
+    mk(8, { type: 'failure', domain: '', email: 'x@outro.test', sender: '' }), mk(9, { type: 'failure', domain: '-system-', email: 'root@srv.outro.test', sender: 'root' }),
+    mk(11, { type: 'rejected', domain: '', email: 'spam@fora.example' }), mk(12, { type: 'failure', domain: '', email: '', sender: '' })];
+  clock += 61 * 1000;
+  const withFailures = await service.search({ domain: 'exemplo.test', query: {}, diagnostics: true });
+  assert.deepEqual(withFailures.rows.map((r) => [r.detail.msgid, r.result.label]), [['m5', 'Enviado'], ['m6', 'Destinatário inexistente'], ['m7', 'Adiado: caixa cheia']], 'failed and deferred mail with an empty "domain" is listed');
+  assert.deepEqual(withFailures.diagnostics, { returned: { success: 1, failure: 4, defer: 1, rejected: 1 }, other_type: 1, other_domain: 3, out_of_period: 0 }, 'the Super Admin sees what was returned and why records were left out');
+  assert.equal(JSON.stringify(withFailures.diagnostics).includes('@'), false, 'diagnostics carry counts only, never addresses');
+  clock += 61 * 1000; assert.equal('diagnostics' in (await service.search({ domain: 'exemplo.test', query: {} })), false, 'no diagnostics unless asked');
+  answer = [mk(2500, { type: 'defer', sendunixtime: String(sec(60 * 24 * 3)), actionunixtime: String(sec(5)) }), mk(2600, { sendunixtime: String(sec(60 * 24 * 3)), actionunixtime: String(sec(60 * 24 * 3)) })]; clock += 61 * 1000;
+  assert.deepEqual((await service.search({ domain: 'exemplo.test', query: {} })).rows.map((r) => r.detail.msgid), ['m2500'], 'a message sent days ago and retried in the period still counts; one entirely outside does not');
   // paging
   answer = Array.from({ length: 45 }, (_, i) => mk(i + 1, { msgid: `p${i + 1}` })); clock += 61 * 1000;
   const page2 = await service.search({ domain: 'exemplo.test', query: { page: '2', page_size: '20' } });
@@ -101,17 +114,21 @@ async function run() {
   const transport = async (call) => { calls2.push(call); return { status: 200, body: JSON.stringify({ metadata: { result: 1 }, data: { records: [record()] } }) }; };
   const whm = () => new WhmClient({ host: 'srv.example.com', user: 'root', token: 'TOKENSENTINEL0123456789ABCDEF' }, { transport, resolver: async () => ['93.184.216.7'] });
   const records = await whm().emailTrack({ domain: 'exemplo.test', sinceUnix: 1000, untilUnix: 2000, perType: 50 });
-  assert.equal(records.length, 1);
-  const path = calls2[0].path;
-  assert.ok(path.startsWith('/json-api/emailtrack_search?api.version=1&success=1&defer=1&failure=1&inprogress=1&deliverytype=remote&max_results_by_type=50'));
-  assert.ok(path.includes('api.filter.a.field=domain&api.filter.a.arg0=exemplo.test&api.filter.a.type=eq') && path.includes('api.filter.b.arg0=1000&api.filter.b.type=gt') && path.includes('api.filter.c.arg0=2000&api.filter.c.type=lt'));
-  assert.ok(!JSON.stringify(calls2[0].path).includes('SENTINEL'), 'the token never reaches the URL');
+  assert.equal(records.length, 2, 'both calls are made and their records joined');
+  assert.equal(calls2.length, 2);
+  const [delivered, problems] = calls2.map((call) => call.path);
+  assert.ok(delivered.startsWith('/json-api/emailtrack_search?api.version=1&success=1&defer=0&failure=0&inprogress=1&deliverytype=remote&max_results_by_type=50'), 'delivered and in progress: remote only');
+  assert.ok(delivered.includes('api.filter.a.field=domain&api.filter.a.arg0=exemplo.test&api.filter.a.type=eq') && delivered.includes('api.filter.b.field=sendunixtime&api.filter.b.arg0=1000&api.filter.b.type=gt') && delivered.includes('api.filter.c.field=sendunixtime&api.filter.c.arg0=2000&api.filter.c.type=lt'));
+  assert.ok(problems.startsWith('/json-api/emailtrack_search?api.version=1&success=0&defer=1&failure=1&inprogress=0&deliverytype=all&max_results_by_type=50'), 'deferred and failed: not limited to remote transports');
+  assert.ok(!problems.includes('field=domain'), 'deferred and failed are not filtered by the domain field (it can be empty on them)');
+  assert.ok(problems.includes('api.filter.b.field=actionunixtime&api.filter.b.arg0=1000&api.filter.b.type=gt') && problems.includes('api.filter.c.field=actionunixtime&api.filter.c.arg0=2000&api.filter.c.type=lt'), 'they are filtered by the period of the attempt');
+  assert.ok(!JSON.stringify(calls2.map((call) => call.path)).includes('SENTINEL'), 'the token never reaches the URL');
   assert.equal(calls2[0].headers.Authorization.startsWith('whm root:'), true);
   for (const bad of [{ domain: 'a b', sinceUnix: 1, untilUnix: 2 }, { domain: 'exemplo.test;x=1', sinceUnix: 1, untilUnix: 2 }, { domain: 'exemplo.test', sinceUnix: 5, untilUnix: 2 },
     { domain: 'exemplo.test', sinceUnix: 'x', untilUnix: 2 }, { domain: 'exemplo.test', sinceUnix: 1, untilUnix: 2, perType: 0 }, { domain: 'exemplo.test', sinceUnix: 1, untilUnix: 2, perType: 9999 }, { domain: 'exemplo.test&api.version=2', sinceUnix: 1, untilUnix: 2 }]) {
     await assert.rejects(whm().emailTrack(bad), WhmError, JSON.stringify(bad));
   }
-  assert.equal(calls2.length, 1, 'an invalid request never reaches the server');
+  assert.equal(calls2.length, 2, 'an invalid request never reaches the server (still only the two calls above)');
   const noRecords = new WhmClient({ host: 'srv.example.com', user: 'root', token: 'TOKENSENTINEL0123456789ABCDEF' }, { transport: async () => ({ status: 200, body: JSON.stringify({ metadata: { result: 1 }, data: {} }) }), resolver: async () => ['93.184.216.7'] });
   await assert.rejects(noRecords.emailTrack({ domain: 'exemplo.test', sinceUnix: 1, untilUnix: 2 }), { code: 'WHM_FORMAT' });
   await assert.rejects(whm().call('addpkg'), { code: 'WHM_FUNCTION_FORBIDDEN' });

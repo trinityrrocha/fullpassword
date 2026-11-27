@@ -94,6 +94,13 @@ export default function SpfblSent() {
 
       {error && <p role="alert" className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>}
       {data.truncated && <p role="status" className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">O servidor devolveu o limite de registros de algum tipo: pode haver mais e-mails no período. Reduza o período para ver todos.</p>}
+      {data.diagnostics && (
+        <p className="text-xs text-slate-500" data-sent-diagnostics>
+          Diagnóstico (só para o Super Admin): o WHM devolveu {formatNumber(data.diagnostics.returned?.success || 0)} entregues, {formatNumber(data.diagnostics.returned?.defer || 0)} adiados, {formatNumber(data.diagnostics.returned?.failure || 0)} falhas
+          {data.diagnostics.returned?.inprogress ? `, ${formatNumber(data.diagnostics.returned.inprogress)} em andamento` : ''}{data.diagnostics.returned?.rejected ? ` e ${formatNumber(data.diagnostics.returned.rejected)} recusados na chegada` : ''}.
+          Ficaram de fora {formatNumber(data.diagnostics.other_domain)} de outros domínios, {formatNumber(data.diagnostics.out_of_period)} fora do período e {formatNumber(data.diagnostics.other_type)} que não são envios.
+        </p>
+      )}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p role="status" className="text-sm text-slate-700"><strong>{formatNumber(data.filtered_total)}</strong> {data.filtered_total === 1 ? 'registro' : 'registros'} com os filtros · <strong>{formatNumber(data.period_total)}</strong> do domínio no período{loading ? ' · atualizando…' : ''}</p>
         <button type="button" onClick={refresh} disabled={loading} className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60">Atualizar</button>

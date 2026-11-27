@@ -47,7 +47,14 @@ excedido, Bloqueado como spam, Servidor de destino sem resposta, Falha de TLS, M
 …"); o que não for reconhecido aparece como "Falha na entrega (código)" e o texto completo fica em *Detalhes*. Essa tradução é heurística,
 feita a partir de textos conhecidos: **não foi validada com falhas reais do servidor** e deve ser ajustada quando houver exemplos.
 - **Escopo**: o mesmo do histórico recebido (a conta só consulta os domínios liberados para ela; o Super Admin, todos). O domínio é o do
-  remetente (`domain` do registro); só entregas remotas (`deliverytype=remote`); mensagens recusadas na chegada (`type: rejected`) não entram.
+  remetente: o campo `domain` do registro e, quando ele vem vazio, o domínio do endereço do remetente (`email`, depois `sender`).
+  Mensagens recusadas na chegada (`type: rejected`) não entram.
+- **Duas consultas ao WHM** (porque os registros não têm os mesmos campos): *entregues e em andamento* são filtradas no servidor por
+  domínio e período, só entregas remotas; *adiadas e com falha* **não** são filtradas por `domain` nem por entrega remota (nelas o `domain`
+  pode vir vazio e uma falha na fase de roteamento nunca chega a um transporte remoto), só pelo período da tentativa, e o backend fica com as
+  que pertencem ao domínio. Um registro vale no período se foi enviado ou tentado nele (uma mensagem adiada há dias e reenviada hoje aparece).
+- **Diagnóstico (só Super Admin)**: a tela mostra uma linha com a contagem do que o WHM devolveu por tipo e quantos registros ficaram de
+  fora (outro domínio, fora do período, não é envio). Só números, nunca endereços.
 - **Filtros**: domínio, período (24 horas, 3, 7 ou 30 dias), resultado, busca por remetente e/ou destinatário; 20, 40 ou 100 por página.
 - **Limites**: o servidor filtra por domínio e período e devolve, por tipo (entregue, adiado, falha), no máximo 2000 registros; se algum tipo
   chegar ao limite a tela avisa que pode haver mais. A resposta fica guardada por 1 minuto (trocar filtro ou página não consulta o WHM de

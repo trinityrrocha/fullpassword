@@ -364,7 +364,7 @@ const sentList = guarded('e-mails enviados', async (req, res) => {
   const scope = await scopeDomains(req.user);
   if (scope.length === 0) return res.status(200).json({ domain: null, domains_scope: [], rows: [], filtered_total: 0, period_total: 0, page: 1, pages: 1, page_size: sent.PAGE_SIZES[0], filters: { period: '24h', status: 'all', by: 'any', q: '' }, truncated: false });
   const domain = requireDomain(scope, req.query.domain ?? scope[0]);
-  const result = await sentService.search({ domain, query: req.query });
+  const result = await sentService.search({ domain, query: req.query, diagnostics: isSuperAdmin(req.user) });
   res.setHeader('Cache-Control', 'no-store');
   return res.status(200).json({ domain, domains_scope: scope, ...result });
 });
