@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import { formatDateTime, formatDay } from '../../utils/spfbl';
-import { CARD_NEEDS, ago, backupTone, formatBytes, healthPercent, mailSegments, providerLabel, seenFor } from '../../utils/dashboard';
+import { CARD_NEEDS, ago, expiryTone, backupTone, formatBytes, healthPercent, mailSegments, providerLabel, seenFor } from '../../utils/dashboard';
 
 const TONE = Object.freeze({
   ok: { text: 'text-emerald-700', chip: 'bg-emerald-50 text-emerald-800 ring-emerald-200', dot: 'bg-emerald-500', bar: 'bg-emerald-500' },
@@ -22,7 +22,7 @@ const Bar = ({ segments, total }) => {
 };
 const Chip = ({ tone = 'muted', children }) => <span className={`inline-flex shrink-0 items-center whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${TONE[tone].chip}`}>{children}</span>;
 const Stat = ({ label, value, tone = 'muted', hint }) => (
-  <div className="rounded-lg bg-slate-50 px-3 py-2 dark:bg-slate-800/60" title={hint}>
+  <div className="rounded-lg bg-slate-900/[0.04] px-3 py-2 dark:bg-white/[0.06]" title={hint}>
     <dd className={`text-2xl font-semibold tabular-nums leading-tight ${value > 0 && tone !== 'muted' ? TONE[tone].text : 'text-slate-900 dark:text-slate-100'}`}>{value}</dd>
     <dt className="text-xs text-slate-600 dark:text-slate-400">{label}</dt>
   </div>
@@ -61,7 +61,7 @@ function DomainsHealth({ data }) {
           return (
             <div key={kind} className="flex items-center gap-2 text-xs" title={`${label}: ${seg.ok} válidos, ${seg.warning} com aviso, ${seg.bad} com falha ou ausentes, ${seg.unknown} sem verificação`}>
               <span className="w-12 font-medium text-slate-700 dark:text-slate-300">{label}</span>
-              <span className="flex h-2 flex-1 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800" aria-hidden="true">
+              <span className="flex h-2.5 flex-1 overflow-hidden rounded-[3px] bg-slate-200/70 dark:bg-white/10" aria-hidden="true">
                 <Bar segments={[['ok', seg.ok], ['warning', seg.warning], ['danger', seg.bad]]} total={total} />
               </span>
               <span className="w-24 text-right tabular-nums text-slate-600 dark:text-slate-400">{seg.ok} ok · {seg.warning + seg.bad} atenção</span>
@@ -74,6 +74,8 @@ function DomainsHealth({ data }) {
 }
 
 // Three aligned columns: the domain, its date and the days left (just the number, in a coloured pill: the column title says the rest).
+// The days left are plain numbers, coloured by how close the date is: green, orange up to 30 days, red below 15.
+const EXPIRY_TEXT = Object.freeze({ ok: 'text-emerald-600 dark:text-emerald-400', warning: 'text-orange-600 dark:text-orange-400', danger: 'text-red-600 dark:text-red-400' });
 const EXPIRY_COLUMNS = 'grid grid-cols-[minmax(0,1fr)_6rem_3.5rem] items-center gap-x-3';
 function DomainExpirations({ data }) {
   if (data.items.length === 0) return <Empty>Nenhum domínio com data de vencimento.</Empty>;
@@ -84,13 +86,13 @@ function DomainExpirations({ data }) {
       </div>
       <ul className="divide-y divide-slate-100 dark:divide-slate-800">
         {data.items.map((item) => {
-          const tone = item.days_left < 0 ? 'danger' : item.days_left <= 30 ? 'warning' : 'ok';
+          const tone = expiryTone(item.days_left);
           const spoken = item.days_left < 0 ? `venceu há ${-item.days_left} ${item.days_left === -1 ? 'dia' : 'dias'}` : item.days_left === 0 ? 'vence hoje' : `faltam ${item.days_left} ${item.days_left === 1 ? 'dia' : 'dias'}`;
           return (
             <li key={item.name} className={`${EXPIRY_COLUMNS} py-1.5 text-sm`}>
               <span className="min-w-0 truncate font-medium text-slate-900 dark:text-slate-100" title={item.name}>{item.name}</span>
               <span className="text-xs tabular-nums text-slate-600 dark:text-slate-400">{formatDay(item.expires_on)}</span>
-              <span className="flex justify-center"><span title={spoken} aria-label={spoken} className={`inline-flex min-w-9 items-center justify-center rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums ring-1 ring-inset ${TONE[tone].chip}`}><span aria-hidden="true">{item.days_left}</span></span></span>
+              <span title={spoken} aria-label={spoken} className={`text-center text-sm font-semibold tabular-nums ${EXPIRY_TEXT[tone]}`}><span aria-hidden="true">{item.days_left}</span></span>
             </li>
           );
         })}
@@ -146,7 +148,7 @@ function SpamSenders({ data }) {
             <span className="shrink-0 tabular-nums text-slate-700 dark:text-slate-300">{item.blocked} <span className="text-xs text-slate-500">bloqueios</span></span>
           </div>
           <div className="mt-1 flex items-center gap-2">
-            <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800" aria-hidden="true"><Bar segments={[['bad', Math.max(item.blocked, max * 0.04)]]} total={max} /></span>
+            <span className="h-2 flex-1 overflow-hidden rounded-[3px] bg-slate-200/70 dark:bg-white/10" aria-hidden="true"><Bar segments={[['bad', Math.max(item.blocked, max * 0.04)]]} total={max} /></span>
             <span className="shrink-0 text-xs text-slate-500" title={`Primeiro: ${formatDateTime(item.first_at)} · Último: ${formatDateTime(item.last_at)}`}>há {seenFor(item.first_at, item.last_at)} · {item.targets} {item.targets === 1 ? 'domínio' : 'domínios'}</span>
           </div>
         </li>

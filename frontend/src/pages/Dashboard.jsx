@@ -79,7 +79,9 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="mx-auto max-w-7xl space-y-4 px-4 pb-4 pt-3 md:px-6 md:pb-6">
+    <div className="relative isolate mx-auto max-w-7xl space-y-4 px-4 pb-4 pt-3 md:px-6 md:pb-6">
+      {/* A soft colour wash behind the translucent cards, so the transparency is visible. */}
+      <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[30rem] bg-[radial-gradient(28%_75%_at_28%_0%,rgba(99,102,241,0.16),transparent),radial-gradient(26%_75%_at_78%_0%,rgba(14,165,233,0.12),transparent)] dark:bg-[radial-gradient(28%_75%_at_28%_0%,rgba(99,102,241,0.24),transparent),radial-gradient(26%_75%_at_78%_0%,rgba(14,165,233,0.18),transparent)]" />
       <header className="flex flex-wrap items-center justify-between gap-3">
         <PageTitle icon={LayoutDashboard} description="Resumo do que precisa de atenção: domínios, segurança, bloqueios de e-mail e backups. Arraste os cartões para reorganizar.">Dashboard</PageTitle>
         <div className="flex items-center gap-2">
@@ -105,9 +107,9 @@ export default function Dashboard() {
             const hint = cardHint(id);
             return (
               <li key={id} data-dashboard-card={id} onDragOver={(event) => { if (dragId) { event.preventDefault(); setOverId(id); } }} onDrop={(event) => onDrop(event, id)}
-                className={`flex min-h-64 flex-col rounded-xl border bg-white shadow-sm transition-shadow dark:bg-slate-900 ${overId === id && dragId !== id ? 'border-indigo-400 ring-2 ring-indigo-200' : 'border-slate-200 dark:border-slate-800'} ${dragId === id ? 'opacity-50' : ''}`}>
+                className={`flex min-h-64 flex-col rounded-xl border bg-white/60 shadow-sm backdrop-blur-md transition-shadow dark:bg-slate-900/50 ${overId === id && dragId !== id ? 'border-indigo-400 ring-2 ring-indigo-200' : 'border-white/70 dark:border-white/10'} ${dragId === id ? 'opacity-50' : ''}`}>
                 <div draggable onDragStart={(event) => { setDragId(id); event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', id); event.dataTransfer.setDragImage(event.currentTarget.closest('li'), 16, 16); }} onDragEnd={() => { setDragId(null); setOverId(null); }}
-                  className="flex cursor-grab items-center gap-2 border-b border-slate-100 px-3 py-2.5 active:cursor-grabbing dark:border-slate-800">
+                  className="flex cursor-grab items-center gap-2 border-b border-slate-900/5 px-3 py-2.5 active:cursor-grabbing dark:border-white/10">
                   <button type="button" onKeyDown={(event) => onHandleKey(event, id)} aria-label={`Mover ${CARD_TITLES[id]}. Use as setas do teclado.`} title="Arraste para mover" className="rounded p-0.5 text-slate-400 hover:text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600">
                     <GripVertical className="h-4 w-4" aria-hidden="true" />
                   </button>

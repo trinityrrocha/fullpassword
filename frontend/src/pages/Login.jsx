@@ -7,6 +7,9 @@ import api from '../services/api';
 import RecoveryCodesPanel from '../components/RecoveryCodesPanel';
 import usePasswordPolicy from '../hooks/usePasswordPolicy';
 
+// Everyone lands on the dashboard after signing in; an account without it (not a Super Admin) is sent on to the clients by the route guard.
+const AFTER_LOGIN = '/dashboard';
+
 export default function Login() {
   const {policy,error:policyError,reload:reloadPolicy}=usePasswordPolicy();
   const [email, setEmail] = useState('');
@@ -74,7 +77,7 @@ export default function Login() {
       const result = await login(email, submittedPassword);
       
       if (result.success) {
-        navigate('/');
+        navigate(AFTER_LOGIN);
       } else if (result.mfa) {
         setMfaFlow(result.mfa);
         setMfaCode('');
@@ -101,7 +104,7 @@ export default function Login() {
       if (result.recoveryCodes?.length) {
         setRecoveryCodes(result.recoveryCodes);
       } else {
-        navigate('/');
+        navigate(AFTER_LOGIN);
       }
     } catch {
       setError('Erro ao conectar com o servidor.');
@@ -114,7 +117,7 @@ export default function Login() {
     setRecoveryCodes([]);
     setMfaCode('');
     setMfaFlow(null);
-    navigate('/');
+    navigate(AFTER_LOGIN);
   };
 
   return (
