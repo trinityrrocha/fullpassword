@@ -117,18 +117,18 @@ const createService = ({ credentialsFor, serverIdOf, serverIdsOf, allServers, cr
   const cache = new Map();
   const inFlight = new Map();
 
-  // What one WHM server answered for a period (one domain, or every domain of the server when `domain` is null), shared for a minute. The
-  // period start is rounded to 5 minutes so that repeated page loads use the same entry.
-  const fetchServer = async (serverId, domain, seconds) => {
+  // What one WHM server answered for a period (every domain of the server), shared for a minute. The period start is rounded to 5 minutes
+  // so that repeated page loads use the same entry. One domain or all of them share this same read: the choice is made afterwards, here.
+  const fetchServer = async (serverId, seconds) => {
     const nowSec = Math.floor(now() / 1000);
     const until = Math.ceil((nowSec + 1) / 300) * 300;
     const since = Math.floor((nowSec - seconds) / 300) * 300;
-    const key = `${serverId}|${domain || '*'}|${since}`;
+    const key = `${serverId}|${since}`;
     const hit = cache.get(key);
     if (hit && now() - hit.at < TTL_MS) return { ...hit, cached: true };
     if (inFlight.has(key)) return inFlight.get(key);
     const promise = (async () => {
-      const { records: raw, truncated, stats = [] } = await createClient(await credentialsFor(serverId)).emailTrack({ domain, sinceUnix: since, untilUnix: until, maxPerKind: MAX_PER_KIND });
+      const { records: raw, truncated, stats = [] } = await createClient(await credentialsFor(serverId)).emailTrack({ sinceUnix: since, untilUnix: until, maxPerKind: MAX_PER_KIND });
       const counts = {};
       for (const record of raw) counts[record?.type] = (counts[record?.type] || 0) + 1;
       const sources = {};
@@ -139,8 +139,6 @@ const createService = ({ credentialsFor, serverIdOf, serverIdsOf, allServers, cr
       for (const item of raw) {
         const record = normalizeRecord(item);
         if (!record) { diagnostics.other_type += 1; continue; }
-        // When one domain is asked the server is asked to filter, but this checks again: a server that ignores a filter cannot leak other domains' mail.
-        if (domain && record.sender_domain !== domain) { diagnostics.other_domain += 1; continue; }
         // In the period when it was sent OR when it was last attempted (a message deferred days ago and retried now still counts).
         const inPeriod = (record.sent_unix > since && record.sent_unix < until) || (record.action_unix > since && record.action_unix < until);
         if (!inPeriod) { diagnostics.out_of_period += 1; continue; }
@@ -178,7 +176,7 @@ const createService = ({ credentialsFor, serverIdOf, serverIdsOf, allServers, cr
     if (domain === ALL) {
       const targets = admin ? await allServers() : [...(await serverIdsOf(scope))].map((id) => ({ id, name: id }));
       if (targets.length === 0) throw new SentError('Nenhum servidor WHM cadastrado para consultar os e-mails enviados.', 'SPFBL_SENT_NO_SERVER', 409);
-      const settled = await Promise.allSettled(targets.map((server) => fetchServer(server.id, null, filters.seconds)));
+      const settled = await Promise.allSettled(targets.map((server) => fetchServer(server.id, filters.seconds)));
       parts = []; failures = [];
       settled.forEach((result, index) => {
         if (result.status === 'fulfilled') parts.push({ ...result.value, server: targets[index].name });
@@ -189,7 +187,10 @@ const createService = ({ credentialsFor, serverIdOf, serverIdsOf, allServers, cr
     } else {
       const serverId = await serverIdOf(domain);
       if (!serverId) throw new SentError('Este domínio está sem servidor WHM cadastrado: não há como consultar os e-mails enviados.', 'SPFBL_SENT_NO_SERVER', 409);
-      parts = [{ ...(await fetchServer(serverId, domain, filters.seconds)), server: null }];
+      const read = await fetchServer(serverId, filters.seconds);
+      // One domain: the read holds every domain of the server, so the others are set aside here (and counted for the diagnostics).
+      const mine = read.records.filter((record) => record.sender_domain === domain);
+      parts = [{ ...read, records: mine, diagnostics: { ...read.diagnostics, other_domain: read.records.length - mine.length }, server: null }];
     }
     const scopeSet = new Set(scope);
     const seen = new Set();

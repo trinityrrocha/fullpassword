@@ -198,9 +198,11 @@ class WhmClient {
     return { domains: list, skipped };
   }
 
-  // Delivery records of the mail SENT (emailtrack_search, WHM API 1), for one domain or for every domain of the server (domain = null).
+  // Delivery records of the mail SENT by every domain of the server (emailtrack_search, WHM API 1). The caller keeps the ones it wants: the
+  // request carries NO domain filter (a server-side "domain eq X" filter returned nothing on a real server, while the same request without it
+  // returned every domain; the period filter, the order and the chunking were checked on that server).
   // Two kinds of call, because the two kinds of record do not carry the same fields:
-  //  - delivered / in progress: filtered in the server by period (and by sender domain, when one is asked); remote deliveries only;
+  //  - delivered / in progress: filtered in the server by period of the delivery; remote deliveries only;
   //  - deferred / failed: NOT filtered by "domain" or by remote delivery (on them "domain" can be empty, the sender is only in "email", and a
   //    failure at the routing stage never reaches a remote transport), only by the period of the attempt.
   // The function's own limit (max_results_by_type) is applied BEFORE the filters, so any limit would let busy senders (system mail, backups)
@@ -208,19 +210,18 @@ class WhmClient {
   // (newest first) and by chunking: the records come in chunks of 500 until a chunk is short or the cap per kind is reached.
   // Every value is validated here. Contract (cPanel API docs): data.records[] {type: success|defer|failure|inprogress, sender, email,
   // recipient, sendunixtime, actionunixtime, message, ...}.
-  async emailTrack({ domain = null, sinceUnix, untilUnix, maxPerKind = 5000 }) {
-    if (domain !== null && !DOMAIN_PATTERN.test(String(domain))) throw new WhmError('Domínio inválido.', 'WHM_FORMAT', 422);
+  async emailTrack({ sinceUnix, untilUnix, maxPerKind = 5000 }) {
     const since = Number(sinceUnix);
     const until = Number(untilUnix);
     const cap = Number(maxPerKind);
     if (!Number.isInteger(since) || !Number.isInteger(until) || since < 0 || until <= since || !Number.isInteger(cap) || cap < EMAIL_CHUNK || cap > 20000) {
       throw new WhmError('Período inválido.', 'WHM_FORMAT', 422);
     }
-    const filters = (field, extra = '') => `&api.filter.enable=1${extra}&api.filter.b.field=${field}&api.filter.b.arg0=${since}&api.filter.b.type=gt&api.filter.c.field=${field}&api.filter.c.arg0=${until}&api.filter.c.type=lt`;
+    const period = (field) => `&api.filter.enable=1&api.filter.a.field=${field}&api.filter.a.arg0=${since}&api.filter.a.type=gt&api.filter.b.field=${field}&api.filter.b.arg0=${until}&api.filter.b.type=lt`;
     const sorted = (field) => `&api.sort.enable=1&api.sort.a.field=${field}&api.sort.a.method=numeric&api.sort.a.reverse=1`;
     const kinds = [
-      { name: 'delivered', query: `&success=1&defer=0&failure=0&inprogress=1&deliverytype=remote&max_results_by_type=0${filters('sendunixtime', domain ? `&api.filter.a.field=domain&api.filter.a.arg0=${domain}&api.filter.a.type=eq` : '')}${sorted('sendunixtime')}` },
-      { name: 'problems', query: `&success=0&defer=1&failure=1&inprogress=0&deliverytype=all&max_results_by_type=0${filters('actionunixtime')}${sorted('actionunixtime')}` }
+      { name: 'delivered', query: `&success=1&defer=0&failure=0&inprogress=1&deliverytype=remote&max_results_by_type=0${period('sendunixtime')}${sorted('sendunixtime')}` },
+      { name: 'problems', query: `&success=0&defer=1&failure=1&inprogress=0&deliverytype=all&max_results_by_type=0${period('actionunixtime')}${sorted('actionunixtime')}` }
     ];
     const started = this.now();
     const records = [];

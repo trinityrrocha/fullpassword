@@ -70,7 +70,7 @@ async function run() {
   assert.equal(calls, 1);
   assert.deepEqual(first.rows.map((r) => r.detail.msgid), ['m5', 'm10', 'm20', 'm50'], 'newest first; other domains, refused-on-arrival and out-of-period records are dropped');
   assert.deepEqual([first.filtered_total, first.period_total, first.page, first.pages, first.truncated, first.cached, first.servers_failed], [4, 4, 1, 1, false, false, 0]);
-  assert.deepEqual([seen[0].domain, seen[0].maxPerKind, seen[0].untilUnix > seen[0].sinceUnix, (seen[0].untilUnix - seen[0].sinceUnix) >= 86400], ['exemplo.test', sent.MAX_PER_KIND, true, true], 'the server is asked for this domain and this period');
+  assert.deepEqual([seen[0].domain, seen[0].maxPerKind, seen[0].untilUnix > seen[0].sinceUnix, (seen[0].untilUnix - seen[0].sinceUnix) >= 86400], [undefined, sent.MAX_PER_KIND, true, true], 'the server is asked for the period only: the domain is chosen afterwards, here');
   const failed = await service.search({ domain: 'exemplo.test', query: { status: 'failed' } });
   assert.deepEqual([failed.rows.map((r) => r.result.label), failed.cached, calls], [['Destinatário inexistente'], true, 1], 'changing a filter does not call the server again');
   assert.equal((await service.search({ domain: 'exemplo.test', query: { status: 'deferred' } })).rows[0].result.label, 'Adiado: caixa cheia');
@@ -128,7 +128,7 @@ async function run() {
   clock += 61 * 1000;
   const everything = await multi.search({ domain: sent.ALL, scope: ['a.test', 'b.test'], admin: true, query: { page_size: '100' }, diagnostics: true });
   assert.deepEqual(asked.map((a) => a[0]).sort(), ['srv-1', 'srv-2', 'srv-3'], 'the Super Admin reads every registered server');
-  assert.ok(asked.every((a) => a[1] === null), 'all domains: no domain filter in the request');
+  assert.ok(asked.every((a) => a[1] === undefined), 'no domain filter in the request');
   assert.deepEqual(everything.rows.map((r) => r.detail.msgid).sort(), ['a.test-10', 'a.test-5', 'a.test-6', 'b.test-9', 'c.test-11', 'outro.test-7', 'sys-8'].sort(), 'the Super Admin gets every domain, system mail and domains outside the list included, without duplicates');
   assert.equal(everything.rows.find((r) => r.detail.msgid === 'a.test-6').result.label, 'Destinatário inexistente');
   assert.deepEqual(everything.rows.map((r) => r.server).filter(Boolean).sort().slice(0, 1), ['Servidor A'], 'each row names its server');
@@ -159,51 +159,47 @@ async function run() {
     return { status: 200, body: JSON.stringify({ metadata: { result: 1 }, data: { records: rows.slice(start - 1, start - 1 + size) } }) };
   };
   const whm = (overrides = {}, options = {}) => new WhmClient({ host: 'srv.example.com', user: 'root', token: 'TOKENSENTINEL0123456789ABCDEF', ...overrides }, { transport, resolver: async () => ['93.184.216.7'], ...options });
-  const read = await whm().emailTrack({ domain: 'exemplo.test', sinceUnix: 1000, untilUnix: 2000 });
+  const read = await whm().emailTrack({ sinceUnix: 1000, untilUnix: 2000 });
   assert.deepEqual([read.records.length, read.truncated], [1230, false], 'every record is read, in chunks, for both kinds of call');
   assert.equal(paths.length, 4, '1200 delivered = 3 chunks (500, 500, 200), 30 problems = 1');
   const [d1, d2, d3, p1] = paths;
   assert.ok(d1.startsWith('/json-api/emailtrack_search?api.version=1&success=1&defer=0&failure=0&inprogress=1&deliverytype=remote&max_results_by_type=0'), 'delivered: remote only, and NO limit of results (it would be applied before the filters)');
-  assert.ok(d1.includes('api.filter.a.field=domain&api.filter.a.arg0=exemplo.test&api.filter.a.type=eq') && d1.includes('api.filter.b.field=sendunixtime&api.filter.b.arg0=1000&api.filter.b.type=gt') && d1.includes('api.filter.c.field=sendunixtime&api.filter.c.arg0=2000&api.filter.c.type=lt'));
+  assert.ok(d1.includes('api.filter.enable=1&api.filter.a.field=sendunixtime&api.filter.a.arg0=1000&api.filter.a.type=gt&api.filter.b.field=sendunixtime&api.filter.b.arg0=2000&api.filter.b.type=lt'), 'the period, as two filters named a and b');
+  assert.ok(!paths.join(' ').includes('field=domain'), 'no domain filter in any request (it returned nothing on a real server)');
   assert.ok(d1.includes('api.sort.enable=1&api.sort.a.field=sendunixtime&api.sort.a.method=numeric&api.sort.a.reverse=1'), 'newest first');
   assert.deepEqual([d1, d2, d3].map((path) => /api\.chunk\.start=(\d+)/.exec(path)[1]), ['1', '501', '1001']); assert.ok(d1.includes('api.chunk.size=500'));
   assert.ok(p1.startsWith('/json-api/emailtrack_search?api.version=1&success=0&defer=1&failure=1&inprogress=0&deliverytype=all&max_results_by_type=0'), 'deferred and failed: not limited to remote transports, no limit of results');
-  assert.ok(!p1.includes('field=domain'), 'deferred and failed are not filtered by the domain field (it can be empty on them)');
-  assert.ok(p1.includes('api.filter.b.field=actionunixtime&api.filter.b.arg0=1000&api.filter.b.type=gt') && p1.includes('api.sort.a.field=actionunixtime'), 'they are filtered and ordered by the attempt');
+  assert.ok(p1.includes('api.filter.a.field=actionunixtime&api.filter.a.arg0=1000&api.filter.a.type=gt') && p1.includes('api.sort.a.field=actionunixtime'), 'they are filtered and ordered by the attempt');
   assert.ok(!JSON.stringify(paths).includes('SENTINEL'), 'the token never reaches the URL');
-  paths.length = 0;
-  const allDomains = await whm().emailTrack({ domain: null, sinceUnix: 1000, untilUnix: 2000 });
-  assert.equal(allDomains.records.length, 1230); assert.ok(!paths[0].includes('field=domain'), 'all domains: no domain filter');
   paths.length = 0; fixtures.delivered = Array.from({ length: 9000 }, (_, i) => record({ msgid: `d${i}` }));
-  const capped = await whm().emailTrack({ domain: null, sinceUnix: 1000, untilUnix: 2000, maxPerKind: 1000 });
+  const capped = await whm().emailTrack({ sinceUnix: 1000, untilUnix: 2000, maxPerKind: 1000 });
   assert.deepEqual([capped.records.length, capped.truncated], [1030, true], 'a read stops at its cap and says so');
   fixtures.delivered = Array.from({ length: 500 }, (_, i) => record({ msgid: `d${i}` })); paths.length = 0;
-  assert.equal((await whm().emailTrack({ domain: 'exemplo.test', sinceUnix: 1000, untilUnix: 2000 })).records.length, 530, 'a read ending exactly on a chunk asks once more and finds it empty');
-  for (const bad of [{ domain: 'a b', sinceUnix: 1, untilUnix: 2 }, { domain: 'exemplo.test;x=1', sinceUnix: 1, untilUnix: 2 }, { domain: 'exemplo.test', sinceUnix: 5, untilUnix: 2 },
-    { domain: 'exemplo.test', sinceUnix: 'x', untilUnix: 2 }, { domain: 'exemplo.test', sinceUnix: 1, untilUnix: 2, maxPerKind: 10 }, { domain: 'exemplo.test', sinceUnix: 1, untilUnix: 2, maxPerKind: 99999 }, { domain: 'exemplo.test&api.version=2', sinceUnix: 1, untilUnix: 2 }]) {
+  assert.equal((await whm().emailTrack({ sinceUnix: 1000, untilUnix: 2000 })).records.length, 530, 'a read ending exactly on a chunk asks once more and finds it empty');
+  for (const bad of [{ sinceUnix: 5, untilUnix: 2 }, { sinceUnix: 'x', untilUnix: 2 }, { sinceUnix: -1, untilUnix: 2 }, { sinceUnix: 1, untilUnix: 2, maxPerKind: 10 }, { sinceUnix: 1, untilUnix: 2, maxPerKind: 99999 }, { sinceUnix: 1.5, untilUnix: 2 }]) {
     paths.length = 0;
     await assert.rejects(whm().emailTrack(bad), WhmError, JSON.stringify(bad));
     assert.equal(paths.length, 0, 'an invalid request never reaches the server');
   }
   const noRecords = whm({}, { transport: async () => ({ status: 200, body: JSON.stringify({ metadata: { result: 1 }, data: {} }) }) });
-  await assert.rejects(noRecords.emailTrack({ domain: 'exemplo.test', sinceUnix: 1, untilUnix: 2 }), { code: 'WHM_FORMAT' });
+  await assert.rejects(noRecords.emailTrack({ sinceUnix: 1, untilUnix: 2 }), { code: 'WHM_FORMAT' });
   await assert.rejects(whm().call('addpkg'), { code: 'WHM_FUNCTION_FORBIDDEN' });
   const refused = whm({}, { transport: async () => ({ status: 403, body: '{}' }) });
-  await assert.rejects(refused.emailTrack({ domain: 'exemplo.test', sinceUnix: 1, untilUnix: 2 }), (error) => error.code === 'WHM_AUTH_REFUSED' && /emailtrack_search/.test(error.message), 'a token without permission is named');
+  await assert.rejects(refused.emailTrack({ sinceUnix: 1, untilUnix: 2 }), (error) => error.code === 'WHM_AUTH_REFUSED' && /emailtrack_search/.test(error.message), 'a token without permission is named');
   // a long chunked read gets a fresh time limit per call, but not an unlimited one
   let tick = 0; const slow = whm({}, { now: () => { tick += 30000; return tick; }, transport });
-  await assert.rejects(slow.emailTrack({ domain: null, sinceUnix: 1, untilUnix: 2 }), { code: 'WHM_TIMEOUT' }, 'the whole read has a ceiling');
+  await assert.rejects(slow.emailTrack({ sinceUnix: 1, untilUnix: 2 }), { code: 'WHM_TIMEOUT' }, 'the whole read has a ceiling');
   // one kind failing keeps what the other returned and says so; both failing reports the reason
   const half = (failKind) => whm({}, { transport: async (call) => {
     const isProblems = new URLSearchParams(call.path.split('?')[1]).get('success') === '0';
     if ((failKind === 'problems' && isProblems) || (failKind === 'delivered' && !isProblems) || failKind === 'both') return { status: 502, body: '{}' };
     return { status: 200, body: JSON.stringify({ metadata: { result: 1 }, data: { records: [record({ msgid: isProblems ? 'p' : 'd' })] } }) };
   } });
-  const onlyDelivered = await half('problems').emailTrack({ domain: null, sinceUnix: 1, untilUnix: 2 });
+  const onlyDelivered = await half('problems').emailTrack({ sinceUnix: 1, untilUnix: 2 });
   assert.deepEqual([onlyDelivered.records.map((r) => r.msgid), onlyDelivered.stats.map((st) => [st.kind, st.records, st.error])], [['d'], [['delivered', 1, null], ['problems', 0, 'WHM_HTTP']]], 'a failed second call keeps the first');
-  const onlyProblems = await half('delivered').emailTrack({ domain: null, sinceUnix: 1, untilUnix: 2 });
+  const onlyProblems = await half('delivered').emailTrack({ sinceUnix: 1, untilUnix: 2 });
   assert.deepEqual(onlyProblems.records.map((r) => r.msgid), ['p']);
-  await assert.rejects(half('both').emailTrack({ domain: null, sinceUnix: 1, untilUnix: 2 }), { code: 'WHM_HTTP' }, 'both failing is an error with its reason');
+  await assert.rejects(half('both').emailTrack({ sinceUnix: 1, untilUnix: 2 }), { code: 'WHM_HTTP' }, 'both failing is an error with its reason');
   assert.ok(onlyDelivered.stats.every((st) => Number.isInteger(st.ms) && Number.isInteger(st.chunks)));
   const partialService = sent.createService({ credentialsFor: async () => ({}), serverIdOf: async () => 'srv-1', now: () => clock,
     createClient: () => ({ emailTrack: async () => ({ records: [mk(5)], truncated: false, stats: [{ kind: 'delivered', chunks: 1, records: 1, ms: 12, error: null }, { kind: 'problems', chunks: 0, records: 0, ms: 20000, error: 'WHM_TIMEOUT' }] }) }) });
