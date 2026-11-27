@@ -73,16 +73,29 @@ function DomainsHealth({ data }) {
   );
 }
 
+// Three aligned columns: the domain, its date and the days left (just the number, in a coloured pill: the column title says the rest).
+const EXPIRY_COLUMNS = 'grid grid-cols-[minmax(0,1fr)_6rem_3.5rem] items-center gap-x-3';
 function DomainExpirations({ data }) {
   if (data.items.length === 0) return <Empty>Nenhum domínio com data de vencimento.</Empty>;
   return (
-    <ul className="divide-y divide-slate-100 dark:divide-slate-800">
-      {data.items.map((item) => {
-        const tone = item.days_left < 0 ? 'danger' : item.days_left <= 30 ? 'warning' : 'ok';
-        const text = item.days_left < 0 ? `venceu há ${-item.days_left} ${item.days_left === -1 ? 'dia' : 'dias'}` : item.days_left === 0 ? 'vence hoje' : `em ${item.days_left} ${item.days_left === 1 ? 'dia' : 'dias'}`;
-        return <Row key={item.name}><span className="min-w-0 truncate font-medium text-slate-900 dark:text-slate-100" title={item.name}>{item.name}</span><span className="flex shrink-0 items-center gap-2"><span className="text-xs tabular-nums text-slate-500">{formatDay(item.expires_on)}</span><Chip tone={tone}>{text}</Chip></span></Row>;
-      })}
-    </ul>
+    <div>
+      <div className={`${EXPIRY_COLUMNS} border-b border-slate-100 pb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:border-slate-800`}>
+        <span>Domínio</span><span>Vencimento</span><span className="text-center">Restam</span>
+      </div>
+      <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+        {data.items.map((item) => {
+          const tone = item.days_left < 0 ? 'danger' : item.days_left <= 30 ? 'warning' : 'ok';
+          const spoken = item.days_left < 0 ? `venceu há ${-item.days_left} ${item.days_left === -1 ? 'dia' : 'dias'}` : item.days_left === 0 ? 'vence hoje' : `faltam ${item.days_left} ${item.days_left === 1 ? 'dia' : 'dias'}`;
+          return (
+            <li key={item.name} className={`${EXPIRY_COLUMNS} py-1.5 text-sm`}>
+              <span className="min-w-0 truncate font-medium text-slate-900 dark:text-slate-100" title={item.name}>{item.name}</span>
+              <span className="text-xs tabular-nums text-slate-600 dark:text-slate-400">{formatDay(item.expires_on)}</span>
+              <span className="flex justify-center"><span title={spoken} aria-label={spoken} className={`inline-flex min-w-9 items-center justify-center rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums ring-1 ring-inset ${TONE[tone].chip}`}><span aria-hidden="true">{item.days_left}</span></span></span>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
   );
 }
 
