@@ -37,6 +37,25 @@ revisão**, **desbloqueio direto**, fila do administrador, novo bloqueio e **not
 destinatários, últimos 10 desbloqueios), *Histórico* (filtros por domínio autorizado, remetente/destinatário, situação, período de até
 90 dias; 25 por página; detalhes do registro), *Solicitações* (a conta vê as suas; o Super Admin vê a fila e decide).
 
+**Histórico: Recebidos e Enviados.** A aba *Histórico* tem duas sub-abas. *Recebidos* é a tela descrita abaixo. *Enviados* mostra os e-mails
+que o domínio escolhido enviou, **lidos ao vivo do servidor WHM que hospeda o domínio** pela função `emailtrack_search` da API do cPanel
+(somente leitura, na lista de funções permitidas do cliente WHM), **sem gravar nada no banco** (os endereços dos destinatários ficam no
+servidor). Colunas: evento (Entrega, Tentativa adiada, Falha na entrega, Em andamento), remetente, destinatário, data (dd/mm/aa), hora
+(Brasília), resultado e *Detalhes* (todos os campos do log em grupos: mensagem, remetente, destinatário e entrega). O resultado é "Enviado"
+ou um texto curto traduzido da resposta do servidor de destino (Destinatário inexistente, Caixa cheia, Domínio inexistente, Limite de envios
+excedido, Bloqueado como spam, Servidor de destino sem resposta, Falha de TLS, Mensagem grande demais; adiamentos aparecem como "Adiado:
+…"); o que não for reconhecido aparece como "Falha na entrega (código)" e o texto completo fica em *Detalhes*. Essa tradução é heurística,
+feita a partir de textos conhecidos: **não foi validada com falhas reais do servidor** e deve ser ajustada quando houver exemplos.
+- **Escopo**: o mesmo do histórico recebido (a conta só consulta os domínios liberados para ela; o Super Admin, todos). O domínio é o do
+  remetente (`domain` do registro); só entregas remotas (`deliverytype=remote`); mensagens recusadas na chegada (`type: rejected`) não entram.
+- **Filtros**: domínio, período (24 horas, 3, 7 ou 30 dias), resultado, busca por remetente e/ou destinatário; 20, 40 ou 100 por página.
+- **Limites**: o servidor filtra por domínio e período e devolve, por tipo (entregue, adiado, falha), no máximo 2000 registros; se algum tipo
+  chegar ao limite a tela avisa que pode haver mais. A resposta fica guardada por 1 minuto (trocar filtro ou página não consulta o WHM de
+  novo; consultas simultâneas ao mesmo período compartilham uma só chamada). Quanto tempo para trás o servidor guarda esses registros depende
+  dele (não consta na documentação do cPanel).
+- **Permissão do token**: o token do WHM precisa poder executar `emailtrack_search`; sem isso a tela mostra que o WHM recusou essa função.
+- Rota: `GET /api/spfbl/sent` (limitador de 60 por 15 minutos).
+
 **Histórico armazenado.** O Matrix devolve o histórico da conta inteira. Uma coleta em segundo plano (1 por vez) percorre as páginas,
 do mais novo ao mais antigo, e grava no PostgreSQL **só os registros dos domínios cadastrados** (`spfbl_history_records`; cada
 execução fica em `spfbl_history_runs`). A consulta lê do banco, pagina 25 por página e **filtra sempre pelos domínios atuais do

@@ -31,6 +31,7 @@ export const listUsers = async () => (await api.get('/users')).data || [];
 // History views (read only). Filters travel as query parameters; the server validates and scopes everything.
 export const getDashboard = async () => (await api.get('/spfbl/dashboard')).data;
 export const getHistory = async (params) => (await api.get('/spfbl/history', { params })).data;
+export const getSent = async (params) => (await api.get('/spfbl/sent', { params })).data;
 export const refreshHistory = async (window = {}) => (await api.post('/spfbl/history/refresh', { start: window.start, end: window.end })).data;
 export const getRecord = async (id, domain) => (await api.get(`/spfbl/records/${encodeURIComponent(id)}`, { params: { domain } })).data;
 export const checkRecordStatus = async (id, domain) => (await api.post(`/spfbl/records/${encodeURIComponent(id)}/status`, { domain })).data;

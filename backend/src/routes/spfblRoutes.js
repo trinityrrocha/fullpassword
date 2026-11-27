@@ -20,6 +20,7 @@ router.get('/overview', asyncRoute(controller.overview));
 // Read-only history views. Scope (current active domains of the caller) is resolved per request in the handlers.
 router.get('/dashboard', asyncRoute(controller.dashboard));
 router.get('/history', asyncRoute(controller.historyList));
+router.get('/sent', spfblActionLimiter, asyncRoute(controller.sentList));
 router.post('/history/refresh', asyncRoute(controller.refreshHistory));
 router.get('/records/:id', asyncRoute(controller.recordDetail));
 router.post('/records/:id/status', spfblActionLimiter, asyncRoute(controller.recordStatus));

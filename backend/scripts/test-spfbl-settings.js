@@ -292,7 +292,7 @@ async function run() {
   for (const line of ["router.post('/whm-servers/validate/whm', requireSuperAdmin, spfblTestLimiter,", "router.post('/whm-servers/validate/matrix', requireSuperAdmin, spfblTestLimiter,"]) assert.ok(routes.includes(line), line);
   for (const line of ["router.post('/whm-servers', requireSuperAdmin, guardFixed('spfbl_settings')", "router.put('/whm-servers/:id', requireSuperAdmin, uuidParam('id'), guardFixed('spfbl_settings')", "router.delete('/whm-servers/:id', requireSuperAdmin, uuidParam('id'), guardFixed('spfbl_settings')"]) assert.ok(routes.includes(line), `${line} needs the reauthentication grant`);
   assert.match(routes, /router\.post\('\/whm-servers\/:id\/matrix\/test', requireSuperAdmin, uuidParam\('id'\), spfblTestLimiter,/);
-  assert.equal((routes.match(/router\.(get|put|post|delete|patch)\(/g) || []).length, 35, 'every route must be reviewed here (domains: test-spfbl-whm.js, access: test-spfbl-access.js)');
+  assert.equal((routes.match(/router\.(get|put|post|delete|patch)\(/g) || []).length, 36, 'every route must be reviewed here (domains: test-spfbl-whm.js, access: test-spfbl-access.js, sent mail: test-spfbl-sent.js and test-spfbl-history.js)');
   const server = read('backend/src/server.js');
   assert.ok(server.indexOf("app.use('/api/spfbl', require('./routes/spfblRoutes'))") < server.indexOf("function apiNotFound"));
   // sensitiveOperationLimiter allows 5 mutations per 15 min (sized for backup export): wrong for routine admin work.

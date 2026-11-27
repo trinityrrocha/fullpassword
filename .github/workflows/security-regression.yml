@@ -97,6 +97,9 @@ jobs:
       - name: Dashboard browser regression (synthetic localhost only)
         working-directory: frontend
         run: PLAYWRIGHT_MODULE_PATH="$RUNNER_TEMP/modal-browser-tools/node_modules/playwright/index.mjs" npm run test:dashboard:browser
+      - name: SPFBL sent mail tab browser regression (synthetic localhost only)
+        working-directory: frontend
+        run: PLAYWRIGHT_MODULE_PATH="$RUNNER_TEMP/modal-browser-tools/node_modules/playwright/index.mjs" npm run test:spfbl-sent:browser
       - name: Vault sharing with selected users browser regression (synthetic localhost only)
         working-directory: frontend
         run: PLAYWRIGHT_MODULE_PATH="$RUNNER_TEMP/modal-browser-tools/node_modules/playwright/index.mjs" npm run test:vault-user-share:browser

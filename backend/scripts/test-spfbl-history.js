@@ -22,6 +22,7 @@ const access = require('../src/services/spfblAccessService');
 const domains = require('../src/services/spfblDomainsService');
 const modules = require('../src/services/modulesService');
 const controller = require('../src/controllers/spfblController');
+const sentMod = require('../src/services/spfblSentService');
 
 const pg = new PGlite({ extensions: { uuid_ossp } });
 const query = async (sql, params) => (!params && /;\s*\S/.test(sql.trim()) ? pg.exec(sql) : pg.query(sql, params));
@@ -144,6 +145,20 @@ async function run() {
   controller.resetStatusState();
   lookup = (key) => ({ key, recipient: 'someone-else@one.example.com', result: 'BLOCK', arrival: iso(5), status: 'NONE' });
   res = await call(controller.recordStatus, user('alice'), { params: { id: first.id }, body: { domain: 'one.example.com' } }); assert.equal(res.code, 409, 'a different record from the provider is refused');
+  // ---- sent mail (live from the WHM server of the domain): same scope as the history, nothing stored ----
+  const sentRaw = (n, extra = {}) => ({ type: 'success', domain: 'one.example.com', email: `a${n}@one.example.com`, sender: `a${n}@one.example.com`, recipient: `r${n}@destino.example`, message: 'Accepted', msgid: `s${n}`,
+    sendunixtime: String(nowSeconds - n * 60), actionunixtime: String(nowSeconds - n * 60), ...extra });
+  let sentAsked = 0;
+  sentMod.internals.createClient = () => ({ emailTrack: async (args) => { sentAsked += 1; assert.equal(args.domain === 'one.example.com' || args.domain === 'two.example.com', true); return [sentRaw(1), sentRaw(2, { type: 'failure', message: '552 5.2.2 Mailbox full' }), sentRaw(3, { domain: 'two.example.com' })]; } });
+  res = await call(controller.sentList, user('alice')); assert.equal(res.code, 200, JSON.stringify(res.body));
+  assert.deepEqual(res.body.domains_scope, ['one.example.com']); assert.deepEqual(res.body.rows.map((r) => r.detail.msgid), ['s1', 's2'], 'only this domain\'s mail');
+  assert.equal(res.body.rows[1].result.label, 'Caixa cheia'); assert.equal(res.headers['Cache-Control'], 'no-store');
+  assert.equal(JSON.stringify(res.body).includes('MATRIX_SECRET_SENTINEL'), false); assert.equal(sentAsked, 1);
+  res = await call(controller.sentList, user('alice'), { query: { domain: 'two.example.com' } }); assert.equal(res.code, 403, 'another domain is invisible');
+  res = await call(controller.sentList, user('bob')); assert.equal(res.code, 403, 'no grant, no access');
+  res = await call(controller.sentList, user('alice'), { query: { period: '1y' } }); assert.equal(res.code, 422); assert.equal(res.body.code, 'SPFBL_SENT_PERIOD');
+  res = await call(controller.sentList, admin, { query: { domain: 'two.example.com' } }); assert.equal(res.code, 200); assert.deepEqual(res.body.rows.map((r) => r.detail.msgid), ['s3'], 'the Super Admin sees any domain, still only that domain\'s mail');
+  assert.deepEqual((await call(controller.sentList, admin, { query: { domain: 'one.example.com', status: 'failed' } })).body.rows.map((r) => r.detail.msgid), ['s2']);
   await access.revokeAccess(ids.alice);
   res = await call(controller.historyList, user('alice'), { query: { domain: 'one.example.com' } }); assert.equal(res.code, 403, 'revoked access applies on the next request');
   assert.ok(calls >= 1);
