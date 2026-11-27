@@ -28,6 +28,8 @@ const tick = async ({ service = getService(), alerts = getAlertService(), querya
   busy = true;
   try {
     await service.syncFromSpfbl();
+    // The periodic import of the WHM domains (when enabled and due) comes first, so a new domain enters this very round.
+    try { await service.autoSyncDomains(); } catch (error) { safeLogError('Falha na sincronização de domínios com os servidores.', { name: error?.name, code: error?.code }, { includeStack: false }); }
     // Alerts run on their own, slower beat, independent of the registry lookups.
     if (now() - lastAlertPassAt >= ALERT_EVERY_MS) {
       lastAlertPassAt = now();

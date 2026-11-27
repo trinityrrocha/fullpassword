@@ -47,7 +47,7 @@ const MAIL_SUMMARY = { checked_at: '2026-11-26T15:00:00Z', name_exists: true, sp
 const MAIL_BAD = { checked_at: '2026-11-26T15:00:00Z', name_exists: true, spf: { status: 'fail', all: '+all' }, dmarc: { status: 'absent', policy: null }, dkim: { status: 'ok', found: 2 } };
 const DEFAULT_SELECTORS = ['default', 'google', 'selector1', 'selector2', 'k1'];
 const state = {
-  calls: [], sslOn: true, reportWarn: true, interval: 7, mailOn: true, mailDays: 7, selectors: [...DEFAULT_SELECTORS], servers: [], domainMail: {}, failMailSave: false, rateLimited: false, alerts: {}, role: 'super_admin', userIds: [],
+  calls: [], syncOn: true, syncHours: 6, syncResult: null, sslOn: true, reportWarn: true, interval: 7, mailOn: true, mailDays: 7, selectors: [...DEFAULT_SELECTORS], servers: [], domainMail: {}, failMailSave: false, rateLimited: false, alerts: {}, role: 'super_admin', userIds: [],
   domains: [
     { id: uid(1), name: 'exemplo.com.br', source: 'manual', active: true, snapshot: snap(), mail: MAIL_SUMMARY },
     { id: uid(2), name: 'vencido.com', source: 'spfbl', active: true, snapshot: snap({ expires_on: '2026-11-20', days_left: -6, ssl: { state: 'expired', not_after: null, issuer: null, protocol: null, error: null } }), mail: MAIL_BAD },
@@ -81,12 +81,13 @@ try {
       const all = state.domains.filter((d) => d.name.includes(term) && (state.role === 'super_admin' || state.userIds.includes(d.id)));
       const withAlerts = (d) => { const a = state.alerts[d.id]; return { ...d, alerts: a ? { enabled: a.enabled, notify_admins: a.notify_admins, emails: a.emails.length } : { enabled: false, notify_admins: false, emails: 0 } }; };
       if (state.role === 'user') return json({ domains: all.slice((pageNo - 1) * size, pageNo * size).map((d) => ({ ...d })), total: all.length, page: pageNo, size, role: 'user' });
-      return json({ domains: all.slice((pageNo - 1) * size, pageNo * size).map(withAlerts), total: all.length, page: pageNo, size, role: 'super_admin', settings: { ssl_check_enabled: state.sslOn, dmarc_no_report_warning: state.reportWarn, check_interval_days: state.interval, mail_check_enabled: state.mailOn, mail_check_interval_days: state.mailDays, dkim_selectors: state.selectors, dns_servers: state.servers, default_dkim_selectors: DEFAULT_SELECTORS } });
+      return json({ domains: all.slice((pageNo - 1) * size, pageNo * size).map(withAlerts), total: all.length, page: pageNo, size, role: 'super_admin', settings: { domain_sync_enabled: state.syncOn, domain_sync_interval_hours: state.syncHours, domain_sync_last_at: '2026-11-26T15:00:00Z', domain_sync_last_status: 'ok', ssl_check_enabled: state.sslOn, dmarc_no_report_warning: state.reportWarn, check_interval_days: state.interval, mail_check_enabled: state.mailOn, mail_check_interval_days: state.mailDays, dkim_selectors: state.selectors, dns_servers: state.servers, default_dkim_selectors: DEFAULT_SELECTORS } });
     }
     if (api === '/domain-manager/domains' && method === 'POST') {
       const domain = { id: uid(500), name: body.name, source: 'manual', active: true, snapshot: null };
       state.domains.unshift(domain); return json({ domain }, 201);
     }
+    if (api === '/domain-manager/domains/sync') return json(state.syncResult);
     if (api === '/domain-manager/domains/import') return json({ added: body.names.length - 1, duplicates: 1, invalid: ['ruim'] });
     if (/^\/domain-manager\/domains\/[^/]+\/alerts$/.test(api)) {
       const id = api.split('/')[3];
@@ -102,7 +103,7 @@ try {
     if (/^\/domain-manager\/domains\/[^/]+$/.test(api) && method === 'DELETE') { const id = api.split('/')[3]; state.domains = state.domains.filter((d) => d.id !== id); return json({ ok: true }); }
     if (/^\/domain-manager\/domains\/[^/]+$/.test(api)) { const domain = state.domains.find((d) => d.id === api.split('/')[3]); return json({ domain, changes: domain.mail ? [{ field: 'dmarc_policy', old_value: 'reject', new_value: 'none', detected_at: '2026-11-25T15:00:00Z' }] : [], mail: domain.mail ? MAIL_FULL : null }); }
     if (api === '/domain-manager/settings' && method === 'PUT') {
-      state.sslOn = body.ssl_check_enabled; state.reportWarn = body.dmarc_no_report_warning; state.interval = body.check_interval_days; state.mailOn = body.mail_check_enabled; state.mailDays = body.mail_check_interval_days; state.selectors = body.dkim_selectors; state.servers = body.dns_servers;
+      state.syncOn = body.domain_sync_enabled; state.syncHours = body.domain_sync_interval_hours; state.sslOn = body.ssl_check_enabled; state.reportWarn = body.dmarc_no_report_warning; state.interval = body.check_interval_days; state.mailOn = body.mail_check_enabled; state.mailDays = body.mail_check_interval_days; state.selectors = body.dkim_selectors; state.servers = body.dns_servers;
       return json({ check_interval_days: state.interval });
     }
     if (/^\/domain-manager\/domains\/[^/]+\/mail-settings$/.test(api)) {
@@ -277,7 +278,7 @@ try {
   await page.getByRole('button', { name: 'Configurações do Domain Manager' }).click();
   const settingsDialog = page.getByRole('dialog', { name: 'Configurações do Domain Manager' });
   await settingsDialog.waitFor();
-  const mailSwitch = settingsDialog.getByRole('switch', { name: /Autenticação de e-mail/ });
+  const mailSwitch = settingsDialog.getByRole('switch', { name: 'Verificar SPF, DKIM e DMARC', exact: true });
   assert.equal(await mailSwitch.getAttribute('aria-checked'), 'true');
   await mailSwitch.click();
   assert.equal(await settingsDialog.getByLabel(/Seletores DKIM testados/).count(), 0, 'e-mail fields hide when the check is off');
@@ -305,13 +306,13 @@ try {
   await page.getByRole('button', { name: 'Configurações do Domain Manager' }).click();
   const offDialog = page.getByRole('dialog', { name: 'Configurações do Domain Manager' });
   await offDialog.getByLabel(/Seletores DKIM testados/).fill('lixo$');
-  await offDialog.getByRole('switch', { name: /Autenticação de e-mail/ }).click();
+  await offDialog.getByRole('switch', { name: 'Verificar SPF, DKIM e DMARC', exact: true }).click();
   assert.equal(await offDialog.getByRole('textbox', { name: /Servidores DNS/ }).count(), 1, 'the DNS servers stay visible: they serve every DNS check');
   await offDialog.getByRole('button', { name: 'Salvar' }).click();
   await offDialog.waitFor({ state: 'detached' });
   assert.deepEqual([state.mailOn, state.selectors, state.mailDays], [false, ['default', 'marketing'], 3], 'hidden, invalid drafts are neither blocking nor saved');
   await page.getByRole('button', { name: 'Configurações do Domain Manager' }).click();
-  await offDialog.getByRole('switch', { name: /Autenticação de e-mail/ }).click();
+  await offDialog.getByRole('switch', { name: 'Verificar SPF, DKIM e DMARC', exact: true }).click();
   await offDialog.getByLabel(/Seletores DKIM testados/).fill('');
   await offDialog.getByRole('button', { name: 'Salvar' }).click();
   assert.match(await offDialog.getByRole('alert').innerText(), /ao menos um seletor/);
@@ -387,6 +388,53 @@ try {
   assert.match(await gen.innerText(), /Recomendamos -all/);
   assert.match(await gen.innerText(), /Consultas DNS contadas: 2 de 10/);
   await page.keyboard.press('Escape'); await gen.waitFor({ state: 'detached' });
+
+  // Sync with the WHM servers: a button, a sentence that says what happened and which server failed, and the list is reloaded.
+  state.syncResult = { servers: [{ name: 'WHM A', ok: true, domains: 3 }, { name: 'WHM B', ok: false, code: 'WHM_TIMEOUT' }], ok: 1, failed: 1, imported: 2, status: 'partial' };
+  state.domains[2].mail = { checked_at: '2026-11-26T15:00:00Z', name_exists: true, spf: { status: 'ok', all: '~all' }, dmarc: { status: 'ok', policy: 'reject' }, dkim: { status: 'ok', found: 1 } };
+  const listCallsBeforeSync = state.calls.filter((c) => c.method === 'GET' && c.api === '/domain-manager/domains').length;
+  await page.getByRole('button', { name: 'Sincronizar domínios' }).click();
+  assert.match(await page.getByRole('status').filter({ hasText: 'Sincronização concluída' }).innerText(), /2 servidores consultados, 2 domínios novos na lista\. Falha em: WHM B \(WHM_TIMEOUT\)\./);
+  await page.waitForFunction((before) => performance.getEntriesByType('resource').filter((e) => e.name.includes('/api/domain-manager/domains?')).length > before, listCallsBeforeSync).catch(() => {});
+  assert.ok(state.calls.filter((c) => c.method === 'GET' && c.api === '/domain-manager/domains').length > listCallsBeforeSync, 'the list is reloaded after a sync');
+  // A stored "valid" verdict for ~all is shown as a warning that suggests -all, before the next check.
+  const softRow = rows.filter({ hasText: 'novo.org' });
+  await softRow.getByText('~all → -all').waitFor();
+  assert.equal(await softRow.locator('span[title^="SPF"]').getAttribute('title'), 'SPF: Aviso (~all → -all). Sugestão: use -all');
+  assert.match(await softRow.locator('[data-mail-cell]').innerText(), /Aviso/);
+  state.syncResult = { servers: [], ok: 0, failed: 0, imported: 0, skipped: 'spfbl_off' };
+  await page.getByRole('button', { name: 'Sincronizar domínios' }).click();
+  assert.match(await page.getByRole('alert').filter({ hasText: 'módulo SPFBL está desativado' }).innerText(), /Ative-o e cadastre um servidor WHM/);
+  state.syncResult = { servers: [{ name: 'WHM A', ok: true, domains: 3 }], ok: 1, failed: 0, imported: 0, status: 'ok' };
+  await page.getByRole('button', { name: 'Sincronizar domínios' }).click();
+  assert.match(await page.getByRole('status').filter({ hasText: 'Sincronização concluída' }).innerText(), /1 servidor consultado, nenhum domínio novo na lista\.$/);
+  state.domains[2].mail = undefined;
+
+  // The settings card: wide, one setting per line, the periodic sync is a switch plus an interval.
+  await page.getByRole('button', { name: 'Configurações do Domain Manager' }).click();
+  const wide = page.getByRole('dialog', { name: 'Configurações do Domain Manager' });
+  await wide.waitFor();
+  assert.ok((await wide.boundingBox()).width >= 800, 'the card is wide');
+  assert.match(await wide.innerText(), /Última sincronização: 26\/11\/26 \d{2}:\d{2} \(concluída\)/);
+  const syncSwitch = wide.getByRole('switch', { name: /Sincronizar domínios com os servidores WHM automaticamente/ });
+  assert.equal(await syncSwitch.getAttribute('aria-checked'), 'true');
+  assert.equal(await wide.getByLabel('Intervalo da sincronização (horas)').inputValue(), '6');
+  assert.ok((await syncSwitch.boundingBox()).height <= 20, 'the switch is small');
+  await wide.getByLabel('Intervalo da sincronização (horas)').selectOption('12');
+  await wide.getByRole('button', { name: 'Salvar' }).click();
+  await wide.waitFor({ state: 'detached' });
+  assert.deepEqual([state.syncOn, state.syncHours], [true, 12]);
+  await page.getByRole('button', { name: 'Configurações do Domain Manager' }).click();
+  await wide.getByRole('switch', { name: /Sincronizar domínios com os servidores WHM automaticamente/ }).click();
+  assert.equal(await wide.getByLabel('Intervalo da sincronização (horas)').count(), 0, 'the interval hides when the sync is off');
+  await wide.getByRole('button', { name: 'Salvar' }).click();
+  await wide.waitFor({ state: 'detached' });
+  assert.deepEqual([state.syncOn, state.syncHours], [false, 12], 'the interval keeps its value while off');
+  await page.getByRole('button', { name: 'Configurações do Domain Manager' }).click();
+  await wide.getByRole('switch', { name: /Sincronizar domínios com os servidores WHM automaticamente/ }).click();
+  await wide.getByLabel('Intervalo da sincronização (horas)').selectOption('6');
+  await wide.getByRole('button', { name: 'Salvar' }).click();
+  await wide.waitFor({ state: 'detached' });
 
   // Interval setting.
   await page.getByRole('button', { name: 'Configurações do Domain Manager' }).click();

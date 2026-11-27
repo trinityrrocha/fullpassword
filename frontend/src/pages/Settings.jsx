@@ -363,7 +363,7 @@ export default function Settings() {
   );
 
   return (
-    <div className="w-full max-w-7xl mx-auto space-y-6">
+    <div className="w-full max-w-7xl mx-auto space-y-6 pt-3">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <PageTitle icon={SettingsIcon} iconClassName="text-indigo-600" description="Gerencie parâmetros globais, atualizações e backups da plataforma">Configurações do Sistema</PageTitle>
       </div>

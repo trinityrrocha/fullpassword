@@ -79,7 +79,7 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="mx-auto max-w-7xl space-y-4 p-4 md:p-6">
+    <div className="mx-auto max-w-7xl space-y-4 px-4 pb-4 pt-3 md:px-6 md:pb-6">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <PageTitle icon={LayoutDashboard} description="Resumo do que precisa de atenção: domínios, segurança, bloqueios de e-mail e backups. Arraste os cartões para reorganizar.">Dashboard</PageTitle>
         <div className="flex items-center gap-2">

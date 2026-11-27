@@ -4,4 +4,4 @@
 // (a second scrollbar, and the menu moving away with the wheel). Do not remove `relative`.
 export const SHELL_ROOT = 'flex h-screen h-dvh bg-gray-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100';
 export const SHELL_MAIN = 'relative min-w-0 flex-1 flex flex-col overflow-hidden pt-16 md:pt-0';
-export const SHELL_SCROLLER = 'relative flex-1 overflow-y-auto p-4 md:p-8';
+export const SHELL_SCROLLER = 'relative flex-1 overflow-y-auto px-4 pb-4 pt-0 md:px-8 md:pb-8';

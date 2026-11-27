@@ -75,19 +75,21 @@ export const mailStatusLabel = (status) => MAIL_STATUS_LABELS[status] || '—';
 const MARKS = Object.freeze({ ok: '✓', warning: '⚠', fail: '✗', absent: '—', not_found: '?', inconclusive: '…' });
 const MARK_TONES = Object.freeze({ ok: 'ok', warning: 'warning', fail: 'danger', absent: 'danger', not_found: 'muted', inconclusive: 'muted' });
 
+// A verdict stored before "~all" became a warning still says "valid": show what the rule says now, without waiting for the next check.
+export const mailSectionStatus = (kind, section) => (kind === 'spf' && section?.status === 'ok' && section?.all === '~all' ? 'warning' : section?.status);
 // The compact marker of one check in the list: a glyph AND words, never only a colour.
 export const mailMarker = (kind, mail) => {
   const section = mail?.[kind];
   const label = { spf: 'SPF', dkim: 'DKIM', dmarc: 'DMARC' }[kind];
   if (!mail || !section) return { label, mark: '·', status: 'Não verificado', text: 'não verificado', tone: 'muted', title: `${label}: ainda não verificado` };
-  const status = section.status;
+  const status = mailSectionStatus(kind, section);
   let detail = '';
-  if (kind === 'spf' && section.all) detail = section.all;
+  if (kind === 'spf' && section.all) detail = section.all === '~all' ? '~all → -all' : section.all;
   if (kind === 'dmarc' && section.policy) detail = section.policy === 'none' ? 'p=none' : section.policy;
   if (kind === 'dkim' && status !== 'not_found') detail = section.found ? `${section.found} ${section.found === 1 ? 'seletor' : 'seletores'}` : '';
   const word = status === 'absent' ? 'ausente' : status === 'not_found' ? 'não encontrado' : status === 'inconclusive' ? 'sem resposta' : status === 'fail' ? 'falha' : '';
   const text = detail || word || (status === 'ok' ? 'válido' : status === 'warning' ? 'aviso' : '');
-  return { label, mark: MARKS[status] || '·', status: MAIL_STATUS_LABELS[status] || 'Não verificado', text, tone: MARK_TONES[status] || 'muted', title: `${label}: ${MAIL_STATUS_LABELS[status] || '—'}${detail ? ` (${detail})` : ''}` };
+  return { label, mark: MARKS[status] || '·', status: MAIL_STATUS_LABELS[status] || 'Não verificado', text, tone: MARK_TONES[status] || 'muted', title: `${label}: ${MAIL_STATUS_LABELS[status] || '—'}${detail ? ` (${detail})` : ''}${kind === 'spf' && section.all === '~all' ? '. Sugestão: use -all' : ''}` };
 };
 
 const MAIL_CODES = Object.freeze({
@@ -143,4 +145,16 @@ export const serverProblems = (list) => {
   if (list.length > 4) return 'Use no máximo 4 servidores DNS.';
   const bad = list.find((item) => !(IPV4.test(item) && item.split('.').every((part) => Number(part) <= 255)) && !(item.includes(':') && IPV6.test(item)));
   return bad ? `Endereço IP inválido: "${bad.slice(0, 45)}".` : '';
+};
+
+// The sentence shown after "Sincronizar domínios": what was found, and which server failed.
+export const syncSummary = (result) => {
+  if (result?.skipped === 'spfbl_off') return { type: 'error', text: 'O módulo SPFBL está desativado. Ative-o e cadastre um servidor WHM para sincronizar os domínios.' };
+  if (!result?.servers?.length) return { type: 'error', text: 'Nenhum servidor WHM cadastrado no SPFBL. Cadastre um servidor para sincronizar os domínios.' };
+  const imported = Number(result.imported) || 0;
+  const news = imported === 0 ? 'nenhum domínio novo' : `${imported} ${imported === 1 ? 'domínio novo' : 'domínios novos'}`;
+  const failed = result.servers.filter((server) => !server.ok).map((server) => `${server.name} (${server.code || 'erro'})`);
+  const head = `Sincronização concluída: ${result.servers.length} ${result.servers.length === 1 ? 'servidor consultado' : 'servidores consultados'}, ${news} na lista.`;
+  if (failed.length === 0) return { type: 'success', text: head };
+  return { type: result.ok > 0 ? 'success' : 'error', text: `${head} Falha em: ${failed.join(', ')}.` };
 };

@@ -91,6 +91,10 @@ const DOMAIN_MANAGER_MAIL_STATEMENTS = [
   `ALTER TABLE dm_settings ADD COLUMN IF NOT EXISTS dns_servers TEXT[] NOT NULL DEFAULT ARRAY[]::text[]`,
   `ALTER TABLE dm_settings ADD COLUMN IF NOT EXISTS dmarc_no_report_warning BOOLEAN NOT NULL DEFAULT TRUE`,
   `ALTER TABLE dm_settings ADD COLUMN IF NOT EXISTS ssl_check_enabled BOOLEAN NOT NULL DEFAULT TRUE`,
+  `ALTER TABLE dm_settings ADD COLUMN IF NOT EXISTS domain_sync_enabled BOOLEAN NOT NULL DEFAULT TRUE`,
+  `ALTER TABLE dm_settings ADD COLUMN IF NOT EXISTS domain_sync_interval_hours SMALLINT NOT NULL DEFAULT 6 CHECK (domain_sync_interval_hours IN (1, 2, 3, 4, 6, 8, 12, 24))`,
+  `ALTER TABLE dm_settings ADD COLUMN IF NOT EXISTS domain_sync_last_at TIMESTAMP WITH TIME ZONE`,
+  `ALTER TABLE dm_settings ADD COLUMN IF NOT EXISTS domain_sync_last_status VARCHAR(16)`,
   `ALTER TABLE dm_domains ADD COLUMN IF NOT EXISTS next_mail_check_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP`,
   `CREATE INDEX IF NOT EXISTS dm_domains_mail_due_idx ON dm_domains (next_mail_check_at) WHERE active`,
   `CREATE TABLE IF NOT EXISTS dm_mail_checks (

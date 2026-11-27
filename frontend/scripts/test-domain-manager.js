@@ -153,3 +153,17 @@ assert.equal(dash.backupTone({ last_success: { at: '2026-11-26T03:00:00Z' }, las
 assert.equal(dash.healthPercent({ total: 4, healthy: 3 }), 75); assert.equal(dash.healthPercent({ total: 0, healthy: 0 }), 0);
 assert.deepEqual(dash.mailSegments({ ok: 3, warning: 1, not_found: 1, fail: 1, absent: 1 }, 8), { ok: 3, warning: 2, bad: 2, unknown: 1 });
 console.log('dashboard helper tests passed');
+
+// ---------- sync sentence and the ~all verdict ----------
+assert.equal(dm.mailSectionStatus('spf', { status: 'ok', all: '~all' }), 'warning', 'an old "valid" ~all verdict reads as a warning');
+assert.equal(dm.mailSectionStatus('spf', { status: 'ok', all: '-all' }), 'ok'); assert.equal(dm.mailSectionStatus('dmarc', { status: 'ok', all: '~all' }), 'ok');
+assert.equal(dm.mailSectionStatus('spf', { status: 'fail', all: '~all' }), 'fail'); assert.equal(dm.mailSectionStatus('spf', undefined), undefined);
+const softMarker = dm.mailMarker('spf', { spf: { status: 'ok', all: '~all' } });
+assert.deepEqual([softMarker.tone, softMarker.text, softMarker.mark], ['warning', '~all → -all', '⚠']); assert.match(softMarker.title, /Sugestão: use -all/);
+assert.equal(dm.mailMarker('spf', { spf: { status: 'ok', all: '-all' } }).tone, 'ok');
+assert.match(dm.mailMessages({ status: 'warning', warnings: ['SPF_SOFTFAIL'] })[0], /Recomendado trocar por -all/);
+assert.equal(dm.syncSummary({ skipped: 'spfbl_off', servers: [] }).type, 'error'); assert.equal(dm.syncSummary({ servers: [] }).type, 'error');
+assert.deepEqual(dm.syncSummary({ servers: [{ name: 'A', ok: true }], ok: 1, failed: 0, imported: 1 }), { type: 'success', text: 'Sincronização concluída: 1 servidor consultado, 1 domínio novo na lista.' });
+assert.equal(dm.syncSummary({ servers: [{ name: 'A', ok: false, code: 'X' }], ok: 0, failed: 1, imported: 0 }).type, 'error');
+assert.match(dm.syncSummary({ servers: [{ name: 'A', ok: true }, { name: 'B', ok: false }], ok: 1, failed: 1, imported: 0 }).text, /Falha em: B \(erro\)\./);
+console.log('sync helper tests passed');

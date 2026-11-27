@@ -540,3 +540,9 @@ CREATE TABLE IF NOT EXISTS user_dashboard_layouts (
     layout JSONB NOT NULL DEFAULT '{}'::jsonb,
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Domain Manager: periodic domain import from the WHM servers.
+ALTER TABLE dm_settings ADD COLUMN IF NOT EXISTS domain_sync_enabled BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE dm_settings ADD COLUMN IF NOT EXISTS domain_sync_interval_hours SMALLINT NOT NULL DEFAULT 6 CHECK (domain_sync_interval_hours IN (1, 2, 3, 4, 6, 8, 12, 24));
+ALTER TABLE dm_settings ADD COLUMN IF NOT EXISTS domain_sync_last_at TIMESTAMP WITH TIME ZONE;
+ALTER TABLE dm_settings ADD COLUMN IF NOT EXISTS domain_sync_last_status VARCHAR(16);

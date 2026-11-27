@@ -99,6 +99,13 @@ const systemUpdateLimiter = createWriteRateLimiter({
   keyPrefix: 'system-update'
 });
 
+const domainManagerSyncLimiter = createWriteRateLimiter({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  code: 'DOMAIN_MANAGER_SYNC_RATE_LIMITED',
+  message: 'Limite de sincronizações atingido. Aguarde alguns minutos antes de tentar novamente.'
+});
+
 const spfblTestLimiter = createWriteRateLimiter({
   windowMs: 15 * 60 * 1000,
   limit: 10,
@@ -167,6 +174,7 @@ module.exports = {
   systemUpdateLimiter,
   smtpTestLimiter,
   spfblTestLimiter,
+  domainManagerSyncLimiter,
   spfblActionLimiter,
   domainManagerLookupLimiter,
   passwordResetRequestIpLimiter,
