@@ -195,9 +195,14 @@ class WhmClient {
     return { domains: list, skipped };
   }
 
-  // Delivery records of the mail SENT by one domain (emailtrack_search, WHM API 1). The server filters by sender domain and by period, so
-  // the answer stays small; remote deliveries only (a message accepted from the Internet is not "sent"). Every value is validated here.
-  // Contract (cPanel API docs): data.records[] {type: success|defer|failure|inprogress, sender, email, recipient, sendunixtime, message, ...}.
+  // Delivery records of the mail SENT by one domain (emailtrack_search, WHM API 1). Two calls, because the two kinds of record do not carry
+  // the same fields:
+  //  - delivered / in progress: the server filters by sender domain and period (their "domain" field is the sender's domain);
+  //  - deferred / failed: NOT filtered by "domain" or by remote delivery, because those records can come with an empty "domain" (the sender is
+  //    only in "email") and a failure at the routing stage never reaches a remote transport. They are filtered by period only and the caller
+  //    keeps the ones that belong to the domain.
+  // Every value is validated here. Contract (cPanel API docs): data.records[] {type: success|defer|failure|inprogress, sender, email,
+  // recipient, sendunixtime, actionunixtime, message, ...}.
   async emailTrack({ domain, sinceUnix, untilUnix, perType = 2000 }) {
     if (!DOMAIN_PATTERN.test(String(domain || ''))) throw new WhmError('Domínio inválido.', 'WHM_FORMAT', 422);
     const since = Number(sinceUnix);
@@ -206,13 +211,18 @@ class WhmClient {
     if (!Number.isInteger(since) || !Number.isInteger(until) || since < 0 || until <= since || !Number.isInteger(limit) || limit < 1 || limit > 5000) {
       throw new WhmError('Período inválido.', 'WHM_FORMAT', 422);
     }
-    const query = `&success=1&defer=1&failure=1&inprogress=1&deliverytype=remote&max_results_by_type=${limit}`
+    const period = (field) => `&api.filter.enable=1&api.filter.b.field=${field}&api.filter.b.arg0=${since}&api.filter.b.type=gt&api.filter.c.field=${field}&api.filter.c.arg0=${until}&api.filter.c.type=lt`;
+    const delivered = `&success=1&defer=0&failure=0&inprogress=1&deliverytype=remote&max_results_by_type=${limit}`
       + `&api.filter.enable=1&api.filter.a.field=domain&api.filter.a.arg0=${domain}&api.filter.a.type=eq`
-      + `&api.filter.b.field=sendunixtime&api.filter.b.arg0=${since}&api.filter.b.type=gt`
-      + `&api.filter.c.field=sendunixtime&api.filter.c.arg0=${until}&api.filter.c.type=lt`;
-    const data = await this.call('emailtrack_search', query);
-    if (!Array.isArray(data.records)) throw new WhmError('O WHM não retornou os registros de envio esperados em emailtrack_search.', 'WHM_FORMAT', 502, 'WHM_FORMAT emailtrack_search');
-    return data.records;
+      + `&api.filter.b.field=sendunixtime&api.filter.b.arg0=${since}&api.filter.b.type=gt&api.filter.c.field=sendunixtime&api.filter.c.arg0=${until}&api.filter.c.type=lt`;
+    const problems = `&success=0&defer=1&failure=1&inprogress=0&deliverytype=all&max_results_by_type=${limit}${period('actionunixtime')}`;
+    const records = [];
+    for (const query of [delivered, problems]) {
+      const data = await this.call('emailtrack_search', query);
+      if (!Array.isArray(data.records)) throw new WhmError('O WHM não retornou os registros de envio esperados em emailtrack_search.', 'WHM_FORMAT', 502, 'WHM_FORMAT emailtrack_search');
+      records.push(...data.records);
+    }
+    return records;
   }
 
   // Active domains = domains of non-suspended accounts. get_domain_info is reported as incomplete on some servers,
