@@ -53,8 +53,9 @@ feita a partir de textos conhecidos: **não foi validada com falhas reais do ser
   cadastrado** registra, de todas as contas (inclusive as de revendedores restauradas de backup e o e-mail do próprio sistema, como o do
   root); para as demais contas, os domínios do escopo delas, só dos servidores que os hospedam. Um servidor que não responder não esconde os
   outros: a tela avisa quantos falharam (e, para o Super Admin, quais e por quê).
-- **Duas consultas ao WHM** (os registros não têm os mesmos campos): *entregues e em andamento* são filtradas no servidor por período (e por
-  domínio, quando um é escolhido) e só entregas remotas; *adiadas e com falha* **não** são filtradas por `domain` nem por entrega remota
+- **Duas consultas ao WHM** (os registros não têm os mesmos campos): *entregues e em andamento* são filtradas no servidor só por período e só entregas remotas (**o domínio nunca vai no pedido**:
+  o filtro `domain eq` devolvia 0 registros num servidor real; o servidor inteiro é lido uma vez, guardado em cache, e o domínio escolhido é
+  filtrado aqui); *adiadas e com falha* **não** são filtradas por `domain` nem por entrega remota
   (nelas o `domain` pode vir vazio e uma falha na fase de roteamento nunca chega a um transporte remoto), só pelo período da tentativa, e o
   backend fica com as que pertencem ao escopo. Um registro vale no período se foi enviado ou tentado nele.
 - **Sem limite de resultados da função**: `max_results_by_type` é aplicado pelo servidor **antes** dos filtros, então qualquer limite faria
