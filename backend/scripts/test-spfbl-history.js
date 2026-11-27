@@ -149,9 +149,9 @@ async function run() {
   const sentRaw = (n, extra = {}) => ({ type: 'success', domain: 'one.example.com', email: `a${n}@one.example.com`, sender: `a${n}@one.example.com`, recipient: `r${n}@destino.example`, message: 'Accepted', msgid: `s${n}`,
     sendunixtime: String(nowSeconds - n * 60), actionunixtime: String(nowSeconds - n * 60), ...extra });
   let sentAsked = 0;
-  sentMod.internals.createClient = () => ({ emailTrack: async (args) => { sentAsked += 1; assert.equal(args.domain === 'one.example.com' || args.domain === 'two.example.com', true); return [sentRaw(1), sentRaw(2, { type: 'failure', message: '552 5.2.2 Mailbox full' }), sentRaw(3, { domain: 'two.example.com' })]; } });
+  sentMod.internals.createClient = () => ({ emailTrack: async (args) => { sentAsked += 1; assert.equal(args.domain === null || args.domain === 'one.example.com' || args.domain === 'two.example.com', true); return { records: [sentRaw(1), sentRaw(2, { type: 'failure', message: '552 5.2.2 Mailbox full' }), sentRaw(3, { domain: 'two.example.com', email: 'a3@two.example.com', sender: 'a3@two.example.com' })], truncated: false }; } });
   res = await call(controller.sentList, user('alice')); assert.equal(res.code, 200, JSON.stringify(res.body));
-  assert.deepEqual(res.body.domains_scope, ['one.example.com']); assert.deepEqual(res.body.rows.map((r) => r.detail.msgid), ['s1', 's2'], 'only this domain\'s mail');
+  assert.deepEqual(res.body.domains_scope, ['one.example.com']); assert.equal(res.body.domain, 'all', 'no domain chosen means all of them'); assert.deepEqual(res.body.rows.map((r) => r.detail.msgid), ['s1', 's2'], 'an ordinary account gets the mail of its domains only');
   assert.equal(res.body.rows[1].result.label, 'Caixa cheia'); assert.equal(res.headers['Cache-Control'], 'no-store');
   assert.equal(JSON.stringify(res.body).includes('MATRIX_SECRET_SENTINEL'), false); assert.equal(sentAsked, 1);
   assert.equal('diagnostics' in res.body, false, 'an ordinary account never gets the diagnostics');

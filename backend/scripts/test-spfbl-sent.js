@@ -56,21 +56,21 @@ async function run() {
   for (const bad of [{ period: '1y' }, { status: 'nope' }, { by: 'x' }, { q: 'a'.repeat(101) }]) assert.throws(() => sent.parseFilters(bad), { name: 'SentError' }, JSON.stringify(bad).slice(0, 30));
   assert.equal(sent.parsePageSize(undefined), 20); assert.equal(sent.parsePageSize('100'), 100); assert.throws(() => sent.parsePageSize('7'), { code: 'SPFBL_FILTER_PAGE_SIZE' });
 
-  // ---------- the service: scope check on the sender domain, cache, de-duplication, paging ----------
-  let calls = 0; let clock = NOW; let answer = [];
+  // ---------- the service, one domain: scope check on the sender domain, cache, de-duplication, paging ----------
+  let calls = 0; let clock = NOW; let answer = []; let truncatedAnswer = false;
   const seen = [];
   const service = sent.createService({
     credentialsFor: async (id) => ({ id }), serverIdOf: async (domain) => (domain === 'semservidor.test' ? null : 'srv-1'), now: () => clock,
-    createClient: () => ({ emailTrack: async (args) => { calls += 1; seen.push(args); return answer; } })
+    createClient: () => ({ emailTrack: async (args) => { calls += 1; seen.push(args); return { records: answer, truncated: truncatedAnswer }; } })
   });
   const mk = (n, extra) => record({ msgid: `m${n}`, sendunixtime: String(sec(n)), actionunixtime: String(sec(n)), recipient: `dest${n}@destino.example`, ...extra });
   answer = [mk(5), mk(10, { type: 'failure', message: '550 5.1.1 User unknown' }), mk(20, { type: 'defer', message: '452 4.2.2 over quota' }),
-    mk(30, { domain: 'outro.test' }), mk(40, { type: 'rejected' }), mk(2000, {}), mk(50, { sender: 'vendas@exemplo.test', email: 'vendas@exemplo.test' })];
+    mk(30, { domain: 'outro.test', email: 'x@outro.test', sender: 'x@outro.test' }), mk(40, { type: 'rejected' }), mk(2000, {}), mk(50, { sender: 'vendas@exemplo.test', email: 'vendas@exemplo.test' })];
   const first = await service.search({ domain: 'exemplo.test', query: {} });
   assert.equal(calls, 1);
   assert.deepEqual(first.rows.map((r) => r.detail.msgid), ['m5', 'm10', 'm20', 'm50'], 'newest first; other domains, refused-on-arrival and out-of-period records are dropped');
-  assert.deepEqual([first.filtered_total, first.period_total, first.page, first.pages, first.truncated, first.cached], [4, 4, 1, 1, false, false]);
-  assert.deepEqual([seen[0].domain, seen[0].perType, seen[0].untilUnix > seen[0].sinceUnix, (seen[0].untilUnix - seen[0].sinceUnix) >= 86400], ['exemplo.test', 2000, true, true], 'the server is asked for this domain and this period');
+  assert.deepEqual([first.filtered_total, first.period_total, first.page, first.pages, first.truncated, first.cached, first.servers_failed], [4, 4, 1, 1, false, false, 0]);
+  assert.deepEqual([seen[0].domain, seen[0].maxPerKind, seen[0].untilUnix > seen[0].sinceUnix, (seen[0].untilUnix - seen[0].sinceUnix) >= 86400], ['exemplo.test', sent.MAX_PER_KIND, true, true], 'the server is asked for this domain and this period');
   const failed = await service.search({ domain: 'exemplo.test', query: { status: 'failed' } });
   assert.deepEqual([failed.rows.map((r) => r.result.label), failed.cached, calls], [['Destinatário inexistente'], true, 1], 'changing a filter does not call the server again');
   assert.equal((await service.search({ domain: 'exemplo.test', query: { status: 'deferred' } })).rows[0].result.label, 'Adiado: caixa cheia');
@@ -84,6 +84,7 @@ async function run() {
   assert.equal(calls, 3, 'simultaneous requests for the same period share one server call'); assert.ok(one.rows.length >= two.rows.length);
   await assert.rejects(service.search({ domain: 'semservidor.test', query: {} }), { code: 'SPFBL_SENT_NO_SERVER', statusCode: 409 });
   await assert.rejects(service.search({ domain: 'exemplo.test', query: { period: 'x' } }), { code: 'SPFBL_SENT_PERIOD' });
+
   // failures and deferrals: they can come with an empty "domain" and the sender only in "email"; they are matched by the sender's address
   answer = [mk(5), mk(6, { type: 'failure', domain: '', email: 'ana@exemplo.test', sender: '', message: '550 5.1.1 User unknown', transport: '', transport_is_remote: 0, router: 'dnslookup' }),
     mk(7, { type: 'defer', domain: '', email: 'Vendas@EXEMPLO.test', sender: '', message: '452 4.2.2 over quota' }),
@@ -102,38 +103,96 @@ async function run() {
   const page2 = await service.search({ domain: 'exemplo.test', query: { page: '2', page_size: '20' } });
   assert.deepEqual([page2.page, page2.pages, page2.rows.length, page2.filtered_total, page2.rows[0].detail.msgid], [2, 3, 20, 45, 'p21']);
   assert.equal((await service.search({ domain: 'exemplo.test', query: { page: '99' } })).page, 3, 'a page past the end lands on the last one');
-  // truncation
-  answer = Array.from({ length: sent.PER_TYPE_CAP }, (_, i) => mk((i % 1400) + 1, { msgid: `t${i}`, recipient: `d${i}@destino.example` })); clock += 61 * 1000;
-  assert.equal((await service.search({ domain: 'exemplo.test', query: { period: '30d' } })).truncated, true, 'a type that hit the cap is flagged');
+  // truncation is the client's word: it stopped at its cap
+  truncatedAnswer = true; clock += 61 * 1000;
+  assert.equal((await service.search({ domain: 'exemplo.test', query: { period: '30d' } })).truncated, true, 'a read that reached the cap is flagged');
+  truncatedAnswer = false;
   // a server that ignores the filter cannot leak other domains' mail
-  answer = [mk(5, { domain: 'outro.test', msgid: 'leak' })]; clock += 61 * 1000;
+  answer = [mk(5, { domain: 'outro.test', email: 'a@outro.test', sender: 'a@outro.test', msgid: 'leak' })]; clock += 61 * 1000;
   assert.equal((await service.search({ domain: 'exemplo.test', query: {} })).rows.length, 0);
 
-  // ---------- the WHM client: one more allow-listed function, with validated parameters ----------
-  const calls2 = [];
-  const transport = async (call) => { calls2.push(call); return { status: 200, body: JSON.stringify({ metadata: { result: 1 }, data: { records: [record()] } }) }; };
-  const whm = () => new WhmClient({ host: 'srv.example.com', user: 'root', token: 'TOKENSENTINEL0123456789ABCDEF' }, { transport, resolver: async () => ['93.184.216.7'] });
-  const records = await whm().emailTrack({ domain: 'exemplo.test', sinceUnix: 1000, untilUnix: 2000, perType: 50 });
-  assert.equal(records.length, 2, 'both calls are made and their records joined');
-  assert.equal(calls2.length, 2);
-  const [delivered, problems] = calls2.map((call) => call.path);
-  assert.ok(delivered.startsWith('/json-api/emailtrack_search?api.version=1&success=1&defer=0&failure=0&inprogress=1&deliverytype=remote&max_results_by_type=50'), 'delivered and in progress: remote only');
-  assert.ok(delivered.includes('api.filter.a.field=domain&api.filter.a.arg0=exemplo.test&api.filter.a.type=eq') && delivered.includes('api.filter.b.field=sendunixtime&api.filter.b.arg0=1000&api.filter.b.type=gt') && delivered.includes('api.filter.c.field=sendunixtime&api.filter.c.arg0=2000&api.filter.c.type=lt'));
-  assert.ok(problems.startsWith('/json-api/emailtrack_search?api.version=1&success=0&defer=1&failure=1&inprogress=0&deliverytype=all&max_results_by_type=50'), 'deferred and failed: not limited to remote transports');
-  assert.ok(!problems.includes('field=domain'), 'deferred and failed are not filtered by the domain field (it can be empty on them)');
-  assert.ok(problems.includes('api.filter.b.field=actionunixtime&api.filter.b.arg0=1000&api.filter.b.type=gt') && problems.includes('api.filter.c.field=actionunixtime&api.filter.c.arg0=2000&api.filter.c.type=lt'), 'they are filtered by the period of the attempt');
-  assert.ok(!JSON.stringify(calls2.map((call) => call.path)).includes('SENTINEL'), 'the token never reaches the URL');
-  assert.equal(calls2[0].headers.Authorization.startsWith('whm root:'), true);
+  // ---------- all domains ("todos os domínios"): every server, scope for ordinary accounts ----------
+  const byServer = { 'srv-1': [], 'srv-2': [], 'srv-3': [] };
+  const asked = [];
+  let failing = new Set();
+  const multi = sent.createService({
+    credentialsFor: async (id) => ({ id }), serverIdOf: async () => 'srv-1', now: () => clock,
+    allServers: async () => [{ id: 'srv-1', name: 'Servidor A' }, { id: 'srv-2', name: 'Servidor B' }, { id: 'srv-3', name: 'Servidor C' }],
+    serverIdsOf: async (names) => new Set(names.includes('b.test') ? ['srv-2'] : ['srv-1']),
+    createClient: (credentials) => ({ emailTrack: async (args) => { asked.push([credentials.id, args.domain]); if (failing.has(credentials.id)) throw Object.assign(new Error('x'), { code: 'WHM_AUTH_REFUSED' }); return { records: byServer[credentials.id], truncated: false }; } })
+  });
+  const rec = (n, domain, extra = {}) => mk(n, { domain, email: `u${n}@${domain}`, sender: `u${n}@${domain}`, msgid: `${domain}-${n}`, ...extra });
+  byServer['srv-1'] = [rec(5, 'a.test'), rec(6, 'a.test', { type: 'failure', domain: '', message: '550 5.1.1 User unknown' }), rec(7, 'outro.test'), mk(8, { type: 'success', domain: '-system-', email: 'root@srv.example.test', sender: 'root', msgid: 'sys-8' })];
+  byServer['srv-2'] = [rec(9, 'b.test'), rec(10, 'a.test'), rec(5, 'a.test')];
+  byServer['srv-3'] = [rec(11, 'c.test')];
+  clock += 61 * 1000;
+  const everything = await multi.search({ domain: sent.ALL, scope: ['a.test', 'b.test'], admin: true, query: { page_size: '100' }, diagnostics: true });
+  assert.deepEqual(asked.map((a) => a[0]).sort(), ['srv-1', 'srv-2', 'srv-3'], 'the Super Admin reads every registered server');
+  assert.ok(asked.every((a) => a[1] === null), 'all domains: no domain filter in the request');
+  assert.deepEqual(everything.rows.map((r) => r.detail.msgid).sort(), ['a.test-10', 'a.test-5', 'a.test-6', 'b.test-9', 'c.test-11', 'outro.test-7', 'sys-8'].sort(), 'the Super Admin gets every domain, system mail and domains outside the list included, without duplicates');
+  assert.equal(everything.rows.find((r) => r.detail.msgid === 'a.test-6').result.label, 'Destinatário inexistente');
+  assert.deepEqual(everything.rows.map((r) => r.server).filter(Boolean).sort().slice(0, 1), ['Servidor A'], 'each row names its server');
+  assert.deepEqual([everything.servers_failed, everything.servers_failed_names, everything.diagnostics.returned.success + everything.diagnostics.returned.failure], [0, [], 8]);
+  asked.length = 0; clock += 61 * 1000;
+  const mine = await multi.search({ domain: sent.ALL, scope: ['a.test', 'b.test'], admin: false, query: { page_size: '100' } });
+  assert.deepEqual(asked.map((a) => a[0]).sort(), ['srv-2'], 'an ordinary account reads only the servers of its domains');
+  assert.deepEqual(mine.rows.map((r) => r.detail.msgid).sort(), ['a.test-10', 'a.test-5', 'b.test-9'], 'and keeps only the domains of its scope');
+  assert.equal('servers_failed_names' in mine, false, 'server names are for the Super Admin');
+  clock += 61 * 1000; failing = new Set(['srv-2']);
+  const partial = await multi.search({ domain: sent.ALL, scope: [], admin: true, query: { page_size: '100' } });
+  assert.deepEqual([partial.servers_failed, partial.servers_failed_names, partial.rows.length], [1, [{ name: 'Servidor B', code: 'WHM_AUTH_REFUSED' }], 5], 'a server that fails does not hide the others, and is named');
+  clock += 61 * 1000; failing = new Set(['srv-1', 'srv-2', 'srv-3']);
+  await assert.rejects(multi.search({ domain: sent.ALL, scope: [], admin: true, query: {} }), { code: 'WHM_AUTH_REFUSED' }, 'when no server answers, the reason is reported, not an empty list');
+  failing = new Set();
+  const noServer = sent.createService({ credentialsFor: async () => ({}), serverIdOf: async () => null, allServers: async () => [], serverIdsOf: async () => new Set(), createClient: () => ({}) });
+  await assert.rejects(noServer.search({ domain: sent.ALL, scope: ['a.test'], admin: false, query: {} }), { code: 'SPFBL_SENT_NO_SERVER' });
+  await assert.rejects(noServer.search({ domain: sent.ALL, scope: [], admin: true, query: {} }), { code: 'SPFBL_SENT_NO_SERVER' });
+
+  // ---------- the WHM client: one more allow-listed function, unlimited and chunked, with validated parameters ----------
+  const paths = [];
+  const fixtures = { delivered: Array.from({ length: 1200 }, (_, i) => record({ msgid: `d${i}` })), problems: Array.from({ length: 30 }, (_, i) => record({ msgid: `f${i}`, type: 'failure', domain: '' })) };
+  const transport = async (call) => {
+    paths.push(call.path);
+    const query = new URLSearchParams(call.path.split('?')[1]);
+    const rows = fixtures[query.get('success') === '1' ? 'delivered' : 'problems'];
+    const start = Number(query.get('api.chunk.start')); const size = Number(query.get('api.chunk.size'));
+    return { status: 200, body: JSON.stringify({ metadata: { result: 1 }, data: { records: rows.slice(start - 1, start - 1 + size) } }) };
+  };
+  const whm = (overrides = {}, options = {}) => new WhmClient({ host: 'srv.example.com', user: 'root', token: 'TOKENSENTINEL0123456789ABCDEF', ...overrides }, { transport, resolver: async () => ['93.184.216.7'], ...options });
+  const read = await whm().emailTrack({ domain: 'exemplo.test', sinceUnix: 1000, untilUnix: 2000 });
+  assert.deepEqual([read.records.length, read.truncated], [1230, false], 'every record is read, in chunks, for both kinds of call');
+  assert.equal(paths.length, 4, '1200 delivered = 3 chunks (500, 500, 200), 30 problems = 1');
+  const [d1, d2, d3, p1] = paths;
+  assert.ok(d1.startsWith('/json-api/emailtrack_search?api.version=1&success=1&defer=0&failure=0&inprogress=1&deliverytype=remote&max_results_by_type=0'), 'delivered: remote only, and NO limit of results (it would be applied before the filters)');
+  assert.ok(d1.includes('api.filter.a.field=domain&api.filter.a.arg0=exemplo.test&api.filter.a.type=eq') && d1.includes('api.filter.b.field=sendunixtime&api.filter.b.arg0=1000&api.filter.b.type=gt') && d1.includes('api.filter.c.field=sendunixtime&api.filter.c.arg0=2000&api.filter.c.type=lt'));
+  assert.ok(d1.includes('api.sort.enable=1&api.sort.a.field=sendunixtime&api.sort.a.method=numeric&api.sort.a.reverse=1'), 'newest first');
+  assert.deepEqual([d1, d2, d3].map((path) => /api\.chunk\.start=(\d+)/.exec(path)[1]), ['1', '501', '1001']); assert.ok(d1.includes('api.chunk.size=500'));
+  assert.ok(p1.startsWith('/json-api/emailtrack_search?api.version=1&success=0&defer=1&failure=1&inprogress=0&deliverytype=all&max_results_by_type=0'), 'deferred and failed: not limited to remote transports, no limit of results');
+  assert.ok(!p1.includes('field=domain'), 'deferred and failed are not filtered by the domain field (it can be empty on them)');
+  assert.ok(p1.includes('api.filter.b.field=actionunixtime&api.filter.b.arg0=1000&api.filter.b.type=gt') && p1.includes('api.sort.a.field=actionunixtime'), 'they are filtered and ordered by the attempt');
+  assert.ok(!JSON.stringify(paths).includes('SENTINEL'), 'the token never reaches the URL');
+  paths.length = 0;
+  const allDomains = await whm().emailTrack({ domain: null, sinceUnix: 1000, untilUnix: 2000 });
+  assert.equal(allDomains.records.length, 1230); assert.ok(!paths[0].includes('field=domain'), 'all domains: no domain filter');
+  paths.length = 0; fixtures.delivered = Array.from({ length: 9000 }, (_, i) => record({ msgid: `d${i}` }));
+  const capped = await whm().emailTrack({ domain: null, sinceUnix: 1000, untilUnix: 2000, maxPerKind: 1000 });
+  assert.deepEqual([capped.records.length, capped.truncated], [1030, true], 'a read stops at its cap and says so');
+  fixtures.delivered = Array.from({ length: 500 }, (_, i) => record({ msgid: `d${i}` })); paths.length = 0;
+  assert.equal((await whm().emailTrack({ domain: 'exemplo.test', sinceUnix: 1000, untilUnix: 2000 })).records.length, 530, 'a read ending exactly on a chunk asks once more and finds it empty');
   for (const bad of [{ domain: 'a b', sinceUnix: 1, untilUnix: 2 }, { domain: 'exemplo.test;x=1', sinceUnix: 1, untilUnix: 2 }, { domain: 'exemplo.test', sinceUnix: 5, untilUnix: 2 },
-    { domain: 'exemplo.test', sinceUnix: 'x', untilUnix: 2 }, { domain: 'exemplo.test', sinceUnix: 1, untilUnix: 2, perType: 0 }, { domain: 'exemplo.test', sinceUnix: 1, untilUnix: 2, perType: 9999 }, { domain: 'exemplo.test&api.version=2', sinceUnix: 1, untilUnix: 2 }]) {
+    { domain: 'exemplo.test', sinceUnix: 'x', untilUnix: 2 }, { domain: 'exemplo.test', sinceUnix: 1, untilUnix: 2, maxPerKind: 10 }, { domain: 'exemplo.test', sinceUnix: 1, untilUnix: 2, maxPerKind: 99999 }, { domain: 'exemplo.test&api.version=2', sinceUnix: 1, untilUnix: 2 }]) {
+    paths.length = 0;
     await assert.rejects(whm().emailTrack(bad), WhmError, JSON.stringify(bad));
+    assert.equal(paths.length, 0, 'an invalid request never reaches the server');
   }
-  assert.equal(calls2.length, 2, 'an invalid request never reaches the server (still only the two calls above)');
-  const noRecords = new WhmClient({ host: 'srv.example.com', user: 'root', token: 'TOKENSENTINEL0123456789ABCDEF' }, { transport: async () => ({ status: 200, body: JSON.stringify({ metadata: { result: 1 }, data: {} }) }), resolver: async () => ['93.184.216.7'] });
+  const noRecords = whm({}, { transport: async () => ({ status: 200, body: JSON.stringify({ metadata: { result: 1 }, data: {} }) }) });
   await assert.rejects(noRecords.emailTrack({ domain: 'exemplo.test', sinceUnix: 1, untilUnix: 2 }), { code: 'WHM_FORMAT' });
   await assert.rejects(whm().call('addpkg'), { code: 'WHM_FUNCTION_FORBIDDEN' });
-  const refused = new WhmClient({ host: 'srv.example.com', user: 'root', token: 'TOKENSENTINEL0123456789ABCDEF' }, { transport: async () => ({ status: 403, body: '{}' }), resolver: async () => ['93.184.216.7'] });
+  const refused = whm({}, { transport: async () => ({ status: 403, body: '{}' }) });
   await assert.rejects(refused.emailTrack({ domain: 'exemplo.test', sinceUnix: 1, untilUnix: 2 }), (error) => error.code === 'WHM_AUTH_REFUSED' && /emailtrack_search/.test(error.message), 'a token without permission is named');
+  // a long chunked read gets a fresh time limit per call, but not an unlimited one
+  let tick = 0; const slow = whm({}, { now: () => { tick += 30000; return tick; }, transport });
+  await assert.rejects(slow.emailTrack({ domain: null, sinceUnix: 1, untilUnix: 2 }), { code: 'WHM_TIMEOUT' }, 'the whole read has a ceiling');
   console.log('spfbl sent mail tests passed');
 }
 

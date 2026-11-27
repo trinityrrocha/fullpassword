@@ -5,7 +5,9 @@ const { WhmClient } = require('./spfblWhmClient');
 // filtering do not call the WHM again. Scope (which domains a person may see) is decided by the controller, before this is called.
 const TTL_MS = 60 * 1000;
 const MAX_CACHE = 50;
-const PER_TYPE_CAP = 2000;
+// Per kind of call (delivered / problems): the read stops there and the page says there may be more.
+const MAX_PER_KIND = 5000;
+const ALL = 'all';
 const PERIODS = Object.freeze({ '24h': 24 * 3600, '3d': 3 * 86400, '7d': 7 * 86400, '30d': 30 * 86400 });
 const STATUS_FILTERS = Object.freeze({ all: null, sent: ['success'], deferred: ['defer'], failed: ['failure'], progress: ['inprogress'] });
 const PAGE_SIZES = Object.freeze([20, 40, 100]);
@@ -111,34 +113,32 @@ const parsePageSize = (value) => {
 // Tests replace createClient here, as they do for the domain sync.
 const internals = { createClient: (credentials) => new WhmClient(credentials) };
 
-const createService = ({ credentialsFor, serverIdOf, createClient = (credentials) => internals.createClient(credentials), now = Date.now } = {}) => {
+const createService = ({ credentialsFor, serverIdOf, serverIdsOf, allServers, createClient = (credentials) => internals.createClient(credentials), now = Date.now } = {}) => {
   const cache = new Map();
   const inFlight = new Map();
 
-  // The WHM answer for one domain and period, shared for a minute. The period start is rounded to 5 minutes so that repeated page loads
-  // use the same entry.
-  const fetchRecords = async (serverId, domain, seconds) => {
+  // What one WHM server answered for a period (one domain, or every domain of the server when `domain` is null), shared for a minute. The
+  // period start is rounded to 5 minutes so that repeated page loads use the same entry.
+  const fetchServer = async (serverId, domain, seconds) => {
     const nowSec = Math.floor(now() / 1000);
     const until = Math.ceil((nowSec + 1) / 300) * 300;
     const since = Math.floor((nowSec - seconds) / 300) * 300;
-    const key = `${serverId}|${domain}|${since}`;
+    const key = `${serverId}|${domain || '*'}|${since}`;
     const hit = cache.get(key);
     if (hit && now() - hit.at < TTL_MS) return { ...hit, cached: true };
     if (inFlight.has(key)) return inFlight.get(key);
     const promise = (async () => {
-      const raw = await createClient(await credentialsFor(serverId)).emailTrack({ domain, sinceUnix: since, untilUnix: until, perType: PER_TYPE_CAP });
+      const { records: raw, truncated } = await createClient(await credentialsFor(serverId)).emailTrack({ domain, sinceUnix: since, untilUnix: until, maxPerKind: MAX_PER_KIND });
       const counts = {};
       for (const record of raw) counts[record?.type] = (counts[record?.type] || 0) + 1;
-      // A type that came back at the cap probably has more on the server: the page says so.
-      const truncated = ['success', 'defer', 'failure', 'inprogress'].some((type) => (counts[type] || 0) >= PER_TYPE_CAP);
       const diagnostics = { returned: counts, other_type: 0, other_domain: 0, out_of_period: 0 };
       const records = [];
       const seen = new Set();
       for (const item of raw) {
         const record = normalizeRecord(item);
         if (!record) { diagnostics.other_type += 1; continue; }
-        // The server is asked to filter, but this checks again: a server that ignores a filter cannot leak other domains' mail.
-        if (record.sender_domain !== domain) { diagnostics.other_domain += 1; continue; }
+        // When one domain is asked the server is asked to filter, but this checks again: a server that ignores a filter cannot leak other domains' mail.
+        if (domain && record.sender_domain !== domain) { diagnostics.other_domain += 1; continue; }
         // In the period when it was sent OR when it was last attempted (a message deferred days ago and retried now still counts).
         const inPeriod = (record.sent_unix > since && record.sent_unix < until) || (record.action_unix > since && record.action_unix < until);
         if (!inPeriod) { diagnostics.out_of_period += 1; continue; }
@@ -155,12 +155,49 @@ const createService = ({ credentialsFor, serverIdOf, createClient = (credentials
     return promise;
   };
 
-  const search = async ({ domain, query = {}, diagnostics = false }) => {
+  const sumDiagnostics = (parts) => {
+    const total = { returned: {}, other_type: 0, other_domain: 0, out_of_period: 0 };
+    for (const part of parts) {
+      for (const [type, n] of Object.entries(part.returned || {})) total.returned[type] = (total.returned[type] || 0) + n;
+      total.other_type += part.other_type; total.other_domain += part.other_domain; total.out_of_period += part.out_of_period;
+    }
+    return total;
+  };
+
+  // `domain` is one domain of the scope, or ALL ("todos os domínios"). For all of them: the Super Admin gets everything every WHM server
+  // reports (system mail included); any other account gets the mail of the domains of its scope, from the servers that host them.
+  const search = async ({ domain, scope = [], admin = false, query = {}, diagnostics = false }) => {
     const filters = parseFilters(query);
     const pageSize = parsePageSize(query.page_size);
-    const serverId = await serverIdOf(domain);
-    if (!serverId) throw new SentError('Este domínio está sem servidor WHM cadastrado: não há como consultar os e-mails enviados.', 'SPFBL_SENT_NO_SERVER', 409);
-    const found = await fetchRecords(serverId, domain, filters.seconds);
+    let parts;
+    let failures = [];
+    if (domain === ALL) {
+      const targets = admin ? await allServers() : [...(await serverIdsOf(scope))].map((id) => ({ id, name: id }));
+      if (targets.length === 0) throw new SentError('Nenhum servidor WHM cadastrado para consultar os e-mails enviados.', 'SPFBL_SENT_NO_SERVER', 409);
+      const settled = await Promise.allSettled(targets.map((server) => fetchServer(server.id, null, filters.seconds)));
+      parts = []; failures = [];
+      settled.forEach((result, index) => {
+        if (result.status === 'fulfilled') parts.push({ ...result.value, server: targets[index].name });
+        else failures.push({ name: targets[index].name, code: String(result.reason?.code || 'internal_error').slice(0, 60), error: result.reason });
+      });
+      // Nothing came back from any server: say why (a refused token, a timeout) instead of an empty list.
+      if (parts.length === 0) throw failures[0].error;
+    } else {
+      const serverId = await serverIdOf(domain);
+      if (!serverId) throw new SentError('Este domínio está sem servidor WHM cadastrado: não há como consultar os e-mails enviados.', 'SPFBL_SENT_NO_SERVER', 409);
+      parts = [{ ...(await fetchServer(serverId, domain, filters.seconds)), server: null }];
+    }
+    const scopeSet = new Set(scope);
+    const seen = new Set();
+    const all = [];
+    for (const part of parts) {
+      for (const record of part.records) {
+        if (domain === ALL && !admin && !scopeSet.has(record.sender_domain)) continue;
+        if (seen.has(record.id)) continue;
+        seen.add(record.id);
+        all.push(part.server ? { ...record, server: part.server } : record);
+      }
+    }
     const wanted = STATUS_FILTERS[filters.status];
     const matches = (record) => {
       if (wanted && !wanted.includes(record.type)) return false;
@@ -169,19 +206,21 @@ const createService = ({ credentialsFor, serverIdOf, createClient = (credentials
       const recipient = record.recipient.toLowerCase();
       return filters.by === 'sender' ? sender.includes(filters.q) : filters.by === 'recipient' ? recipient.includes(filters.q) : (sender.includes(filters.q) || recipient.includes(filters.q));
     };
-    const rows = found.records.filter(matches).sort((a, b) => b.sent_unix - a.sent_unix || (a.id < b.id ? 1 : -1));
+    const rows = all.filter(matches).sort((a, b) => b.sent_unix - a.sent_unix || (a.id < b.id ? 1 : -1));
     const pages = Math.max(1, Math.ceil(rows.length / pageSize));
     const page = Math.min(pages, Math.max(1, Math.floor(Number(query.page)) || 1));
     return {
       filters: { period: filters.period, status: filters.status, by: filters.by, q: filters.q },
-      rows: rows.slice((page - 1) * pageSize, page * pageSize), filtered_total: rows.length, period_total: found.records.length,
-      page, pages, page_size: pageSize, truncated: found.truncated, fetched_at: found.fetched_at, cached: found.cached,
-      // Counts only (no addresses), and only for the Super Admin: what the WHM returned and why some records were left out.
-      ...(diagnostics ? { diagnostics: found.diagnostics } : {})
+      rows: rows.slice((page - 1) * pageSize, page * pageSize), filtered_total: rows.length, period_total: all.length,
+      page, pages, page_size: pageSize, truncated: parts.some((part) => part.truncated), fetched_at: parts.map((part) => part.fetched_at).sort().at(-1), cached: parts.every((part) => part.cached),
+      servers_failed: failures.length,
+      // Names of the servers that did not answer (a label the Super Admin typed), and counts only of what was returned: never addresses.
+      ...(admin ? { servers_failed_names: failures.map((failure) => ({ name: failure.name, code: failure.code })) } : {}),
+      ...(diagnostics ? { diagnostics: sumDiagnostics(parts.map((part) => part.diagnostics)) } : {})
     };
   };
 
-  return { search, fetchRecords };
+  return { search, fetchServer };
 };
 
-module.exports = { internals, SentError, classifyResult, normalizeRecord, parseFilters, parsePageSize, createService, PERIODS, PAGE_SIZES, PER_TYPE_CAP, TTL_MS, EVENT_LABELS };
+module.exports = { internals, SentError, classifyResult, normalizeRecord, parseFilters, parsePageSize, createService, PERIODS, PAGE_SIZES, MAX_PER_KIND, ALL, TTL_MS, EVENT_LABELS };

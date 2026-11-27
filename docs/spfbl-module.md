@@ -46,20 +46,27 @@ ou um texto curto traduzido da resposta do servidor de destino (Destinatário in
 excedido, Bloqueado como spam, Servidor de destino sem resposta, Falha de TLS, Mensagem grande demais; adiamentos aparecem como "Adiado:
 …"); o que não for reconhecido aparece como "Falha na entrega (código)" e o texto completo fica em *Detalhes*. Essa tradução é heurística,
 feita a partir de textos conhecidos: **não foi validada com falhas reais do servidor** e deve ser ajustada quando houver exemplos.
-- **Escopo**: o mesmo do histórico recebido (a conta só consulta os domínios liberados para ela; o Super Admin, todos). O domínio é o do
-  remetente: o campo `domain` do registro e, quando ele vem vazio, o domínio do endereço do remetente (`email`, depois `sender`).
+- **Escopo**: o mesmo do histórico recebido (a conta só consulta os domínios liberados para ela; o Super Admin, todos). O domínio do
+  registro é o do remetente: o campo `domain` e, quando ele vem vazio, o domínio do endereço do remetente (`email`, depois `sender`).
   Mensagens recusadas na chegada (`type: rejected`) não entram.
-- **Duas consultas ao WHM** (porque os registros não têm os mesmos campos): *entregues e em andamento* são filtradas no servidor por
-  domínio e período, só entregas remotas; *adiadas e com falha* **não** são filtradas por `domain` nem por entrega remota (nelas o `domain`
-  pode vir vazio e uma falha na fase de roteamento nunca chega a um transporte remoto), só pelo período da tentativa, e o backend fica com as
-  que pertencem ao domínio. Um registro vale no período se foi enviado ou tentado nele (uma mensagem adiada há dias e reenviada hoje aparece).
+- **Todos os domínios**: a primeira opção do seletor de domínio (e a padrão). Para o **Super Admin** traz tudo o que **cada servidor WHM
+  cadastrado** registra, de todas as contas (inclusive as de revendedores restauradas de backup e o e-mail do próprio sistema, como o do
+  root); para as demais contas, os domínios do escopo delas, só dos servidores que os hospedam. Um servidor que não responder não esconde os
+  outros: a tela avisa quantos falharam (e, para o Super Admin, quais e por quê).
+- **Duas consultas ao WHM** (os registros não têm os mesmos campos): *entregues e em andamento* são filtradas no servidor por período (e por
+  domínio, quando um é escolhido) e só entregas remotas; *adiadas e com falha* **não** são filtradas por `domain` nem por entrega remota
+  (nelas o `domain` pode vir vazio e uma falha na fase de roteamento nunca chega a um transporte remoto), só pelo período da tentativa, e o
+  backend fica com as que pertencem ao escopo. Um registro vale no período se foi enviado ou tentado nele.
+- **Sem limite de resultados da função**: `max_results_by_type` é aplicado pelo servidor **antes** dos filtros, então qualquer limite faria
+  os remetentes mais ativos (e-mail do sistema, rotinas de backup) empurrarem os demais domínios para fora da resposta. A consulta usa
+  `max_results_by_type=0` e controla o tamanho pelos filtros, pela ordem (mais novos primeiro) e pela paginação do próprio WHM
+  (`api.chunk`, 500 por chamada, até 5000 por tipo de consulta e no máximo 120 segundos); se o teto for atingido a tela avisa que pode haver
+  mais e sugere reduzir o período.
 - **Diagnóstico (só Super Admin)**: a tela mostra uma linha com a contagem do que o WHM devolveu por tipo e quantos registros ficaram de
   fora (outro domínio, fora do período, não é envio). Só números, nunca endereços.
-- **Filtros**: domínio, período (24 horas, 3, 7 ou 30 dias), resultado, busca por remetente e/ou destinatário; 20, 40 ou 100 por página.
-- **Limites**: o servidor filtra por domínio e período e devolve, por tipo (entregue, adiado, falha), no máximo 2000 registros; se algum tipo
-  chegar ao limite a tela avisa que pode haver mais. A resposta fica guardada por 1 minuto (trocar filtro ou página não consulta o WHM de
-  novo; consultas simultâneas ao mesmo período compartilham uma só chamada). Quanto tempo para trás o servidor guarda esses registros depende
-  dele (não consta na documentação do cPanel).
+- **Limites**: a resposta de cada servidor fica guardada por 1 minuto (trocar filtro ou página não consulta o WHM de novo; consultas
+  simultâneas ao mesmo período compartilham uma só chamada). Quanto tempo para trás o servidor guarda esses registros depende dele (não
+  consta na documentação do cPanel).
 - **Permissão do token**: o token do WHM precisa poder executar `emailtrack_search`; sem isso a tela mostra que o WHM recusou essa função.
 - Rota: `GET /api/spfbl/sent` (limitador de 60 por 15 minutos).
 
