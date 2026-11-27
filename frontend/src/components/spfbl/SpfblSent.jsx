@@ -10,7 +10,7 @@ const HEADERS = ['Evento', 'Remetente', 'Destinatário', 'Data', 'Hora', 'Result
 
 function DetailsDialog({ row, onClose }) {
   return (
-    <FormDialog title="Detalhes do envio" description={`${row.event} · ${row.result.label}`} size="xl" guardChanges={false} onClose={onClose}
+    <FormDialog title="Detalhes do envio" description={`${row.event} · ${row.result.label}${row.server ? ` · Servidor ${row.server}` : ''}`} size="xl" guardChanges={false} onClose={onClose}
       footer={<div className="flex justify-end"><button type="button" data-dialog-cancel className="rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Fechar</button></div>}>
       <div className="space-y-4">
         {detailGroups(row.detail).map(([title, rows]) => (
@@ -71,7 +71,7 @@ export default function SpfblSent() {
     <div className="space-y-4">
       <form onSubmit={submit} noValidate className="grid gap-2 rounded-xl border border-slate-200 bg-white p-3 md:grid-cols-3 xl:grid-cols-[1.3fr_1fr_1fr_1.1fr_1.5fr_auto]" aria-label="Filtros dos e-mails enviados">
         <label className="block text-xs font-medium text-slate-700">Domínio
-          <select value={draft.domain} onChange={set('domain')} className={field}>{data.domains_scope.map((name) => <option key={name} value={name}>{name}</option>)}</select>
+          <select value={draft.domain} onChange={set('domain')} className={field}><option value="all">Todos os domínios</option>{data.domains_scope.map((name) => <option key={name} value={name}>{name}</option>)}</select>
         </label>
         <label className="block text-xs font-medium text-slate-700">Período
           <select value={draft.period} onChange={set('period')} className={field}>{PERIOD_OPTIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
@@ -93,6 +93,12 @@ export default function SpfblSent() {
       </form>
 
       {error && <p role="alert" className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>}
+      {data.servers_failed > 0 && (
+        <p role="status" className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900" data-sent-servers-failed>
+          {data.servers_failed === 1 ? '1 servidor WHM não respondeu' : `${data.servers_failed} servidores WHM não responderam`}: os e-mails dele{data.servers_failed === 1 ? '' : 's'} não aparecem nesta lista.
+          {data.servers_failed_names?.length > 0 && <> Servidor{data.servers_failed_names.length === 1 ? '' : 'es'}: {data.servers_failed_names.map((server) => `${server.name} (${server.code})`).join(', ')}.</>}
+        </p>
+      )}
       {data.truncated && <p role="status" className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">O servidor devolveu o limite de registros de algum tipo: pode haver mais e-mails no período. Reduza o período para ver todos.</p>}
       {data.diagnostics && (
         <p className="text-xs text-slate-500" data-sent-diagnostics>
@@ -108,7 +114,7 @@ export default function SpfblSent() {
 
       <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
         <table className="w-full min-w-[56rem] table-fixed whitespace-nowrap text-left text-[13px]">
-          <caption className="sr-only">E-mails enviados pelo domínio {data.domain}</caption>
+          <caption className="sr-only">{data.domain === 'all' ? 'E-mails enviados por todos os domínios' : `E-mails enviados pelo domínio ${data.domain}`}</caption>
           <colgroup><col className="w-[8.5rem]" /><col className="w-[16rem]" /><col /><col className="w-[5.5rem]" /><col className="w-[5rem]" /><col className="w-[17rem]" /><col className="w-[5.5rem]" /></colgroup>
           <thead className="text-[11px] uppercase tracking-wide text-slate-500"><tr className="border-b border-slate-200">{HEADERS.map((header) => <th key={header || 'acoes'} scope="col" className="px-3 py-2 font-semibold">{header || <span className="sr-only">Ações</span>}</th>)}</tr></thead>
           <tbody className="divide-y divide-slate-100">

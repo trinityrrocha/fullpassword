@@ -39,7 +39,7 @@ const row = (n, extra = {}) => ({
   ...extra
 });
 const state = {
-  calls: [], diagnostics: null, fail: null, scope: ['exemplo.test', 'outro.test'], truncated: false,
+  calls: [], failedServers: [], diagnostics: null, fail: null, scope: ['exemplo.test', 'outro.test'], truncated: false,
   rows: [
     row(1),
     row(2, { type: 'failure', event: 'Falha na entrega', result: { key: 'mailbox_full', label: 'Caixa cheia', tone: 'danger', code: '552 5.2.2' }, detail: { ...row(2).detail, type: 'failure', message: '552 5.2.2 Mailbox full' } }),
@@ -72,7 +72,7 @@ try {
       let rows = state.rows;
       if (query.status === 'failed') rows = rows.filter((r) => r.type === 'failure');
       if (query.q) rows = rows.filter((r) => r.sender.includes(query.q) || r.recipient.includes(query.q));
-      return json({ domain: query.domain || 'exemplo.test', domains_scope: state.scope, filters: { period: query.period || '24h', status: query.status || 'all', by: query.by || 'any', q: query.q || '' },
+      return json({ domain: query.domain || 'all', domains_scope: state.scope, servers_failed: state.failedServers.length, ...(state.failedServers.length ? { servers_failed_names: state.failedServers } : {}), filters: { period: query.period || '24h', status: query.status || 'all', by: query.by || 'any', q: query.q || '' },
         rows: rows.slice((pageNo - 1) * size, pageNo * size), filtered_total: rows.length, period_total: state.rows.length, page: pageNo, pages: Math.max(1, Math.ceil(rows.length / size)), page_size: size, truncated: state.truncated, fetched_at: '2026-11-27T12:10:00Z', cached: false, ...(state.diagnostics ? { diagnostics: state.diagnostics } : {}) });
     }
     return json({ error: `unexpected ${api}` }, 404);
@@ -88,7 +88,9 @@ try {
   // Sub-tab by click.
   await tabs.getByRole('tab', { name: 'Enviados' }).click();
   await page.getByRole('form', { name: 'Filtros dos e-mails enviados' }).waitFor();
-  const table = page.getByRole('table', { name: /E-mails enviados pelo domínio exemplo\.test/ });
+  const table = page.getByRole('table', { name: 'E-mails enviados por todos os domínios' });
+  assert.equal(await page.getByRole('combobox', { name: 'Domínio', exact: true }).inputValue(), 'all', 'all domains is the default');
+  assert.deepEqual(await page.getByRole('combobox', { name: 'Domínio', exact: true }).locator('option').allTextContents(), ['Todos os domínios', 'exemplo.test', 'outro.test']);
   await table.waitFor();
   assert.deepEqual(await table.locator('thead th').evaluateAll((items) => items.map((item) => item.textContent.trim())), ['Evento', 'Remetente', 'Destinatário', 'Data', 'Hora', 'Resultado', 'Ações']);
   assert.equal(await table.locator('tbody tr').count(), 20, 'first page holds 20 rows');
@@ -120,7 +122,7 @@ try {
   await page.getByRole('searchbox', { name: 'Texto' }).fill('ana2');
   await page.getByRole('button', { name: 'Consultar' }).click();
   await page.waitForFunction(() => document.querySelectorAll('tbody tr').length === 1);
-  assert.deepEqual([lastSentCall().status, lastSentCall().period, lastSentCall().by, lastSentCall().q, lastSentCall().domain, lastSentCall().page], ['failed', '7d', 'sender', 'ana2', 'exemplo.test', '1']);
+  assert.deepEqual([lastSentCall().status, lastSentCall().period, lastSentCall().by, lastSentCall().q, lastSentCall().domain, lastSentCall().page], ['failed', '7d', 'sender', 'ana2', 'all', '1']);
   await page.getByRole('button', { name: 'Limpar' }).click();
   await page.waitForFunction(() => document.querySelectorAll('tbody tr').length === 20);
   assert.equal(lastSentCall().status, undefined, 'cleared filters are not sent');
@@ -143,6 +145,14 @@ try {
   await diagnostics.waitFor();
   assert.match(await diagnostics.innerText(), /o WHM devolveu 10 entregues, 2 adiados, 3 falhas e 4 recusados na chegada\. Ficaram de fora 7 de outros domínios, 1 fora do período e 4 que não são envios\./);
   state.diagnostics = null; await page.getByRole('button', { name: 'Atualizar' }).click(); await diagnostics.waitFor({ state: 'detached' });
+
+  // A WHM server that did not answer is named for the Super Admin, so a missing domain is explained.
+  state.failedServers = [{ name: 'Servidor B', code: 'WHM_TIMEOUT' }];
+  await page.getByRole('button', { name: 'Atualizar' }).click();
+  const failedNote = page.locator('[data-sent-servers-failed]');
+  await failedNote.waitFor();
+  assert.match(await failedNote.innerText(), /1 servidor WHM não respondeu: os e-mails dele não aparecem nesta lista\. Servidor: Servidor B \(WHM_TIMEOUT\)\./);
+  state.failedServers = []; await page.getByRole('button', { name: 'Atualizar' }).click(); await failedNote.waitFor({ state: 'detached' });
 
   // The truncation notice, an error from the server and an empty scope are each said plainly.
   state.truncated = true; await page.getByRole('button', { name: 'Atualizar' }).click();

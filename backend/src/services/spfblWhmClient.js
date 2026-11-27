@@ -17,6 +17,9 @@ const MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 20000;
 const TOTAL_DEADLINE_MS = 45000;
 const MAX_DOMAINS = 5000;
+// Sent-mail reads: records per call, and the longest a whole (chunked) read may take.
+const EMAIL_CHUNK = 500;
+const EMAIL_TOTAL_MS = 120000;
 
 const HOST_PATTERN = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
 const DOMAIN_PATTERN = HOST_PATTERN;
@@ -195,34 +198,48 @@ class WhmClient {
     return { domains: list, skipped };
   }
 
-  // Delivery records of the mail SENT by one domain (emailtrack_search, WHM API 1). Two calls, because the two kinds of record do not carry
-  // the same fields:
-  //  - delivered / in progress: the server filters by sender domain and period (their "domain" field is the sender's domain);
-  //  - deferred / failed: NOT filtered by "domain" or by remote delivery, because those records can come with an empty "domain" (the sender is
-  //    only in "email") and a failure at the routing stage never reaches a remote transport. They are filtered by period only and the caller
-  //    keeps the ones that belong to the domain.
+  // Delivery records of the mail SENT (emailtrack_search, WHM API 1), for one domain or for every domain of the server (domain = null).
+  // Two kinds of call, because the two kinds of record do not carry the same fields:
+  //  - delivered / in progress: filtered in the server by period (and by sender domain, when one is asked); remote deliveries only;
+  //  - deferred / failed: NOT filtered by "domain" or by remote delivery (on them "domain" can be empty, the sender is only in "email", and a
+  //    failure at the routing stage never reaches a remote transport), only by the period of the attempt.
+  // The function's own limit (max_results_by_type) is applied BEFORE the filters, so any limit would let busy senders (system mail, backups)
+  // push the other domains out of the answer: it is always 0 (unlimited). The size of the answer is bounded by the filters, by the order
+  // (newest first) and by chunking: the records come in chunks of 500 until a chunk is short or the cap per kind is reached.
   // Every value is validated here. Contract (cPanel API docs): data.records[] {type: success|defer|failure|inprogress, sender, email,
   // recipient, sendunixtime, actionunixtime, message, ...}.
-  async emailTrack({ domain, sinceUnix, untilUnix, perType = 2000 }) {
-    if (!DOMAIN_PATTERN.test(String(domain || ''))) throw new WhmError('Domínio inválido.', 'WHM_FORMAT', 422);
+  async emailTrack({ domain = null, sinceUnix, untilUnix, maxPerKind = 5000 }) {
+    if (domain !== null && !DOMAIN_PATTERN.test(String(domain))) throw new WhmError('Domínio inválido.', 'WHM_FORMAT', 422);
     const since = Number(sinceUnix);
     const until = Number(untilUnix);
-    const limit = Number(perType);
-    if (!Number.isInteger(since) || !Number.isInteger(until) || since < 0 || until <= since || !Number.isInteger(limit) || limit < 1 || limit > 5000) {
+    const cap = Number(maxPerKind);
+    if (!Number.isInteger(since) || !Number.isInteger(until) || since < 0 || until <= since || !Number.isInteger(cap) || cap < EMAIL_CHUNK || cap > 20000) {
       throw new WhmError('Período inválido.', 'WHM_FORMAT', 422);
     }
-    const period = (field) => `&api.filter.enable=1&api.filter.b.field=${field}&api.filter.b.arg0=${since}&api.filter.b.type=gt&api.filter.c.field=${field}&api.filter.c.arg0=${until}&api.filter.c.type=lt`;
-    const delivered = `&success=1&defer=0&failure=0&inprogress=1&deliverytype=remote&max_results_by_type=${limit}`
-      + `&api.filter.enable=1&api.filter.a.field=domain&api.filter.a.arg0=${domain}&api.filter.a.type=eq`
-      + `&api.filter.b.field=sendunixtime&api.filter.b.arg0=${since}&api.filter.b.type=gt&api.filter.c.field=sendunixtime&api.filter.c.arg0=${until}&api.filter.c.type=lt`;
-    const problems = `&success=0&defer=1&failure=1&inprogress=0&deliverytype=all&max_results_by_type=${limit}${period('actionunixtime')}`;
+    const filters = (field, extra = '') => `&api.filter.enable=1${extra}&api.filter.b.field=${field}&api.filter.b.arg0=${since}&api.filter.b.type=gt&api.filter.c.field=${field}&api.filter.c.arg0=${until}&api.filter.c.type=lt`;
+    const sorted = (field) => `&api.sort.enable=1&api.sort.a.field=${field}&api.sort.a.method=numeric&api.sort.a.reverse=1`;
+    const kinds = [
+      { query: `&success=1&defer=0&failure=0&inprogress=1&deliverytype=remote&max_results_by_type=0${filters('sendunixtime', domain ? `&api.filter.a.field=domain&api.filter.a.arg0=${domain}&api.filter.a.type=eq` : '')}${sorted('sendunixtime')}` },
+      { query: `&success=0&defer=1&failure=1&inprogress=0&deliverytype=all&max_results_by_type=0${filters('actionunixtime')}${sorted('actionunixtime')}` }
+    ];
+    const started = this.now();
     const records = [];
-    for (const query of [delivered, problems]) {
-      const data = await this.call('emailtrack_search', query);
-      if (!Array.isArray(data.records)) throw new WhmError('O WHM não retornou os registros de envio esperados em emailtrack_search.', 'WHM_FORMAT', 502, 'WHM_FORMAT emailtrack_search');
-      records.push(...data.records);
+    let truncated = false;
+    for (const { query } of kinds) {
+      let collected = 0;
+      for (let start = 1; ; start += EMAIL_CHUNK) {
+        // A long read is split into many calls: each one gets its own time limit, the whole read a larger one.
+        if (this.now() - started > EMAIL_TOTAL_MS) throw new WhmError('Tempo limite da consulta ao WHM excedido.', 'WHM_TIMEOUT', 504, 'WHM_TIMEOUT');
+        this.deadline = this.now() + TOTAL_DEADLINE_MS;
+        const data = await this.call('emailtrack_search', `${query}&api.chunk.enable=1&api.chunk.size=${EMAIL_CHUNK}&api.chunk.start=${start}`);
+        if (!Array.isArray(data.records)) throw new WhmError('O WHM não retornou os registros de envio esperados em emailtrack_search.', 'WHM_FORMAT', 502, 'WHM_FORMAT emailtrack_search');
+        records.push(...data.records);
+        collected += data.records.length;
+        if (data.records.length < EMAIL_CHUNK) break;
+        if (collected >= cap) { truncated = true; break; }
+      }
     }
-    return records;
+    return { records, truncated };
   }
 
   // Active domains = domains of non-suspended accounts. get_domain_info is reported as incomplete on some servers,

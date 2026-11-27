@@ -359,12 +359,19 @@ const historyList = guarded('histórico', async (req, res) => {
 });
 
 // Sent mail of one domain, read live from its WHM server (nothing is stored). Same scope as the history: only the caller's domains.
-const sentService = sent.createService({ credentialsFor: (serverId) => servers.getWhmCredentials(serverId), serverIdOf: (domain) => servers.serverIdOfDomain(domain) });
+const sentService = sent.createService({
+  credentialsFor: (serverId) => servers.getWhmCredentials(serverId), serverIdOf: (domain) => servers.serverIdOfDomain(domain),
+  allServers: async () => (await servers.listServers()).map((server) => ({ id: server.id, name: server.name })),
+  serverIdsOf: async (names) => (names.length ? new Set((await db.query('SELECT DISTINCT server_id FROM spfbl_domains WHERE name = ANY($1::text[]) AND server_id IS NOT NULL', [names])).rows.map((r) => r.server_id)) : new Set())
+});
 const sentList = guarded('e-mails enviados', async (req, res) => {
   const scope = await scopeDomains(req.user);
-  if (scope.length === 0) return res.status(200).json({ domain: null, domains_scope: [], rows: [], filtered_total: 0, period_total: 0, page: 1, pages: 1, page_size: sent.PAGE_SIZES[0], filters: { period: '24h', status: 'all', by: 'any', q: '' }, truncated: false });
-  const domain = requireDomain(scope, req.query.domain ?? scope[0]);
-  const result = await sentService.search({ domain, query: req.query, diagnostics: isSuperAdmin(req.user) });
+  if (scope.length === 0) return res.status(200).json({ domain: null, domains_scope: [], rows: [], filtered_total: 0, period_total: 0, page: 1, pages: 1, page_size: sent.PAGE_SIZES[0], filters: { period: '24h', status: 'all', by: 'any', q: '' }, truncated: false, servers_failed: 0 });
+  // No domain chosen means all of them. Anything else must be a domain of the caller's scope.
+  const chosen = req.query.domain === undefined || req.query.domain === '' ? sent.ALL : String(req.query.domain);
+  const domain = chosen === sent.ALL ? sent.ALL : requireDomain(scope, chosen);
+  const admin = isSuperAdmin(req.user);
+  const result = await sentService.search({ domain, scope, admin, query: req.query, diagnostics: admin });
   res.setHeader('Cache-Control', 'no-store');
   return res.status(200).json({ domain, domains_scope: scope, ...result });
 });
