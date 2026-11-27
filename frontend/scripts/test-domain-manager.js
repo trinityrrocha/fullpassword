@@ -167,3 +167,6 @@ assert.deepEqual(dm.syncSummary({ servers: [{ name: 'A', ok: true }], ok: 1, fai
 assert.equal(dm.syncSummary({ servers: [{ name: 'A', ok: false, code: 'X' }], ok: 0, failed: 1, imported: 0 }).type, 'error');
 assert.match(dm.syncSummary({ servers: [{ name: 'A', ok: true }, { name: 'B', ok: false }], ok: 1, failed: 1, imported: 0 }).text, /Falha em: B \(erro\)\./);
 console.log('sync helper tests passed');
+
+assert.deepEqual([-3, 0, 14, 15, 30, 31, 359].map(dash.expiryTone), ['danger', 'danger', 'danger', 'warning', 'warning', 'ok', 'ok'], 'red below 15 days, orange up to 30, green beyond');
+console.log('expiry tone tests passed');

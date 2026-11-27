@@ -36,7 +36,7 @@ const IDS = ['domains_health', 'domain_expirations', 'security_alerts', 'unlock_
 const iso = (hoursAgo) => new Date(Date.now() - hoursAgo * 3600 * 1000).toISOString();
 const cards = () => ({
   domains_health: { available: true, data: { total: 10, expired: 1, expiring: 2, waiting: 0, ssl_problem: 1, healthy: 6, mail: { spf: { ok: 8, warning: 1, fail: 1 }, dkim: { ok: 6, not_found: 3, warning: 1 }, dmarc: { ok: 7, absent: 2 } } } },
-  domain_expirations: { available: true, data: { items: [{ name: 'vencido.com.br', expires_on: '2026-11-20', days_left: -6 }, { name: 'logo.com', expires_on: '2026-12-06', days_left: 10 }, { name: 'longe.org', expires_on: '2027-11-20', days_left: 359 }] } },
+  domain_expirations: { available: true, data: { items: [{ name: 'vencido.com.br', expires_on: '2026-11-20', days_left: -6 }, { name: 'logo.com', expires_on: '2026-12-06', days_left: 10 }, { name: 'meio.com', expires_on: '2026-12-16', days_left: 20 }, { name: 'longe.org', expires_on: '2027-11-20', days_left: 359 }] } },
   security_alerts: { available: true, data: { total: 3, window_days: 7, items: [{ id: 1, title: 'Login bloqueado', summary: 'Muitas tentativas do IP 203.0.113.7', created_at: iso(2), severity: 'warning', status_label: 'Bloqueado', target_url: '/settings?section=audit' }] } },
   unlock_requests: { available: true, data: { pending: 2, oldest_at: iso(72), items: [{ domain: 'a.com', sender: 'x@spam.example', requested_at: iso(72), reopened: false }, { domain: 'b.com', sender: 'y@spam.example', requested_at: iso(5), reopened: true }] } },
   spam_senders: { available: true, data: { window_days: 30, items: [{ sender_domain: 'spam.example', blocked: 40, targets: 3, first_at: iso(24 * 12), last_at: iso(1) }, { sender_domain: 'other.example', blocked: 10, targets: 1, first_at: iso(48), last_at: iso(2) }] } },
@@ -88,6 +88,14 @@ try {
   assert.equal(await expirations.locator('[aria-label="venceu há 6 dias"]').innerText(), '-6', 'the days column is only the number');
   assert.equal(await expirations.locator('[aria-label="faltam 10 dias"]').innerText(), '10');
   assert.equal(await expirations.getByText(/dias/).count(), 0, 'no words in the days column');
+  assert.equal(await expirations.locator('.ring-1').count(), 0, 'the days are plain numbers, not badges');
+  const tone = (label) => expirations.locator(`[aria-label="${label}"]`).getAttribute('class');
+  assert.match(await tone('venceu há 6 dias'), /text-red-/); assert.match(await tone('faltam 10 dias'), /text-red-/, 'below 15 days is red');
+  assert.match(await tone('faltam 20 dias'), /text-orange-/, 'up to 30 days is orange'); assert.match(await tone('faltam 359 dias'), /text-emerald-/, 'beyond is green');
+  const barRadius = await page.locator('[data-dashboard-card="domains_health"] svg').last().evaluate((node) => parseFloat(getComputedStyle(node.parentElement).borderTopLeftRadius));
+  assert.ok(barRadius > 0 && barRadius <= 4, `the health bars are rectangles with slightly rounded corners (${barRadius}px)`);
+  const cardColor = await page.locator('[data-dashboard-card="domains_health"]').evaluate((node) => getComputedStyle(node).backgroundColor);
+  assert.match(cardColor, /rgba\(.*, 0\.\d+\)|oklab|color\(/, 'the cards are translucent');
   const columns = await expirations.locator('li').evaluateAll((items) => items.map((item) => [...item.children].map((child) => Math.round(child.getBoundingClientRect().left))));
   assert.ok(columns.every((row) => JSON.stringify(row) === JSON.stringify(columns[0])), 'every row aligns its columns');
   assert.match(await text('security_alerts'), /3 ocorrências nos últimos 7 dias/); assert.match(await text('security_alerts'), /Login bloqueado/);

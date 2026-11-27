@@ -90,3 +90,6 @@ export const mailSegments = (counts = {}, total = 0) => {
   const unknown = Math.max(0, total - ok - warning - bad);
   return { ok, warning, bad, unknown };
 };
+
+// Colour of the days left to an expiry: red below 15 days (expired included), orange up to 30, green beyond.
+export const expiryTone = (days) => (days < 15 ? 'danger' : days <= 30 ? 'warning' : 'ok');
