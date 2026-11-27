@@ -141,7 +141,7 @@ async function run() {
 
   // Everything that changes or administers is Super Admin only.
   const adminOnly = [
-    ['POST', '/domains', { name: 'novo.com' }], ['POST', '/domains/import', { names: ['x1.com'] }], ['DELETE', `/domains/${created['gama.org']}`],
+    ['POST', '/domains', { name: 'novo.com' }], ['POST', '/domains/import', { names: ['x1.com'] }], ['POST', '/domains/sync', {}], ['DELETE', `/domains/${created['gama.org']}`],
     ['GET', `/domains/${created['beta.com.br']}/alerts`], ['PUT', `/domains/${created['beta.com.br']}/alerts`, { enabled: false, notify_admins: false, emails: [] }],
     ['GET', '/settings'], ['PUT', '/settings', { check_interval_days: 3 }],
     ['GET', `/domains/${created['beta.com.br']}/mail-settings`], ['PUT', `/domains/${created['beta.com.br']}/mail-settings`, { enabled: true, extra_selectors: ['x1'] }],
@@ -195,7 +195,7 @@ async function run() {
   assert.ok(!stack[0].route && !stack[1].route, 'authentication and the module gate are the first two layers, before any route');
   assert.ok(stack[0].handle === authMiddleware.verifyToken, 'the first layer is the authentication middleware');
   assert.equal(adminGate > routeIndex('post', '/domains/:id/check'), true, 'the three read routes come before the Super Admin gate');
-  for (const [method, routePath] of [['post', '/domains'], ['post', '/domains/import'], ['delete', '/domains/:id'], ['get', '/access'], ['put', '/access/:userId'], ['delete', '/access/:userId'], ['get', '/settings'], ['put', '/settings'], ['get', '/domains/:id/alerts'], ['put', '/domains/:id/alerts'], ['get', '/domains/:id/mail-settings'], ['put', '/domains/:id/mail-settings']]) {
+  for (const [method, routePath] of [['post', '/domains'], ['post', '/domains/import'], ['post', '/domains/sync'], ['delete', '/domains/:id'], ['get', '/access'], ['put', '/access/:userId'], ['delete', '/access/:userId'], ['get', '/settings'], ['put', '/settings'], ['get', '/domains/:id/alerts'], ['put', '/domains/:id/alerts'], ['get', '/domains/:id/mail-settings'], ['put', '/domains/:id/mail-settings']]) {
     assert.ok(routeIndex(method, routePath) > adminGate, `${method} ${routePath} sits behind the Super Admin gate`);
   }
   server.close();

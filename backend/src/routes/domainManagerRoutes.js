@@ -4,7 +4,7 @@ const { verifyToken } = require('../middleware/authMiddleware');
 const requireSuperAdmin = require('../middleware/requireSuperAdmin');
 const { requireModuleEnabled } = require('../services/modulesService');
 const { guard } = require('../services/reauthService');
-const { domainManagerLookupLimiter } = require('../middleware/writeRateLimiters');
+const { domainManagerLookupLimiter, domainManagerSyncLimiter } = require('../middleware/writeRateLimiters');
 const controller = require('../controllers/domainManagerController');
 
 const uuidParam = (name) => (req, res, next) => require('../middleware/uuidParam').requireUuidParam(req, res, next, req.params[name]);
@@ -21,6 +21,7 @@ router.post('/domains/:id/check', controller.requireDomainAccess, domainManagerL
 // Everything below is Super Admin only.
 router.use(requireSuperAdmin);
 
+router.post('/domains/sync', domainManagerSyncLimiter, controller.syncDomains);
 router.post('/domains', controller.add);
 router.post('/domains/import', controller.importList);
 router.delete('/domains/:id', controller.remove);

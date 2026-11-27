@@ -3,6 +3,7 @@ const db = require('../config/database');
 const { createRdapClient } = require('./domainManagerRdap');
 const sslProbe = require('./domainManagerSsl');
 const { createDnsClient, createBudget, normalizeServers } = require('./domainManagerDns');
+const { isModuleEnabled } = require('./modulesService');
 const { checkMailAuth, isValidSelector, MAX_SELECTORS, MAX_EXTRA_SELECTORS } = require('./domainManagerMailAuth');
 
 // Domain Manager core: the list of domains, the latest lookup result (RDAP + SSL) and the changes between lookups.
@@ -77,7 +78,10 @@ const SELECT_ROW = `SELECT d.id, d.name, d.source, d.active, d.last_checked_at, 
   mc.dmarc->>'policy' AS dmarc_policy, jsonb_array_length(COALESCE(mc.dkim->'found', '[]'::jsonb)) AS dkim_found
   FROM dm_domains d LEFT JOIN dm_snapshots s ON s.domain_id = d.id LEFT JOIN dm_alert_settings a ON a.domain_id = d.id LEFT JOIN dm_mail_checks mc ON mc.domain_id = d.id`;
 
-const createService = ({ queryable = db, rdap = createRdapClient(), ssl = sslProbe, now = Date.now, mailAuth = checkMailAuth, dnsFactory = (servers) => createDnsClient({ servers }) } = {}) => {
+// Hours between the automatic imports of the WHM domains.
+const SYNC_HOURS = Object.freeze([1, 2, 3, 4, 6, 8, 12, 24]);
+
+const createService = ({ whmSync = (actorId) => require('./spfblDomainsService').syncAll(actorId), queryable = db, rdap = createRdapClient(), ssl = sslProbe, now = Date.now, mailAuth = checkMailAuth, dnsFactory = (servers) => createDnsClient({ servers }) } = {}) => {
   const running = new Set();
   const mailRunning = new Set();
   const dnsClients = new Map();
@@ -88,7 +92,7 @@ const createService = ({ queryable = db, rdap = createRdapClient(), ssl = sslPro
   };
 
   const getSettings = async () => {
-    const row = (await queryable.query('SELECT check_interval_days, mail_check_enabled, mail_check_interval_days, dkim_selectors, dns_servers, dmarc_no_report_warning, ssl_check_enabled FROM dm_settings WHERE id = 1')).rows[0] || {};
+    const row = (await queryable.query('SELECT check_interval_days, mail_check_enabled, mail_check_interval_days, dkim_selectors, dns_servers, dmarc_no_report_warning, ssl_check_enabled, domain_sync_enabled, domain_sync_interval_hours, domain_sync_last_at, domain_sync_last_status FROM dm_settings WHERE id = 1')).rows[0] || {};
     return {
       check_interval_days: Number(row.check_interval_days || 7),
       mail_check_enabled: row.mail_check_enabled !== false,
@@ -97,6 +101,10 @@ const createService = ({ queryable = db, rdap = createRdapClient(), ssl = sslPro
       dns_servers: Array.isArray(row.dns_servers) ? row.dns_servers : [],
       dmarc_no_report_warning: row.dmarc_no_report_warning !== false,
       ssl_check_enabled: row.ssl_check_enabled !== false,
+      domain_sync_enabled: row.domain_sync_enabled !== false,
+      domain_sync_interval_hours: SYNC_HOURS.includes(Number(row.domain_sync_interval_hours)) ? Number(row.domain_sync_interval_hours) : 6,
+      domain_sync_last_at: row.domain_sync_last_at ? new Date(row.domain_sync_last_at).toISOString() : null,
+      domain_sync_last_status: row.domain_sync_last_status || null,
       default_dkim_selectors: [...DEFAULT_DKIM_SELECTORS]
     };
   };
@@ -119,12 +127,16 @@ const createService = ({ queryable = db, rdap = createRdapClient(), ssl = sslPro
     for (const key of ['dmarc_no_report_warning', 'ssl_check_enabled']) {
       if (input[key] !== undefined && typeof input[key] !== 'boolean') throw new DomainError('Opção inválida nas configurações.', 'DM_OPTION_INVALID', 422);
     }
+    if (input.domain_sync_enabled !== undefined && typeof input.domain_sync_enabled !== 'boolean') throw new DomainError('Opção inválida nas configurações.', 'DM_OPTION_INVALID', 422);
+    if (input.domain_sync_interval_hours !== undefined && !SYNC_HOURS.includes(input.domain_sync_interval_hours)) throw new DomainError('Escolha o intervalo da sincronização entre as opções da lista.', 'DM_SYNC_INTERVAL_INVALID', 422);
+    const syncEnabled = input.domain_sync_enabled ?? before.domain_sync_enabled;
+    const syncHours = input.domain_sync_interval_hours ?? before.domain_sync_interval_hours;
     const reportWarning = input.dmarc_no_report_warning ?? before.dmarc_no_report_warning;
     const sslCheck = input.ssl_check_enabled ?? before.ssl_check_enabled;
     await queryable.query(
       `UPDATE dm_settings SET check_interval_days = $1, mail_check_enabled = $2, mail_check_interval_days = $3, dkim_selectors = $4::text[], dns_servers = $5::text[],
-         dmarc_no_report_warning = $6, ssl_check_enabled = $7, updated_at = CURRENT_TIMESTAMP WHERE id = 1`,
-      [input.check_interval_days, input.mail_check_enabled, input.mail_check_interval_days, selectors, servers, reportWarning, sslCheck]);
+         dmarc_no_report_warning = $6, ssl_check_enabled = $7, domain_sync_enabled = $8, domain_sync_interval_hours = $9, updated_at = CURRENT_TIMESTAMP WHERE id = 1`,
+      [input.check_interval_days, input.mail_check_enabled, input.mail_check_interval_days, selectors, servers, reportWarning, sslCheck, syncEnabled, syncHours]);
     // The stored verdicts were made under the old rule: bring every domain's e-mail check forward so the list agrees with the new option.
     if (reportWarning !== before.dmarc_no_report_warning) await queryable.query('UPDATE dm_domains SET next_mail_check_at = CURRENT_TIMESTAMP WHERE active');
     return getSettings();
@@ -153,6 +165,28 @@ const createService = ({ queryable = db, rdap = createRdapClient(), ssl = sslPro
   // SPFBL's domains are listed automatically (names only); removing one from the SPFBL catalogue does not delete its lookup history.
   const syncFromSpfbl = async () => (await queryable.query(
     `INSERT INTO dm_domains (name, source) SELECT name, 'spfbl' FROM spfbl_domains WHERE active ON CONFLICT (name) DO NOTHING RETURNING id`)).rowCount;
+
+  // Imports the domains of every registered WHM server into the SPFBL catalogue, then into this list. Needs the SPFBL module (that is where
+  // the servers are registered). A server that fails never stops the others, and the result says what happened per server.
+  const syncDomains = async (actorId = null) => {
+    if (!(await isModuleEnabled('spfbl', queryable))) return { skipped: 'spfbl_off', servers: [], ok: 0, failed: 0, imported: 0 };
+    const outcome = await whmSync(actorId);
+    const imported = await syncFromSpfbl();
+    const status = outcome.servers.length === 0 ? 'no_servers' : outcome.failed === 0 ? 'ok' : outcome.ok === 0 ? 'failed' : 'partial';
+    await queryable.query('UPDATE dm_settings SET domain_sync_last_at = $1, domain_sync_last_status = $2 WHERE id = 1', [new Date(now()), status]);
+    return { servers: outcome.servers.map((server) => ({ name: server.name, ok: server.ok, code: server.code || null, domains: server.domains ?? null })), ok: outcome.ok, failed: outcome.failed, imported, status };
+  };
+  // The scheduled import: due when enabled and the interval has passed since the last one. The turn is CLAIMED before the call, so a second
+  // instance or a restart cannot run it twice; a failed run waits for the next interval like a successful one.
+  const autoSyncDomains = async () => {
+    const settings = await getSettings();
+    if (!settings.domain_sync_enabled) return null;
+    const due = new Date(now() - settings.domain_sync_interval_hours * 3600 * 1000);
+    const claimed = await queryable.query(
+      `UPDATE dm_settings SET domain_sync_last_at = $1 WHERE id = 1 AND domain_sync_enabled AND (domain_sync_last_at IS NULL OR domain_sync_last_at <= $2) RETURNING id`, [new Date(now()), due]);
+    if (!claimed.rows[0]) return null;
+    return syncDomains(null);
+  };
 
   const addDomain = async (name, userId) => {
     const normalized = normalizeName(name);
@@ -357,10 +391,10 @@ const createService = ({ queryable = db, rdap = createRdapClient(), ssl = sslPro
   // Names only, for the picker of the user dialog (Super Admin). Bounded: the grant itself is limited to 100 domains.
   const listNames = async () => (await queryable.query('SELECT id, name FROM dm_domains ORDER BY name LIMIT 5000')).rows;
 
-  return { listNames, getSettings, saveSettings, getMailSettings, saveMailSettings, claimMailBatch, checkMail, syncFromSpfbl, addDomain, importDomains, removeDomain, getDomain, detail, list, checkDomain };
+  return { listNames, getSettings, saveSettings, getMailSettings, saveMailSettings, claimMailBatch, checkMail, syncFromSpfbl, syncDomains, autoSyncDomains, addDomain, importDomains, removeDomain, getDomain, detail, list, checkDomain };
 };
 
 let shared = null;
 const getService = () => { shared = shared || createService(); return shared; };
 
-module.exports = { DEFAULT_DKIM_SELECTORS, DomainError, createService, getService, normalizeName, nextCheckDelayMs, daysBetween, today, UUID_PATTERN, MAX_IMPORT };
+module.exports = { SYNC_HOURS, DEFAULT_DKIM_SELECTORS, DomainError, createService, getService, normalizeName, nextCheckDelayMs, daysBetween, today, UUID_PATTERN, MAX_IMPORT };

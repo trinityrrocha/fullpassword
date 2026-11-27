@@ -225,6 +225,11 @@ async function run_() {
   await pg.exec(migration); await pg.exec(migration);
   const migration39 = read('database/migrations/39_domain_manager_report_ssl_options.sql');
   await pg.exec(migration39); await pg.exec(migration39);
+  const migration41 = read('database/migrations/41_domain_manager_domain_sync.sql');
+  await pg.exec(migration41); await pg.exec(migration41);
+  const syncDefaults = (await pg.query('SELECT domain_sync_enabled, domain_sync_interval_hours, domain_sync_last_at, domain_sync_last_status FROM dm_settings')).rows[0];
+  assert.deepEqual([syncDefaults.domain_sync_enabled, syncDefaults.domain_sync_interval_hours, syncDefaults.domain_sync_last_at, syncDefaults.domain_sync_last_status], [true, 6, null, null]);
+  await assert.rejects(pg.query('UPDATE dm_settings SET domain_sync_interval_hours = 5'), 'only the offered intervals are stored');
   for (const table of ['dm_mail_checks', 'dm_mail_domain_settings']) assert.ok(BACKUP_TABLES.includes(table) && OPTIONAL_BACKUP_TABLES.has(table), `${table} in both backup lists`);
   const defaults = (await pg.query('SELECT mail_check_enabled, mail_check_interval_days, dkim_selectors, dns_servers FROM dm_settings')).rows[0];
   assert.deepEqual([defaults.mail_check_enabled, defaults.mail_check_interval_days, defaults.dkim_selectors.length, defaults.dns_servers], [true, 7, dm.DEFAULT_DKIM_SELECTORS.length, []]);
@@ -246,7 +251,7 @@ async function run_() {
     dnsFactory: (servers) => { sets.push(servers); return { txt: async (n, b) => { b?.spend(); return zones.get(`TXT ${n}`) || ABSENT; }, a: async () => ABSENT, aaaa: async () => ABSENT, mx: async () => ABSENT }; }
   });
 
-  assert.deepEqual(await service.getSettings(), { check_interval_days: 7, mail_check_enabled: true, mail_check_interval_days: 7, dkim_selectors: [...dm.DEFAULT_DKIM_SELECTORS], dns_servers: [], dmarc_no_report_warning: true, ssl_check_enabled: true, default_dkim_selectors: [...dm.DEFAULT_DKIM_SELECTORS] });
+  assert.deepEqual(await service.getSettings(), { check_interval_days: 7, mail_check_enabled: true, mail_check_interval_days: 7, dkim_selectors: [...dm.DEFAULT_DKIM_SELECTORS], dns_servers: [], dmarc_no_report_warning: true, ssl_check_enabled: true, domain_sync_enabled: true, domain_sync_interval_hours: 6, domain_sync_last_at: null, domain_sync_last_status: null, default_dkim_selectors: [...dm.DEFAULT_DKIM_SELECTORS] });
   const full = { check_interval_days: 3, mail_check_enabled: true, mail_check_interval_days: 5, dkim_selectors: ['Default', 'mykey', 'default'], dns_servers: ['10.0.0.9'] };
   const saved = await service.saveSettings(full);
   assert.deepEqual([saved.check_interval_days, saved.mail_check_interval_days, saved.dkim_selectors, saved.dns_servers], [3, 5, ['default', 'mykey'], ['10.0.0.9']], 'selectors are lower-cased and de-duplicated');
@@ -372,6 +377,47 @@ async function run_() {
   assert.deepEqual(claimed.sort(), [ids['due1.test'], ids['due2.test']].sort(), 'only active, enabled, due domains');
   assert.deepEqual(await service.claimMailBatch(10), [], 'a claimed domain is not claimed twice');
   assert.equal((await service.claimMailBatch(1)).length, 0);
+
+  // ---------- WHM domain sync: manual, scheduled, claimed once, settings ----------
+  await pg.query("INSERT INTO system_modules (module_key, enabled) VALUES ('spfbl', FALSE) ON CONFLICT (module_key) DO UPDATE SET enabled = FALSE");
+  let whmCalls = 0; let whmResult = { servers: [{ name: 'Servidor A', ok: true, domains: 3 }], ok: 1, failed: 0 };
+  const syncService = dm.createService({ whmSync: async () => { whmCalls += 1; await pg.query("INSERT INTO spfbl_domains (name, source, active) VALUES ('novo-whm.com.br', 'whm', TRUE) ON CONFLICT (name) DO NOTHING"); return whmResult; },
+    rdap: { lookup: async () => ({ lookup_status: 'not_found' }) }, ssl: { probe: async () => ({ ssl_state: 'none' }) }, now: () => now });
+  assert.deepEqual(await syncService.syncDomains(adminId), { servers: [], ok: 0, failed: 0, imported: 0, skipped: 'spfbl_off' }, 'without the SPFBL module there are no servers to read');
+  assert.equal(whmCalls, 0);
+  await pg.query("UPDATE system_modules SET enabled = TRUE WHERE module_key = 'spfbl'");
+  const synced = await syncService.syncDomains(adminId);
+  assert.deepEqual([whmCalls, synced.imported, synced.status, synced.servers[0].domains], [1, 1, 'ok', 3], 'the new WHM domain reaches the list');
+  assert.equal((await pg.query("SELECT source FROM dm_domains WHERE name = 'novo-whm.com.br'")).rows[0].source, 'spfbl');
+  assert.equal((await syncService.syncDomains(adminId)).imported, 0, 'a second run imports nothing new');
+  whmResult = { servers: [{ name: 'A', ok: true }, { name: 'B', ok: false, code: 'WHM_TIMEOUT' }], ok: 1, failed: 1 };
+  assert.equal((await syncService.syncDomains(adminId)).status, 'partial');
+  whmResult = { servers: [{ name: 'B', ok: false, code: 'X' }], ok: 0, failed: 1 }; assert.equal((await syncService.syncDomains(adminId)).status, 'failed');
+  whmResult = { servers: [], ok: 0, failed: 0 }; assert.equal((await syncService.syncDomains(adminId)).status, 'no_servers');
+  const stamped = await syncService.getSettings();
+  assert.deepEqual([stamped.domain_sync_last_status, typeof stamped.domain_sync_last_at], ['no_servers', 'string']);
+  // scheduled: due only when enabled and the interval has passed; claimed before the call.
+  await pg.query('UPDATE dm_settings SET domain_sync_last_at = NULL');
+  whmResult = { servers: [{ name: 'A', ok: true }], ok: 1, failed: 0 }; whmCalls = 0;
+  assert.ok(await syncService.autoSyncDomains(), 'never synced: due now');
+  assert.equal(await syncService.autoSyncDomains(), null, 'not due again before the interval');
+  now += 5 * 3600 * 1000; assert.equal(await syncService.autoSyncDomains(), null, '5 h of the 6 h interval');
+  now += 2 * 3600 * 1000; assert.ok(await syncService.autoSyncDomains(), '7 h: due');
+  assert.equal(whmCalls, 2);
+  await syncService.saveSettings({ ...full, dns_servers: [], domain_sync_enabled: false });
+  now += 48 * 3600 * 1000; assert.equal(await syncService.autoSyncDomains(), null, 'switched off: never runs by itself');
+  await syncService.saveSettings({ ...full, dns_servers: [], domain_sync_enabled: true, domain_sync_interval_hours: 1 });
+  now += 3601 * 1000; assert.ok(await syncService.autoSyncDomains(), 'a 1 h interval is honoured');
+  for (const bad of [5, 0, 25, '6', null]) await assert.rejects(syncService.saveSettings({ ...full, dns_servers: [], domain_sync_interval_hours: bad }), { code: 'DM_SYNC_INTERVAL_INVALID' }, String(bad));
+  await assert.rejects(syncService.saveSettings({ ...full, dns_servers: [], domain_sync_enabled: 'yes' }), { code: 'DM_OPTION_INVALID' });
+  assert.equal((await syncService.saveSettings({ ...full, dns_servers: [] })).domain_sync_interval_hours, 1, 'left out of a save, the interval keeps its value');
+  await syncService.saveSettings({ ...full, dns_servers: [], domain_sync_enabled: true, domain_sync_interval_hours: 6 });
+  // the old SPF verdict for "~all" is brought forward by the migration
+  const legacy = (await pg.query("INSERT INTO dm_domains(name) VALUES ('legado.test') RETURNING id")).rows[0].id;
+  await pg.query("INSERT INTO dm_mail_checks (domain_id, checked_at, spf_status, dmarc_status, dkim_status, spf) VALUES ($1, now(), 'ok', 'ok', 'ok', '{\"all\":\"~all\"}')", [legacy]);
+  await pg.query("UPDATE dm_domains SET next_mail_check_at = now() + interval '5 days' WHERE id = $1", [legacy]);
+  await pg.exec(migration41);
+  assert.ok((await pg.query('SELECT next_mail_check_at <= now() AS due FROM dm_domains WHERE id = $1', [legacy])).rows[0].due, 'a domain whose SPF was approved with ~all is re-checked');
 
   // ---------- certificate check can be turned off ----------
   let probes = 0;

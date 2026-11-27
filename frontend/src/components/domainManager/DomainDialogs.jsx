@@ -3,7 +3,7 @@ import { X } from 'lucide-react';
 import FormDialog from '../FormDialog';
 import { addDomain, getDomainAlerts, getDomainDetail, getDomainMailSettings, importDomains, saveDomainAlerts, saveDomainMailSettings, saveDomainSettings } from '../../services/domainManagerService';
 import { describeError, formatDateTime, formatDay, formatIsoDateTime } from '../../utils/spfbl';
-import { DKIM_SELECTOR_LIMIT, DOMAIN_SELECTOR_LIMIT, MAX_ALERT_EMAILS, MAX_IMPORT, mailMarker, mailMessages, mailStatusLabel, parseSelectorList, parseServerList, selectorProblems, serverProblems, SOURCE_LABELS, canSaveAlerts, isValidEmail, changeValue, dnssecLabel, errorLabel, expiryInfo, fieldLabel, lookupLabel, parseDomainList, sslLabel, TONE_CLASSES } from '../../utils/domainManager';
+import { mailSectionStatus, DKIM_SELECTOR_LIMIT, DOMAIN_SELECTOR_LIMIT, MAX_ALERT_EMAILS, MAX_IMPORT, mailMarker, mailMessages, mailStatusLabel, parseSelectorList, parseServerList, selectorProblems, serverProblems, SOURCE_LABELS, canSaveAlerts, isValidEmail, changeValue, dnssecLabel, errorLabel, expiryInfo, fieldLabel, lookupLabel, parseDomainList, sslLabel, TONE_CLASSES } from '../../utils/domainManager';
 
 const fieldClass = 'w-full rounded-md border border-slate-300 bg-white px-2.5 py-2 text-sm outline-hidden focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200';
 const primaryButton = 'rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-60';
@@ -66,13 +66,32 @@ export function AddDomainDialog({ onClose, onDone }) {
   );
 }
 
+// A small, quiet switch: it only needs to say on or off.
 const Switch = ({ id, labelId, checked, onChange }) => (
   <button id={id} type="button" role="switch" aria-checked={checked} aria-labelledby={labelId} onClick={() => onChange(!checked)}
-    className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border border-transparent transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 ${checked ? 'bg-indigo-600' : 'bg-slate-300'}`}>
-    <span aria-hidden="true" className={`inline-block h-5 w-5 rounded-full bg-white shadow transition-transform ${checked ? 'translate-x-5' : 'translate-x-0.5'}`} />
+    className={`relative inline-flex h-[18px] w-8 shrink-0 items-center rounded-full transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 ${checked ? 'bg-indigo-500' : 'bg-slate-300'}`}>
+    <span aria-hidden="true" className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow-sm transition-transform ${checked ? 'translate-x-[16px]' : 'translate-x-[2px]'}`} />
   </button>
 );
 const validDays = (value) => Number.isInteger(Number(value)) && Number(value) >= 1 && Number(value) <= 30 && String(value).trim() !== '';
+const SYNC_HOURS = [1, 2, 3, 4, 6, 8, 12, 24];
+
+// One setting per line: what it is on the left, how to change it on the right.
+const SettingRow = ({ title, titleId, description, children, stack = false }) => (
+  <div className={`gap-x-6 gap-y-2 border-b border-slate-100 py-2.5 last:border-b-0 ${stack ? '' : 'grid md:grid-cols-[1fr_auto] md:items-center'}`}>
+    <div className="min-w-0">
+      <p id={titleId} className="text-sm font-medium text-slate-800">{title}</p>
+      {description && <p className="mt-0.5 text-xs text-slate-600">{description}</p>}
+    </div>
+    <div className={stack ? 'mt-1.5' : 'md:justify-self-end'}>{children}</div>
+  </div>
+);
+const GroupTitle = ({ children }) => <h3 className="mb-0.5 mt-1 text-xs font-semibold uppercase tracking-wide text-slate-500">{children}</h3>;
+const syncStatusText = (settings) => {
+  if (!settings.domain_sync_last_at) return 'Ainda não sincronizado.';
+  const status = { ok: 'concluída', partial: 'concluída com falha em algum servidor', failed: 'falhou', no_servers: 'nenhum servidor WHM cadastrado' }[settings.domain_sync_last_status] || 'concluída';
+  return `Última sincronização: ${formatDateTime(settings.domain_sync_last_at)} (${status}).`;
+};
 
 // The one settings card of the Domain Manager (opened by the icon in the page header).
 export function SettingsDialog({ settings, onClose, onSaved }) {
@@ -84,6 +103,8 @@ export function SettingsDialog({ settings, onClose, onSaved }) {
   const [servers, setServers] = useState((settings.dns_servers || []).join('\n'));
   const [sslOn, setSslOn] = useState(settings.ssl_check_enabled !== false);
   const [reportWarn, setReportWarn] = useState(settings.dmarc_no_report_warning !== false);
+  const [syncOn, setSyncOn] = useState(settings.domain_sync_enabled !== false);
+  const [syncHours, setSyncHours] = useState(String(settings.domain_sync_interval_hours ?? 6));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const save = async (event) => {
@@ -101,62 +122,66 @@ export function SettingsDialog({ settings, onClose, onSaved }) {
         check_interval_days: Number(days), mail_check_enabled: mailOn,
         mail_check_interval_days: mailOn ? Number(mailDays) : Number(settings.mail_check_interval_days ?? 7),
         dkim_selectors: mailOn ? selectorList : (settings.dkim_selectors || []), dns_servers: serverList,
-        ssl_check_enabled: sslOn, dmarc_no_report_warning: reportWarn
+        ssl_check_enabled: sslOn, dmarc_no_report_warning: reportWarn,
+        domain_sync_enabled: syncOn, domain_sync_interval_hours: Number(syncHours)
       });
       await onSaved(); onClose();
     } catch (failure) { setError(describeError(failure, 'Não foi possível salvar.')); } finally { setBusy(false); }
   };
+  const small = `${fieldClass} !w-20 !py-1 text-center`;
   return (
-    <FormDialog title="Configurações do Domain Manager" description="Parâmetros das consultas automáticas." onClose={onClose} busy={busy}
+    <FormDialog title="Configurações do Domain Manager" description="Parâmetros das consultas automáticas." size="xl" onClose={onClose} busy={busy}
       footer={<div className="flex flex-wrap justify-end gap-2">
         <button type="button" data-dialog-cancel disabled={busy} className={secondaryButton}>Cancelar</button>
         <button type="submit" form="dm-settings-form" disabled={busy} className={primaryButton}>{busy ? 'Salvando…' : 'Salvar'}</button>
       </div>}>
-      <form id="dm-settings-form" onSubmit={save} noValidate className="space-y-5">
-        <section aria-labelledby={`${id}-expiry`} className="space-y-2">
-          <h3 id={`${id}-expiry`} className="text-sm font-semibold text-slate-900">Vencimento e certificado</h3>
-          <label className="block text-sm font-medium text-slate-700">Intervalo entre consultas (dias)
-            <input type="number" min={1} max={30} step={1} value={days} onChange={(event) => setDays(event.target.value)} className={`${fieldClass} mt-1 max-w-32`} />
-          </label>
-          <p className="text-sm text-slate-600">Vale enquanto faltarem mais de 30 dias para o vencimento. A partir daí, e enquanto o domínio estiver vencido, a consulta passa a ser diária.</p>
-          <div className="flex items-center justify-between gap-3 pt-1">
-            <span id={`${id}-ssl`} className="text-sm font-medium text-slate-700">Verificar o vencimento do certificado SSL</span>
-            <Switch id={`${id}-ssl-switch`} labelId={`${id}-ssl`} checked={sslOn} onChange={setSslOn} />
-          </div>
-          {!sslOn && <p className="text-sm text-slate-600">Desligado: o certificado dos domínios não é mais consultado e a coluna SSL fica em branco.</p>}
+      <form id="dm-settings-form" onSubmit={save} noValidate className="space-y-3">
+        <section aria-label="Domínios">
+          <GroupTitle>Domínios</GroupTitle>
+          <SettingRow title="Sincronizar domínios com os servidores WHM automaticamente" titleId={`${id}-sync`} description={`Traz para a lista os domínios novos dos servidores cadastrados no SPFBL. ${syncStatusText(settings)}`}>
+            <span className="flex items-center gap-3">
+              {syncOn && <label className="flex items-center gap-2 text-xs text-slate-600">a cada
+                <select aria-label="Intervalo da sincronização (horas)" value={syncHours} onChange={(event) => setSyncHours(event.target.value)} className={`${fieldClass} !w-auto !py-1`}>
+                  {SYNC_HOURS.map((hours) => <option key={hours} value={hours}>{hours} {hours === 1 ? 'hora' : 'horas'}</option>)}
+                </select></label>}
+              <Switch id={`${id}-sync-switch`} labelId={`${id}-sync`} checked={syncOn} onChange={setSyncOn} />
+            </span>
+          </SettingRow>
         </section>
-        <section aria-labelledby={`${id}-mail`} className="space-y-3 border-t border-slate-200 pt-4">
-          <div className="flex items-center justify-between gap-3">
-            <h3 id={`${id}-mail`} className="text-sm font-semibold text-slate-900">Autenticação de e-mail (SPF, DKIM e DMARC)</h3>
+        <section aria-label="Vencimento e certificado" className="border-t border-slate-200 pt-2">
+          <GroupTitle>Vencimento e certificado</GroupTitle>
+          <SettingRow title="Intervalo entre consultas (dias)" description="Vale enquanto faltarem mais de 30 dias para o vencimento. A partir daí, e com o domínio vencido, a consulta passa a ser diária.">
+            <input type="number" aria-label="Intervalo entre consultas (dias)" min={1} max={30} step={1} value={days} onChange={(event) => setDays(event.target.value)} className={small} />
+          </SettingRow>
+          <SettingRow title="Verificar o vencimento do certificado SSL" titleId={`${id}-ssl`} description={sslOn ? 'Consulta o certificado do domínio junto com o vencimento.' : 'Desligado: o certificado não é consultado e a coluna SSL some da lista.'}>
+            <Switch id={`${id}-ssl-switch`} labelId={`${id}-ssl`} checked={sslOn} onChange={setSslOn} />
+          </SettingRow>
+        </section>
+        <section aria-label="Autenticação de e-mail" className="border-t border-slate-200 pt-2">
+          <GroupTitle>Autenticação de e-mail</GroupTitle>
+          <SettingRow title="Verificar SPF, DKIM e DMARC" titleId={`${id}-mail`} description="Consulta o DNS de cada domínio e mostra na lista se estão configurados. Não envia dados a serviços externos.">
             <Switch id={`${id}-mail-switch`} labelId={`${id}-mail`} checked={mailOn} onChange={setMailOn} />
-          </div>
-          <p className="text-sm text-slate-600">Consulta o DNS de cada domínio e mostra na lista se o SPF, o DKIM e o DMARC estão configurados. Não envia dados a serviços externos.</p>
+          </SettingRow>
           {mailOn && (
             <>
-              <div className="flex items-center justify-between gap-3">
-                <span id={`${id}-rua`} className="text-sm font-medium text-slate-700">Avisar quando o DMARC não pede relatórios (rua=)</span>
+              <SettingRow title="Avisar quando o DMARC não pede relatórios (rua=)" titleId={`${id}-rua`} description={reportWarn ? undefined : 'Desligado: um DMARC correto, como p=reject, não recebe aviso só por não ter endereço de relatórios.'}>
                 <Switch id={`${id}-rua-switch`} labelId={`${id}-rua`} checked={reportWarn} onChange={setReportWarn} />
-              </div>
-              {!reportWarn && <p className="text-sm text-slate-600">Desligado: um DMARC correto, como p=reject, não recebe aviso só por não ter endereço de relatórios.</p>}
-              <label className="block text-sm font-medium text-slate-700">Intervalo entre verificações (dias)
-                <input type="number" min={1} max={30} step={1} value={mailDays} onChange={(event) => setMailDays(event.target.value)} className={`${fieldClass} mt-1 max-w-32`} />
-              </label>
-              <label className="block text-sm font-medium text-slate-700">Seletores DKIM testados (um por linha)
-                <textarea value={selectors} onChange={(event) => setSelectors(event.target.value)} rows={6} spellCheck={false} className={`${fieldClass} mt-1 font-mono`} />
-                <span className="mt-1 flex flex-wrap items-center justify-between gap-2 text-xs font-normal text-slate-600">
-                  <span>{parseSelectorList(selectors).length} de {DKIM_SELECTOR_LIMIT}. O DNS não lista os seletores de um domínio: só os desta lista (e os de cada domínio) são procurados.</span>
-                  <button type="button" onClick={() => setSelectors((settings.default_dkim_selectors || []).join('\n'))} className="rounded px-1 font-medium text-indigo-700 underline">Restaurar a lista padrão</button>
-                </span>
-              </label>
+              </SettingRow>
+              <SettingRow title="Intervalo entre verificações (dias)">
+                <input type="number" aria-label="Intervalo entre verificações (dias)" min={1} max={30} step={1} value={mailDays} onChange={(event) => setMailDays(event.target.value)} className={small} />
+              </SettingRow>
+              <SettingRow stack title="Seletores DKIM testados (um por linha)" description={`${parseSelectorList(selectors).length} de ${DKIM_SELECTOR_LIMIT}. O DNS não lista os seletores de um domínio: só os desta lista (e os de cada domínio) são procurados.`}>
+                <textarea aria-label="Seletores DKIM testados (um por linha)" value={selectors} onChange={(event) => setSelectors(event.target.value)} rows={3} spellCheck={false} className={`${fieldClass} font-mono`} />
+                <button type="button" onClick={() => setSelectors((settings.default_dkim_selectors || []).join('\n'))} className="mt-1 rounded px-1 text-xs font-medium text-indigo-700 underline">Restaurar a lista padrão</button>
+              </SettingRow>
             </>
           )}
         </section>
-        <section aria-labelledby={`${id}-dns`} className="space-y-2 border-t border-slate-200 pt-4">
-          <h3 id={`${id}-dns`} className="text-sm font-semibold text-slate-900">Servidores DNS</h3>
-          <label className="block text-sm font-medium text-slate-700">Servidores DNS (opcional, um endereço IP por linha)
-            <textarea value={servers} onChange={(event) => setServers(event.target.value)} rows={2} spellCheck={false} placeholder="vazio = usar o DNS do sistema" className={`${fieldClass} mt-1 font-mono`} />
-            <span className="mt-1 block text-xs font-normal text-slate-600">Até 4 endereços IP. Deixe em branco para usar o DNS do próprio servidor. Valem para todas as consultas de DNS do módulo.</span>
-          </label>
+        <section aria-label="Servidores DNS" className="border-t border-slate-200 pt-2">
+          <GroupTitle>Servidores DNS</GroupTitle>
+          <SettingRow stack title="Servidores DNS (opcional, um endereço IP por linha)" description="Até 4 endereços IP. Em branco usa o DNS do próprio servidor. Valem para todas as consultas de DNS do módulo.">
+            <textarea aria-label="Servidores DNS (opcional, um endereço IP por linha)" value={servers} onChange={(event) => setServers(event.target.value)} rows={2} spellCheck={false} placeholder="vazio = usar o DNS do sistema" className={`${fieldClass} font-mono`} />
+          </SettingRow>
         </section>
         {error && <p role="alert" className={errorBox}>{error}</p>}
       </form>
@@ -180,7 +205,7 @@ function MailBlock({ kind, title, section, mail, children }) {
     <div className="rounded-md border border-slate-200 p-3" data-mail-block={kind}>
       <h4 className="flex flex-wrap items-center gap-2 text-sm font-semibold text-slate-900">
         <span>{title}</span>
-        <span className={`text-sm font-medium ${MARK_TONE_CLASSES[marker.tone]}`}><span aria-hidden="true">{marker.mark} </span>{mailStatusLabel(section?.status)}</span>
+        <span className={`text-sm font-medium ${MARK_TONE_CLASSES[marker.tone]}`}><span aria-hidden="true">{marker.mark} </span>{mailStatusLabel(mailSectionStatus(kind, section))}</span>
       </h4>
       {noAnswer ? <p className="mt-1 text-sm text-slate-700">O DNS não respondeu e ainda não há dado anterior. Uma nova tentativa acontece em algumas horas.</p> : <dl className="mt-1 divide-y divide-slate-100">{children}</dl>}
       {messages.length > 0 && <ul className="mt-2 list-disc space-y-0.5 pl-5 text-sm text-slate-700">{messages.map((message) => <li key={message}>{message}</li>)}</ul>}

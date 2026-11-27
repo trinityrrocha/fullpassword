@@ -442,7 +442,7 @@ export default function TeamList() {
   };
 
   return (
-    <div className="mx-auto max-w-7xl space-y-5 p-4 md:p-6">
+    <div className="mx-auto max-w-7xl space-y-5 px-4 pb-4 pt-3 md:px-6 md:pb-6">
       {formError && !isModalOpen && !isEditModalOpen && <p role="alert" className="text-sm text-red-600">{formError}</p>}
       {notice && <p role="status" className="text-sm text-green-700 dark:text-green-300">{notice}</p>}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">

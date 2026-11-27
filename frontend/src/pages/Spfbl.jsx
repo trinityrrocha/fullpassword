@@ -76,7 +76,7 @@ export default function Spfbl() {
   }, []);
 
   return (
-    <div className="mx-auto max-w-7xl space-y-5 p-4 md:p-6">
+    <div className="mx-auto max-w-7xl space-y-5 px-4 pb-4 pt-3 md:px-6 md:pb-6">
       <header>
         <div className="flex items-start justify-between gap-3">
           <PageTitle icon={Bug} iconClassName="text-slate-500" description="Consulta e gestão de bloqueios de e-mail do Matrix SPFBL.">SPFBL</PageTitle>

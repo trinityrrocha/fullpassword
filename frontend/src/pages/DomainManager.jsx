@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Bell, Globe, Plus, Search, SearchAlert, Settings, Settings2, ShieldQuestionMark, Trash2 } from 'lucide-react';
+import { Bell, Globe, Plus, RefreshCw, Search, SearchAlert, Settings, Settings2, ShieldQuestionMark, Trash2 } from 'lucide-react';
 import PageTitle from '../components/PageTitle';
 import RecordGeneratorDialog from '../components/domainManager/RecordGeneratorDialog';
 import PaginationBar from '../components/PaginationBar';
 import { AddDomainDialog, AlertsDialog, DomainDetailDialog, SettingsDialog } from '../components/domainManager/DomainDialogs';
-import { checkDomain, listDomains, removeDomain } from '../services/domainManagerService';
+import { checkDomain, listDomains, removeDomain, syncDomains } from '../services/domainManagerService';
 import { describeError, formatDateTime } from '../utils/spfbl';
-import { SOURCE_LABELS, TONE_CLASSES, alertsLabel, mailMarker, errorLabel, expiryInfo, lookupLabel, sslLabel } from '../utils/domainManager';
+import { SOURCE_LABELS, TONE_CLASSES, alertsLabel, mailMarker, errorLabel, expiryInfo, lookupLabel, sslLabel, syncSummary } from '../utils/domainManager';
 
 const primaryButton = 'inline-flex h-10 items-center rounded-md bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-60';
 const secondaryButton = 'inline-flex h-10 items-center rounded-md border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60';
@@ -24,6 +24,7 @@ export default function DomainManager() {
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState({ type: '', text: '' });
   const [busyId, setBusyId] = useState(null);
+  const [syncing, setSyncing] = useState(false);
   const [confirmId, setConfirmId] = useState(null);
   const [dialog, setDialog] = useState(null);
   const [reloadTick, setReloadTick] = useState(0);
@@ -54,6 +55,16 @@ export default function DomainManager() {
     } finally { setBusyId(null); }
   };
 
+  const sync = async () => {
+    setSyncing(true); setMessage({ type: '', text: '' });
+    try {
+      setMessage(syncSummary(await syncDomains()));
+      reload();
+    } catch (error) {
+      setMessage({ type: 'error', text: describeError(error, 'Não foi possível sincronizar os domínios.') });
+    } finally { setSyncing(false); }
+  };
+
   const remove = async (domain) => {
     setBusyId(domain.id); setMessage({ type: '', text: '' });
     try {
@@ -80,7 +91,7 @@ export default function DomainManager() {
   const plainHeader = (label) => <span className="text-xs font-semibold uppercase tracking-wide text-slate-600">{label}</span>;
 
   return (
-    <div className="mx-auto max-w-7xl space-y-4 p-4 md:p-6">
+    <div className="mx-auto max-w-7xl space-y-4 px-4 pb-4 pt-3 md:px-6 md:pb-6">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <PageTitle icon={Globe} description="Vencimento, DNS e certificado SSL dos domínios, consultados automaticamente por RDAP.">Domain Manager</PageTitle>
         <div className="flex flex-wrap items-center gap-2">
@@ -91,6 +102,7 @@ export default function DomainManager() {
           </label>
           {isAdmin && <>
             <button type="button" onClick={() => setDialog({ kind: 'settings' })} aria-label="Configurações do Domain Manager" title="Configurações do Domain Manager" className={`${secondaryButton} px-2.5`}><Settings2 className="h-5 w-5" aria-hidden="true" /></button>
+            <button type="button" disabled={syncing} onClick={sync} aria-label="Sincronizar domínios" title="Sincronizar domínios com os servidores WHM" className={`${secondaryButton} px-2.5`}><RefreshCw className={`h-5 w-5 ${syncing ? 'animate-spin' : ''}`} aria-hidden="true" /></button>
             <button type="button" onClick={() => setDialog({ kind: 'generator' })} aria-label="Gerador de registros" title="Gerador de registros (DMARC e SPF)" className={`${secondaryButton} px-2.5`}><ShieldQuestionMark className="h-5 w-5" aria-hidden="true" /></button>
             <button type="button" onClick={() => setDialog({ kind: 'add' })} className={primaryButton}><Plus className="mr-1.5 h-4 w-4" aria-hidden="true" />Adicionar domínios</button>
           </>}

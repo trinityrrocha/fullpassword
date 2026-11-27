@@ -74,6 +74,19 @@ const saveMailSettings = handle(async (req, res, service) => {
   await audit(req, 'domain_manager_mail_settings_saved', { domain: domain.name, enabled: saved.enabled, selectors: saved.extra_selectors.length });
   return res.status(200).json(saved);
 });
+// One import at a time, and not more than one every 30 seconds: it calls the WHM servers.
+const syncState = { inFlight: false, last: 0 };
+const SYNC_COOLDOWN_MS = 30 * 1000;
+const syncDomains = handle(async (req, res, service) => {
+  const wait = syncState.last + SYNC_COOLDOWN_MS - Date.now();
+  if (syncState.inFlight || wait > 0) return res.status(429).json({ code: 'DM_SYNC_COOLDOWN', error: 'Aguarde alguns segundos entre as sincronizações.' });
+  syncState.inFlight = true; syncState.last = Date.now();
+  try {
+    const result = await service.syncDomains(req.user.id);
+    await audit(req, 'domain_manager_domains_synced', { servers: result.servers.length, failed: result.failed, imported: result.imported, skipped: result.skipped || null });
+    return res.status(200).json(result);
+  } finally { syncState.inFlight = false; }
+});
 const getSettings = handle(async (_req, res, service) => res.status(200).json(await service.getSettings()));
 const saveSettings = handle(async (req, res, service) => {
   const settings = await service.saveSettings(req.body);
@@ -132,4 +145,5 @@ const requireDomainAccess = async (req, res, next) => {
   }
 };
 
-module.exports = { getMailSettings, saveMailSettings, requireDomainAccess, listAccess, listAccessDomains, saveAccess, revokeAccess, getAlerts, saveAlerts, list, detail, add, importList, remove, check, getSettings, saveSettings };
+module.exports = {
+  syncDomains, getMailSettings, saveMailSettings, requireDomainAccess, listAccess, listAccessDomains, saveAccess, revokeAccess, getAlerts, saveAlerts, list, detail, add, importList, remove, check, getSettings, saveSettings };

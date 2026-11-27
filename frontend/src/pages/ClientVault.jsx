@@ -810,7 +810,7 @@ export default function ClientVault() {
   }
 
   return (
-    <div className="space-y-6 max-w-5xl mx-auto" data-vault-readonly-scope="true">
+    <div className="space-y-6 max-w-5xl mx-auto pt-3" data-vault-readonly-scope="true">
       <VaultReadOnlyGuard enabled permissions={effectiveVaultPermissions} />
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div className="flex items-center gap-4">
