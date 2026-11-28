@@ -6,7 +6,7 @@ const { isModuleEnabled } = require('./modulesService');
 const { recordAuditEvent } = require('./auditService');
 const { safeLogError } = require('../utils/safeLogger');
 
-// Collection every N minutes (15, 30, 60, 120, 240, 480, 720 or 1440; set by the Super Admin), per WHM server (each has its own Matrix connection and its
+// Collection every N minutes (5, 10, 15, 30, 60, 120 or 180; set by the Super Admin), per WHM server (each has its own Matrix connection and its
 // own 1024-record window). The schedule lives in the database, not in a timer:
 //   - a server's turn is CLAIMED with a conditional UPDATE, so a restart (the auto-updater recreates the backend) or a second
 //     instance cannot run it twice, and a restart simply catches up;

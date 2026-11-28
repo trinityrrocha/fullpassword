@@ -175,7 +175,7 @@ export default function DashboardLayout() {
     ...(canSeeUpdates ? [{ name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard }] : []),
     { name: 'Clientes / Cofre', href: '/', icon: Building2 },
     ...(user?.role === 'admin' ? [{ name: 'Gestão de Equipe', href: '/team', icon: Users }] : []),
-    ...(modules.spfbl === true ? [{ name: 'SPFBL', href: '/spfbl', icon: Bug }] : []),
+    ...(modules.spfbl === true ? [{ name: 'SPFBL Report', href: '/spfbl', icon: Bug }] : []),
     ...(modules.domain_manager === true ? [{ name: 'Domain Manager', href: '/domains', icon: Globe }] : []),
     { name: 'Configurações', href: '/settings', icon: Settings },
   ];

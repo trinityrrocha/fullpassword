@@ -48,16 +48,32 @@ async function run() {
   await pg.query("UPDATE spfbl_settings SET modules = modules WHERE false").catch(() => {});
 
   // ---------- settings: 15 and 30 minutes, kept in step with the older column in hours ----------
-  assert.deepEqual((await settings.get()).interval_options, [15, 30, 60, 120, 240, 480, 720, 1440]);
-  assert.equal((await settings.get()).interval_minutes, 1440, 'the default is daily');
-  for (const minutes of [15, 30, 60, 240]) assert.equal((await settings.update({ interval_minutes: minutes })).interval_minutes, minutes);
-  assert.equal((await pg.query('SELECT history_interval_hours h FROM spfbl_settings WHERE id = 1')).rows[0].h, 4);
+  assert.deepEqual((await settings.get()).interval_options, [5, 10, 15, 30, 60, 120, 180]);
+  assert.equal((await settings.get()).interval_minutes, 60, 'the default is hourly (the old daily default became 1 hour)');
+  for (const minutes of [5, 10, 15, 30, 60, 120, 180]) assert.equal((await settings.update({ interval_minutes: minutes })).interval_minutes, minutes);
+  assert.equal((await pg.query('SELECT history_interval_hours h FROM spfbl_settings WHERE id = 1')).rows[0].h, 4, '3 hours count as 4 in the older column');
   await settings.update({ interval_minutes: 15 });
   assert.equal((await pg.query('SELECT history_interval_hours h FROM spfbl_settings WHERE id = 1')).rows[0].h, 1, '15 minutes count as 1 hour in the older column');
   for (const statement of SPFBL_SENT_STATEMENTS) await pg.query(statement);
   assert.equal((await settings.get()).interval_minutes, 15, 'running the runtime schema again does not undo the choice');
-  for (const bad of [7, 0, 45, '15', null, 1441]) await assert.rejects(settings.update({ interval_minutes: bad }), { code: 'SPFBL_HISTORY_INTERVAL_INVALID' }, String(bad));
-  await assert.rejects(pg.query('UPDATE spfbl_settings SET history_interval_minutes = 10'), /./, 'only the offered intervals are accepted by the database');
+  for (const bad of [7, 0, 45, '15', null, 1440, 240]) await assert.rejects(settings.update({ interval_minutes: bad }), { code: 'SPFBL_HISTORY_INTERVAL_INVALID' }, String(bad));
+  await assert.rejects(pg.query('UPDATE spfbl_settings SET history_interval_minutes = 7'), /./, 'only the offered intervals are accepted by the database');
+
+  // a database still on migration 42 (old options, daily default) is converted by migration 43
+  const migration43 = read('database/migrations/43_spfbl_history_interval_options.sql');
+  await pg.query('ALTER TABLE spfbl_settings DROP CONSTRAINT spfbl_settings_history_interval_options_check');
+  await pg.query('UPDATE spfbl_settings SET history_interval_minutes = 60');
+  await pg.query('ALTER TABLE spfbl_settings ADD CONSTRAINT spfbl_settings_history_interval_minutes_check CHECK (history_interval_minutes IN (15, 30, 60, 120, 240, 480, 720, 1440))');
+  for (const [before, after] of [[1440, 60], [240, 180], [720, 180], [60, 60], [120, 120], [30, 30]]) {
+    await pg.query('UPDATE spfbl_settings SET history_interval_minutes = $1 WHERE id = 1', [before]);
+    await pg.exec(migration43);
+    assert.equal((await pg.query('SELECT history_interval_minutes m FROM spfbl_settings WHERE id = 1')).rows[0].m, after, `${before} becomes ${after}`);
+    await pg.query('ALTER TABLE spfbl_settings DROP CONSTRAINT spfbl_settings_history_interval_options_check');
+    await pg.query('UPDATE spfbl_settings SET history_interval_minutes = 60');
+    await pg.query('ALTER TABLE spfbl_settings ADD CONSTRAINT spfbl_settings_history_interval_minutes_check CHECK (history_interval_minutes IN (15, 30, 60, 120, 240, 480, 720, 1440))');
+  }
+  await pg.exec(migration43); await pg.exec(migration43);
+  for (const statement of SPFBL_SENT_STATEMENTS) await pg.query(statement);
 
   // ---------- store: idempotent upsert, scope, filters, paging ----------
   const norm = (item) => sent.normalizeRecord(item);
@@ -109,7 +125,7 @@ async function run() {
   const one = await service.search({ domain: 'exemplo.test', scope: ['exemplo.test', 'outro.test'], admin: false, query: {} });
   assert.equal(one.collecting, false);
   assert.deepEqual(one.rows.map((r) => r.detail.msgid), ['m5', 'm10', 'm50'], 'stored, translated again at read time, without other domains or refused mail');
-  assert.deepEqual(one.rows.map((r) => r.result.label), ['Enviado', 'Destinatário inexistente', 'Adiado: caixa cheia']);
+  assert.deepEqual(one.rows.map((r) => r.result.label), ['Enviado', 'Email errado ou não existe', 'Caixa do destinatário cheia']);
   assert.deepEqual([one.retention_days, one.truncated, one.partial, one.servers_failed], [30, false, false, 0]);
   assert.equal('diagnostics' in one, false, 'no diagnostics unless asked');
   assert.deepEqual((await service.search({ domain: 'exemplo.test', scope: ['exemplo.test'], admin: false, query: { period: '90d' } })).rows.length, 4, 'a longer period reaches older stored mail (capped by the retention)');

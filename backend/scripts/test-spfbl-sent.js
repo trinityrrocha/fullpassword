@@ -22,19 +22,22 @@ async function run() {
   const c = (type, message) => sent.classifyResult(type, message);
   assert.deepEqual([c('success', 'Accepted').label, c('success', 'Accepted').key], ['Enviado', 'sent']);
   assert.equal(c('inprogress', '').label, 'Em andamento');
-  assert.deepEqual([c('failure', '550 5.1.1 The email account that you tried to reach does not exist.').label, c('failure', '550 5.1.1 The email account that you tried to reach does not exist.').code], ['Destinatário inexistente', '550 5.1.1']);
+  assert.deepEqual([c('failure', '550 5.1.1 The email account that you tried to reach does not exist.').label, c('failure', '550 5.1.1 The email account that you tried to reach does not exist.').code], ['Email errado ou não existe', '550 5.1.1']);
   assert.equal(c('failure', 'RCPT TO:<x@y.example> User unknown').key, 'mailbox_not_found');
-  assert.equal(c('failure', '552 5.2.2 Mailbox full').label, 'Caixa cheia');
-  assert.equal(c('defer', '452 4.2.2 Over quota').label, 'Adiado: caixa cheia', 'a deferral keeps the cause but says it is only postponed');
+  assert.equal(c('failure', '552 5.2.2 Mailbox full').label, 'Caixa do destinatário cheia');
+  assert.equal(c('defer', '452 4.2.2 Over quota').label, 'Caixa do destinatário cheia', 'a deferral keeps the cause but says it is only postponed');
   assert.equal(c('failure', 'Domain exemplo.test has exceeded the max defers and failures per hour (5/5 (100%)) allowed. Message discarded.').label, 'Limite de envios excedido');
-  assert.equal(c('failure', '550 5.7.1 Message rejected as spam, listed in Spamhaus').label, 'Bloqueado como spam');
-  assert.equal(c('defer', 'Connection timed out').label, 'Adiado: servidor de destino sem resposta');
+  assert.equal(c('failure', '550 5.7.1 Message rejected as spam, listed in Spamhaus').label, 'Você foi bloqueado como spam');
+  assert.equal(c('defer', 'Connection timed out').label, 'Servidor de destino não respondeu');
   assert.equal(c('failure', 'Host or domain name not found. Name service error for name=destino.example').label, 'Domínio inexistente');
   assert.equal(c('defer', '451 4.7.1 Greylisted, please try again later').label, 'Adiado pelo destino (tentará de novo)');
   assert.equal(c('failure', 'TLS error: certificate verify failed').label, 'Falha de TLS');
   assert.equal(c('failure', '552 5.3.4 Message size exceeds fixed limit').label, 'Mensagem grande demais');
   assert.deepEqual([c('failure', '554 something odd').label, c('failure', '554 something odd').code], ['Falha na entrega (554)', '554']);
-  assert.equal(c('failure', 'odd').label, 'Falha na entrega'); assert.equal(c('defer', 'odd').label, 'Adiado');
+  assert.equal(c('failure', 'odd').label, 'Falha na entrega');
+  assert.deepEqual([c('failure', '553 5.1.3 The address is not valid').label, c('failure', '501 Syntax error in parameters or arguments').label, c('failure', '553 5.1.3').key], ['Erro de digitação', 'Erro de digitação', 'typo']);
+  assert.equal(c('defer', '451 5.1.3 invalid address').label, 'Erro de digitação', 'a typo keeps its label when deferred');
+  assert.equal(c('defer', '550 5.7.1 blocked').label, 'Adiado: você foi bloqueado como spam', 'other deferrals say they are only postponed'); assert.equal(c('defer', 'odd').label, 'Servidor de destino não respondeu');
   assert.equal(c('failure', undefined).label, 'Falha na entrega');
 
   // ---------- normalization ----------
