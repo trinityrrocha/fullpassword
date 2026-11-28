@@ -125,7 +125,7 @@ assert.match(serverDialog, /tokenRef\.current\.value = ''/); assert.match(server
 const removeDialog = read('src/components/spfbl/SpfblRemoveServerDialog.jsx');
 assert.match(removeDialog, /useState\(''\)/, 'no default choice'); assert.match(removeDialog, /disabled=\{busy \|\| !choice\}/, 'nothing happens until a choice is made');
 const layout = read('src/layouts/DashboardLayout.jsx');
-assert.match(layout, /modules\.spfbl === true \? \[\{ name: 'SPFBL', href: '\/spfbl', icon: Bug \}\]/);
+assert.match(layout, /modules\.spfbl === true \? \[\{ name: 'SPFBL Report', href: '\/spfbl', icon: Bug \}\]/);
 assert.match(read('src/App.jsx'), /<Route path="\/spfbl" element=\{<Spfbl \/>\} \/>/);
 assert.ok(read('src/App.jsx').indexOf('path="/spfbl"') < read('src/App.jsx').indexOf('requiredRole="admin"'), 'the page sits in the ProtectedRoute for any signed-in account; the server decides');
 assert.match(read('src/pages/Settings.jsx'), /\{canManageSystem && <ModulesCard \/>\}/);

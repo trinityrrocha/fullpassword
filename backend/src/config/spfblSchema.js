@@ -202,7 +202,12 @@ const SPFBL_SENT_STATEMENTS = [
     PRIMARY KEY (server_id, record_key)
 )`,
   `CREATE INDEX IF NOT EXISTS spfbl_sent_records_sent_idx ON spfbl_sent_records (sent_at DESC)`,
-  `CREATE INDEX IF NOT EXISTS spfbl_sent_records_domain_idx ON spfbl_sent_records (sender_domain, sent_at DESC)`
+  `CREATE INDEX IF NOT EXISTS spfbl_sent_records_domain_idx ON spfbl_sent_records (sender_domain, sent_at DESC)`,
+  `ALTER TABLE spfbl_settings DROP CONSTRAINT IF EXISTS spfbl_settings_history_interval_minutes_check`,
+  `ALTER TABLE spfbl_settings DROP CONSTRAINT IF EXISTS spfbl_settings_history_interval_options_check`,
+  `UPDATE spfbl_settings SET history_interval_minutes = CASE WHEN history_interval_minutes IN (5, 10, 15, 30, 60, 120, 180) THEN history_interval_minutes WHEN history_interval_minutes = 1440 THEN 60 WHEN history_interval_minutes < 60 THEN 15 WHEN history_interval_minutes < 120 THEN 60 WHEN history_interval_minutes < 180 THEN 120 ELSE 180 END`,
+  `ALTER TABLE spfbl_settings ALTER COLUMN history_interval_minutes SET DEFAULT 60`,
+  `ALTER TABLE spfbl_settings ADD CONSTRAINT spfbl_settings_history_interval_options_check CHECK (history_interval_minutes IN (5, 10, 15, 30, 60, 120, 180))`
 ];
 
 const ensureSpfblSchema = async (client) => {

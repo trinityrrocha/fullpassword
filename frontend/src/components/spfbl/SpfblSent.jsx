@@ -1,19 +1,20 @@
 import { useEffect, useState } from 'react';
 import FormDialog from '../FormDialog';
 import PaginationBar from '../PaginationBar';
+import ResultBadge from './ResultIcon';
 import { getSent } from '../../services/spfblService';
 import { describeError, formatIsoDateTime, formatNumber } from '../../utils/spfbl';
-import { DEFAULT_SENT_FILTERS, RESULT_OPTIONS, RESULT_TONE_CLASSES, SEARCH_BY_OPTIONS, detailGroups, periodOptions, splitDateTime } from '../../utils/spfblSent';
+import { DEFAULT_SENT_FILTERS, RESULT_OPTIONS, SEARCH_BY_OPTIONS, detailGroups, periodOptions, splitDateTime } from '../../utils/spfblSent';
 
 const field = 'mt-1 w-full min-h-9 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900';
-const HEADERS = ['Evento', 'Remetente', 'Destinatário', 'Data', 'Hora', 'Resultado', ''];
+const HEADERS = ['Remetente', 'Destinatário', 'Data', 'Hora', 'Resultado', ''];
 
 function DetailsDialog({ row, onClose }) {
   return (
     <FormDialog title="Detalhes do envio" description={`${row.event} · ${row.result.label}${row.server ? ` · Servidor ${row.server}` : ''}`} size="xl" guardChanges={false} onClose={onClose}
       footer={<div className="flex justify-end"><button type="button" data-dialog-cancel className="rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Fechar</button></div>}>
       <div className="space-y-4">
-        {detailGroups(row.detail).map(([title, rows]) => (
+        {detailGroups(row.detail, row.event).map(([title, rows]) => (
           <section key={title} aria-label={title}>
             <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">{title}</h3>
             <dl className="divide-y divide-slate-100 rounded-md border border-slate-200 text-sm">
@@ -129,7 +130,7 @@ export default function SpfblSent() {
       <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
         <table className="w-full min-w-[56rem] table-fixed whitespace-nowrap text-left text-[13px]">
           <caption className="sr-only">{data.domain === 'all' ? 'E-mails enviados por todos os domínios' : `E-mails enviados pelo domínio ${data.domain}`}</caption>
-          <colgroup><col className="w-[8.5rem]" /><col className="w-[16rem]" /><col /><col className="w-[5.5rem]" /><col className="w-[5rem]" /><col className="w-[17rem]" /><col className="w-[5.5rem]" /></colgroup>
+          <colgroup><col className="w-[16rem]" /><col /><col className="w-[5.5rem]" /><col className="w-[5rem]" /><col className="w-[17rem]" /><col className="w-[5.5rem]" /></colgroup>
           <thead className="text-[11px] uppercase tracking-wide text-slate-500"><tr className="border-b border-slate-200">{HEADERS.map((header) => <th key={header || 'acoes'} scope="col" className="px-3 py-2 font-semibold">{header || <span className="sr-only">Ações</span>}</th>)}</tr></thead>
           <tbody className="divide-y divide-slate-100">
             {data.rows.length === 0 && <tr><td colSpan={HEADERS.length} className="px-3 py-6 text-center text-slate-600">Nenhum e-mail enviado com estes filtros.</td></tr>}
@@ -137,13 +138,12 @@ export default function SpfblSent() {
               const when = splitDateTime(row.sent_at);
               return (
                 <tr key={row.id} className="hover:bg-slate-50">
-                  <td className="truncate px-3 py-2 text-slate-700" title={row.event}>{row.event}</td>
                   <td className="truncate px-3 py-2 text-slate-900" title={row.sender}>{row.sender || '—'}</td>
                   <td className="truncate px-3 py-2 text-slate-900" title={row.delivered_to && row.delivered_to !== row.recipient ? `${row.recipient} → ${row.delivered_to}` : row.recipient}>{row.recipient || '—'}</td>
                   <td className="px-3 py-2 tabular-nums text-slate-700" title={formatIsoDateTime(row.sent_at)}>{when.date}</td>
                   <td className="px-3 py-2 tabular-nums text-slate-700">{when.time}</td>
                   <td className="overflow-hidden px-3 py-2">
-                    <span className={`inline-flex max-w-full items-center truncate rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${RESULT_TONE_CLASSES[row.result.tone] || RESULT_TONE_CLASSES.info}`} title={row.detail.message || row.result.label}>{row.result.label}</span>
+                    <ResultBadge result={row.result} title={row.detail.message || row.result.label} />
                   </td>
                   <td className="px-3 py-2 text-right"><button type="button" onClick={() => setSelected(row)} className="text-sm text-blue-800 underline">Detalhes<span className="sr-only"> do envio para {row.recipient}</span></button></td>
                 </tr>

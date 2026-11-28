@@ -158,5 +158,5 @@ export const REASON_SHORT = { banned: 'Banimento', security: 'Segurança', inexi
 // The recipient's domain is already the selected domain: show "local@…" (full address in the tooltip) so rows never need a scrollbar.
 export const shortAddress = (email) => { const at = String(email || '').indexOf('@'); return at > 0 ? `${email.slice(0, at + 1)}…` : email || '—'; };
 
-// "15 minutos", "1 hora", "4 horas": the collection interval is stored in minutes.
+// "5 minutos", "1 hora", "3 horas": the collection interval is stored in minutes.
 export const formatInterval = (minutes) => (minutes < 60 ? `${minutes} minutos` : minutes === 60 ? '1 hora' : `${minutes / 60} horas`);

@@ -29,16 +29,19 @@ const EVENT_LABELS = Object.freeze({ success: 'Entrega', defer: 'Tentativa adiad
 // A server's answer in words a person understands. Heuristic: the texts come from the receiving mail server and vary; the full text is always
 // available in the details. The order matters (the first rule that matches wins).
 const RULES = Object.freeze([
+  ['typo', 'Erro de digitação', /\b5\.1\.3\b|\b501[ -]|syntax error in (parameters|address)|bad (destination )?(mailbox )?address syntax|invalid (address|e-?mail) (syntax|format)|not a valid (e-?mail )?address|address[^.]{0,30}malformed/i],
   ['domain_not_found', 'Domínio inexistente', /host or domain name not found|domain[^.]{0,50}(does not exist|not found|not exist)|no mx|unrouteable address|nxdomain|no such domain|\b5\.1\.2\b|name or service not known|non-existent hosts/i],
-  ['mailbox_not_found', 'Destinatário inexistente', /user unknown|unknown user|no such user|no such recipient|recipient (address )?rejected|recipient not found|mailbox (unavailable|not found)|(account|address|mailbox|recipient|user)[^.]{0,60}(does not exist|doesn't exist|not exist)|invalid (recipient|mailbox)|account (is )?(disabled|inactive|not found)|\b5\.1\.[01]\b|undeliverable address|address not found/i],
-  ['mailbox_full', 'Caixa cheia', /mailbox (is )?full|over ?quota|quota (exceeded|full)|storage (limit|full)|insufficient (system )?storage|\b[45]\.2\.2\b|inbox is full|disk quota/i],
+  ['mailbox_not_found', 'Email errado ou não existe', /user unknown|unknown user|no such user|no such recipient|recipient (address )?rejected|recipient not found|mailbox (unavailable|not found)|(account|address|mailbox|recipient|user)[^.]{0,60}(does not exist|doesn't exist|not exist)|invalid (recipient|mailbox)|account (is )?(disabled|inactive|not found)|\b5\.1\.[01]\b|undeliverable address|address not found/i],
+  ['mailbox_full', 'Caixa do destinatário cheia', /mailbox (is )?full|over ?quota|quota (exceeded|full)|storage (limit|full)|insufficient (system )?storage|\b[45]\.2\.2\b|inbox is full|disk quota/i],
   ['rate_limited', 'Limite de envios excedido', /max defers and failures per hour|exceeded the (maximum|max)|rate ?limit|too many (messages|emails|connections|recipients)|sending limit|quota of emails per hour/i],
-  ['blocked_spam', 'Bloqueado como spam', /spam|blacklist|blocklist|blocked|\brbl\b|spamhaus|barracuda|reputation|poor sender|\b5\.7\.1\b|policy (violation|reject)|not allowed|denied by (policy|recipient)|access denied|message rejected/i],
-  ['unreachable', 'Servidor de destino sem resposta', /timed out|time ?out|connection (refused|reset|closed)|no route to host|network is unreachable|unable to connect|could not connect|connection to .* failed|server not responding/i],
+  ['blocked_spam', 'Você foi bloqueado como spam', /spam|blacklist|blocklist|blocked|\brbl\b|spamhaus|barracuda|reputation|poor sender|\b5\.7\.1\b|policy (violation|reject)|not allowed|denied by (policy|recipient)|access denied|message rejected/i],
+  ['unreachable', 'Servidor de destino não respondeu', /timed out|time ?out|connection (refused|reset|closed)|no route to host|network is unreachable|unable to connect|could not connect|connection to .* failed|server not responding/i],
   ['greylisted', 'Adiado pelo destino (tentará de novo)', /greylist|graylist|try again later|temporarily (deferred|rejected|unavailable)|come back later/i],
   ['tls', 'Falha de TLS', /\btls\b|starttls|certificate|ssl/i],
   ['too_large', 'Mensagem grande demais', /message (size|too large)|too large|exceeds? (the )?(maximum |max )?(message )?size|\b5\.3\.4\b/i]
 ]);
+// Causes whose label already says what happened, so a deferral keeps it as it is ("Adiado:" is added to the others).
+const NO_DEFER_PREFIX = new Set(['greylisted', 'mailbox_full', 'unreachable', 'typo']);
 const SMTP_CODE = /\b([45]\d\d)(?:[ -]([245]\.\d{1,3}\.\d{1,3}))?\b/;
 
 const classifyResult = (type, message) => {
@@ -48,8 +51,9 @@ const classifyResult = (type, message) => {
   const smtp = SMTP_CODE.exec(text);
   const code = smtp ? (smtp[2] ? `${smtp[1]} ${smtp[2]}` : smtp[1]) : null;
   const tone = type === 'defer' ? 'warning' : 'danger';
-  for (const [key, label, pattern] of RULES) if (pattern.test(text)) return { key, label: type === 'defer' && key !== 'greylisted' ? `Adiado: ${label.charAt(0).toLowerCase()}${label.slice(1)}` : label, tone, code };
-  return { key: type === 'defer' ? 'deferred' : 'failed', label: type === 'defer' ? 'Adiado' : (code ? `Falha na entrega (${code})` : 'Falha na entrega'), tone, code };
+  for (const [key, label, pattern] of RULES) if (pattern.test(text)) return { key, label: type === 'defer' && !NO_DEFER_PREFIX.has(key) ? `Adiado: ${label.charAt(0).toLowerCase()}${label.slice(1)}` : label, tone, code };
+  // A deferral with no known cause is the receiving server not answering for now.
+  return { key: type === 'defer' ? 'deferred' : 'failed', label: type === 'defer' ? 'Servidor de destino não respondeu' : (code ? `Falha na entrega (${code})` : 'Falha na entrega'), tone, code };
 };
 
 const text = (value) => (value === null || value === undefined ? '' : String(value)).slice(0, MAX_FIELD);

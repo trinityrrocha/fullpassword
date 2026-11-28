@@ -126,8 +126,8 @@ async function main() {
     await assert.rejects(historySettings.update({ interval_minutes: 0 }), { code: 'SPFBL_HISTORY_INTERVAL_INVALID' });
     await assert.rejects(historySettings.update({ retention_days: 30 }), { code: 'SPFBL_HISTORY_SHRINK_CONFIRM', rows_to_delete: 3 });
     assert.equal((await repository.stats(integration)).rows, 9, 'nothing deleted without confirmation');
-    const shrunk = await historySettings.update({ retention_days: 30, interval_minutes: 240, confirm_shrink: true });
-    assert.equal(shrunk.deleted, 3); assert.equal(shrunk.retention_days, 30); assert.equal(shrunk.interval_minutes, 240); assert.deepEqual(shrunk.interval_options, [15, 30, 60, 120, 240, 480, 720, 1440]); assert.equal((await repository.stats(integration)).rows, 6);
+    const shrunk = await historySettings.update({ retention_days: 30, interval_minutes: 180, confirm_shrink: true });
+    assert.equal(shrunk.deleted, 3); assert.equal(shrunk.retention_days, 30); assert.equal(shrunk.interval_minutes, 180); assert.deepEqual(shrunk.interval_options, [5, 10, 15, 30, 60, 120, 180]); assert.equal((await repository.stats(integration)).rows, 6);
     assert.equal((await historySettings.update({ retention_days: 90 })).retention_days, 90, 'growing needs no confirmation');
 
     // scope: reads are by domain; rows of a replaced Matrix account are purged

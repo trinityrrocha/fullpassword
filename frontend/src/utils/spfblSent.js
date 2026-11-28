@@ -16,6 +16,7 @@ export const RESULT_OPTIONS = Object.freeze([['all', 'Todos'], ['sent', 'Enviado
 export const SEARCH_BY_OPTIONS = Object.freeze([['any', 'Remetente ou destinatário'], ['sender', 'Remetente'], ['recipient', 'Destinatário']]);
 export const DEFAULT_SENT_FILTERS = Object.freeze({ period: '24h', status: 'all', by: 'any', q: '' });
 
+// (kept for any caller that still colors a badge)
 export const RESULT_TONE_CLASSES = Object.freeze({
   ok: 'bg-emerald-50 text-emerald-800 ring-emerald-200',
   warning: 'bg-amber-50 text-amber-900 ring-amber-200',
@@ -38,6 +39,7 @@ const GROUPS = Object.freeze([
   ['Destinatário', [['recipient', 'Destinatário'], ['deliveredto', 'Entregue em'], ['deliverydomain', 'Domínio local do destino'], ['deliveryuser', 'Usuário local do destino'], ['host', 'Servidor que recebeu'], ['ip', 'IP do servidor que recebeu']]],
   ['Entrega', [['sendunixtime', 'Enviado em', unixToText], ['actionunixtime', 'Tentativa em', unixToText], ['router', 'Roteador'], ['transport', 'Transporte'], ['transport_is_remote', 'Entrega remota', (v) => (String(v) === '1' ? 'Sim' : 'Não')]]]
 ]);
-export const detailGroups = (detail = {}) => GROUPS
-  .map(([title, fields]) => [title, fields.filter(([key]) => detail[key] !== undefined && detail[key] !== '').map(([key, label, format]) => [label, format ? format(detail[key]) : String(detail[key])])])
+// The event (delivery, postponed attempt, failure...) is the first line of the first group: the list no longer has a column for it.
+export const detailGroups = (detail = {}, event = '') => GROUPS
+  .map(([title, fields], index) => [title, [...(index === 0 && event ? [['Evento', event]] : []), ...fields.filter(([key]) => detail[key] !== undefined && detail[key] !== '').map(([key, label, format]) => [label, format ? format(detail[key]) : String(detail[key])])]])
   .filter(([, rows]) => rows.length > 0);

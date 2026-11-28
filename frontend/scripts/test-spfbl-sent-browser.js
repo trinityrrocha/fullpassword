@@ -42,8 +42,8 @@ const state = {
   calls: [], partial: false, failedServers: [], diagnostics: null, retention: 30, collecting: false, fail: null, scope: ['exemplo.test', 'outro.test'], truncated: false,
   rows: [
     row(1),
-    row(2, { type: 'failure', event: 'Falha na entrega', result: { key: 'mailbox_full', label: 'Caixa cheia', tone: 'danger', code: '552 5.2.2' }, detail: { ...row(2).detail, type: 'failure', message: '552 5.2.2 Mailbox full' } }),
-    row(3, { type: 'defer', event: 'Tentativa adiada', result: { key: 'unreachable', label: 'Adiado: servidor de destino sem resposta', tone: 'warning', code: null }, detail: { ...row(3).detail, type: 'defer', message: 'Connection timed out' } }),
+    row(2, { type: 'failure', event: 'Falha na entrega', result: { key: 'mailbox_full', label: 'Caixa do destinatário cheia', tone: 'danger', code: '552 5.2.2' }, detail: { ...row(2).detail, type: 'failure', message: '552 5.2.2 Mailbox full' } }),
+    row(3, { type: 'defer', event: 'Tentativa adiada', result: { key: 'unreachable', label: 'Servidor de destino não respondeu', tone: 'warning', code: null }, detail: { ...row(3).detail, type: 'defer', message: 'Connection timed out' } }),
     ...Array.from({ length: 27 }, (_, i) => row(10 + i))
   ]
 };
@@ -72,7 +72,7 @@ try {
       let rows = state.rows;
       if (query.status === 'failed') rows = rows.filter((r) => r.type === 'failure');
       if (query.q) rows = rows.filter((r) => r.sender.includes(query.q) || r.recipient.includes(query.q));
-      return json({ domain: query.domain || 'all', domains_scope: state.scope, servers_failed: state.failedServers.length, partial: state.partial, ...(state.failedServers.length ? { servers_failed_names: state.failedServers } : {}), filters: { period: query.period || '24h', status: query.status || 'all', by: query.by || 'any', q: query.q || '' },
+      return json({ domain: query.domain || state.scope[0], domains_scope: state.scope, servers_failed: state.failedServers.length, partial: state.partial, ...(state.failedServers.length ? { servers_failed_names: state.failedServers } : {}), filters: { period: query.period || '24h', status: query.status || 'all', by: query.by || 'any', q: query.q || '' },
         rows: rows.slice((pageNo - 1) * size, pageNo * size), filtered_total: rows.length, period_total: state.rows.length, retention_days: state.retention, collecting: state.collecting, page: pageNo, pages: Math.max(1, Math.ceil(rows.length / size)), page_size: size, truncated: state.truncated, fetched_at: '2026-11-27T12:10:00Z', cached: false, ...(state.diagnostics ? { diagnostics: state.diagnostics } : {}) });
     }
     return json({ error: `unexpected ${api}` }, 404);
@@ -88,28 +88,34 @@ try {
   // Sub-tab by click.
   await tabs.getByRole('tab', { name: 'Enviados' }).click();
   await page.getByRole('form', { name: 'Filtros dos e-mails enviados' }).waitFor();
-  const table = page.getByRole('table', { name: 'E-mails enviados por todos os domínios' });
-  assert.equal(await page.getByRole('combobox', { name: 'Domínio', exact: true }).inputValue(), 'all', 'all domains is the default');
+  const table = page.getByRole('table', { name: 'E-mails enviados pelo domínio exemplo.test' });
+  assert.equal(await page.getByRole('combobox', { name: 'Domínio', exact: true }).inputValue(), 'exemplo.test', 'the first domain is selected by default (all domains is a choice, not the default)');
   assert.deepEqual(await page.getByRole('combobox', { name: 'Domínio', exact: true }).locator('option').allTextContents(), ['Todos os domínios', 'exemplo.test', 'outro.test']);
   await table.waitFor();
-  assert.deepEqual(await table.locator('thead th').evaluateAll((items) => items.map((item) => item.textContent.trim())), ['Evento', 'Remetente', 'Destinatário', 'Data', 'Hora', 'Resultado', 'Ações']);
+  assert.deepEqual(await table.locator('thead th').evaluateAll((items) => items.map((item) => item.textContent.trim())), ['Remetente', 'Destinatário', 'Data', 'Hora', 'Resultado', 'Ações'], 'there is no Evento column: it is shown in the details');
   assert.equal(await table.locator('tbody tr').count(), 20, 'first page holds 20 rows');
   const first = table.locator('tbody tr').first();
-  assert.match(await first.innerText(), /Entrega/); assert.match(await first.innerText(), /ana1@exemplo\.test/); assert.match(await first.innerText(), /cliente1@destino\.example/);
-  assert.match(await first.locator('td').nth(3).innerText(), /^\d{2}\/\d{2}\/\d{2}$/, 'Data is dd/mm/aa'); assert.match(await first.locator('td').nth(4).innerText(), /^\d{2}:\d{2}:\d{2}$/, 'Hora is HH:mm:ss');
-  assert.equal(await first.locator('td').nth(5).innerText(), 'Enviado');
-  assert.equal(await table.getByText('Caixa cheia', { exact: true }).count(), 1);
-  assert.equal(await table.getByText('Adiado: servidor de destino sem resposta').count(), 1);
-  assert.match(await page.getByText(/registros com os filtros/).innerText(), /30 registros com os filtros · 30 no período/);
+  assert.match(await first.innerText(), /ana1@exemplo\.test/); assert.match(await first.innerText(), /cliente1@destino\.example/);
+  assert.match(await first.locator('td').nth(2).innerText(), /^\d{2}\/\d{2}\/\d{2}$/, 'Data is dd/mm/aa'); assert.match(await first.locator('td').nth(3).innerText(), /^\d{2}:\d{2}:\d{2}$/, 'Hora is HH:mm:ss');
+  // Result: the success is an icon only (green double check), every other result an icon with a short text.
+  const sentCell = first.locator('td').nth(4);
+  assert.equal((await sentCell.textContent()).trim(), 'Enviado', 'the meaning stays available to screen readers');
+  assert.equal(await sentCell.locator('svg').count(), 1); assert.match(await sentCell.locator('span').first().getAttribute('class'), /text-emerald-600/, 'green');
+  assert.match(await sentCell.locator('svg').getAttribute('class'), /lucide-check-check/, 'double check');
+  const fullRow = table.getByRole('row').filter({ hasText: 'Caixa do destinatário cheia' });
+  assert.equal(await fullRow.count(), 1); assert.equal(await fullRow.locator('td').nth(4).locator('svg').count(), 1, 'the result has an icon');
+  const deferRow = table.getByRole('row').filter({ hasText: 'Servidor de destino não respondeu' });
+  assert.equal(await deferRow.count(), 1); assert.match(await deferRow.locator('td').nth(4).locator('svg').getAttribute('class'), /lucide-server-off/);
+  assert.match(await page.getByText(/registros com os filtros/).innerText(), /30 registros com os filtros · 30 do domínio no período/);
   const lastSentCall = () => state.calls.filter((c) => c.api === '/spfbl/sent').at(-1).query;
   assert.deepEqual([lastSentCall().page, lastSentCall().page_size], ['1', '20']);
 
   // Details: every field of the log, in groups.
-  await table.getByRole('row').filter({ hasText: 'Caixa cheia' }).getByRole('button', { name: /Detalhes/ }).click();
+  await table.getByRole('row').filter({ hasText: 'Caixa do destinatário cheia' }).getByRole('button', { name: /Detalhes/ }).click();
   const dialog = page.getByRole('dialog', { name: 'Detalhes do envio' });
   await dialog.waitFor();
   const text = (await dialog.innerText()).toLowerCase();
-  for (const expected of ['Mensagem', 'Remetente', 'Destinatário', 'Entrega', 'Identificador', '1aaa-2', 'Resposta do servidor', '552 5.2.2 Mailbox full', 'Falha', 'ana2@exemplo.test', 'Conta cPanel', 'exemplo01', 'IP de origem', '198.51.100.7', 'Servidor que recebeu', 'mx.destino.example', 'Tamanho', '16,6 KB', 'Entrega remota', 'Sim']) {
+  for (const expected of ['Evento', 'Falha na entrega', 'Mensagem', 'Remetente', 'Destinatário', 'Entrega', 'Identificador', '1aaa-2', 'Resposta do servidor', '552 5.2.2 Mailbox full', 'Falha', 'ana2@exemplo.test', 'Conta cPanel', 'exemplo01', 'IP de origem', '198.51.100.7', 'Servidor que recebeu', 'mx.destino.example', 'Tamanho', '16,6 KB', 'Entrega remota', 'Sim']) {
     assert.ok(text.includes(expected.toLowerCase()), `details show "${expected}"`);
   }
   assert.match(text, /enviado em\s*\d{2}\/\d{2}\/\d{2} \d{2}:\d{2}:\d{2}/);
@@ -122,7 +128,7 @@ try {
   await page.getByRole('searchbox', { name: 'Texto' }).fill('ana2');
   await page.getByRole('button', { name: 'Consultar' }).click();
   await page.waitForFunction(() => document.querySelectorAll('tbody tr').length === 1);
-  assert.deepEqual([lastSentCall().status, lastSentCall().period, lastSentCall().by, lastSentCall().q, lastSentCall().domain, lastSentCall().page], ['failed', '7d', 'sender', 'ana2', 'all', '1']);
+  assert.deepEqual([lastSentCall().status, lastSentCall().period, lastSentCall().by, lastSentCall().q, lastSentCall().domain, lastSentCall().page], ['failed', '7d', 'sender', 'ana2', 'exemplo.test', '1']);
   await page.getByRole('button', { name: 'Limpar' }).click();
   await page.waitForFunction(() => document.querySelectorAll('tbody tr').length === 20);
   assert.equal(lastSentCall().status, undefined, 'cleared filters are not sent');

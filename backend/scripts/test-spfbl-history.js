@@ -153,9 +153,11 @@ async function run() {
     return { records: [sentRaw(1), sentRaw(2, { type: 'failure', message: '552 5.2.2 Mailbox full' }), sentRaw(3, { domain: 'two.example.com', email: 'a3@two.example.com', sender: 'a3@two.example.com' })].filter((r) => Number(r.sendunixtime) > args.sinceUnix && Number(r.sendunixtime) < args.untilUnix), truncated: false }; } });
   const sentServerId = (await pg.query("SELECT server_id FROM spfbl_domains WHERE name = 'one.example.com'")).rows[0].server_id;
   await require('../src/services/spfblSentRuntime').collect(sentServerId, { backfill: true });
+  res = await call(controller.sentList, user('alice'), { query: { domain: 'all' } }); assert.equal(res.code, 200, JSON.stringify(res.body));
+  assert.equal(res.body.domain, 'all', 'all domains is still available when asked for');
   res = await call(controller.sentList, user('alice')); assert.equal(res.code, 200, JSON.stringify(res.body));
-  assert.deepEqual(res.body.domains_scope, ['one.example.com']); assert.equal(res.body.domain, 'all', 'no domain chosen means all of them'); assert.deepEqual(res.body.rows.map((r) => r.detail.msgid), ['s1', 's2'], 'an ordinary account gets the mail of its domains only');
-  assert.equal(res.body.rows[1].result.label, 'Caixa cheia'); assert.equal(res.headers['Cache-Control'], 'no-store');
+  assert.deepEqual(res.body.domains_scope, ['one.example.com']); assert.equal(res.body.domain, 'one.example.com', 'no domain chosen means the first domain of the scope'); assert.deepEqual(res.body.rows.map((r) => r.detail.msgid), ['s1', 's2'], 'an ordinary account gets the mail of its domains only');
+  assert.equal(res.body.rows[1].result.label, 'Caixa do destinatário cheia'); assert.equal(res.headers['Cache-Control'], 'no-store');
   assert.equal(JSON.stringify(res.body).includes('MATRIX_SECRET_SENTINEL'), false); assert.ok(sentAsked >= 1);
   assert.equal('diagnostics' in res.body, false, 'an ordinary account never gets the diagnostics');
   res = await call(controller.sentList, user('alice'), { query: { domain: 'two.example.com' } }); assert.equal(res.code, 403, 'another domain is invisible');

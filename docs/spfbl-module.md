@@ -44,13 +44,15 @@ permitidas do cliente WHM). Os registros são **coletados e armazenados no Postg
 90 dias não chama o WHM para esse intervalo todo. Isso significa que os **endereços dos destinatários passam a ficar no banco do FullPassword**
 pelo prazo de retenção (como já ocorre com o histórico de recebidos). Colunas: evento (Entrega, Tentativa adiada, Falha na entrega, Em andamento),
 remetente, destinatário, data (dd/mm/aa), hora (Brasília), resultado e *Detalhes* (todos os campos do log em grupos). O resultado é "Enviado" ou
-um texto curto traduzido da resposta do servidor de destino (Destinatário inexistente, Caixa cheia, Domínio inexistente, Limite de envios
-excedido, Bloqueado como spam, Servidor de destino sem resposta, Falha de TLS, Mensagem grande demais; adiamentos aparecem como "Adiado: …"); o
-que não for reconhecido aparece como "Falha na entrega (código)". A tradução é refeita **a cada leitura** a partir do texto guardado, então uma
+um texto curto, com ícone, traduzido da resposta do servidor de destino: *Email errado ou não existe*, *Erro de digitação* (endereço malformado,
+SMTP 501 e 553 5.1.3), *Caixa do destinatário cheia*, *Você foi bloqueado como spam*, *Servidor de destino não respondeu* (também para adiamentos
+sem causa conhecida), Domínio inexistente, Limite de envios excedido, Falha de TLS, Mensagem grande demais (outros adiamentos aparecem como "Adiado: …"); o
+que não for reconhecido aparece como "Falha na entrega (código)" com o ícone genérico de e-mail com alerta. O sucesso é só o ícone de dupla
+verificação verde (com o texto "Enviado" para leitores de tela). A coluna *Evento* não existe mais na lista: o evento é a primeira linha dos *Detalhes*. A tradução é refeita **a cada leitura** a partir do texto guardado, então uma
 tradução melhorada vale também para o que já foi coletado. É heurística, feita de textos conhecidos: **não foi validada com falhas reais do
 servidor** e deve ser ajustada quando houver exemplos.
-- **Coleta**: no mesmo intervalo da coleta do histórico de recebidos (card *Histórico armazenado*: **15 ou 30 minutos**, 1, 2, 4, 8, 12 ou 24
-  horas) e para **todo servidor WHM com token**, tenha ou não conexão Matrix. A primeira coleta vai até 10 dias para trás (nunca além da
+- **Coleta**: no mesmo intervalo da coleta do histórico de recebidos (card *Histórico armazenado*: **5, 10, 15 ou 30 minutos**, 1, 2 ou 3 horas; migration
+  `43_spfbl_history_interval_options.sql`) e para **todo servidor WHM com token**, tenha ou não conexão Matrix. A primeira coleta vai até 10 dias para trás (nunca além da
   retenção), **dia a dia**; as seguintes leem só o que é mais novo que a coleta anterior, com 1 hora de sobreposição (a chave do registro é um hash
   de mensagem, destinatário, hora e tipo, então uma linha lida duas vezes é gravada uma só vez). Uma janela que falha não perde o progresso das
   anteriores. O turno é reservado no banco antes da coleta (reinício ou segunda instância não a repetem) e um servidor que falha espera 15
@@ -63,7 +65,8 @@ servidor** e deve ser ajustada quando houver exemplos.
 - **Escopo**: o mesmo do histórico recebido (a conta só consulta os domínios liberados para ela; o Super Admin, todos). O domínio do
   registro é o do remetente: o campo `domain` e, quando ele vem vazio, o domínio do endereço do remetente (`email`, depois `sender`).
   Mensagens recusadas na chegada (`type: rejected`) não entram.
-- **Todos os domínios**: a primeira opção do seletor de domínio (e a padrão). Para o **Super Admin** traz tudo o que **cada servidor WHM
+- **Todos os domínios**: a primeira opção do seletor de domínio, **mas não é a padrão**: ao abrir a aba vem selecionado o primeiro domínio do escopo
+  (ler todos de uma vez custa mais). Para o **Super Admin** traz tudo o que **cada servidor WHM
   cadastrado** registra, de todas as contas (inclusive as de revendedores restauradas de backup e o e-mail do próprio sistema, como o do
   root); para as demais contas, os domínios do escopo delas.
 - **Duas consultas ao WHM** (os registros não têm os mesmos campos): *entregues e em andamento* são filtradas no servidor só por período e só
