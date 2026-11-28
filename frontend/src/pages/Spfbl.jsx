@@ -57,7 +57,7 @@ function useAdminData(enabled, onOverviewChange) {
   return { servers, domains, grants, users, errors, refreshOverview, loadDomains, loadAccess, reloadAfterSync };
 }
 
-const TABS = { dashboard: 'Dashboard', history: 'Histórico', requests: 'Solicitações', audit: 'Auditoria', access: 'Acessos', settings: 'Configurações do SPFBL' };
+const TABS = { dashboard: 'Dashboard', history: 'Histórico', requests: 'Solicitações', audit: 'Auditoria', access: 'Acessos', settings: 'Configurações do SPFBL Report' };
 const tabsFor = (role) => Object.keys(TABS).filter((key) => (role === 'super_admin' || !['audit', 'settings'].includes(key)));
 const tabLabel = (role, key) => (key === 'access' && role !== 'super_admin' ? 'Meu acesso' : TABS[key]);
 
@@ -79,7 +79,7 @@ export default function Spfbl() {
     <div className="mx-auto max-w-7xl space-y-5 px-4 pb-4 pt-3 md:px-6 md:pb-6">
       <header>
         <div className="flex items-start justify-between gap-3">
-          <PageTitle icon={Bug} iconClassName="text-slate-500" description="Consulta e gestão de bloqueios de e-mail do Matrix SPFBL.">SPFBL</PageTitle>
+          <PageTitle icon={Bug} iconClassName="text-slate-500" description="Consulta e gestão de bloqueios de e-mail do Matrix SPFBL.">SPFBL Report</PageTitle>
         </div>
       </header>
       {error && <p role="alert" className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>}

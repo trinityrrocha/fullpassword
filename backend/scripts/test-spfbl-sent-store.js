@@ -113,28 +113,34 @@ async function run() {
   await pg.query('DELETE FROM spfbl_sent_records');
   const service = make();
   serverRecords = [raw(5), raw(10, { type: 'failure', domain: '', message: '550 5.1.1 User unknown' }), raw(50, { type: 'defer', message: '452 4.2.2 Over quota' }), raw(60, { domain: 'outro.test', email: 'x@outro.test', sender: 'x@outro.test' }), raw(70, { type: 'rejected' }), raw(24 * 60 * 3)];
-  // First use: nothing collected yet -> a background collection starts and the answer says so.
+  // Opening the page never asks the WHM anything. Before the first scheduled collection the answer says so.
   const first = await service.search({ domain: 'exemplo.test', scope: ['exemplo.test'], admin: false, query: {} });
-  assert.equal(first.collecting, true, 'the first use triggers the collection and says so');
-  await service.collect(S1); // joins the collection already running
+  assert.deepEqual([first.collecting, first.rows.length, asked.length], [true, 0, 0], 'a server not collected yet is announced, and nothing is asked of the WHM');
+  await service.collect(S1, { backfill: true }); // what the scheduler does
   const state = await store.getState(S1);
   assert.equal(state.through, Math.floor(NOW / 1000), 'the server is collected up to now');
   assert.ok(asked.length >= 10, 'the first collection goes back day by day, not in one call');
   assert.ok(asked.every((call) => call.untilUnix - call.sinceUnix <= 86400 + 60 && call.domain === undefined), 'no call spans more than a day and none carries a domain');
+  const askedByCollection = asked.length;
   clock += 10 * 60 * 1000;
   const one = await service.search({ domain: 'exemplo.test', scope: ['exemplo.test', 'outro.test'], admin: false, query: {} });
-  assert.equal(one.collecting, false);
+  assert.equal(one.collecting, false); assert.ok(one.last_run_at, 'the last collection is reported');
   assert.deepEqual(one.rows.map((r) => r.detail.msgid), ['m5', 'm10', 'm50'], 'stored, translated again at read time, without other domains or refused mail');
   assert.deepEqual(one.rows.map((r) => r.result.label), ['Enviado', 'Email errado ou não existe', 'Caixa do destinatário cheia']);
   assert.deepEqual([one.retention_days, one.truncated, one.partial, one.servers_failed], [30, false, false, 0]);
   assert.equal('diagnostics' in one, false, 'no diagnostics unless asked');
   assert.deepEqual((await service.search({ domain: 'exemplo.test', scope: ['exemplo.test'], admin: false, query: { period: '90d' } })).rows.length, 4, 'a longer period reaches older stored mail (capped by the retention)');
-  const calls = asked.length; await service.search({ domain: 'exemplo.test', scope: ['exemplo.test'], admin: false, query: {} });
-  assert.equal(asked.length, calls, 'a second look within two minutes does not call the WHM again');
-  clock += 3 * 60 * 1000; serverRecords.push(raw(1, { msgid: 'mnew', sendunixtime: String(Math.floor(clock / 1000) - 30), actionunixtime: String(Math.floor(clock / 1000) - 30) }));
+  for (let i = 0; i < 3; i += 1) { clock += 5 * 60 * 1000; await service.search({ domain: 'exemplo.test', scope: ['exemplo.test'], admin: false, query: {}, diagnostics: true }); }
+  assert.equal(asked.length, askedByCollection, 'opening the page, however often and however long after, never calls the WHM');
+  // The scheduled run asks only for what is newer than the last one (plus a couple of minutes of margin), and a line already stored is not duplicated.
+  serverRecords.push(raw(1, { msgid: 'mnew', sendunixtime: String(Math.floor(clock / 1000) - 30), actionunixtime: String(Math.floor(clock / 1000) - 30) }));
+  const before = asked.length; const through = (await store.getState(S1)).through;
+  await service.collect(S1);
+  assert.ok(asked.length > before && asked.slice(before).every((call) => call.sinceUnix >= through - 121 && call.untilUnix - call.sinceUnix < 3600), 'only the new period is read: the data of the previous collection is not asked for again');
+  assert.equal(asked.slice(before).length, 1, 'one short call, not a re-read');
   const topped = await service.search({ domain: 'exemplo.test', scope: ['exemplo.test'], admin: false, query: {}, diagnostics: true });
-  assert.ok(asked.length > calls && topped.rows[0].detail.msgid === 'mnew', 'newer than the last collection is fetched when the page is opened');
-  assert.ok(asked.slice(calls).every((call) => call.untilUnix - call.sinceUnix < 2 * 86400), 'the top-up asks for a short window only');
+  assert.equal(topped.rows[0].detail.msgid, 'mnew');
+  assert.equal(topped.rows.filter((r) => r.detail.msgid === 'm5').length, 1, 'the safety margin does not duplicate a stored line');
   assert.deepEqual([topped.diagnostics.returned.success > 0, typeof topped.diagnostics.stored_period, Array.isArray(topped.diagnostics.calls)], [true, 'number', true]);
   assert.ok(!JSON.stringify(topped.diagnostics).includes('@'), 'the diagnostics carry counts, never addresses');
   // all domains: the Super Admin sees everything, any other account only its scope
@@ -145,12 +151,28 @@ async function run() {
   await assert.rejects(service.search({ domain: 'semservidor.test', scope: ['semservidor.test'], query: {} }), { code: 'SPFBL_SENT_NO_SERVER', statusCode: 409 });
   await assert.rejects(service.search({ domain: sent.ALL, scope: ['x.test'], admin: false, query: {} }), { code: 'SPFBL_SENT_NO_SERVER' });
   await assert.rejects(service.search({ domain: 'exemplo.test', scope: ['exemplo.test'], query: { period: 'x' } }), { code: 'SPFBL_SENT_PERIOD' });
-  // a failing server: what is stored is still shown, flagged as partial; the admin sees which one
+  // a failing collection: what is stored is still shown, flagged as partial; the admin sees which server and why
   clock += 3 * 60 * 1000; fail = Object.assign(new Error('x'), { code: 'WHM_AUTH_REFUSED' });
+  const throughBefore = (await store.getState(S1)).through;
+  await assert.rejects(service.collect(S1), { code: 'WHM_AUTH_REFUSED' });
   const degraded = await service.search({ domain: sent.ALL, scope: [], admin: true, query: { page_size: '100' } });
   assert.deepEqual([degraded.partial, degraded.servers_failed > 0, degraded.rows.length > 0, degraded.servers_failed_names[0].code], [true, true, true, 'WHM_AUTH_REFUSED']);
-  assert.equal((await store.getState(S1)).through, Math.floor((NOW + 10 * 60 * 1000 + 3 * 60 * 1000) / 1000), 'a failed top-up does not advance the collection');
+  assert.equal((await store.getState(S1)).through, throughBefore, 'a failed collection does not advance');
   fail = null;
+  // a window that comes back full is read again in halves, so nothing is lost behind the limit
+  await pg.query('DELETE FROM spfbl_sent_records'); await pg.query('UPDATE spfbl_whm_servers SET sent_collected_through = $2 WHERE id = $1', [S1, new Date((Math.floor(NOW / 1000) + 13 * 60 * 1000 / 1000 - 3600 * 12) * 1000).toISOString()]);
+  clock = NOW + 13 * 60 * 1000;
+  const wide = []; for (let i = 0; i < 40; i += 1) wide.push(raw(0, { msgid: `w${i}`, recipient: `w${i}@destino.example`, sendunixtime: String(Math.floor(clock / 1000) - 600 - i * 900), actionunixtime: String(Math.floor(clock / 1000) - 600 - i * 900) }));
+  const splitCalls = [];
+  const splitter = make({ createClient: () => ({ emailTrack: async (args) => {
+    splitCalls.push(args);
+    const inside = wide.filter((r) => Number(r.sendunixtime) > args.sinceUnix && Number(r.sendunixtime) < args.untilUnix);
+    return { records: inside.slice(0, 10), truncated: inside.length > 10, stats: [] }; // the server stops at 10 lines
+  } }) });
+  const splitRun = await splitter.collect(S1);
+  assert.equal(splitRun.truncated, false, 'once split, no part is cut');
+  assert.ok(splitCalls.length > 2, 'the full window was split');
+  assert.equal(Number((await pg.query('SELECT count(*)::int n FROM spfbl_sent_records WHERE detail->>\'msgid\' LIKE \'w%\'')).rows[0].n), wide.filter((r) => Number(r.sendunixtime) > Math.floor(NOW / 1000) - 12 * 3600 - 130).length, 'every line is stored');
   // a window that fails halfway keeps the progress already made
   await pg.query('UPDATE spfbl_whm_servers SET sent_collected_through = NULL WHERE id = $1', [S1]);
   let n = 0; const flaky = make({ createClient: () => ({ emailTrack: async () => { n += 1; if (n === 4) throw Object.assign(new Error('x'), { code: 'WHM_TIMEOUT' }); return { records: [], truncated: false, stats: [] }; } }) });

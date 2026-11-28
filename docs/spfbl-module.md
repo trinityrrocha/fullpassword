@@ -51,15 +51,17 @@ que não for reconhecido aparece como "Falha na entrega (código)" com o ícone 
 verificação verde (com o texto "Enviado" para leitores de tela). A coluna *Evento* não existe mais na lista: o evento é a primeira linha dos *Detalhes*. A tradução é refeita **a cada leitura** a partir do texto guardado, então uma
 tradução melhorada vale também para o que já foi coletado. É heurística, feita de textos conhecidos: **não foi validada com falhas reais do
 servidor** e deve ser ajustada quando houver exemplos.
-- **Coleta**: no mesmo intervalo da coleta do histórico de recebidos (card *Histórico armazenado*: **5, 10, 15 ou 30 minutos**, 1, 2 ou 3 horas; migration
-  `43_spfbl_history_interval_options.sql`) e para **todo servidor WHM com token**, tenha ou não conexão Matrix. A primeira coleta vai até 10 dias para trás (nunca além da
-  retenção), **dia a dia**; as seguintes leem só o que é mais novo que a coleta anterior, com 1 hora de sobreposição (a chave do registro é um hash
-  de mensagem, destinatário, hora e tipo, então uma linha lida duas vezes é gravada uma só vez). Uma janela que falha não perde o progresso das
-  anteriores. O turno é reservado no banco antes da coleta (reinício ou segunda instância não a repetem) e um servidor que falha espera 15
-  minutos. A auditoria registra `spfbl_sent_collected` (servidor, quantidade, janelas), sem endereços.
-- **Ao abrir a tela**: o que for mais novo que a última coleta é buscado na hora (no máximo a cada 2 minutos por servidor). Se a coleta do
-  servidor ainda nunca rodou, ela começa em segundo plano e a tela avisa que a primeira coleta está em andamento. Se o WHM falhar, o que já está
-  guardado continua aparecendo, com um aviso (e, para o Super Admin, o servidor e o código do erro).
+- **Coleta**: no mesmo intervalo da coleta do histórico de recebidos (card *Histórico armazenado*: **5, 10, 15 ou 30 minutos**, 1, 2 ou 3 horas;
+  migration `43_spfbl_history_interval_options.sql`) e para **todo servidor WHM com token**, tenha ou não conexão Matrix. A primeira coleta
+  (que começa sozinha logo após a atualização) vai até 10 dias para trás (nunca além da retenção), **dia a dia**; as seguintes pedem **só o que é
+  mais novo que a coleta anterior**, com uma margem de 2 minutos contra diferença de relógio entre os servidores (a chave do registro é um
+  hash de mensagem, destinatário, hora e tipo, então uma linha repetida é gravada uma só vez). Uma janela que volta no limite de registros é
+  **dividida ao meio** e relida, até alguns minutos, para que milhares de recusas na chegada não empurrem os envios para fora da resposta. Uma
+  janela que falha não perde o progresso das anteriores. O turno é reservado no banco antes da coleta (reinício ou segunda instância não a
+  repetem) e um servidor que falha espera 15 minutos. A auditoria registra `spfbl_sent_collected` (servidor, quantidade, janelas), sem endereços.
+- **Ao abrir a tela nada é consultado no WHM**: a tela só lê o banco e mostra a data da última coleta. Se a primeira coleta de um servidor ainda
+  não terminou, a tela avisa. Se a última coleta falhou, o que já está guardado continua aparecendo, com um aviso (e, para o Super Admin, o
+  servidor e o código do erro).
 - **Retenção**: a mesma do histórico de recebidos (30, 60 ou 90 dias). Registros mais antigos são apagados a cada coleta e, ao reduzir a
   retenção, na hora. Os períodos do filtro (24 horas, 3, 7, 30, 60 e 90 dias) são limitados pela retenção.
 - **Escopo**: o mesmo do histórico recebido (a conta só consulta os domínios liberados para ela; o Super Admin, todos). O domínio do
@@ -145,6 +147,14 @@ decisões sobrevivem à exclusão do usuário (`actor_id` fica nulo).
   tentativas, bloqueios por motivo, desbloqueios do período e solicitações pendentes; busca e filtro "só com bloqueios".
 - **Layout e datas.** Tabelas minimalistas, uma linha por registro (texto longo é cortado com a dica completa ao passar o mouse). Datas
   curtas **dd/mm/aa** em todo o sistema (os campos de data nativos seguem o idioma do navegador).
+
+## Quais domínios entram na lista
+
+A importação do WHM traz só **domínios de verdade**: o domínio principal da conta, os domínios adicionais (*addon*) e os apelidos (*parked*).
+**Subdomínios** (`loja.empresa.com.br`) e o subdomínio interno que o cPanel cria para cada domínio adicional
+(`outro.com.br.empresa.com.br`) ficam de fora, e os que uma versão anterior já tinha importado saem do catálogo (e da lista do Domain Manager) na
+próxima sincronização, junto com os acessos concedidos neles. O WHM informa o tipo (`domain_type`); quando não informa, um nome que está sob
+outro domínio da mesma conta é tratado como subdomínio.
 
 ## Token do WHM
 
