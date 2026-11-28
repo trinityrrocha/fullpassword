@@ -138,13 +138,17 @@ async function run() {
   // With domain_type the server says which is which: main, addon and parked are domains; subdomains and the internal subdomain of an addon are not.
   server.accounts = [{ user: 'fed', domain: 'fedrigao.com.br', suspended: 0 }];
   server.domains = [
-    { domain: 'fedrigao.com.br', user: 'fed', domain_type: 'main_domain' }, { domain: 'casarao.com.br', user: 'fed', domain_type: 'addon_domain' },
-    { domain: 'casarao.com.br.fedrigao.com.br', user: 'fed', domain_type: 'sub_domain' }, { domain: 'aiphos.fedrigao.com.br', user: 'fed', domain_type: 'sub_domain' },
-    { domain: 'apelido.com.br', user: 'fed', domain_type: 'parked_domain' }, { domain: 'mail.empresa.com.br', user: 'fed', domain_type: 'addon_domain' }
+    { domain: 'fedrigao.com.br', user: 'fed', domain_type: 'main' }, { domain: 'casarao.com.br', user: 'fed', domain_type: 'addon' },
+    { domain: 'casarao.com.br.fedrigao.com.br', user: 'fed', domain_type: 'sub' }, { domain: 'aiphos.fedrigao.com.br', user: 'fed', domain_type: 'sub' },
+    { domain: 'apelido.com.br', user: 'fed', domain_type: 'parked' }, { domain: 'mail.empresa.com.br', user: 'fed', domain_type: 'addon' }
   ];
   const typed = await client().listDomains();
   assert.deepEqual(typed.domains.map((d) => d.name), ['apelido.com.br', 'casarao.com.br', 'fedrigao.com.br', 'mail.empresa.com.br'], 'main, addon and alias domains; a legitimate addon is kept even when it looks like a subdomain');
   assert.deepEqual(typed.subdomains, ['aiphos.fedrigao.com.br', 'casarao.com.br.fedrigao.com.br'], 'the ones left out are named');
+  server.domains = [{ domain: 'fedrigao.com.br', user: 'fed' }, { domain: 'casarao.com.br', user: 'fed' }, { domain: 'casarao.com.br.fedrigao.com.br', user: 'fed' }, { domain: 'a.b.fedrigao.com.br', user: 'fed' }];
+  // the same names as a real server reports them
+  server.domains = [{ domain: 'aiphos.bethaniabreda.com.br', user: 'fed', domain_type: 'sub' }, { domain: 'bethaniabreda.com.br', user: 'fed', domain_type: 'main' }, { domain: 'aiphos.com.br', user: 'fed', domain_type: 'addon' }];
+  assert.deepEqual((await client().listDomains()).domains.map((d) => d.name), ['aiphos.com.br', 'bethaniabreda.com.br', 'fedrigao.com.br'], 'main, addon and sub as a real WHM reports them');
   server.domains = [{ domain: 'fedrigao.com.br', user: 'fed' }, { domain: 'casarao.com.br', user: 'fed' }, { domain: 'casarao.com.br.fedrigao.com.br', user: 'fed' }, { domain: 'a.b.fedrigao.com.br', user: 'fed' }];
   const untyped = await client().listDomains();
   assert.deepEqual(untyped.domains.map((d) => d.name), ['casarao.com.br', 'fedrigao.com.br'], 'without domain_type, a name under another domain of the account is a subdomain (also nested)');
