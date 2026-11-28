@@ -271,7 +271,8 @@ class WhmClient {
     for (const account of accounts) if (account.domain) remember(account.user, account.domain);
     for (const { domain, user } of domains) remember(user, domain);
     const isSubdomain = ({ domain, user, type }) => {
-      if (type) return type === 'sub_domain' || type === 'subdomain';
+      // The server reports main, addon, parked and sub (seen on a real server); the longer spellings are accepted too.
+      if (type) return ['sub', 'sub_domain', 'subdomain'].includes(type);
       for (const other of namesByUser.get(user) || []) if (other !== domain && domain.endsWith(`.${other}`)) return true;
       return false;
     };

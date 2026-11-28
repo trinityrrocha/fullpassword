@@ -153,7 +153,7 @@ decisões sobrevivem à exclusão do usuário (`actor_id` fica nulo).
 A importação do WHM traz só **domínios de verdade**: o domínio principal da conta, os domínios adicionais (*addon*) e os apelidos (*parked*).
 **Subdomínios** (`loja.empresa.com.br`) e o subdomínio interno que o cPanel cria para cada domínio adicional
 (`outro.com.br.empresa.com.br`) ficam de fora, e os que uma versão anterior já tinha importado saem do catálogo (e da lista do Domain Manager) na
-próxima sincronização, junto com os acessos concedidos neles. O WHM informa o tipo (`domain_type`); quando não informa, um nome que está sob
+próxima sincronização, junto com os acessos concedidos neles. O WHM informa o tipo (`domain_type`: `main`, `addon`, `parked` ou `sub`); quando não informa, um nome que está sob
 outro domínio da mesma conta é tratado como subdomínio.
 
 ## Token do WHM
