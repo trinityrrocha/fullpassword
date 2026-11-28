@@ -316,10 +316,10 @@ try {
   // ================= 3. Super Admin page =================
   state = newState(); state.enabled = true;
   await open('page');
-  await page.getByRole('heading', { level: 1, name: 'SPFBL' }).waitFor();
+  await page.getByRole('heading', { level: 1, name: 'SPFBL Report' }).waitFor();
   assert.equal(await page.getByText('Conexão Matrix SPFBL').count(), 0, 'connection settings are hidden until a gear is used');
-  assert.equal(await page.getByRole('button', { name: 'Configurações do SPFBL', exact: true }).count(), 1, 'one tab, no gear in the header');
-  await page.getByRole('button', { name: 'Configurações do SPFBL', exact: true }).click();
+  assert.equal(await page.getByRole('button', { name: 'Configurações do SPFBL Report', exact: true }).count(), 1, 'one tab, no gear in the header');
+  await page.getByRole('button', { name: 'Configurações do SPFBL Report', exact: true }).click();
   const cards = page.getByRole('list').filter({ has: page.getByRole('button', { name: 'Configurar Servidores' }) }).getByRole('listitem');
   assert.equal(await cards.count(), 3, 'three cards: Servidores, Retenção do histórico, Domínios');
   assert.match(await cards.nth(2).innerText(), /109 ativos de 121/);

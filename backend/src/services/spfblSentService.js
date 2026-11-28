@@ -2,13 +2,13 @@ const { WhmClient } = require('./spfblWhmClient');
 // Loaded on first use: it needs the database settings, which pure tests of this module do not have.
 const defaultStore = new Proxy({}, { get: (_target, name) => require('./spfblSentStore')[name] });
 
-// "Enviados": the mail SENT by the domains of a WHM server (emailtrack_search). The server is read in small time windows (one day at most per
-// call), never the whole retention at once, and every line is stored in PostgreSQL: the screen reads from there, so the WHM limit of
-// records per call no longer caps the period. A scheduled collection (same interval and retention as the received history) keeps it
-// current, and a page load tops it up with what is newer than the last collection. Scope (which domains a person may see) is decided by the
-// controller, before this is called.
-const TOP_UP_MS = 2 * 60 * 1000;
-const OVERLAP_SECONDS = 3600;
+// "Enviados": the mail SENT by the domains of a WHM server (emailtrack_search). Collected by a scheduled job (the interval and retention of the
+// received history), never when a page is opened: the screen only reads what is stored in PostgreSQL. Each run asks the server only for what
+// is newer than the previous run (the one before it is never read again, apart from a couple of minutes of safety margin for the clock
+// difference between the servers, which the database de-duplicates), in windows of one day at most, and a window that comes back full is split in
+// two. Scope (which domains a person may see) is decided by the controller, before this is called.
+const OVERLAP_SECONDS = 120;
+const MIN_SPLIT_SECONDS = 300;
 const WINDOW_SECONDS = 86400;
 const BACKFILL_DAYS = 10;
 // Per kind of call (delivered / problems) and per window: the read stops there and the page says there may be more.
@@ -160,7 +160,23 @@ const createService = ({ credentialsFor, serverIdOf, serverIdsOf, allServers, cr
     return { returned, sources, other_type: otherType, calls: stats, truncated, partial: stats.some((stat) => stat.error), stored };
   };
 
-  // Brings one server up to date: from the last collection (with an overlap) to now, in windows of a day. The first collection goes back
+  // A window that comes back at the limit is read again in two halves (the lines already stored are not duplicated), down to a few minutes: a
+  // server with thousands of refused messages a day cannot push the sent mail out of the answer.
+  const readAdaptive = async (client, serverId, from, until) => {
+    const part = await readWindow(client, serverId, from, until);
+    if (!part.truncated || until - from <= MIN_SPLIT_SECONDS * 2) return part;
+    const middle = Math.floor((from + until) / 2);
+    const left = await readAdaptive(client, serverId, from, middle);
+    const right = await readAdaptive(client, serverId, middle - 1, until);
+    const merge = (a, b) => {
+      const sum = (x, y) => { const out = { ...x }; for (const [k, n] of Object.entries(y)) out[k] = (out[k] || 0) + n; return out; };
+      return { returned: sum(a.returned, b.returned), sources: sum(a.sources, b.sources), other_type: a.other_type + b.other_type, calls: [...a.calls, ...b.calls],
+        truncated: a.truncated || b.truncated, partial: a.partial || b.partial, stored: a.stored + b.stored + part.stored };
+    };
+    return merge(left, right);
+  };
+
+  // Brings one server up to date: from the last collection (with a short overlap) to now, in windows of a day. The first collection goes back
   // up to BACKFILL_DAYS (never beyond the retention). A window that fails stops the run and keeps the progress made so far.
   const collectNow = async (serverId, { backfill = false } = {}) => {
     const nowSec = Math.floor(now() / 1000);
@@ -171,20 +187,18 @@ const createService = ({ credentialsFor, serverIdOf, serverIdsOf, allServers, cr
     if (!backfill && !state.through) from = nowSec - 86400;
     const client = createClient(await credentialsFor(serverId));
     const total = { returned: {}, sources: {}, other_type: 0, calls: [], truncated: false, partial: false, stored: 0, windows: 0 };
-    let through = state.through;
     let failure = null;
     while (from < nowSec) {
       const until = Math.min(nowSec + 60, from + WINDOW_SECONDS);
       try {
-        const part = await readWindow(client, serverId, from, until);
+        const part = await readAdaptive(client, serverId, from, until);
         for (const [type, n] of Object.entries(part.returned)) total.returned[type] = (total.returned[type] || 0) + n;
         for (const [name, n] of Object.entries(part.sources)) total.sources[name] = (total.sources[name] || 0) + n;
         total.other_type += part.other_type; total.calls.push(...part.calls); total.truncated = total.truncated || part.truncated; total.partial = total.partial || part.partial;
         total.stored += part.stored; total.windows += 1;
-        through = Math.min(until, nowSec);
         // The server filters with "after" and "before" (both exclusive): the next window starts one second earlier so a line on the boundary is not lost.
         from = until - 1;
-        await store.markCollected(serverId, through);
+        await store.markCollected(serverId, Math.min(until, nowSec));
       } catch (error) { failure = error; break; }
     }
     await store.prune(retention);
@@ -201,20 +215,16 @@ const createService = ({ credentialsFor, serverIdOf, serverIdsOf, allServers, cr
     return promise;
   };
 
-  // A page load: top up the servers that matter when their data is older than TOP_UP_MS. A server never collected is collected in the
-  // background (it can take a while), and a failure only marks the answer as partial: what is stored is still shown.
-  const refresh = async (serverIds) => {
-    const outcome = { failed: [], collecting: false, last_run_at: null };
-    await Promise.all([...serverIds].map(async (serverId) => {
-      try {
-        const state = await store.getState(serverId);
-        if (state.lastRunAt && (!outcome.last_run_at || state.lastRunAt > outcome.last_run_at)) outcome.last_run_at = state.lastRunAt;
-        if (!state.through) { collect(serverId, { backfill: true }).catch(() => {}); outcome.collecting = true; return; }
-        if (now() - state.through * 1000 < TOP_UP_MS) return;
-        await collect(serverId);
-      } catch (error) { outcome.failed.push({ id: serverId, code: String(error?.code || 'internal_error').slice(0, 60) }); }
-    }));
-    return outcome;
+  // What the page says about the collection, from the database only (nothing is asked of the WHM when a page is opened): when each server was
+  // last collected and whether one has never been collected (its first collection is still to come).
+  const progress = async (serverIds) => {
+    const out = { collecting: false, last_run_at: null };
+    for (const serverId of serverIds) {
+      const state = await store.getState(serverId);
+      if (!state.through) out.collecting = true;
+      if (state.lastRunAt && (!out.last_run_at || state.lastRunAt > out.last_run_at)) out.last_run_at = state.lastRunAt;
+    }
+    return out;
   };
 
   // `domain` is one domain of the scope, or ALL ("todos os domínios"). For all of them: the Super Admin gets everything every WHM server
@@ -234,7 +244,7 @@ const createService = ({ credentialsFor, serverIdOf, serverIdsOf, allServers, cr
       if (!serverId) throw new SentError('Este domínio está sem servidor WHM cadastrado: não há como consultar os e-mails enviados.', 'SPFBL_SENT_NO_SERVER', 409);
       serverIds = [serverId];
     }
-    const refreshed = await refresh(serverIds);
+    const collection = await progress(serverIds);
     const retention = await retentionDays();
     const sinceUnix = Math.floor(now() / 1000) - Math.min(filters.seconds, retention * 86400);
     const wanted = STATUS_FILTERS[filters.status];
@@ -242,15 +252,15 @@ const createService = ({ credentialsFor, serverIdOf, serverIdsOf, allServers, cr
       serverIds, domains: domain === ALL ? (admin ? null : scope) : [domain], sinceUnix, types: wanted, q: filters.q, by: filters.by,
       page: Math.floor(Number(query.page)) || 1, pageSize });
     const reads = serverIds.map((id) => lastRead.get(id)).filter(Boolean);
-    const stale = refreshed.failed.length;
-    // Every server failed to bring its data up to date and nothing is stored yet: say why instead of an empty list.
+    // A server whose last collection failed (kept from the last run in this process): what is stored is still shown, flagged as partial.
+    const failedReads = serverIds.map((id) => ({ id, read: lastRead.get(id) })).filter((item) => item.read?.error);
     return {
       filters: { period: filters.period, status: filters.status, by: filters.by, q: filters.q },
       rows: found.rows.map((row) => publicRow(row, admin && domain === ALL)), filtered_total: found.filtered, period_total: found.period,
       page: found.page, pages: found.pages, page_size: pageSize, retention_days: retention,
-      truncated: reads.some((read) => read.truncated), partial: reads.some((read) => read.partial) || stale > 0, collecting: refreshed.collecting,
-      last_run_at: refreshed.last_run_at, servers_failed: stale,
-      ...(admin ? { servers_failed_names: refreshed.failed.map((failure) => ({ name: names.get(failure.id) || failure.id, code: failure.code })) } : {}),
+      truncated: reads.some((read) => read.truncated), partial: reads.some((read) => read.partial) || failedReads.length > 0, collecting: collection.collecting,
+      last_run_at: collection.last_run_at, servers_failed: failedReads.length,
+      ...(admin ? { servers_failed_names: failedReads.map((item) => ({ name: names.get(item.id) || item.id, code: item.read.error })) } : {}),
       ...(diagnostics ? { diagnostics: {
         returned: reads.reduce((sum, read) => { for (const [k, n] of Object.entries(read.returned)) sum[k] = (sum[k] || 0) + n; return sum; }, {}),
         other_type: reads.reduce((sum, read) => sum + read.other_type, 0),
@@ -260,7 +270,7 @@ const createService = ({ credentialsFor, serverIdOf, serverIdsOf, allServers, cr
     };
   };
 
-  return { search, collect, refresh };
+  return { search, collect };
 };
 
-module.exports = { internals, SentError, classifyResult, normalizeRecord, parseFilters, parsePageSize, createService, publicRow, PERIODS, PAGE_SIZES, MAX_PER_KIND, ALL, TOP_UP_MS, EVENT_LABELS };
+module.exports = { internals, SentError, classifyResult, normalizeRecord, parseFilters, parsePageSize, createService, publicRow, PERIODS, PAGE_SIZES, MAX_PER_KIND, ALL, EVENT_LABELS };

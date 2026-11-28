@@ -193,7 +193,7 @@ class WhmClient {
       const domain = typeof entry?.domain === 'string' ? entry.domain.trim().toLowerCase() : '';
       const user = entry?.user;
       if (!DOMAIN_PATTERN.test(domain) || typeof user !== 'string' || !USER_PATTERN.test(user)) { skipped += 1; continue; }
-      list.push({ domain, user });
+      list.push({ domain, user, type: typeof entry.domain_type === 'string' ? entry.domain_type.trim().toLowerCase() : '' });
     }
     return { domains: list, skipped };
   }
@@ -258,23 +258,40 @@ class WhmClient {
 
   // Active domains = domains of non-suspended accounts. get_domain_info is reported as incomplete on some servers,
   // so every account's main domain (listaccts) is added to it. A domain whose account is unknown is not trusted.
+  // Only real domains are listed: the account's main domain, its addon domains and its aliases (parked). Subdomains (mail.empresa.com.br) and the
+  // internal subdomain cPanel creates for each addon domain (outro.com.br.empresa.com.br) are not domains of their own and are left out;
+  // `subdomains` names them so the catalogue can drop the ones it imported before. The server says which is which (domain_type); when it does
+  // not, a name that sits under another domain of the same account is taken as a subdomain.
   async listDomains() {
     const { accounts, skipped: skippedAccounts } = await this.accounts();
     const { domains, skipped: skippedDomains } = await this.domains();
     const suspendedByUser = new Map(accounts.map((account) => [account.user, account.suspended]));
+    const namesByUser = new Map();
+    const remember = (user, name) => { if (!namesByUser.has(user)) namesByUser.set(user, new Set()); namesByUser.get(user).add(name); };
+    for (const account of accounts) if (account.domain) remember(account.user, account.domain);
+    for (const { domain, user } of domains) remember(user, domain);
+    const isSubdomain = ({ domain, user, type }) => {
+      if (type) return type === 'sub_domain' || type === 'subdomain';
+      for (const other of namesByUser.get(user) || []) if (other !== domain && domain.endsWith(`.${other}`)) return true;
+      return false;
+    };
     const byName = new Map();
+    const subdomains = new Set();
     let unknownAccount = 0;
-    for (const { domain, user } of domains) {
-      if (!suspendedByUser.has(user)) { unknownAccount += 1; continue; }
-      byName.set(domain, { name: domain, cpanel_user: user, suspended: suspendedByUser.get(user) });
+    for (const entry of domains) {
+      if (!suspendedByUser.has(entry.user)) { unknownAccount += 1; continue; }
+      if (isSubdomain(entry)) { subdomains.add(entry.domain); continue; }
+      byName.set(entry.domain, { name: entry.domain, cpanel_user: entry.user, suspended: suspendedByUser.get(entry.user) });
     }
     for (const account of accounts) {
       if (account.domain && !byName.has(account.domain)) byName.set(account.domain, { name: account.domain, cpanel_user: account.user, suspended: account.suspended });
     }
+    for (const name of byName.keys()) subdomains.delete(name);
     const result = [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
     if (result.length > MAX_DOMAINS) throw new WhmError('O servidor tem mais domínios do que o limite suportado.', 'WHM_TOO_MANY', 422, 'WHM_TOO_MANY');
     return {
       domains: result,
+      subdomains: [...subdomains].sort(),
       accounts: accounts.length,
       skipped: skippedAccounts + skippedDomains + unknownAccount
     };

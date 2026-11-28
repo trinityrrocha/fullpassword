@@ -73,7 +73,7 @@ try {
       if (query.status === 'failed') rows = rows.filter((r) => r.type === 'failure');
       if (query.q) rows = rows.filter((r) => r.sender.includes(query.q) || r.recipient.includes(query.q));
       return json({ domain: query.domain || state.scope[0], domains_scope: state.scope, servers_failed: state.failedServers.length, partial: state.partial, ...(state.failedServers.length ? { servers_failed_names: state.failedServers } : {}), filters: { period: query.period || '24h', status: query.status || 'all', by: query.by || 'any', q: query.q || '' },
-        rows: rows.slice((pageNo - 1) * size, pageNo * size), filtered_total: rows.length, period_total: state.rows.length, retention_days: state.retention, collecting: state.collecting, page: pageNo, pages: Math.max(1, Math.ceil(rows.length / size)), page_size: size, truncated: state.truncated, fetched_at: '2026-11-27T12:10:00Z', cached: false, ...(state.diagnostics ? { diagnostics: state.diagnostics } : {}) });
+        rows: rows.slice((pageNo - 1) * size, pageNo * size), filtered_total: rows.length, period_total: state.rows.length, retention_days: state.retention, collecting: state.collecting, page: pageNo, pages: Math.max(1, Math.ceil(rows.length / size)), page_size: size, truncated: state.truncated, last_run_at: '2026-11-27T12:10:00Z', cached: false, ...(state.diagnostics ? { diagnostics: state.diagnostics } : {}) });
     }
     return json({ error: `unexpected ${api}` }, 404);
   });
@@ -153,7 +153,7 @@ try {
   assert.match(await page.locator('[data-sent-calls]').innerText(), /Consultas ao WHM: entregues: 353 registros em 1 parte, 820 ms · adiados e falhas: 0 registros em 0 partes, 20\.000 ms \(erro WHM_TIMEOUT\)\./);
   assert.match(await page.locator('[data-sent-sources]').innerText(), /Domínios na última consulta: b\.test \(9\), a\.test \(5\)\./, 'the busiest domains come first');
   state.partial = true; await page.getByRole('button', { name: 'Atualizar' }).click();
-  assert.match(await page.locator('[data-sent-partial]').innerText(), /Uma das consultas ao WHM falhou/);
+  assert.match(await page.locator('[data-sent-partial]').innerText(), /A última coleta no WHM falhou/);
   state.partial = false;
   state.diagnostics = null; await page.getByRole('button', { name: 'Atualizar' }).click(); await diagnostics.waitFor({ state: 'detached' });
 
@@ -165,6 +165,7 @@ try {
   assert.match(await failedNote.innerText(), /1 servidor WHM não respondeu: os e-mails dele não aparecem nesta lista\. Servidor: Servidor B \(WHM_TIMEOUT\)\./);
   state.failedServers = []; await page.getByRole('button', { name: 'Atualizar' }).click(); await failedNote.waitFor({ state: 'detached' });
 
+  assert.match(await page.locator('[data-sent-last-run]').innerText(), /ao abrir esta aba nada é consultado no WHM\. Última coleta: \d{2}\/\d{2}\/\d{2}/, 'the page says it does not query the WHM and when it last collected');
   // The periods offered follow the retention of the stored history; a first collection in progress is announced.
   assert.deepEqual(await page.getByLabel('Período').locator('option').allInnerTexts(), ['Últimas 24 horas', 'Últimos 3 dias', 'Últimos 7 dias', 'Últimos 30 dias']);
   state.retention = 90; state.collecting = true; await page.getByRole('button', { name: 'Atualizar' }).click();
@@ -174,7 +175,7 @@ try {
 
   // The truncation notice, an error from the server and an empty scope are each said plainly.
   state.truncated = true; await page.getByRole('button', { name: 'Atualizar' }).click();
-  await page.getByText(/O servidor devolveu o limite de registros em uma das coletas/).waitFor();
+  await page.getByText(/O servidor devolveu o limite de registros em uma das coletas, mesmo/).waitFor();
   state.truncated = false;
   state.fail = { status: 409, body: { code: 'SPFBL_SENT_NO_SERVER', error: 'Este domínio está sem servidor WHM cadastrado: não há como consultar os e-mails enviados.' } };
   await page.getByRole('button', { name: 'Consultar' }).click();

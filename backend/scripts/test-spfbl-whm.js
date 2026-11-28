@@ -130,10 +130,24 @@ async function run() {
   const listing = await client().listDomains();
   assert.deepEqual(listing.domains, [
     { name: 'alice.com.br', cpanel_user: 'alice', suspended: false }, { name: 'bob.net', cpanel_user: 'bob', suspended: true },
-    { name: 'carol.io', cpanel_user: 'carol', suspended: false }, { name: 'shop.alice.com.br', cpanel_user: 'alice', suspended: false }
-  ], 'carol.io comes from listaccts alone; ghost.org (unknown account) is not trusted');
+    { name: 'carol.io', cpanel_user: 'carol', suspended: false }
+  ], 'carol.io comes from listaccts alone; ghost.org (unknown account) is not trusted; shop.alice.com.br is a subdomain of the same account, not a domain');
+  assert.deepEqual(listing.subdomains, ['shop.alice.com.br']);
   assert.equal(listing.accounts, 3);
   assert.equal(listing.skipped, 2 + 3 + 1, 'invalid accounts, invalid domains and one unknown-owner domain');
+  // With domain_type the server says which is which: main, addon and parked are domains; subdomains and the internal subdomain of an addon are not.
+  server.accounts = [{ user: 'fed', domain: 'fedrigao.com.br', suspended: 0 }];
+  server.domains = [
+    { domain: 'fedrigao.com.br', user: 'fed', domain_type: 'main_domain' }, { domain: 'casarao.com.br', user: 'fed', domain_type: 'addon_domain' },
+    { domain: 'casarao.com.br.fedrigao.com.br', user: 'fed', domain_type: 'sub_domain' }, { domain: 'aiphos.fedrigao.com.br', user: 'fed', domain_type: 'sub_domain' },
+    { domain: 'apelido.com.br', user: 'fed', domain_type: 'parked_domain' }, { domain: 'mail.empresa.com.br', user: 'fed', domain_type: 'addon_domain' }
+  ];
+  const typed = await client().listDomains();
+  assert.deepEqual(typed.domains.map((d) => d.name), ['apelido.com.br', 'casarao.com.br', 'fedrigao.com.br', 'mail.empresa.com.br'], 'main, addon and alias domains; a legitimate addon is kept even when it looks like a subdomain');
+  assert.deepEqual(typed.subdomains, ['aiphos.fedrigao.com.br', 'casarao.com.br.fedrigao.com.br'], 'the ones left out are named');
+  server.domains = [{ domain: 'fedrigao.com.br', user: 'fed' }, { domain: 'casarao.com.br', user: 'fed' }, { domain: 'casarao.com.br.fedrigao.com.br', user: 'fed' }, { domain: 'a.b.fedrigao.com.br', user: 'fed' }];
+  const untyped = await client().listDomains();
+  assert.deepEqual(untyped.domains.map((d) => d.name), ['casarao.com.br', 'fedrigao.com.br'], 'without domain_type, a name under another domain of the account is a subdomain (also nested)');
   const big = client();
   big.accounts = async () => ({ accounts: [{ user: 'x', domain: null, suspended: false }], skipped: 0 });
   big.domains = async () => ({ domains: Array.from({ length: MAX_DOMAINS + 1 }, (_, i) => ({ domain: `d${i}.example.com`, user: 'x' })), skipped: 0 });
@@ -168,17 +182,18 @@ async function run() {
   const syncOf = async (serverId) => (await pg.query('SELECT sync_status, sync_at FROM spfbl_whm_servers WHERE id = $1', [serverId])).rows[0];
 
   server.accounts = [{ user: 'alice', domain: 'alice.com.br', suspended: 0 }, { user: 'bob', domain: 'bob.net', suspended: 0 }];
-  server.domains = [{ domain: 'alice.com.br', user: 'alice' }, { domain: 'shop.alice.com.br', user: 'alice' }, { domain: 'bob.net', user: 'bob' }, { domain: 'manual.example.com', user: 'alice' }];
+  server.domains = [{ domain: 'alice.com.br', user: 'alice' }, { domain: 'shop.alice.com.br', user: 'alice' }, { domain: 'loja-alice.net', user: 'alice' }, { domain: 'bob.net', user: 'bob' }, { domain: 'manual.example.com', user: 'alice' }];
   const dry = await domains.testWhm(A);
-  assert.deepEqual(dry, { accounts: 2, domains: 4, active: 4, suspended: 0, skipped: 0 });
+  assert.deepEqual(dry, { accounts: 2, domains: 4, active: 4, suspended: 0, skipped: 0, subdomains: 1 }, 'the subdomain is not counted as a domain');
   assert.equal((await pg.query("SELECT count(*)::int AS n FROM spfbl_domains WHERE source = 'whm'")).rows[0].n, 0, 'the test writes nothing');
 
+  await pg.query("INSERT INTO spfbl_domains (name, source, server_id, active) VALUES ('shop.alice.com.br', 'whm', $1, TRUE)", [A]); // imported by an earlier version
   let sync = await domains.syncFromWhm(adminId, A);
-  assert.deepEqual(sync, { accounts: 2, domains: 4, active: 4, suspended: 0, skipped: 0, added: 3, updated: 1, deactivated: 0 });
+  assert.deepEqual(sync, { accounts: 2, domains: 4, active: 4, suspended: 0, skipped: 0, subdomains: 1, added: 3, updated: 1, deactivated: 0, subdomains_removed: 1 });
   let rows = Object.fromEntries((await domains.listDomains()).map((d) => [d.name, d]));
   assert.equal(rows['manual.example.com'].source, 'manual', 'a hand-typed domain keeps its source');
   assert.equal(rows['manual.example.com'].cpanel_user, 'alice');
-  assert.equal(rows['shop.alice.com.br'].source, 'whm'); assert.equal(rows['shop.alice.com.br'].active, true);
+  assert.equal(rows['shop.alice.com.br'], undefined, 'a subdomain imported earlier leaves the catalogue');
   const status = await syncOf(A);
   assert.equal(status.sync_status, 'ok'); assert.ok(status.sync_at);
   assert.equal(leaks(status), false);
@@ -189,12 +204,12 @@ async function run() {
   sync = await domains.syncFromWhm(adminId, A);
   assert.equal(sync.added, 0); assert.equal(sync.updated, 4); assert.equal(sync.deactivated, 0);
   server.accounts[1].suspended = 1;
-  server.domains = server.domains.filter((d) => d.domain !== 'shop.alice.com.br');
+  server.domains = server.domains.filter((d) => d.domain !== 'loja-alice.net');
   sync = await domains.syncFromWhm(adminId, A);
   assert.deepEqual([sync.added, sync.updated, sync.deactivated, sync.suspended, sync.active], [0, 3, 1, 1, 2]);
   rows = Object.fromEntries((await domains.listDomains()).map((d) => [d.name, d]));
   assert.deepEqual([rows['bob.net'].suspended, rows['bob.net'].active], [true, false]);
-  assert.equal(rows['shop.alice.com.br'].active, false, 'gone from the server => inactive, kept for history');
+  assert.equal(rows['loja-alice.net'].active, false, 'gone from the server => inactive, kept for history');
   assert.equal(rows['alice.com.br'].active, true);
 
   // Failures change nothing and are recorded with a fixed code.

@@ -61,7 +61,8 @@ const summarize = (listing) => ({
   domains: listing.domains.length,
   active: listing.domains.filter((domain) => !domain.suspended).length,
   suspended: listing.domains.filter((domain) => domain.suspended).length,
-  skipped: listing.skipped
+  skipped: listing.skipped,
+  ...((listing.subdomains || []).length ? { subdomains: listing.subdomains.length } : {})
 });
 
 // Connection test: reads from WHM and writes nothing.
@@ -116,6 +117,10 @@ const syncFromWhm = async (actorId, serverId) => {
       added = upsert.rows.filter((row) => row.inserted).length;
       updated = upsert.rows.length - added;
     }
+    // Subdomains imported by an earlier version are not domains: they leave the catalogue (and the access granted on them) for good.
+    const subdomains = listing.subdomains || [];
+    const removedSubdomains = subdomains.length === 0 ? 0 : (await client.query(
+      "DELETE FROM spfbl_domains WHERE source = 'whm' AND server_id = $1 AND name = ANY($2::text[])", [serverId, subdomains])).rowCount;
     const deactivated = (await client.query(
       `UPDATE spfbl_domains SET active = FALSE, updated_at = CURRENT_TIMESTAMP
         WHERE source = 'whm' AND server_id = $2 AND active AND (last_seen_at IS NULL OR last_seen_at < $1)`,
@@ -123,7 +128,7 @@ const syncFromWhm = async (actorId, serverId) => {
     )).rowCount;
     await client.query("UPDATE spfbl_whm_servers SET sync_at = CURRENT_TIMESTAMP, sync_status = 'ok' WHERE id = $1", [serverId]);
     await client.query('COMMIT');
-    return { ...summarize(listing), added, updated, deactivated };
+    return { ...summarize(listing), added, updated, deactivated, ...(removedSubdomains ? { subdomains_removed: removedSubdomains } : {}) };
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {});
     await recordSyncStatus(serverId, `failed:${String(error?.code || 'internal_error').slice(0, 40)}`);

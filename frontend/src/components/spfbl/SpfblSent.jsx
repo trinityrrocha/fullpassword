@@ -90,7 +90,7 @@ export default function SpfblSent() {
           <button type="submit" className="min-h-9 flex-1 rounded-md bg-blue-800 px-4 text-sm font-semibold text-white hover:bg-blue-900">Consultar</button>
           <button type="button" onClick={clear} className="min-h-9 flex-1 rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-blue-800 hover:bg-slate-50">Limpar</button>
         </div>
-        <p className="col-span-full text-xs text-slate-500">Os e-mails enviados são coletados do servidor WHM e guardados aqui pelo período de retenção; ao consultar, o que for mais novo que a última coleta é buscado na hora. Horário de Brasília.</p>
+        <p className="col-span-full text-xs text-slate-500" data-sent-last-run>Os e-mails enviados são coletados do servidor WHM de tempos em tempos (conforme a configuração do histórico) e guardados aqui pelo período de retenção; ao abrir esta aba nada é consultado no WHM.{data.last_run_at ? ` Última coleta: ${formatIsoDateTime(data.last_run_at)}.` : ''} Horário de Brasília.</p>
       </form>
 
       {error && <p role="alert" className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>}
@@ -100,11 +100,11 @@ export default function SpfblSent() {
           {data.servers_failed_names?.length > 0 && <> Servidor{data.servers_failed_names.length === 1 ? '' : 'es'}: {data.servers_failed_names.map((server) => `${server.name} (${server.code})`).join(', ')}.</>}
         </p>
       )}
-      {data.collecting && <p role="status" className="rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-900" data-sent-collecting>A primeira coleta deste servidor está em andamento (pode levar alguns minutos): a lista vai se completando. Clique em Atualizar mais tarde.</p>}
-      {data.truncated && <p role="status" className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">O servidor devolveu o limite de registros em uma das coletas: pode haver mais e-mails em algum dia. Se a coleta for mais frequente, isso deixa de acontecer.</p>}
+      {data.collecting && <p role="status" className="rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-900" data-sent-collecting>A primeira coleta deste servidor ainda não terminou (acontece sozinha, em segundo plano, e pode levar alguns minutos): a lista vai se completando. Clique em Atualizar mais tarde.</p>}
+      {data.truncated && <p role="status" className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">O servidor devolveu o limite de registros em uma das coletas, mesmo em períodos curtos: pode haver mais e-mails em algum momento. Uma coleta mais frequente reduz isso.</p>}
       {data.partial && (
         <p role="status" className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900" data-sent-partial>
-          Uma das consultas ao WHM falhou: os e-mails mais recentes (as entregas ou os adiamentos e falhas) podem estar faltando. O que já foi coletado continua aparecendo. Tente atualizar.
+          A última coleta no WHM falhou ou ficou incompleta: os e-mails mais recentes (as entregas ou os adiamentos e falhas) podem estar faltando. O que já foi coletado continua aparecendo; a próxima coleta tenta de novo.
         </p>
       )}
       {data.diagnostics && (

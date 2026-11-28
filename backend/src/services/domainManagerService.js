@@ -164,8 +164,13 @@ const createService = ({ whmSync = (actorId) => require('./spfblDomainsService')
   };
 
   // SPFBL's domains are listed automatically (names only); removing one from the SPFBL catalogue does not delete its lookup history.
-  const syncFromSpfbl = async () => (await queryable.query(
-    `INSERT INTO dm_domains (name, source) SELECT name, 'spfbl' FROM spfbl_domains WHERE active ON CONFLICT (name) DO NOTHING RETURNING id`)).rowCount;
+  const syncFromSpfbl = async () => {
+    const added = (await queryable.query(
+      `INSERT INTO dm_domains (name, source) SELECT name, 'spfbl' FROM spfbl_domains WHERE active ON CONFLICT (name) DO NOTHING RETURNING id`)).rowCount;
+    // A domain that came from the SPFBL catalogue and is no longer in it (a subdomain the catalogue dropped) leaves this list too.
+    await queryable.query("DELETE FROM dm_domains WHERE source = 'spfbl' AND NOT EXISTS (SELECT 1 FROM spfbl_domains s WHERE s.name = dm_domains.name)");
+    return added;
+  };
 
   // Imports the domains of every registered WHM server into the SPFBL catalogue, then into this list. Needs the SPFBL module (that is where
   // the servers are registered). A server that fails never stops the others, and the result says what happened per server.
